@@ -26,7 +26,7 @@ from PIL import Image
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.postprocess import NemotronParsePostprocessStage
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.utils import build_interleaved_rows, image_to_bytes
 from nemo_curator.stages.interleaved.stages import BaseInterleavedFilterStage
-from nemo_curator.tasks import InterleavedBatch
+from nemo_curator.tasks import FileGroupTask, InterleavedBatch
 
 
 def test_landscape_picture_crops_original_content_not_center_padding():
@@ -125,3 +125,37 @@ def test_error_row_roundtrip_uses_writer_warn_policy(tmp_path: Path):
     assert (metadata["position"], metadata["materialize_error"]) == (-1, None)
     assert (failed["position"], failed["modality"], failed["page_number"]) == (0, "text", 5)
     assert failed["materialize_error"] == error
+
+
+def test_outputs_with_and_without_errors_read_back_together(tmp_path: Path):
+    from nemo_curator.stages.interleaved.io import InterleavedParquetWriterStage
+    from nemo_curator.stages.interleaved.io.readers.parquet import InterleavedParquetReaderStage
+
+    error = json.dumps({"stage": "fullpage", "type": "GenerationError", "message": "cut off"})
+    document = json.dumps({"blocks": [{"class": "Text", "bbox": [0.1, 0.1, 0.9, 0.9], "content": "Hello"}]})
+    pages = {
+        "parsed": {"page_number": 0, "binary_content": image_to_bytes(Image.new("RGB", (220, 170))), "error": None},
+        "failed": {"page_number": 0, "binary_content": None, "error": error},
+        "unopened": {"page_number": None, "binary_content": None, "error": error},
+    }
+    writer = InterleavedParquetWriterStage(path=str(tmp_path), materialize_on_write=False, on_materialize_error="warn")
+    files = []
+    for sample_id, page in pages.items():
+        row = {
+            "sample_id": sample_id,
+            "pdf_name": f"{sample_id}.pdf",
+            "url": "source",
+            "page_number": page["page_number"],
+            "binary_content": page["binary_content"],
+            "parse_document": None if page["error"] else document,
+            "materialize_error": page["error"],
+        }
+        batch = InterleavedBatch(
+            dataset_name="test", data=pa.Table.from_pylist([row]), _metadata={"parse_mode": "single"}
+        )
+        files.extend(writer.process(NemotronParsePostprocessStage().process(batch)).data)
+    read = InterleavedParquetReaderStage().process(FileGroupTask(dataset_name="test", data=files))
+    rows = pa.concat_tables([batch.to_pyarrow() for batch in (read if isinstance(read, list) else [read])]).to_pylist()
+    errors = {row["sample_id"]: row["materialize_error"] for row in rows if row["materialize_error"]}
+    assert errors == {"failed": error, "unopened": error}
+    assert any(row["sample_id"] == "parsed" and row["text_content"] == "Hello" for row in rows)

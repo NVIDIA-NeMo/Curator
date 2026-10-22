@@ -130,9 +130,14 @@ class NemotronParsePostprocessStage(ProcessingStage[InterleavedBatch, Interleave
             rows.extend({**row, "position": position} for position, row in enumerate(content))
         if not rows:
             return None
+        table = pa.Table.from_pylist(rows)
+        # These columns can be all-null in one task. The writer stores populated strings as large_string
+        # but all-null ones as string, and the reader cannot merge files that differ.
+        for name in ("source_ref", "materialize_error"):
+            table = table.set_column(table.schema.get_field_index(name), name, table[name].cast(pa.large_string()))
         return InterleavedBatch(
             dataset_name=task.dataset_name,
-            data=pa.Table.from_pylist(rows),
+            data=table,
             _metadata=task._metadata,
             _stage_perf=task._stage_perf,
         )
