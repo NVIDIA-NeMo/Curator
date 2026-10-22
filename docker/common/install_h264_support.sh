@@ -13,22 +13,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Opt-in installer that adds software h264/hevc/av1 decoder support to a
-# Curator container by building FFmpeg from source with those decoders added
-# to the strict allowlist.
+# Legacy opt-in installer that builds FFmpeg with software h264/hevc/av1
+# decoder support and an optional libopenh264 encoder.
 #
-# The release Curator image may omit system ffmpeg entirely. When installed
-# with install_ffmpeg.sh, Curator's strict FFmpeg build routes h264/hevc/av1
-# decode through NVDEC only. That breaks ffprobe-based metadata extraction in
-# CPU-only Ray actors (VideoReader, ClipWriter), which is why this opt-in
-# exists.
+# This helper originally supplemented an NVDEC-only FFmpeg build so CPU-only
+# actors could probe videos. install_ffmpeg.sh now includes these software
+# decoders and libopenh264, plus FLAC, WAV/PCM, and resampling support. Prefer
+# that idempotent installer for current audio/video workflows. This legacy
+# helper rebuilds unconditionally and omits those audio capabilities; running
+# it afterward replaces the current build with a narrower one.
 #
 # Run inside a running container, e.g.:
 #   docker exec <container> bash /opt/Curator/docker/common/install_h264_support.sh
 #
 # Behaviour:
-#   - Builds FFmpeg from the upstream release tarball, same version as install_ffmpeg.sh,
-#     with the existing allowlist plus --enable-decoder=h264,hevc,av1.
+#   - Builds FFmpeg from the upstream release tarball with a video-only
+#     codec allowlist, including software h264/hevc/av1 decoders.
 #   - Optionally also enables the libopenh264 software h264 ENCODER (Cisco's
 #     free-license OpenH264 binary; opt-in via --with-libopenh264).
 #   - Replaces /usr/local/bin/{ffmpeg,ffprobe} in place.
@@ -121,9 +121,8 @@ wget -O /tmp/ffmpeg-snapshot.tar.bz2 \
 tar xjvf /tmp/ffmpeg-snapshot.tar.bz2 -C /tmp/
 cd "/tmp/ffmpeg-${FFMPEG_VERSION}"
 
-# Configure mirrors install_ffmpeg.sh exactly, with the decoder allowlist
-# extended to include software h264/hevc/av1, and optionally the libopenh264
-# software h264 encoder.
+# This legacy video-only configuration differs from install_ffmpeg.sh,
+# which also enables audio capabilities and always includes libopenh264.
 encoder_list="rawvideo,libvpx_vp9,h264_nvenc,hevc_nvenc,av1_nvenc"
 extra_configure_flags=()
 if [ "$WITH_LIBOPENH264" -eq 1 ]; then
