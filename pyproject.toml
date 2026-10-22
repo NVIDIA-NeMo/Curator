@@ -208,7 +208,6 @@ text_cpu = [
     "beautifulsoup4",
     "justext",
     "lxml",
-    "markdown-it-py>=4,<5",
     "pycld2",
     "resiliparse",
     "s5cmd",
@@ -279,6 +278,7 @@ math_cuda12 = [
 
 # Multimodal / Interleaved Dependencies
 interleaved_cpu = [
+    "markdown-it-py>=4,<5",
     "matplotlib",
     "open_clip_torch",
     "Pillow",

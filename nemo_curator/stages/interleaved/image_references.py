@@ -343,13 +343,14 @@ _DIAGNOSTICS_TYPE = pa.struct(
 
 @dataclass
 class ImageReferenceExtractor(ProcessingStage[DocumentBatch, DocumentBatch]):
-    """Attach image mentions to Markdown/HTML documents without dropping rows.
+    """Prepare image references from Markdown/HTML for interleaved ingestion.
 
     Adds ``image_references`` (list of structs) and
     ``image_reference_diagnostics`` (struct), compatible with ParquetWriter.
     All input columns are retained, including caller-supplied source file/row
     IDs. The stage does not infer physical Parquet offsets or deduplicate URLs.
-    Use separate adapters for structured JSON/interleaved input.
+    Input and output remain DocumentBatch; this stage does not construct
+    InterleavedBatch rows. Use separate adapters for structured JSON input.
 
     Example::
 
@@ -357,7 +358,7 @@ class ImageReferenceExtractor(ProcessingStage[DocumentBatch, DocumentBatch]):
         pipeline.add_stage(ImageReferenceExtractor(text_field="text", url_field="url"))
         pipeline.add_stage(ParquetWriter(path=output_path))
 
-    Requires the ``text_cpu`` extra. Relative URLs use the page URL; HTML base
+    Requires the ``interleaved_cpu`` extra. Relative URLs use the page URL; HTML base
     elements are not interpreted. Empty/null text yields an empty reference
     list. Diagnostics flag recognized but uncovered syntax, not exhaustive recall.
     """

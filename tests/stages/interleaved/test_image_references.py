@@ -19,11 +19,11 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
+from nemo_curator.stages.interleaved import ImageReferenceExtractor
+from nemo_curator.stages.interleaved.image_references import _resolve_url as resolve_url
+from nemo_curator.stages.interleaved.image_references import extract_image_references as scan
 from nemo_curator.stages.text.io.reader.parquet import ParquetReaderStage
 from nemo_curator.stages.text.io.writer.parquet import ParquetWriter
-from nemo_curator.stages.text.modules.image_references import ImageReferenceExtractor
-from nemo_curator.stages.text.modules.image_references import _resolve_url as resolve_url
-from nemo_curator.stages.text.modules.image_references import extract_image_references as scan
 from nemo_curator.tasks import DocumentBatch, FileGroupTask
 
 
