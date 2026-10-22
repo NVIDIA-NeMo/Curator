@@ -155,12 +155,14 @@ images = [Image.open(io.BytesIO(b)) for b in df[df["modality"] == "image"]["bina
 ## Served Nemotron Parse 3.5
 
 Set `--parse-mode` to read pages with Nemotron Parse 3.5 through an inference server
-that you start and stop. Install the model team's package without its inference
-dependencies:
+that you start and stop. Install the model team's package from the model repository,
+without the weights or its inference dependencies, at the revision that your server runs:
 
 ```bash
 uv pip install "nemo-curator[interleaved_cpu,text_cpu,cv2]"
-uv pip install --no-deps /path/to/nemotron_parse.whl
+hf download nvidia/Nemotron-3.5-Parse --revision 62cb1e4ba153d113ff64aaf2be6e068c377cf53c \
+    --exclude "*.safetensors" --local-dir nemotron-parse
+uv pip install --no-deps ./nemotron-parse
 ```
 
 ```bash

@@ -390,16 +390,18 @@ If startup retries are exhausted, first check the worker log for the original fa
 
 ## Served Nemotron Parse 3.5
 
-Set `parse_mode` to read pages with Nemotron Parse 3.5 through an inference server that you start and stop. Curator-managed serving is not yet qualified for this model: its serving stack uses CUDA-suffixed vLLM builds that the model plugin's exact version check rejects.
+Set `parse_mode` to read pages with Nemotron Parse 3.5 through an inference server that you start and stop. Curator-managed serving is not yet qualified for this model: its vLLM plugin requires newer vLLM and Transformers releases than Curator's serving stack pins.
 
-Install the model team's Python package without resolving its inference dependencies:
+Install the model team's Python package from the model repository, without the weights or its inference dependencies:
 
 ```bash
 uv pip install "nemo-curator[interleaved_cpu,text_cpu,cv2]"
-uv pip install --no-deps /path/to/nemotron_parse.whl
+hf download nvidia/Nemotron-3.5-Parse --revision 62cb1e4ba153d113ff64aaf2be6e068c377cf53c \
+    --exclude "*.safetensors" --local-dir nemotron-parse
+uv pip install --no-deps ./nemotron-parse
 ```
 
-The `text_cpu` extra supplies `beautifulsoup4`, which the parser uses for table conversion. The package is imported only when `parse_mode` is set.
+Use the revision that your server runs. The `text_cpu` extra supplies `beautifulsoup4`, which the parser uses for table conversion. The package is imported only when `parse_mode` is set.
 
 ```bash
 python tutorials/interleaved/nemotron_parse_pdf/main.py \
