@@ -684,17 +684,6 @@ python benchmarking/tools/container.py start --setup-benchmark-env yes ...
 python benchmarking/tools/container.py start --setup-benchmark-env no ...
 ```
 
-After changing the FFmpeg installer, run its audio integration check explicitly
-in a prepared Curator environment, from the source checkout:
-
-```bash
-python tests/docker/common/test_install_ffmpeg.py
-```
-
-This verifies real FLAC decoding and conversion to 16-bit and floating-point WAV
-through FFmpeg and TorchCodec. Normal pytest collection runs only the lightweight
-installer checks; nightly benchmarks validate the full workloads.
-
 ### Shell and checks
 
 Open an interactive shell:
