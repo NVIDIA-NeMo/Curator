@@ -24,10 +24,13 @@ import pytest
 INSTALLER = Path(__file__).resolve().parents[3] / "docker/common/install_ffmpeg.sh"
 
 
-@pytest.mark.parametrize("missing", ["decoders", "demuxers", None])
+@pytest.mark.parametrize(
+    ("codec", "missing"),
+    [("flac", "decoders"), ("flac", "demuxers"), ("pcm_f32le", "encoders"), ("pcm_f32le", "decoders"), (None, None)],
+)
 @pytest.mark.parametrize("check_only", [False, True])
-def test_flac_capabilities_are_required_without_unnecessary_installation(
-    tmp_path: Path, missing: str | None, check_only: bool
+def test_audio_capabilities_are_required_without_unnecessary_installation(
+    tmp_path: Path, codec: str | None, missing: str | None, check_only: bool
 ) -> None:
     ffmpeg = tmp_path / "ffmpeg"
     ffmpeg.write_text(
@@ -39,7 +42,8 @@ def test_flac_capabilities_are_required_without_unnecessary_installation(
         "  -demuxers) echo wav ;;\n"
         "  -filters) echo aresample ;;\n"
         "esac | tr ' ' '\\n' | sed 's/^/ . /'\n"
-        'if [[ "$2" =~ ^-(decoders|demuxers)$ && "$2" != "-${MISSING}" ]]; then echo " . flac"; fi\n'
+        'if [[ "$2" =~ ^-(decoders|demuxers)$ && ! ( "$CODEC" == flac && "$2" == "-${MISSING}" ) ]]; then echo " . flac"; fi\n'
+        'if [[ "$2" =~ ^-(encoders|decoders)$ && ! ( "$CODEC" == pcm_f32le && "$2" == "-${MISSING}" ) ]]; then echo " . pcm_f32le"; fi\n'
     )
     ffmpeg.chmod(0o755)
     for name, body in {
@@ -53,7 +57,7 @@ def test_flac_capabilities_are_required_without_unnecessary_installation(
 
     result = subprocess.run(  # noqa: S603
         ["/bin/bash", str(INSTALLER), *(["--check"] if check_only else [])],
-        env={**os.environ, "PATH": f"{tmp_path}:{os.environ['PATH']}", "MISSING": missing or ""},
+        env={**os.environ, "PATH": f"{tmp_path}:{os.environ['PATH']}", "MISSING": missing or "", "CODEC": codec or ""},
         capture_output=True,
         text=True,
         check=False,
@@ -61,11 +65,12 @@ def test_flac_capabilities_are_required_without_unnecessary_installation(
 
     assert (result.returncode == 0) is (missing is None)
     if missing:
-        assert f"ffmpeg {missing[:-1]} not found: flac" in result.stderr
+        assert f"ffmpeg {missing[:-1]} not found: {codec}" in result.stderr
     assert ("repair requested" in result.stderr) is (missing is not None and not check_only)
 
 
-def test_torchcodec_decodes_flac_and_resampled_pcm(tmp_path: Path) -> None:
+@pytest.mark.parametrize(("codec", "subtype"), [("pcm_s16le", "PCM_16"), ("pcm_f32le", "FLOAT")])
+def test_torchcodec_decodes_flac_and_resampled_pcm(tmp_path: Path, codec: str, subtype: str) -> None:
     # These optional audio dependencies are needed only for the real decoder test.
     np = pytest.importorskip("numpy")
     sf = pytest.importorskip("soundfile")
@@ -84,9 +89,10 @@ def test_torchcodec_decodes_flac_and_resampled_pcm(tmp_path: Path) -> None:
 
     wav = tmp_path / "resampled.wav"
     subprocess.run(  # noqa: S603
-        [ffmpeg, "-v", "error", "-i", str(flac), "-ar", "8000", "-c:a", "pcm_s16le", str(wav)],
+        [ffmpeg, "-v", "error", "-i", str(flac), "-ar", "8000", "-c:a", codec, str(wav)],
         check=True,
     )
     resampled = decoders.AudioDecoder(str(wav)).get_all_samples()
     assert resampled.sample_rate == 8000
     assert resampled.data.shape == (1, 800)
+    assert sf.info(wav).subtype == subtype

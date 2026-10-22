@@ -80,13 +80,13 @@ check_ffmpeg() {
     demuxers=$(ffmpeg -hide_banner -demuxers 2>/dev/null | awk '{print $2}')
     filters=$(ffmpeg -hide_banner -filters 2>/dev/null | awk '{print $2}')
 
-    for encoder in rawvideo libvpx-vp9 h264_nvenc hevc_nvenc av1_nvenc libopenh264 pcm_s16le; do
+    for encoder in rawvideo libvpx-vp9 h264_nvenc hevc_nvenc av1_nvenc libopenh264 pcm_s16le pcm_f32le; do
         if ! printf '%s\n' "$encoders" | grep -Fx -- "$encoder" >/dev/null; then
             echo "ERROR: ffmpeg encoder not found: $encoder" >&2
             status=1
         fi
     done
-    for decoder in rawvideo libvpx-vp9 vp9 vp8 h264_cuvid hevc_cuvid av1_cuvid mpeg1video mpeg2video mpeg4 h264 hevc av1 pcm_s16le flac; do
+    for decoder in rawvideo libvpx-vp9 vp9 vp8 h264_cuvid hevc_cuvid av1_cuvid mpeg1video mpeg2video mpeg4 h264 hevc av1 pcm_s16le pcm_f32le flac; do
         if ! printf '%s\n' "$decoders" | grep -Fx -- "$decoder" >/dev/null; then
             echo "ERROR: ffmpeg decoder not found: $decoder" >&2
             status=1
@@ -133,7 +133,7 @@ fi
 echo "==> install_ffmpeg.sh: building ffmpeg ${FFMPEG_VERSION}"
 echo "    Decoders: h264/hevc/av1 software + NVDEC variants"
 echo "    Encoders: NVENC variants + libvpx-vp9 + libopenh264"
-echo "    Audio: FLAC decoding + WAV demux/mux + pcm_s16le + resampling"
+echo "    Audio: FLAC decoding + WAV demux/mux + pcm_s16le/pcm_f32le + resampling"
 echo "    NOTE: OpenH264 license obligations are the user's responsibility."
 
 export DEBIAN_FRONTEND=noninteractive
@@ -186,8 +186,8 @@ PKG_CONFIG_PATH="/usr/local/lib/pkgconfig" ./configure \
     --disable-vdpau \
     --disable-dxva2 \
     --disable-libdrm \
-    --enable-encoder=rawvideo,libvpx_vp9,h264_nvenc,hevc_nvenc,av1_nvenc,libopenh264,pcm_s16le \
-    --enable-decoder=rawvideo,libvpx_vp9,vp9,vp8,h264_cuvid,hevc_cuvid,av1_cuvid,mpeg1video,mpeg2video,mpeg4,h264,hevc,av1,pcm_s16le,flac \
+    --enable-encoder=rawvideo,libvpx_vp9,h264_nvenc,hevc_nvenc,av1_nvenc,libopenh264,pcm_s16le,pcm_f32le \
+    --enable-decoder=rawvideo,libvpx_vp9,vp9,vp8,h264_cuvid,hevc_cuvid,av1_cuvid,mpeg1video,mpeg2video,mpeg4,h264,hevc,av1,pcm_s16le,pcm_f32le,flac \
     --enable-muxer=mp4,rawvideo,image2pipe,wav \
     --enable-demuxer=mov,mp4,m4a,3gp,3g2,mj2,avi,matroska,webm,image2,image2pipe,wav,flac \
     --enable-parser=h264,hevc,av1,vp8,vp9,flac \
