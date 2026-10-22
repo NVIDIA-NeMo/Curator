@@ -61,9 +61,9 @@ uv run python tutorials/interleaved/nemotron_parse_pdf/main.py \
 
 `main.py` detects the Ray-visible GPUs, starts one Dynamo model replica per GPU,
 waits for the OpenAI-compatible endpoint to become healthy, runs the pipeline,
-and stops Dynamo. No separately managed server process is required. It fixes
-the HTTP stage pool at `4 * num_gpus` workers. Use `CUDA_VISIBLE_DEVICES` or
-your Ray cluster resources to control which GPUs are used.
+and stops Dynamo. No separately managed server process is required. The HTTP
+stage defaults to `4 * num_gpus` workers; override it with `--client-num-workers`.
+Use `CUDA_VISIBLE_DEVICES` or your Ray cluster resources to control which GPUs are used.
 
 Without `--inference-server-endpoint`, `main.py` starts Dynamo with vLLM.
 The externally served Parse 3.5 path is described below; `main.py` does not expose
@@ -115,8 +115,8 @@ Each row in the output parquet is one **document element** in reading order:
 | `sample_id` | string | PDF filename without extension |
 | `position` | int | Element index within document |
 | `modality` | string | `text`, `image`, `table`, or `metadata` |
-| `content_type` | string | `text/markdown`, `image/png`, or `application/json` |
-| `text_content` | string | Extracted text (markdown for text/tables) |
+| `content_type` | string | `text/markdown`, `text/html`, `image/png`, or `application/json` |
+| `text_content` | string | Extracted text (Markdown; served tables use HTML) |
 | `binary_content` | bytes | PNG bytes for image elements |
 | `page_number` | int | Source page (0-indexed) |
 | `url` | string | Source URL from manifest |

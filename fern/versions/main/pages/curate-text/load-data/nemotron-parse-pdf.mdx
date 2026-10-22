@@ -433,7 +433,7 @@ A standalone benchmark script ships at `benchmarking/scripts/nemotron_parse_pdf_
 
 ## Best Practices
 
-- **Use Dynamo serving for production**: keep one model replica per GPU and four HTTP workers per GPU. Start at 32 concurrent requests per worker, then benchmark any change on the target GPU and corpus. Retain in-process vLLM and HF for small validation runs or debugging.
+- **Use Dynamo serving for the default Parse v1.2 path**: keep one model replica per GPU and four HTTP workers per GPU. Start at 32 concurrent requests per worker, then benchmark any change on the target GPU and corpus. Retain in-process vLLM and HF for small validation runs or debugging.
 - **Cap `max_pages` for outliers**: very long PDFs (1000+ pages) can dominate runtime. The default 50 pages handles most academic papers and articles; raise to 200+ for book-length sources.
 - **Tune `pdfs_per_task` for parallelism**: smaller values (5–10) parallelize better across many GPUs; larger values (20–50) reduce per-task overhead on smaller clusters.
 - **Set `enforce_eager=True` in restricted environments**: vLLM's torch.compile path can fail on certain hosts. Disabling compilation trades throughput for compatibility.
