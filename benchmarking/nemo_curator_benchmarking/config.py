@@ -237,7 +237,7 @@ def build_benchmark_config_plan(config: dict[str, Any], *, enabled_only: bool = 
             EntryPlan(
                 name=entry["name"],
                 config=copy.deepcopy(entry),
-                timeout_s=entry.get("timeout_s", default_timeout_s),
+                timeout_s=default_timeout_s if entry.get("timeout_s") is None else entry["timeout_s"],
                 ray={**global_ray, **entry.get("ray", {})},
             )
         )

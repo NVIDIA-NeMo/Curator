@@ -220,6 +220,7 @@ def start_container(args: argparse.Namespace) -> int:
     container_memory, shm_size = _default_memory_args()
     if args.container_memory is not None:
         container_memory = args.container_memory
+        shm_size = int(container_memory * SHM_MEMORY_FRACTION)
     if args.shm_size is not None:
         shm_size = args.shm_size
 

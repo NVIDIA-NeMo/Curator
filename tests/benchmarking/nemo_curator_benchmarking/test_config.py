@@ -33,3 +33,15 @@ from nemo_curator_benchmarking.config import SlurmTimeoutPlan, build_benchmark_c
 def test_plan_entry_slurm_timeout(entry_timeout: int, overrides: dict, expected: SlurmTimeoutPlan) -> None:
     plan = build_benchmark_config_plan({"entries": [{"name": "benchmark", "timeout_s": entry_timeout}], **overrides})
     assert plan_entry_slurm_timeout(plan.entries[0], plan) == expected
+
+
+@pytest.mark.parametrize("entry_config", [{}, {"timeout_s": None}])
+def test_missing_or_null_entry_timeout_uses_session_default(entry_config: dict) -> None:
+    plan = build_benchmark_config_plan({"default_timeout_s": 3600, "entries": [{"name": "benchmark", **entry_config}]})
+    assert plan.entries[0].timeout_s == 3600
+    assert plan_entry_slurm_timeout(plan.entries[0], plan) == SlurmTimeoutPlan(3600, 4260, 13740, False)
+
+
+def test_zero_entry_timeout_is_not_replaced_by_default() -> None:
+    plan = build_benchmark_config_plan({"entries": [{"name": "benchmark", "timeout_s": 0}]})
+    assert plan.entries[0].timeout_s == 0

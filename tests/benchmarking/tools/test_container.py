@@ -20,12 +20,37 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "benchmarking/tools"))
 
 import container as container_tool
+
+
+@pytest.mark.parametrize(
+    ("options", "expected_memory", "expected_shm"),
+    [
+        ([], 1024, 512),
+        (["--container-memory", "256"], 256, 128),
+        (["--shm-size", "64"], 1024, 64),
+        (["--container-memory", "256", "--shm-size", "64"], 256, 64),
+    ],
+)
+def test_start_memory_options(
+    monkeypatch: pytest.MonkeyPatch, options: list[str], expected_memory: int, expected_shm: int
+) -> None:
+    run = Mock()
+    monkeypatch.setattr(container_tool, "get_total_memory_bytes", lambda: 1024)
+    monkeypatch.setattr(container_tool, "_run", run)
+    monkeypatch.setattr(container_tool, "_docker_env_args", lambda _image: [])
+    monkeypatch.setattr(container_tool, "_run_tool_script", Mock())
+
+    assert container_tool.main(["start", "--setup-benchmark-env", "no", *options]) == 0
+    command = run.call_args.args[0]
+    assert command[command.index("--memory") + 1] == str(expected_memory)
+    assert command[command.index("--shm-size") + 1] == str(expected_shm)
 
 
 @pytest.mark.parametrize("setup", ["yes", "no"])
