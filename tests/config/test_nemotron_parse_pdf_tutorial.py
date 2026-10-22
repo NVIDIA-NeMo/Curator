@@ -15,7 +15,9 @@
 """Exercise external endpoint tutorial wiring without starting serving or Ray."""
 
 import importlib.util
+import re
 import sys
+import tomllib
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -103,3 +105,21 @@ def test_tutorial_requires_endpoint_for_selected_mode(monkeypatch: pytest.Monkey
     )
     with pytest.raises(SystemExit, match="2"):
         main.main()
+
+
+@pytest.mark.parametrize(
+    ("path", "section_marker"),
+    [
+        ("tutorials/interleaved/nemotron_parse_pdf/README.md", "## Served Nemotron Parse 3.5"),
+        ("fern/versions/main/pages/curate-text/load-data/nemotron-parse-pdf.mdx", "## Served Nemotron Parse 3.5"),
+        ("nemo_curator/stages/interleaved/pdf/nemotron_parse/inference.py", "_PARSE_INSTALL_HINT = ("),
+    ],
+)
+def test_served_install_declares_pdf_renderer(path: str, section_marker: str):
+    root = Path(__file__).parents[2]
+    section = (root / path).read_text().split(section_marker, 1)[1]
+    command = re.search(r"nemo-curator\[([^]]+)\]", section)
+    assert command is not None
+    optional = tomllib.loads((root / "pyproject.toml").read_text())["project"]["optional-dependencies"]
+    dependencies = [requirement for extra in command[1].split(",") for requirement in optional[extra]]
+    assert any(re.match(r"^pypdfium2(?:$|[<>=!~;])", requirement) for requirement in dependencies)

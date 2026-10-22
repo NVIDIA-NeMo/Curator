@@ -60,7 +60,7 @@ _OPENAI_GENERATION_CONFIG_FIELDS = {"max_tokens", "seed", "temperature", "top_p"
 _PARSE_TRANSPORT: ContextVar[tuple[AsyncOpenAIClient, asyncio.AbstractEventLoop]] = ContextVar("parse_transport")
 _PARSE_INSTALL_HINT = (
     "Served Parse 3.5 requires the model team's nemotron-parse package. "
-    "Install nemo-curator[text_cpu,cv2] for client dependencies, then install nemotron-parse --no-deps."
+    "Install nemo-curator[interleaved_cpu,text_cpu,cv2] for client dependencies, then install nemotron-parse --no-deps."
 )
 
 

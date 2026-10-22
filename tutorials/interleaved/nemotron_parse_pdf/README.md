@@ -158,7 +158,7 @@ that you start and stop. Install the model team's package without its inference
 dependencies:
 
 ```bash
-uv pip install "nemo-curator[text_cpu,cv2]"
+uv pip install "nemo-curator[interleaved_cpu,text_cpu,cv2]"
 uv pip install --no-deps /path/to/nemotron_parse.whl
 ```
 

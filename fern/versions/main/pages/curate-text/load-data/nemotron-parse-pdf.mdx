@@ -391,7 +391,7 @@ Set `parse_mode` to read pages with Nemotron Parse 3.5 through an inference serv
 Install the model team's Python package without resolving its inference dependencies:
 
 ```bash
-uv pip install "nemo-curator[text_cpu,cv2]"
+uv pip install "nemo-curator[interleaved_cpu,text_cpu,cv2]"
 uv pip install --no-deps /path/to/nemotron_parse.whl
 ```
 
