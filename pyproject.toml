@@ -208,6 +208,7 @@ text_cpu = [
     "beautifulsoup4",
     "justext",
     "lxml",
+    "markdown-it-py>=4,<5",
     "pycld2",
     "resiliparse",
     "s5cmd",
