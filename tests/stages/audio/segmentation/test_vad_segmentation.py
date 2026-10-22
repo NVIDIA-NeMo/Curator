@@ -14,9 +14,10 @@
 
 from __future__ import annotations
 
+import json
 import pickle
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pytest
@@ -25,11 +26,17 @@ import torch
 from nemo_curator.backends.ray_data.adapter import RayDataStageAdapter
 from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.models.audio.vad.base import VADResult, VADSegment
+from nemo_curator.stages.audio import agent
 from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
+from nemo_curator.stages.audio.common import ManifestWriterStage
 from nemo_curator.stages.audio.inference.base import AdapterInferenceStage
+from nemo_curator.stages.audio.inference.sed.stage import SEDInferenceStage
 from nemo_curator.stages.audio.segmentation.vad_segmentation import VADSegmentationStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 @dataclass
@@ -297,6 +304,37 @@ def test_fanout_preserves_speaker_separation_count_for_interval_segments() -> No
     child = stage.process_batch([task])[0]
 
     assert child.data["num_speakers"] == 2
+
+
+@pytest.mark.parametrize("nested", [False, True])
+@pytest.mark.parametrize(
+    "invalid_interval",
+    [
+        {"start": 0.6, "end": 0.4, "speaker": "invalid"},
+        {"start": 0.5, "end": 0.5, "speaker": "invalid"},
+        {"start": 0.0, "end": 1.0, "speaker": None},
+        {"start": 0.0, "end": "bad", "speaker": "invalid"},
+        {"start": float("nan"), "end": 1.0, "speaker": "invalid"},
+        {"start": 0.0, "end": float("inf"), "speaker": "invalid"},
+        {"start": 0.0, "end": 10**1000, "speaker": "invalid"},
+        {"start": 0.0, "speaker": "invalid"},
+    ],
+)
+def test_invalid_diarization_metadata_does_not_drop_speech_or_inflate_count(
+    nested: bool, invalid_interval: dict[str, Any]
+) -> None:
+    stage, _ = _stage(nested=nested)
+    task = _task()
+    task.data["diar_segments"] = [
+        {"start": 0.0, "end": 1.0, "speaker": "valid"},
+        invalid_interval,
+    ]
+
+    result = stage.process_batch([task])[0]
+
+    child = result.data["segments"][0] if nested else result.data
+    assert child["num_speakers"] == 1
+    assert child["waveform"].shape == (1, 8000)
 
 
 def test_custom_duration_key_is_used_without_leaking_parent_duration() -> None:
@@ -704,3 +742,368 @@ def test_nested_segment_task_keys_are_configurable() -> None:
 def test_cross_role_task_key_collisions_are_rejected(kwargs: dict[str, object]) -> None:
     with pytest.raises(ValueError, match=r"only same-role|must be distinct"):
         VADSegmentationStage(**kwargs)
+
+
+@pytest.mark.parametrize("residency", ["auto", "file", "waveform"])
+@pytest.mark.parametrize("nested", [False, True])
+@pytest.mark.parametrize("keep_waveform", [False, True])
+def test_residency_and_segment_audio_match_agent_contract(
+    residency: str, nested: bool, keep_waveform: bool, tmp_path: Path
+) -> None:
+    import soundfile as sf
+
+    path = tmp_path / "source.wav"
+    sf.write(path, np.full((44100, 2), 0.25, dtype=np.float32), 44100, subtype="FLOAT")
+    stage, adapter = _stage(
+        input_residency=residency,
+        nested=nested,
+        keep_segment_waveform_in_task=keep_waveform,
+    )
+
+    def fixture() -> AudioTask:
+        return AudioTask(
+            dataset_name="dataset",
+            data={
+                "waveform": torch.full((2, 8000), 0.75),
+                "sample_rate": 8000,
+                "audio_filepath": str(path),
+                "original_file": "archive/source.flac",
+                "label": "kept",
+            },
+        )
+
+    contract = assert_agent_ready(
+        stage,
+        fixture,
+        expected_cardinality="1:1 nested-list" if nested else "1:N fan-out",
+        available_keys=set(fixture().data),
+    )
+    result = stage.process_batch([fixture()])[0]
+    child = result.data["segments"][0] if nested else result.data
+    expected_rate, expected_value = (44100, 0.25) if residency == "file" else (8000, 0.75)
+    assert adapter.items[0]["sample_rate"] == expected_rate
+    np.testing.assert_allclose(adapter.items[0]["waveform"], expected_value)
+    assert child["sample_rate"] == expected_rate
+    assert child["original_file"] == "archive/source.flac"
+    assert child["audio_filepath"] == str(path)
+    assert child["label"] == "kept"
+    assert (child["start_ms"], child["end_ms"], child["duration"]) == (250, 750, 0.5)
+    if keep_waveform:
+        torch.testing.assert_close(child["waveform"], torch.full((2, expected_rate // 2), expected_value))
+    else:
+        assert "waveform" not in child
+        assert contract.writes.produces == []
+        json.dumps(result.data, allow_nan=False)
+
+
+@pytest.mark.parametrize("sample_rate", [0, -1, True, 16000.5, "invalid", None])
+@pytest.mark.parametrize("residency", ["auto", "waveform"])
+def test_invalid_resident_rate_does_not_fall_back_to_file(
+    sample_rate: object, residency: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stage, adapter = _stage(input_residency=residency)
+
+    def unexpected_read(_path: str) -> None:
+        pytest.fail("Invalid resident audio must not be replaced by file audio")
+
+    monkeypatch.setattr(stage, "_load_audio", unexpected_read)
+    task = _task()
+    task.data["sample_rate"] = sample_rate
+
+    assert stage.process_batch([task]) == []
+    assert adapter.items == []
+
+
+def test_waveform_mode_does_not_read_file_only_input(monkeypatch: pytest.MonkeyPatch) -> None:
+    stage, adapter = _stage(input_residency="waveform")
+
+    def unexpected_read(_path: str) -> None:
+        pytest.fail("Waveform mode must not load files")
+
+    monkeypatch.setattr(stage, "_load_audio", unexpected_read)
+
+    assert stage.process_batch([AudioTask(data={"audio_filepath": "/source.wav"})]) == []
+    assert adapter.items == []
+
+
+@pytest.mark.parametrize("nested", [False, True])
+def test_metadata_only_output_removes_stale_audio_aliases(nested: bool) -> None:
+    stage, _ = _stage(
+        nested=nested,
+        waveform_key="samples",
+        sample_rate_key="rate",
+        output_waveform_key="pcm",
+        keep_segment_waveform_in_task=False,
+    )
+    task = AudioTask(
+        data={
+            "samples": torch.ones(1, 16000),
+            "rate": 16000,
+            "waveform": torch.zeros(1, 16000),
+            "sample_rate": 48000,
+        }
+    )
+
+    result = stage.process_batch([task])[0]
+    child = result.data["segments"][0] if nested else result.data
+
+    assert not ({"samples", "waveform", "pcm"} & child.keys())
+    assert child["sample_rate"] == 16000
+    json.dumps(result.data, allow_nan=False)
+
+
+@pytest.mark.parametrize("keep_waveform", [False, True])
+@pytest.mark.parametrize("failed", [False, True])
+def test_nested_empty_or_failed_result_cleans_parent_audio(keep_waveform: bool, failed: bool) -> None:
+    stage, _ = _stage(
+        nested=True,
+        waveform_key="samples",
+        keep_segment_waveform_in_task=keep_waveform,
+        results=[VADResult([], error="failed" if failed else None)],
+    )
+    task = AudioTask(data={"samples": torch.ones(1, 16000), "waveform": torch.zeros(1, 10), "sample_rate": 16000})
+
+    result = stage.process_batch([task])[0]
+
+    assert result is task
+    assert result.data["segments"] == []
+    assert not ({"samples", "waveform"} & result.data.keys())
+    assert result.data["read_error" if failed else "vad_empty"] is True
+
+
+def test_nested_container_cannot_alias_canonical_waveform_cleanup() -> None:
+    with pytest.raises(ValueError, match="waveform cleanup"):
+        VADSegmentationStage(nested=True, segments_key="waveform", waveform_key="samples", output_waveform_key="clip")
+
+
+@pytest.mark.parametrize("source", [None, ""])
+def test_fanout_preserves_falsey_provenance(source: object) -> None:
+    stage, _ = _stage(original_file_key="source", audio_filepath_key="path")
+    task = _task()
+    task.data["source"] = source
+
+    child = stage.process_batch([task])[0]
+
+    assert child.data["source"] is source
+    assert {"path", "audio_filepath"} <= set(stage.describe().invalidates_keys)
+
+
+@pytest.mark.parametrize("nested", [False, True])
+def test_metadata_only_remapped_waveform_does_not_leak_into_provenance(nested: bool, tmp_path: Path) -> None:
+    stage, _ = _stage(
+        nested=nested,
+        input_residency="waveform",
+        waveform_key="audio_filepath",
+        audio_filepath_key="source_path",
+        keep_segment_waveform_in_task=False,
+    )
+    parent = AudioTask(data={"audio_filepath": torch.zeros(1, 16000), "sample_rate": 16000})
+    writer = ManifestWriterStage(output_path=str(tmp_path / "manifest.jsonl"))
+    report = agent.validate_pipeline(
+        [stage, writer],
+        initial_keys=set(parent.data),
+        initial_roles={"waveform", "sample_rate"},
+        initial_tensor_keys={"audio_filepath"},
+    )
+
+    result = stage.process_batch([parent])[0]
+    writer.setup()
+    writer.process(result)
+
+    assert report.ok, report.issues
+    row = json.loads((tmp_path / "manifest.jsonl").read_text())
+    child = row["segments"][0] if nested else row
+    assert child["original_file"] == "unknown"
+    assert "audio_filepath" not in row
+
+
+@pytest.mark.parametrize("metadata_field", ["read_error_key", "vad_empty_key", "duration_key"])
+def test_nested_cleanup_preserves_remapped_audit_metadata(metadata_field: str) -> None:
+    stage, _ = _stage(
+        nested=True,
+        waveform_key="samples",
+        output_waveform_key="pcm",
+        keep_segment_waveform_in_task=False,
+        results=[VADResult([])],
+        **{metadata_field: "waveform"},
+    )
+    parent = AudioTask(data={"samples": torch.zeros(1, 16000), "sample_rate": 16000})
+    if metadata_field == "read_error_key":
+        parent.data["waveform"] = True
+
+    result = stage.process_batch([parent])[0]
+
+    assert result.data["waveform"] == (1.0 if metadata_field == "duration_key" else True)
+    assert result.data["segments"] == []
+    assert "samples" not in result.data
+    assert "waveform" not in stage.describe().removes_keys
+    json.dumps(result.data)
+
+
+@pytest.mark.parametrize("nested", [False, True])
+@pytest.mark.parametrize("metadata_key", ["waveform", "sample_rate"])
+@pytest.mark.parametrize("metadata_field", ["num_speakers_key", "audio_filepath_key"])
+def test_child_cleanup_preserves_remapped_parent_metadata(
+    nested: bool, metadata_key: str, metadata_field: str
+) -> None:
+    stage, _ = _stage(
+        nested=nested,
+        input_residency="waveform",
+        waveform_key="samples",
+        sample_rate_key="rate",
+        output_waveform_key="pcm",
+        output_sample_rate_key="hz",
+        keep_segment_waveform_in_task=False,
+        **{metadata_field: metadata_key},
+    )
+    value = 3 if metadata_field == "num_speakers_key" else "/parent.wav"
+    parent = AudioTask(data={"samples": torch.zeros(1, 16000), "rate": 16000, metadata_key: value})
+
+    result = stage.process_batch([parent])[0]
+
+    child = result.data["segments"][0] if nested else result.data
+    assert child[metadata_key] == value
+    assert metadata_key not in stage.describe().removes_keys
+    json.dumps(result.data)
+
+
+@pytest.mark.parametrize("nested", [False, True])
+def test_legacy_path_fallback_remains_available(nested: bool) -> None:
+    stage, _ = _stage(nested=nested, input_residency="waveform", audio_filepath_key="source_path")
+    parent = _task()
+
+    result = stage.process_batch([parent])[0]
+
+    child = result.data["segments"][0] if nested else result.data
+    assert child["original_file"] == "/recording.wav"
+
+
+@pytest.mark.parametrize(
+    ("keep_waveform", "consumer_residency", "expected_ok"),
+    [(True, "waveform", True), (True, "file", False), (False, "waveform", False), (False, "file", False)],
+)
+def test_fanout_planner_matches_runtime_audio_carriers(
+    keep_waveform: bool, consumer_residency: str, expected_ok: bool
+) -> None:
+    stages = [
+        VADSegmentationStage(input_residency="waveform", keep_segment_waveform_in_task=keep_waveform),
+        VADSegmentationStage(input_residency=consumer_residency),
+    ]
+
+    report = agent.validate_pipeline(
+        stages,
+        initial_keys={"waveform", "sample_rate"},
+        initial_roles={"waveform", "sample_rate"},
+    )
+
+    assert report.ok is expected_ok, report.issues
+
+
+@pytest.mark.parametrize("sample_rate", [8000, 16000, 44100, 48000])
+@pytest.mark.parametrize("nested", [False, True])
+def test_bundled_silero_silence_smoke(sample_rate: int, nested: bool) -> None:
+    stage = VADSegmentationStage(nested=nested, keep_segment_waveform_in_task=False)
+    task = AudioTask(data={"waveform": torch.zeros(1, sample_rate), "sample_rate": sample_rate})
+
+    stage.setup()
+    try:
+        result = stage.process_batch([task])
+    finally:
+        stage.teardown()
+
+    if nested:
+        assert result == [task]
+        assert result[0].data["segments"] == []
+        assert result[0].data["vad_empty"] is True
+        assert "waveform" not in result[0].data
+    else:
+        assert result == []
+
+
+@pytest.mark.parametrize("nested", [False, True])
+@pytest.mark.parametrize("failed", [False, True])
+@pytest.mark.parametrize("prior_reason", ["", "upstream_rejection"])
+def test_audit_skip_reason_survives_remapped_waveform_cleanup(nested: bool, failed: bool, prior_reason: str) -> None:
+    stage, _ = _stage(
+        nested=nested,
+        emit_audit_placeholders=True,
+        waveform_key="samples",
+        output_waveform_key="pcm",
+        skip_me_key="reason",
+        results=[VADResult([], error="failed" if failed else None)],
+    )
+    task = AudioTask(
+        data={
+            "samples": torch.zeros(1, 16000),
+            "waveform": torch.zeros(1, 10),
+            "sample_rate": 16000,
+            "reason": prior_reason,
+        }
+    )
+
+    contract = assert_agent_ready(
+        stage,
+        lambda: AudioTask(data=dict(task.data)),
+        expected_cardinality="1:1 nested-list" if nested else "1:N fan-out",
+        available_keys=set(task.data),
+    )
+    result = stage.process_batch([task])
+
+    assert result == [task]
+    assert task.data["reason"] == (prior_reason or ("read_error" if failed else "vad_empty"))
+    assert not {"samples", "waveform", "pcm"} & task.data.keys()
+    assert any("reason" in write.writes.data_keys for write in contract.conditional_writes)
+    if nested:
+        assert task.data["segments"] == []
+    downstream = SEDInferenceStage(
+        adapter_target="nemo_curator.models.audio.sed.tensorrt.TensorRTPANNsSEDAdapter",
+        skip_me_key="reason",
+        save_npz=False,
+    )
+    assert downstream.process_batch(result) == result
+    json.dumps(task.data)
+
+
+@pytest.mark.parametrize("nested", [False, True])
+@pytest.mark.parametrize("keep_waveform", [False, True])
+def test_skip_signaling_preserves_successful_segment_output_and_contract(nested: bool, keep_waveform: bool) -> None:
+    stage, _ = _stage(nested=nested, keep_segment_waveform_in_task=keep_waveform, skip_me_key="_skipme")
+    baseline, _ = _stage(nested=nested, keep_segment_waveform_in_task=keep_waveform)
+
+    result = stage.process_batch([_task()])[0]
+    expected = baseline.process_batch([_task()])[0]
+    child = result.data["segments"][0] if nested else result.data
+    expected_child = expected.data["segments"][0] if nested else expected.data
+
+    assert "_skipme" not in result.data
+    assert "_skipme" not in child
+    assert child.keys() == expected_child.keys()
+    if keep_waveform:
+        torch.testing.assert_close(child.pop("waveform"), expected_child.pop("waveform"))
+    assert child == expected_child
+    contract = stage.describe()
+    assert contract.writes.produces == (["tensor"] if keep_waveform else [])
+    assert (
+        "waveform" in (contract.writes.segment_data_keys if nested else contract.writes.data_keys)
+    ) == keep_waveform
+
+
+@pytest.mark.parametrize("nested", [False, True])
+@pytest.mark.parametrize("failed", [False, True])
+def test_skip_reason_can_use_a_remapped_legacy_waveform_key(nested: bool, failed: bool) -> None:
+    stage, _ = _stage(
+        nested=nested,
+        emit_audit_placeholders=True,
+        waveform_key="samples",
+        output_waveform_key="pcm",
+        skip_me_key="waveform",
+        results=[VADResult([], error="failed" if failed else None)],
+    )
+    task = AudioTask(data={"samples": torch.zeros(1, 16000), "sample_rate": 16000})
+
+    result = stage.process_batch([task])
+
+    assert result == [task]
+    assert task.data["waveform"] == ("read_error" if failed else "vad_empty")
+    assert "samples" not in task.data
+    assert "waveform" not in stage.describe().removes_keys
