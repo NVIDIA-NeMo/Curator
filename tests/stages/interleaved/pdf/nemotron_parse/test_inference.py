@@ -165,6 +165,38 @@ def test_real_parser_uses_bounded_existing_transport(monkeypatch: pytest.MonkeyP
         stage.teardown()
 
 
+def test_full_parser_pool_does_not_starve_client_threads(monkeypatch: pytest.MonkeyPatch):
+    pytest.importorskip("nemotron_parse.inference")
+
+    class Client:
+        def __init__(self, **_kwargs):
+            self.client = self
+
+        async def query_model_response(self, **_kwargs) -> SimpleNamespace:
+            # The OpenAI SDK runs part of each request on the loop's default executor.
+            await asyncio.to_thread(lambda: None)
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content=TABLE), finish_reason="stop")],
+                usage=SimpleNamespace(prompt_tokens=2, completion_tokens=3),
+            )
+
+        async def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(inference, "AsyncOpenAIClient", Client)
+    stage = inference.NemotronParseHTTPClientStage(
+        endpoint="http://unused/v1", model_name="served", parse_mode="single", inference_batch_size=32
+    )
+    stage.setup()
+    try:
+        pages = task(("red",) * 32).to_pyarrow().to_pylist()
+        rows = asyncio.run(asyncio.wait_for(stage._parse_pages(pages), timeout=30))
+    finally:
+        stage.teardown()
+    assert len(rows) == 32
+    assert not any(row["materialize_error"] for row in rows)
+
+
 def test_prior_render_failure_is_not_sent_to_model():
     package = pytest.importorskip("nemotron_parse.inference")
     rows = task().to_pyarrow().to_pylist()

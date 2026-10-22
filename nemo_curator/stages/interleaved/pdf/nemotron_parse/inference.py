@@ -24,7 +24,7 @@ import io
 import json
 import time
 from concurrent.futures import ThreadPoolExecutor
-from contextvars import ContextVar
+from contextvars import ContextVar, copy_context
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
@@ -523,7 +523,8 @@ class NemotronParseHTTPClientStage(ProcessingStage[InterleavedBatch, Interleaved
             timeout=self.request_timeout_s,
         )
         loop = asyncio.get_running_loop()
-        loop.set_default_executor(ThreadPoolExecutor(max_workers=self.inference_batch_size))
+        # Not the default executor: the OpenAI client needs that pool while parser threads wait on requests.
+        parser_pool = ThreadPoolExecutor(max_workers=self.inference_batch_size)
         token = _PARSE_TRANSPORT.set((client, loop))
         semaphore = asyncio.Semaphore(self.inference_batch_size)
 
@@ -532,10 +533,9 @@ class NemotronParseHTTPClientStage(ProcessingStage[InterleavedBatch, Interleaved
                 return {**row, "parse_document": None}
             async with semaphore:
                 try:
-                    with Image.open(io.BytesIO(row["binary_content"])) as image:
-                        document = await asyncio.to_thread(
-                            self._parser.parse, image, mode=self.parse_mode, triple_regions=self.triple_regions
-                        )
+                    document = await loop.run_in_executor(
+                        parser_pool, copy_context().run, self._parse_image, row["binary_content"]
+                    )
                     return {
                         **row,
                         "text_content": document["raw_out"],
@@ -561,10 +561,16 @@ class NemotronParseHTTPClientStage(ProcessingStage[InterleavedBatch, Interleaved
         try:
             return list(await asyncio.gather(*(parse_page(row) for row in pages)))
         finally:
+            # Do not wait: after a cancellation, parser threads may still be waiting on this loop.
+            parser_pool.shutdown(wait=False, cancel_futures=True)
             _PARSE_TRANSPORT.reset(token)
             if hasattr(client, "client"):
                 with contextlib.suppress(Exception):
                     await client.client.close()
+
+    def _parse_image(self, image_bytes: bytes) -> dict[str, Any]:
+        with Image.open(io.BytesIO(image_bytes)) as image:
+            return self._parser.parse(image, mode=self.parse_mode, triple_regions=self.triple_regions)
 
     def _process_parse(self, task: InterleavedBatch) -> InterleavedBatch:
         if getattr(self, "_parser", None) is None:
