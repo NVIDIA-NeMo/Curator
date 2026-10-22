@@ -17,7 +17,9 @@
 import asyncio
 import io
 import json
-from dataclasses import asdict
+import urllib.error
+from collections.abc import Callable
+from dataclasses import asdict, dataclass
 from types import SimpleNamespace
 
 import pyarrow as pa
@@ -29,6 +31,30 @@ from nemo_curator.stages.interleaved.pdf.nemotron_parse.postprocess import Nemot
 from nemo_curator.tasks import InterleavedBatch
 
 TABLE = r"<x_0.1><y_0.1>\begin{tabular}{cc}A & B\\1 & 2\end{tabular}<x_0.9><y_0.9><class_Table>"
+PARSED_TABLE = {"raw_out": TABLE, "blocks": [{"class": "Table", "bbox": [0.1, 0.1, 0.9, 0.9], "content": "<table/>"}]}
+
+
+@pytest.fixture(autouse=True)
+def served_models(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        inference.urllib.request, "urlopen", lambda *_a, **_k: io.BytesIO(b'{"data": [{"id": "served"}]}')
+    )
+
+
+@dataclass(frozen=True)
+class Settings:
+    temperature: float = 0.0
+    top_k: int = 1
+
+
+class StubParser:
+    """Replaces the optional package where a test checks only Curator's transport and rows."""
+
+    def __init__(self, parse: Callable[..., dict]) -> None:
+        self.parse = parse
+
+    def close(self) -> None:
+        pass
 
 
 def task(colors: tuple[str, ...] = ("red",)):
@@ -166,8 +192,6 @@ def test_real_parser_uses_bounded_existing_transport(monkeypatch: pytest.MonkeyP
 
 
 def test_full_parser_pool_does_not_starve_client_threads(monkeypatch: pytest.MonkeyPatch):
-    pytest.importorskip("nemotron_parse.inference")
-
     class Client:
         def __init__(self, **_kwargs):
             self.client = self
@@ -187,7 +211,12 @@ def test_full_parser_pool_does_not_starve_client_threads(monkeypatch: pytest.Mon
     stage = inference.NemotronParseHTTPClientStage(
         endpoint="http://unused/v1", model_name="served", parse_mode="single", inference_batch_size=32
     )
-    stage.setup()
+    stage._parser = StubParser(
+        lambda image, **_: {
+            **PARSED_TABLE,
+            **stage._parse_backend(image, prompt="p", stage="fullpage", settings=Settings()),
+        }
+    )
     try:
         pages = task(("red",) * 32).to_pyarrow().to_pylist()
         rows = asyncio.run(asyncio.wait_for(stage._parse_pages(pages), timeout=30))
@@ -198,15 +227,13 @@ def test_full_parser_pool_does_not_starve_client_threads(monkeypatch: pytest.Mon
 
 
 def test_prior_render_failure_is_not_sent_to_model():
-    package = pytest.importorskip("nemotron_parse.inference")
     rows = task().to_pyarrow().to_pylist()
     rows[0]["binary_content"] = None
     rows[0]["materialize_error"] = json.dumps({"stage": "render_pdf", "message": "bad page"})
     stage = inference.NemotronParseHTTPClientStage(
         endpoint="http://unused/v1", model_name="served", parse_mode="single"
     )
-    stage.setup()
-    stage._parser = package.DocumentParser(backend=lambda *_a, **_k: pytest.fail("must not infer a render failure"))
+    stage._parser = StubParser(lambda *_a, **_k: pytest.fail("must not infer a render failure"))
     try:
         batch = stage.process(InterleavedBatch(dataset_name="test", data=pa.Table.from_pylist(rows)))
         metadata, failed = NemotronParsePostprocessStage().process(batch).to_pyarrow().to_pylist()
@@ -241,23 +268,21 @@ def test_each_generation_stage_failure_has_one_error_row(failure_stage: str):
 
 
 def test_http_status_error_retains_failed_page_and_sibling():
-    package = pytest.importorskip("nemotron_parse.inference")
     import httpx
     from openai import APIStatusError
 
     response = httpx.Response(400, request=httpx.Request("POST", "http://unused/v1/chat/completions"))
 
-    def backend(image: Image.Image, **_kwargs) -> dict:
+    def parse(image: Image.Image, **_kwargs) -> dict:
         if image.getpixel((0, 0))[0] > 0:
             message = "bad request"
             raise APIStatusError(message, response=response, body={"error": message})
-        return {"raw_out": TABLE, "finish_reason": "stop"}
+        return PARSED_TABLE
 
     stage = inference.NemotronParseHTTPClientStage(
         endpoint="http://unused/v1", model_name="served", parse_mode="single"
     )
-    stage.setup()
-    stage._parser = package.DocumentParser(backend=backend)
+    stage._parser = StubParser(parse)
     try:
         rows = NemotronParsePostprocessStage().process(stage.process(task(("red", "blue")))).to_pyarrow().to_pylist()
         failed = [row for row in rows if row["materialize_error"]]
@@ -267,3 +292,26 @@ def test_http_status_error_retains_failed_page_and_sibling():
         assert any(row["page_number"] == 1 and row["modality"] == "table" for row in rows)
     finally:
         stage.teardown()
+
+
+def test_endpoint_must_list_served_model(monkeypatch: pytest.MonkeyPatch):
+    calls = []
+
+    def refuse(url: str, **_kwargs) -> None:
+        calls.append(url)
+        reason = "refused"
+        raise urllib.error.URLError(reason)
+
+    stage = inference.NemotronParseHTTPClientStage(
+        endpoint="http://unused/v1/", model_name="served", parse_mode="single", max_retries=1, retry_base_delay_s=0
+    )
+    stage._require_served_model()
+    monkeypatch.setattr(
+        inference.urllib.request, "urlopen", lambda *_a, **_k: io.BytesIO(b'{"data": [{"id": "other"}]}')
+    )
+    with pytest.raises(RuntimeError, match=r"does not serve 'served'; it serves \['other'\]"):
+        stage._require_served_model()
+    monkeypatch.setattr(inference.urllib.request, "urlopen", refuse)
+    with pytest.raises(RuntimeError, match="Cannot list models at http://unused/v1/models"):
+        stage._require_served_model()
+    assert calls == ["http://unused/v1/models"] * 2

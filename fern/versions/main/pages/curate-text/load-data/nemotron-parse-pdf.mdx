@@ -411,7 +411,7 @@ python tutorials/interleaved/nemotron_parse_pdf/main.py \
     --executor ray-data
 ```
 
-Use `--executor xenna` to run the same pipeline on Xenna. The endpoint must serve the named model. For two GPUs, run the model team's server with `--data-parallel-size 2` behind one endpoint; Curator does not route across endpoints.
+Use `--executor xenna` to run the same pipeline on Xenna. The endpoint must serve the named model; each HTTP worker checks `/v1/models` at startup and fails if the model is not listed. For two GPUs, run the model team's server with `--data-parallel-size 2` behind one endpoint; Curator does not route across endpoints.
 
 - `single` reads the whole page.
 - `double` also rereads table and chart crops from that answer.

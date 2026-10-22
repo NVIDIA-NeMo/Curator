@@ -23,6 +23,7 @@ import importlib.metadata
 import io
 import json
 import time
+import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from contextvars import ContextVar, copy_context
 from dataclasses import asdict, dataclass, field
@@ -69,7 +70,10 @@ def _nemotron_parse_sampling_params(max_tokens: int) -> dict[str, Any]:
 
 
 def _nemotron_parse_server_generation_config(max_tokens: int) -> GenerationConfig:
-    sampling_params = _nemotron_parse_sampling_params(max_tokens)
+    return _server_generation_config(_nemotron_parse_sampling_params(max_tokens))
+
+
+def _server_generation_config(sampling_params: dict[str, Any]) -> GenerationConfig:
     config_params = {key: value for key, value in sampling_params.items() if key in _OPENAI_GENERATION_CONFIG_FIELDS}
     extra_body = {key: value for key, value in sampling_params.items() if key not in config_params}
     return GenerationConfig(**config_params, extra_kwargs={"extra_body": extra_body})
@@ -432,7 +436,8 @@ class NemotronParseHTTPClientStage(ProcessingStage[InterleavedBatch, Interleaved
     A page request that still fails after client retries raises the whole task,
     matching in-process inference and preventing partial document output.
     With parse_mode set, the model package owns parsing and failed pages become
-    materialize_error rows. Model prompts and sampling then come from the package;
+    materialize_error rows, and setup fails unless the endpoint lists ``model_name``.
+    Model prompts and sampling then come from the package;
     text_in_pic, task_prompt and max_tokens apply only to the legacy path.
     """
 
@@ -489,7 +494,25 @@ class NemotronParseHTTPClientStage(ProcessingStage[InterleavedBatch, Interleaved
                 from nemotron_parse.inference import DocumentParser
             except ImportError as exc:
                 raise ImportError(_PARSE_INSTALL_HINT) from exc
+            self._require_served_model()
             self._parser = DocumentParser(model=self.model_name, backend=self._parse_backend)
+
+    def _require_served_model(self) -> None:
+        # Page failures become rows rather than raising, so an unusable endpoint must fail here.
+        url = f"{self.endpoint.rstrip('/')}/models"
+        for attempt in range(self.max_retries + 1):
+            try:
+                with urllib.request.urlopen(url, timeout=5) as response:  # noqa: S310
+                    served = {model["id"] for model in json.loads(response.read())["data"]}
+                break
+            except (OSError, ValueError, KeyError, TypeError) as exc:
+                if attempt == self.max_retries:
+                    msg = f"Cannot list models at {url}: {exc}"
+                    raise RuntimeError(msg) from exc
+                time.sleep(self.retry_base_delay_s * 2**attempt)
+        if self.model_name not in served:
+            msg = f"{url} does not serve {self.model_name!r}; it serves {sorted(served)}"
+            raise RuntimeError(msg)
 
     def teardown(self) -> None:
         if getattr(self, "_parser", None) is not None:
@@ -500,10 +523,7 @@ class NemotronParseHTTPClientStage(ProcessingStage[InterleavedBatch, Interleaved
         client, loop = _PARSE_TRANSPORT.get()
         stream = io.BytesIO()
         image.save(stream, format="PNG")
-        values = asdict(settings)
-        config = {key: value for key, value in values.items() if key in _OPENAI_GENERATION_CONFIG_FIELDS}
-        extras = {key: value for key, value in values.items() if key not in config}
-        generation = GenerationConfig(**config, extra_kwargs={"extra_body": {**extras, "skip_special_tokens": False}})
+        generation = _server_generation_config({**asdict(settings), "skip_special_tokens": False})
         response = asyncio.run_coroutine_threadsafe(
             self._query_page(client, stream.getvalue(), "image/png", prompt=prompt, generation_config=generation), loop
         ).result()
@@ -536,18 +556,10 @@ class NemotronParseHTTPClientStage(ProcessingStage[InterleavedBatch, Interleaved
                     document = await loop.run_in_executor(
                         parser_pool, copy_context().run, self._parse_image, row["binary_content"]
                     )
-                    return {
-                        **row,
-                        "text_content": document["raw_out"],
-                        "parse_document": json.dumps(document),
-                        "materialize_error": None,
-                    }
+                    return {**row, "parse_document": json.dumps(document), "materialize_error": None}
                 except Exception as exc:  # noqa: BLE001
-                    response = getattr(exc, "response", None)
-                    response = response if isinstance(response, dict) else {}
                     return {
                         **row,
-                        "text_content": response.get("raw_out", ""),
                         "parse_document": None,
                         "materialize_error": json.dumps(
                             {

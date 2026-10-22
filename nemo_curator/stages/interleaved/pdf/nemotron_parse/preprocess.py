@@ -277,6 +277,9 @@ class PDFPreprocessStage(ProcessingStage[FileGroupTask, InterleavedBatch]):
             return None
 
         pages_df = pd.DataFrame(rows)
+        if self.retain_failures:
+            # An unopened document has no page number; without this pandas stores the column as float.
+            pages_df["page_number"] = pages_df["page_number"].astype("Int64")
         return InterleavedBatch(
             dataset_name=task.dataset_name,
             data=pa.Table.from_pandas(pages_df, preserve_index=False),

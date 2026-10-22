@@ -18,6 +18,7 @@ import io
 import json
 from pathlib import Path
 
+import pyarrow as pa
 import pytest
 from PIL import Image
 
@@ -48,6 +49,15 @@ def test_unreadable_document_failure_is_opt_in(tmp_path: Path, retain: bool):
         assert len(rows) == 1
         assert rows[0]["page_number"] is None
         assert json.loads(rows[0]["materialize_error"])["stage"] == "read_pdf"
+
+
+def test_unopened_document_keeps_integer_page_numbers(tmp_path: Path):
+    (tmp_path / "three.pdf").write_bytes(pdf_bytes())
+    stage = preprocess.PDFPreprocessStage(pdf_dir=str(tmp_path), retain_failures=True)
+    entries = [json.dumps({"file_name": name}) for name in ("missing.pdf", "three.pdf")]
+    table = stage.process(FileGroupTask(dataset_name="test", data=entries)).to_pyarrow()
+    assert table.schema.field("page_number").type == pa.int64()
+    assert table.column("page_number").to_pylist() == [None, 0, 1, 2]
 
 
 def test_partial_render_preserves_physical_indexes(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
