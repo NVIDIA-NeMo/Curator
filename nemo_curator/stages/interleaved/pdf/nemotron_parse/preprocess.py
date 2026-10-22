@@ -20,7 +20,7 @@ import json
 import multiprocessing
 import os
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 import pyarrow as pa
@@ -36,6 +36,9 @@ from nemo_curator.stages.interleaved.pdf.nemotron_parse.utils import (
 )
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import FileGroupTask, InterleavedBatch
+
+if TYPE_CHECKING:
+    from PIL import Image
 
 
 @dataclass
@@ -72,6 +75,8 @@ class PDFPreprocessStage(ProcessingStage[FileGroupTask, InterleavedBatch]):
         Resolution for PDF page rendering.
     max_pages
         Maximum number of pages to render per PDF.
+    retain_failures
+        Preserve physical page indexes and failed-page rows for the served parser.
     """
 
     zip_base_dir: str | None = None
@@ -79,6 +84,7 @@ class PDFPreprocessStage(ProcessingStage[FileGroupTask, InterleavedBatch]):
     jsonl_base_dir: str | None = None
     dpi: int = 300
     max_pages: int = 50
+    retain_failures: bool = False
     name: str = "pdf_preprocess"
     resources: Resources = field(default_factory=lambda: Resources(cpus=2.0))
 
@@ -161,9 +167,11 @@ class PDFPreprocessStage(ProcessingStage[FileGroupTask, InterleavedBatch]):
         ctx = multiprocessing.get_context("fork")
         result_q: multiprocessing.Queue = ctx.Queue()
 
+        keep_failed = self.retain_failures
+
         def _worker() -> None:
             try:
-                pages = render_pdf_pages(pdf_bytes, dpi=dpi, max_pages=max_pages)
+                pages = render_pdf_pages(pdf_bytes, dpi=dpi, max_pages=max_pages, keep_failed=keep_failed)
                 result_q.put(pages)
             except Exception:  # noqa: BLE001
                 result_q.put([])
@@ -190,6 +198,43 @@ class PDFPreprocessStage(ProcessingStage[FileGroupTask, InterleavedBatch]):
             logger.debug(f"Forcibly cleaned up render process for {file_name} (result was obtained)")
         return pages
 
+    @staticmethod
+    def _failed_row(sample_id: str, file_name: str, url: str, stage: str, message: str) -> dict[str, Any]:
+        return {
+            "sample_id": sample_id,
+            "position": -1,
+            "page_number": None,
+            "modality": "page_image",
+            "content_type": "image/png",
+            "text_content": "",
+            "binary_content": None,
+            "source_ref": None,
+            "url": url,
+            "pdf_name": file_name,
+            "materialize_error": json.dumps({"stage": stage, "type": "PDFError", "message": message}),
+        }
+
+    def _page_row(
+        self, sample_id: str, file_name: str, url: str, page_num: int, page_img: Image.Image | None
+    ) -> dict[str, Any]:
+        row = {
+            "sample_id": sample_id,
+            "position": page_num,
+            "modality": "page_image",
+            "content_type": "image/png",
+            "text_content": "",
+            "binary_content": None if page_img is None else image_to_bytes(page_img),
+            "source_ref": None,
+            "url": url,
+            "pdf_name": file_name,
+        }
+        if not self.retain_failures:
+            return row
+        error = None
+        if page_img is None:
+            error = json.dumps({"stage": "render_pdf", "type": "RenderError", "message": "Page rendering failed"})
+        return {**row, "page_number": page_num, "materialize_error": error}
+
     def process(self, task: FileGroupTask) -> InterleavedBatch | None:
         rows: list[dict[str, Any]] = []
 
@@ -210,34 +255,31 @@ class PDFPreprocessStage(ProcessingStage[FileGroupTask, InterleavedBatch]):
             else:
                 pdf_bytes = self._get_pdf_bytes(file_name, entry=entry)
             if pdf_bytes is None:
+                if self.retain_failures:
+                    rows.append(self._failed_row(sample_id, file_name, url, "read_pdf", "Could not read PDF"))
                 logger.warning(f"Could not read PDF: {file_name}")
                 continue
 
             page_images = self._render_with_timeout(pdf_bytes, file_name)
             if not page_images:
+                if self.retain_failures:
+                    rows.append(self._failed_row(sample_id, file_name, url, "render_pdf", "No render result"))
                 logger.warning(f"No pages rendered from {file_name}; skipping")
                 continue
 
             logger.debug(f"Rendered {file_name}: {len(page_images)} pages")
-            for page_num, page_img in enumerate(page_images):
-                rows.append(
-                    {
-                        "sample_id": sample_id,
-                        "position": page_num,
-                        "modality": "page_image",
-                        "content_type": "image/png",
-                        "text_content": "",
-                        "binary_content": image_to_bytes(page_img),
-                        "source_ref": None,
-                        "url": url,
-                        "pdf_name": file_name,
-                    }
-                )
+            rows.extend(
+                self._page_row(sample_id, file_name, url, page_num, page_img)
+                for page_num, page_img in enumerate(page_images)
+            )
 
         if not rows:
             return None
 
         pages_df = pd.DataFrame(rows)
+        if self.retain_failures:
+            # An unopened document has no page number; without this pandas stores the column as float.
+            pages_df["page_number"] = pages_df["page_number"].astype("Int64")
         return InterleavedBatch(
             dataset_name=task.dataset_name,
             data=pa.Table.from_pandas(pages_df, preserve_index=False),

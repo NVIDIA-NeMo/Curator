@@ -61,12 +61,13 @@ uv run python tutorials/interleaved/nemotron_parse_pdf/main.py \
 
 `main.py` detects the Ray-visible GPUs, starts one Dynamo model replica per GPU,
 waits for the OpenAI-compatible endpoint to become healthy, runs the pipeline,
-and stops Dynamo. No separately managed server process is required. It fixes
-the HTTP stage pool at `4 * num_gpus` workers. Use `CUDA_VISIBLE_DEVICES` or
-your Ray cluster resources to control which GPUs are used.
+and stops Dynamo. No separately managed server process is required. The HTTP
+stage defaults to `4 * num_gpus` workers; override it with `--client-num-workers`.
+Use `CUDA_VISIBLE_DEVICES` or your Ray cluster resources to control which GPUs are used.
 
-`main.py` always starts Dynamo with vLLM and does not expose a `--backend`
-option.
+Without `--inference-server-endpoint`, `main.py` starts Dynamo with vLLM.
+The externally served Parse 3.5 path is described below; `main.py` does not expose
+a `--backend` option.
 
 **Alternative — Run inference in process:**
 
@@ -114,8 +115,8 @@ Each row in the output parquet is one **document element** in reading order:
 | `sample_id` | string | PDF filename without extension |
 | `position` | int | Element index within document |
 | `modality` | string | `text`, `image`, `table`, or `metadata` |
-| `content_type` | string | `text/markdown`, `image/png`, or `application/json` |
-| `text_content` | string | Extracted text (markdown for text/tables) |
+| `content_type` | string | `text/markdown`, `text/html`, `image/png`, or `application/json` |
+| `text_content` | string | Extracted text (Markdown; served tables use HTML) |
 | `binary_content` | bytes | PNG bytes for image elements |
 | `page_number` | int | Source page (0-indexed) |
 | `url` | string | Source URL from manifest |
@@ -150,3 +151,37 @@ images = [Image.open(io.BytesIO(b)) for b in df[df["modality"] == "image"]["bina
 | `--dpi` | 300 | PDF rendering resolution |
 | `--max-pages` | 50 | Max pages per PDF |
 | `--text-in-pic` | off | Predict text inside images (v1.2+ feature) |
+
+## Served Nemotron Parse 3.5
+
+Set `--parse-mode` to read pages with Nemotron Parse 3.5 through an inference server
+that you start and stop. Install the model team's package from the model repository,
+without the weights or its inference dependencies, at the revision that your server runs:
+
+```bash
+uv pip install "nemo-curator[interleaved_cpu,text_cpu,cv2]"
+hf download nvidia/Nemotron-3.5-Parse --revision 62cb1e4ba153d113ff64aaf2be6e068c377cf53c \
+    --exclude "*.safetensors" --local-dir nemotron-parse
+uv pip install --no-deps ./nemotron-parse
+```
+
+```bash
+python tutorials/interleaved/nemotron_parse_pdf/main.py \
+    --manifest manifest.jsonl --pdf-dir /path/to/pdfs --output-dir /path/to/output \
+    --inference-server-endpoint http://localhost:8000/v1 \
+    --model-path nvidia/Nemotron-3.5-Parse \
+    --inference-server-model-name nemotron-parse \
+    --parse-mode single --inference-batch-size 32 --client-num-workers 4 \
+    --executor ray-data
+```
+
+- `single` reads the whole page.
+- `double` also rereads table and chart crops from that answer.
+- `triple` adds a boxes-only detection request before reading the crops;
+  `--triple-regions` selects `union` (default) or `detector` regions.
+
+Use `--executor xenna` to run the same pipeline on Xenna. A page that fails to render
+or parse is written as one `text` row with `materialize_error` set, which the tutorial
+writer keeps with `on_materialize_error="warn"`. See the
+[Nemotron Parse PDF guide](../../../fern/versions/main/pages/curate-text/load-data/nemotron-parse-pdf.mdx)
+for serving limits and parser behavior.

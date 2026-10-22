@@ -17,6 +17,10 @@
 from __future__ import annotations
 
 import os
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import argparse
 
 from pipeline_utils import create_nemotron_parse_pdf_argparser, create_nemotron_parse_pdf_pipeline
 
@@ -33,6 +37,17 @@ def main() -> None:
     args.output_dir = os.path.abspath(args.output_dir)
     os.makedirs(args.output_dir, exist_ok=True)
 
+    if args.parse_mode is not None and args.inference_server_endpoint is None:
+        parser.error("--parse-mode requires an existing --inference-server-endpoint")
+    if args.inference_server_endpoint is not None:
+        _run_pipeline(
+            args,
+            args.inference_server_endpoint,
+            args.inference_server_model_name or args.model_path,
+            args.client_num_workers or 4,
+        )
+        return
+
     _, available_gpus = get_available_cpu_gpu_resources(init_and_shutdown=True)
     num_gpus = int(available_gpus)
     if num_gpus < 1:
@@ -48,13 +63,23 @@ def main() -> None:
     )
 
     with server:
-        pipeline = create_nemotron_parse_pdf_pipeline(
-            args,
-            inference_server_endpoint=server.endpoint,
-            inference_server_model_name=model_name,
-            inference_server_client_num_workers=4 * num_gpus,
-        )
-        pipeline.run(RayDataExecutor())
+        _run_pipeline(args, server.endpoint, model_name, args.client_num_workers or 4 * num_gpus)
+
+
+def _run_pipeline(args: argparse.Namespace, endpoint: str, model_name: str, client_num_workers: int) -> None:
+    pipeline = create_nemotron_parse_pdf_pipeline(
+        args,
+        inference_server_endpoint=endpoint,
+        inference_server_model_name=model_name,
+        inference_server_client_num_workers=client_num_workers,
+    )
+    if args.executor == "xenna":
+        from nemo_curator.backends.xenna import XennaExecutor
+
+        executor = XennaExecutor()
+    else:
+        executor = RayDataExecutor()
+    pipeline.run(executor)
 
 
 if __name__ == "__main__":

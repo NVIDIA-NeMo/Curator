@@ -101,7 +101,8 @@ source for the complete lifecycle and [Inference Server](/curate-text/synthetic/
 for the underlying configuration objects. For executor options, refer to
 [Execution Backends](/reference/infra/execution-backends).
 
-`main.py` always starts Dynamo with vLLM and does not expose a backend option.
+Without `--inference-server-endpoint`, `main.py` starts Dynamo with vLLM;
+with an existing endpoint it runs the CPU pipeline only. It does not expose a backend option.
 For local validation without an inference server, run `inprocess.py` with
 `--backend vllm` or `--backend hf`.
 
@@ -201,6 +202,9 @@ NemotronParsePDFReader(
 | `inference_server_max_retries` | int | `3` | Retries for transient HTTP failures. |
 
 ### Failure Behavior
+
+The following describes the default path with `parse_mode` unset. Served Parse 3.5
+retains page errors as described in its section below.
 
 PDF read and render failures happen in `PDFPreprocessStage`, before inference,
 so they behave identically for in-process and inference-server runs: the bad PDF
@@ -384,6 +388,41 @@ There are three separate retry paths:
 
 If startup retries are exhausted, first check the worker log for the original failure. For repeated port collisions, reduce the number of vLLM replicas starting simultaneously or set a larger stage-level `max_port_retries` through `engine_kwargs`. Do not mask CUDA out-of-memory or invalid-model errors by increasing retries; tune memory-related engine settings or correct the model configuration instead.
 
+## Served Nemotron Parse 3.5
+
+Set `parse_mode` to read pages with Nemotron Parse 3.5 through an inference server that you start and stop. Curator-managed serving is not yet qualified for this model: its vLLM plugin requires newer vLLM and Transformers releases than Curator's serving stack pins.
+
+Install the model team's Python package from the model repository, without the weights or its inference dependencies:
+
+```bash
+uv pip install "nemo-curator[interleaved_cpu,text_cpu,cv2]"
+hf download nvidia/Nemotron-3.5-Parse --revision 62cb1e4ba153d113ff64aaf2be6e068c377cf53c \
+    --exclude "*.safetensors" --local-dir nemotron-parse
+uv pip install --no-deps ./nemotron-parse
+```
+
+Use the revision that your server runs. The `text_cpu` extra supplies `beautifulsoup4`, which the parser uses for table conversion. The package is imported only when `parse_mode` is set.
+
+```bash
+python tutorials/interleaved/nemotron_parse_pdf/main.py \
+    --manifest manifest.jsonl --pdf-dir /path/to/pdfs --output-dir /path/to/output \
+    --inference-server-endpoint http://localhost:8000/v1 \
+    --model-path nvidia/Nemotron-3.5-Parse \
+    --inference-server-model-name nemotron-parse \
+    --parse-mode single --inference-batch-size 32 --client-num-workers 4 \
+    --executor ray-data
+```
+
+Use `--executor xenna` to run the same pipeline on Xenna. The endpoint must serve the named model; each HTTP worker checks `/v1/models` at startup and fails if the model is not listed. For two GPUs, run the model team's server with `--data-parallel-size 2` behind one endpoint; Curator does not route across endpoints.
+
+- `single` reads the whole page.
+- `double` also rereads table and chart crops from that answer.
+- `triple` adds a boxes-only detection request before reading the crops. `--triple-regions union` combines detected regions with nonoverlapping full-page regions; `detector` uses only the detector's regions.
+
+The package's `DocumentParser` owns prompts, sampling, finish checks, region selection, crop merging, text and table cleanup, and geometry. `--text-in-pic` and `--max-tokens` do not override its settings. Curator keeps its 300-DPI render capped at 1664×2048, the render timeout, partitioning, and the writer; this path has no rendering retry. Picture crops use the parser's content-normalized boxes on the rendered page, and tables are written as `text/html`.
+
+Requests use the same `inference_server_max_retries` backoff as the HTTP stage, but a page that still fails does not raise the task. Each document keeps its metadata row at position -1. A page that fails to render or parse becomes one `text` row with `materialize_error` set and its physical page number; successful pages are kept. A document that cannot be opened records the error on its metadata row. The tutorial writer uses `on_materialize_error="warn"` to keep these rows; a writer with the default `"error"` policy raises. Leaving `parse_mode` unset keeps the existing behavior and the default Parse v1.2 model.
+
 ## Render Timeout
 
 The preprocess stage replaces `signal.SIGALRM` with a `multiprocessing` fork-based timeout (`_RENDER_TIMEOUT_S = 60` by default). This is required because Xenna runs stage workers inside Ray actor processes on non-main threads, where `SIGALRM` raises `ValueError: signal only works in main thread`. The forked child inherits the PDF bytes via copy-on-write and is killed if it exceeds the timeout, reliably escaping any hung C-extension code inside `pypdfium2`.
@@ -396,7 +435,7 @@ A standalone benchmark script ships at `benchmarking/scripts/nemotron_parse_pdf_
 
 ## Best Practices
 
-- **Use Dynamo serving for production**: keep one model replica per GPU and four HTTP workers per GPU. Start at 32 concurrent requests per worker, then benchmark any change on the target GPU and corpus. Retain in-process vLLM and HF for small validation runs or debugging.
+- **Use Dynamo serving for the default Parse v1.2 path**: keep one model replica per GPU and four HTTP workers per GPU. Start at 32 concurrent requests per worker, then benchmark any change on the target GPU and corpus. Retain in-process vLLM and HF for small validation runs or debugging.
 - **Cap `max_pages` for outliers**: very long PDFs (1000+ pages) can dominate runtime. The default 50 pages handles most academic papers and articles; raise to 200+ for book-length sources.
 - **Tune `pdfs_per_task` for parallelism**: smaller values (5–10) parallelize better across many GPUs; larger values (20–50) reduce per-task overhead on smaller clusters.
 - **Set `enforce_eager=True` in restricted environments**: vLLM's torch.compile path can fail on certain hosts. Disabling compilation trades throughput for compatibility.

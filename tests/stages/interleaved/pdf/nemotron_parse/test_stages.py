@@ -203,10 +203,12 @@ class TestPDFPreprocessStage:
         import pypdfium2 as pdfium
 
         doc = pdfium.PdfDocument.new()
-        doc.new_page(width=100, height=100)
-        pdf_bytes = doc.save()
+        page = doc.new_page(width=100, height=100)
+        page.close()
+        pdf_bytes = io.BytesIO()
+        doc.save(pdf_bytes)
         doc.close()
-        return bytes(pdf_bytes)
+        return pdf_bytes.getvalue()
 
     def test_pdf_dir_mode(self, tmp_path: Path):
         pdf_dir = tmp_path / "pdfs"
