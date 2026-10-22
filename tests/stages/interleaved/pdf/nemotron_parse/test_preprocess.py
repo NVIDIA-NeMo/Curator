@@ -21,7 +21,7 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from nemo_curator.stages.interleaved.pdf.nemotron_parse import preprocess
+from nemo_curator.stages.interleaved.pdf.nemotron_parse import preprocess, utils
 from nemo_curator.tasks import FileGroupTask
 
 
@@ -50,16 +50,19 @@ def test_unreadable_document_failure_is_opt_in(tmp_path: Path, retain: bool):
         assert json.loads(rows[0]["materialize_error"])["stage"] == "read_pdf"
 
 
-def test_partial_render_preserves_physical_indexes(monkeypatch: pytest.MonkeyPatch):
+def test_partial_render_preserves_physical_indexes(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     def render(_document: object, index: int, scale: float, max_size: tuple[int, int]) -> Image.Image | None:
         assert scale == 300 / 72.0
         assert max_size == (1664, 2048)
         return None if index == 1 else Image.new("RGB", (220, 170), "red")
 
-    monkeypatch.setattr(preprocess, "_render_page", render)
-    stage = preprocess.PDFPreprocessStage(retain_failures=True)
-    records = stage._render_with_timeout(pdf_bytes(), "three.pdf")
-    assert [record["page_number"] for record in records] == [0, 1, 2]
-    assert records[0]["binary_content"]
-    assert records[1]["materialize_error"]
-    assert records[2]["binary_content"]
+    monkeypatch.setattr(utils, "_render_page", render)
+    (tmp_path / "three.pdf").write_bytes(pdf_bytes())
+    stage = preprocess.PDFPreprocessStage(pdf_dir=str(tmp_path), retain_failures=True)
+    task = FileGroupTask(dataset_name="test", data=[json.dumps({"file_name": "three.pdf"})])
+    rows = stage.process(task).to_pyarrow().to_pylist()
+    assert [(row["position"], row["page_number"]) for row in rows] == [(0, 0), (1, 1), (2, 2)]
+    assert rows[0]["binary_content"]
+    assert rows[2]["binary_content"]
+    assert rows[1]["binary_content"] is None
+    assert json.loads(rows[1]["materialize_error"])["stage"] == "render_pdf"

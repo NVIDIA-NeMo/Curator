@@ -29,6 +29,7 @@ from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.utils import (
     DEFAULT_MIN_CROP_PX,
     build_interleaved_rows,
+    build_metadata_row,
     crop_to_bbox,
     image_to_bytes,
 )
@@ -116,58 +117,17 @@ class NemotronParsePostprocessStage(ProcessingStage[InterleavedBatch, Interleave
         )
 
     def _process_parse(self, task: InterleavedBatch) -> InterleavedBatch | None:
-        rows = []
-        positions: dict[str, int] = {}
+        documents: dict[str, list[dict[str, Any]]] = {}
         for page in task.to_pyarrow().to_pylist():
-            sample_id = page["sample_id"]
-            position = positions.setdefault(sample_id, 0)
-            common = {key: page.get(key) for key in ("sample_id", "url", "pdf_name", "page_number")}
-            common["source_ref"] = json.dumps({"page": page.get("page_number")})
-            if page.get("materialize_error"):
-                rows.append(
-                    {
-                        **common,
-                        "position": position,
-                        "modality": "metadata",
-                        "content_type": "application/json",
-                        "text_content": page["materialize_error"],
-                        "binary_content": None,
-                        "element_class": None,
-                        "materialize_error": page["materialize_error"],
-                    }
-                )
-                positions[sample_id] += 1
-                continue
-            document = json.loads(page["parse_document"])
-            with Image.open(io.BytesIO(page["binary_content"])) as image:
-                for block in document["blocks"]:
-                    kind = block["class"]
-                    binary = None
-                    if kind == "Picture":
-                        crop = crop_to_bbox(image, block["bbox"], (image.height, image.width), self.min_crop_px)
-                        if crop is None:
-                            continue
-                        binary = image_to_bytes(crop)
-                        crop.close()
-                        modality, content_type = "image", "image/png"
-                    elif kind == "Table":
-                        modality, content_type = "table", "text/html"
-                    else:
-                        modality, content_type = "text", "text/markdown"
-                    rows.append(
-                        {
-                            **common,
-                            "position": positions[sample_id],
-                            "modality": modality,
-                            "content_type": content_type,
-                            "text_content": block["content"],
-                            "binary_content": binary,
-                            "element_class": kind,
-                            "materialize_error": None,
-                            "source_ref": json.dumps({"page": page.get("page_number"), "bbox": block["bbox"]}),
-                        }
-                    )
-                    positions[sample_id] += 1
+            documents.setdefault(page["sample_id"], []).append(page)
+        rows = []
+        for sample_id, pages in documents.items():
+            first = pages[0]
+            rendered = [page for page in pages if page.get("page_number") is not None]
+            metadata = build_metadata_row(sample_id, first.get("url"), first.get("pdf_name"), len(rendered))
+            rows.append({**metadata, "materialize_error": None if rendered else first.get("materialize_error")})
+            content = [row for page in rendered for row in self._page_rows(page)]
+            rows.extend({**row, "position": position} for position, row in enumerate(content))
         if not rows:
             return None
         return InterleavedBatch(
@@ -176,3 +136,48 @@ class NemotronParsePostprocessStage(ProcessingStage[InterleavedBatch, Interleave
             _metadata=task._metadata,
             _stage_perf=task._stage_perf,
         )
+
+    def _page_rows(self, page: dict[str, Any]) -> list[dict[str, Any]]:
+        common = {key: page.get(key) for key in ("sample_id", "url", "pdf_name", "page_number")}
+        if page.get("materialize_error"):
+            return [
+                {
+                    **common,
+                    "modality": "text",
+                    "content_type": None,
+                    "text_content": None,
+                    "binary_content": None,
+                    "source_ref": json.dumps({"page": page["page_number"]}),
+                    "element_class": None,
+                    "materialize_error": page["materialize_error"],
+                }
+            ]
+        rows = []
+        with Image.open(io.BytesIO(page["binary_content"])) as image:
+            for block in json.loads(page["parse_document"])["blocks"]:
+                kind = block["class"]
+                binary = None
+                if kind == "Picture":
+                    crop = crop_to_bbox(image, block["bbox"], (image.height, image.width), self.min_crop_px)
+                    if crop is None:
+                        continue
+                    binary = image_to_bytes(crop)
+                    crop.close()
+                    modality, content_type = "image", "image/png"
+                elif kind == "Table":
+                    modality, content_type = "table", "text/html"
+                else:
+                    modality, content_type = "text", "text/markdown"
+                rows.append(
+                    {
+                        **common,
+                        "modality": modality,
+                        "content_type": content_type,
+                        "text_content": block["content"],
+                        "binary_content": binary,
+                        "source_ref": json.dumps({"page": page["page_number"], "bbox": block["bbox"]}),
+                        "element_class": kind,
+                        "materialize_error": None,
+                    }
+                )
+        return rows

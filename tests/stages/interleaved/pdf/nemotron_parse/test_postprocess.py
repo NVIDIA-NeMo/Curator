@@ -25,6 +25,7 @@ from PIL import Image
 
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.postprocess import NemotronParsePostprocessStage
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.utils import build_interleaved_rows, image_to_bytes
+from nemo_curator.stages.interleaved.stages import BaseInterleavedFilterStage
 from nemo_curator.tasks import InterleavedBatch
 
 
@@ -53,7 +54,8 @@ def test_landscape_picture_crops_original_content_not_center_padding():
         ),
         _metadata={"parse_mode": "single"},
     )
-    row = NemotronParsePostprocessStage().process(batch).to_pyarrow().to_pylist()[0]
+    metadata, row = NemotronParsePostprocessStage().process(batch).to_pyarrow().to_pylist()
+    assert (metadata["position"], json.loads(metadata["text_content"])["num_pages"]) == (-1, 1)
     with Image.open(io.BytesIO(row["binary_content"])) as crop:
         assert crop.size == (1760, 1360)
         assert crop.getextrema() == ((0, 0), (0, 0), (255, 255))
@@ -109,6 +111,7 @@ def test_error_row_roundtrip_uses_writer_warn_policy(tmp_path: Path):
         _metadata={"parse_mode": "single"},
     )
     projected = NemotronParsePostprocessStage().process(batch)
+    assert BaseInterleavedFilterStage._basic_row_validity_mask(projected.to_pandas()).all()
     strict = InterleavedParquetWriterStage(path=str(tmp_path / "strict"), materialize_on_write=False)
     with pytest.raises(RuntimeError, match="Materialization failed"):
         strict.process(projected)
@@ -118,7 +121,7 @@ def test_error_row_roundtrip_uses_writer_warn_policy(tmp_path: Path):
     writer.process(projected)
     files = list((tmp_path / "warn").glob("*.parquet"))
     assert len(files) == 1
-    rows = pq.read_table(files[0]).to_pylist()
-    assert len(rows) == 1
-    assert rows[0]["page_number"] == 5
-    assert rows[0]["materialize_error"] == error
+    metadata, failed = pq.read_table(files[0]).to_pylist()
+    assert (metadata["position"], metadata["materialize_error"]) == (-1, None)
+    assert (failed["position"], failed["modality"], failed["page_number"]) == (0, "text", 5)
+    assert failed["materialize_error"] == error

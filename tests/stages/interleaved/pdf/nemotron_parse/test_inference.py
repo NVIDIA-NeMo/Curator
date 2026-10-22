@@ -177,10 +177,10 @@ def test_prior_render_failure_is_not_sent_to_model():
     stage._parser = package.DocumentParser(backend=lambda *_a, **_k: pytest.fail("must not infer a render failure"))
     try:
         batch = stage.process(InterleavedBatch(dataset_name="test", data=pa.Table.from_pylist(rows)))
-        output = NemotronParsePostprocessStage().process(batch).to_pyarrow().to_pylist()
-        assert len(output) == 1
-        assert output[0]["page_number"] == 0
-        assert output[0]["materialize_error"] == rows[0]["materialize_error"]
+        metadata, failed = NemotronParsePostprocessStage().process(batch).to_pyarrow().to_pylist()
+        assert (metadata["position"], metadata["modality"], metadata["materialize_error"]) == (-1, "metadata", None)
+        assert (failed["position"], failed["modality"], failed["page_number"]) == (0, "text", 0)
+        assert failed["materialize_error"] == rows[0]["materialize_error"]
     finally:
         stage.teardown()
 
@@ -201,9 +201,8 @@ def test_each_generation_stage_failure_has_one_error_row(failure_stage: str):
     stage._parser = package.DocumentParser(backend=backend)
     try:
         batch = stage.process(task())
-        rows = NemotronParsePostprocessStage().process(batch).to_pyarrow().to_pylist()
-        assert len(rows) == 1
-        assert json.loads(rows[0]["materialize_error"])["stage"] == failure_stage
+        _, failed = NemotronParsePostprocessStage().process(batch).to_pyarrow().to_pylist()
+        assert json.loads(failed["materialize_error"])["stage"] == failure_stage
         assert calls.count(failure_stage) == 1
     finally:
         stage.teardown()

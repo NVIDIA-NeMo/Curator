@@ -25,8 +25,10 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from pathlib import Path
 
+import pytest
 from PIL import Image
 
+from nemo_curator.stages.interleaved.pdf.nemotron_parse import utils
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.utils import (
     build_canvas,
     build_interleaved_rows,
@@ -37,6 +39,7 @@ from nemo_curator.stages.interleaved.pdf.nemotron_parse.utils import (
     image_to_bytes,
     interleave_floaters,
     parse_nemotron_output,
+    render_pdf_pages,
     resolve_cc_pdf_zip_path,
 )
 
@@ -145,6 +148,21 @@ class TestImageToBytes:
         assert len(data) > 0
         restored = Image.open(io.BytesIO(data))
         assert restored.size == (10, 10)
+
+
+class TestRenderPdfPages:
+    def test_keep_failed_preserves_physical_page_indexes(self, monkeypatch: pytest.MonkeyPatch):
+        pdfium = pytest.importorskip("pypdfium2")
+        doc = pdfium.PdfDocument.new()
+        for _ in range(3):
+            doc.new_page(100, 100).close()
+        stream = io.BytesIO()
+        doc.save(stream)
+        doc.close()
+        page = Image.new("RGB", (10, 10))
+        monkeypatch.setattr(utils, "_render_page", lambda _doc, index, _scale, _size: None if index == 1 else page)
+        assert render_pdf_pages(stream.getvalue()) == [page, page]
+        assert render_pdf_pages(stream.getvalue(), keep_failed=True) == [page, None, page]
 
 
 class TestBuildInterleavedRows:
