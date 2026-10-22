@@ -47,6 +47,42 @@ def _keys(contract: dict[str, Any], side: str) -> list[str]:
     return [*(spec.get("data_keys") or []), *(spec.get("segment_data_keys") or [])]
 
 
+@pytest.mark.parametrize("kind", ["missing", "invalid", "symlink"])
+def test_description_checks_configuration_before_constructor_io(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: str
+) -> None:
+    import builtins
+
+    from nemo_curator.stages.audio.advanced_pipelines.audio_data_filter import AudioDataFilterStage
+    from nemo_curator.stages.audio.audio_agent import _resolve
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    config = tmp_path / "outside.yaml"
+    if kind != "missing":
+        config.write_text("not: [valid yaml")
+    if kind == "symlink":
+        alias = workspace / "alias.yaml"
+        alias.symlink_to(config)
+        config = alias
+    monkeypatch.setenv("AUDIO_AGENT_WORKSPACE", str(workspace))
+    # Constructor I/O must be guarded independently of catalog registration.
+    monkeypatch.setattr(_resolve, "resolve_stage_class", lambda _name: AudioDataFilterStage)
+    original_open = builtins.open
+
+    def checked_open(path: object, *args: object, **kwargs: object) -> object:
+        if isinstance(path, (str, Path)) and Path(path).resolve() == config.resolve():
+            pytest.fail("description opened an outside configuration file")
+        return original_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "open", checked_open)
+
+    result = aa.describe("AudioDataFilterStage", params={"config_path": str(config)})
+
+    assert "outside the allowed workspace" in result["contract_unresolved"]["reason"]
+    assert result["contract_unresolved"]["reads_writes_are"] == "unknown, not empty"
+
+
 def _conditional_write_keys(contract: dict[str, Any]) -> list[str]:
     return [key for conditional in contract.get("conditional_writes") or [] for key in _keys(conditional, "writes")]
 
@@ -402,10 +438,8 @@ class TestConstructingAStageTouchesNothing:
     #
     # AudioDataFilterStage.__init__ calls load_config(config_path) -- with config_path=None it
     # reads the packaged default_config.yaml, and with a caller-supplied path it reads that.
-    # Reachable from the ``describe`` MCP tool, and not covered by the workspace lock (describe
-    # performs no path check, and ``config_path`` is a deliberately unlocked shared-dependency
-    # param), so an LLM-supplied path becomes an existence/parseability oracle. No file content
-    # reaches the response. The stage is shared code and out of the audio agent's scope to change.
+    # Description checks caller-supplied configuration paths before construction. Reading
+    # the library's packaged defaults remains allowed; model/network setup must stay deferred.
     _KNOWN_IO_IN_INIT = frozenset({"AudioDataFilterStage"})
 
     def test_no_agent_ready_stage_touches_disk_or_network_when_constructed(self, monkeypatch) -> None:  # noqa: ANN001

@@ -144,6 +144,16 @@ its first materialization. Those runs do not publish into an empty identity
 namespace. A successfully generated source is resolved and profiled again after
 materialization, so subsequent artifact records bind to bytes that now exist.
 
+Selection precedes profiling and smoke limits: `include_files` and its configured
+manifest column identify the same rows the source emits. Excluded files contribute
+neither fingerprints nor delta inventory, and a delta may only narrow that selection.
+With the workspace lock enabled, referenced files and symlink targets are checked
+before metadata or header inspection, including stat-only profiling.
+
+Continuation and delta validate approval against the authored recipe before deriving
+an execution recipe. A checkpoint-planned recipe requires its exact approved hash and
+matching smoke evidence even when the deployment-wide smoke requirement is disabled.
+
 ---
 
 ## 3. Tiered dataset key
@@ -515,7 +525,13 @@ Two related decisions:
 | Model-download TTL / first-run network | `ttl_sec` on download-stage artifacts |
 | Secret redaction asymmetry | keys are computed pre-redaction; only the persisted copy is redacted |
 | Concurrent publish of the same `step_key` | last writer wins on an identical key; the marker makes it idempotent |
-| Unbounded artifact growth | Artifact GC / retention is not implemented; `reindex` already tolerates missing artifacts |
+| Unbounded artifact growth | Managed checkpoints support explicit collection of orphans and expired entries; general artifact retention remains future work |
+
+Checkpoint retention is a lifecycle policy, separate from upstream model freshness
+(`ttl_sec`). Its saved UTC deadline governs checkpoint reuse and managed collection;
+it does not expire downstream final outputs or move the checkpoint's content address.
+An invalid deadline refuses reuse without authorizing deletion. Explicitly owned output
+paths outside the managed checkpoint cache are never collected by `checkpoints --gc`.
 
 ### A stated tension, accepted deliberately
 

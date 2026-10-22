@@ -19,7 +19,9 @@ A weaker host, or a direct verb/CLI call, cannot bypass these:
 * Workspace path lock  - file paths must resolve under an allowed root (opt-in via
   ``AUDIO_AGENT_WORKSPACE``); blocks traversal / reads-writes outside it. It governs the
   dataset and the outputs. Shared dependency locations (``cache_dir``, ``config_path``) are
-  exempt, so a locked deployment can still share one model cache across projects.
+  exempt during execution, so a locked deployment can share dependencies across projects.
+  Contract inspection checks caller-supplied configuration paths before constructor I/O;
+  packaged defaults remain trusted library dependencies.
 * Secrets/transcript redaction - secret-looking keys and transcript text are
   stripped from verb return values before they reach the host LLM.
 * Require-smoke evidence - a ``run`` can be made to refuse unless handed a valid

@@ -104,6 +104,7 @@ def profile_data(  # noqa: PLR0913
     identity_files: list[str] | tuple[str, ...] | None = None,
     folder_extensions: list[str] | tuple[str, ...] | None = None,
     folder_files: list[str] | tuple[str, ...] | None = None,
+    include_files: list[str] | None = None,
     recursive: bool = True,
     max_files: int | None = None,
     case_sensitive_extensions: bool = False,
@@ -119,11 +120,13 @@ def profile_data(  # noqa: PLR0913
     source deliberately re-anchors manifest paths. ``identity_files`` folds
     additional local dataset-definition files (for example a FLEURS transcript
     TSV) into the same identity without changing ordinary profiler defaults.
-    The folder-selection options let a source adapter mirror the files its stage
-    really emits; their defaults preserve the profiler's historical behavior.
+    Source-selection options mirror the files and manifest rows execution actually emits.
+    Workspace violations are fatal source errors and never yield a trusted inventory.
     """
     prof = DataProfile(source=source)
     expanded = os.path.expanduser(str(source))
+    if not _workspace_allowed(expanded, prof):
+        return prof
 
     if os.path.isdir(expanded):
         prof.kind = "folder"
@@ -155,6 +158,7 @@ def profile_data(  # noqa: PLR0913
             max_probe=max_probe,
             audio_dir=audio_dir,
             audio_path_resolution=audio_path_resolution,
+            include_files=include_files,
         )
     elif os.path.isfile(expanded) and expanded.endswith(_AUDIO_EXTS):
         prof.kind = "folder"
@@ -171,6 +175,14 @@ def profile_data(  # noqa: PLR0913
         )
     if identity_files:
         _fold_identity_files(prof, identity_files)
+    return _finalize_profile(prof)
+
+
+def _finalize_profile(prof: DataProfile) -> DataProfile:
+    """Derive summary statistics without certifying an incomplete source inventory."""
+    if prof.source_errors:
+        prof.stat_digest = ""
+        prof.inventory.clear()
     if prof.num_files:
         prof.mean_duration_sec = round(prof.total_duration_sec / max(1, _probed_count(prof)), 3)
     return prof
@@ -224,9 +236,20 @@ def _list_audio_files(  # noqa: C901, PLR0913
     return sorted(out)
 
 
+def _workspace_allowed(path: str, prof: DataProfile) -> bool:
+    """Check a resolved dependency before any file inspection, including stat-only profiling."""
+    from nemo_curator.stages.audio.audio_agent._safety import path_violations
+
+    violations = path_violations([path])
+    prof.source_errors.extend(message for message in violations if message not in prof.source_errors)
+    return not violations
+
+
 def _stat_folder(paths: list[str], *, root: str, prof: DataProfile) -> None:
     """Fold every file's (relpath, size, mtime) into the content-ish dataset key."""
     if len(paths) > _MAX_STAT:
+        if any(not _workspace_allowed(path, prof) for path in paths):
+            return
         identity = hashlib.sha256()
         for p in paths:
             identity.update(os.path.relpath(p, root).encode("utf-8"))
@@ -240,6 +263,9 @@ def _stat_folder(paths: list[str], *, root: str, prof: DataProfile) -> None:
     failures = 0
     inventory: dict[str, str] = {}
     for p in paths:
+        if not _workspace_allowed(p, prof):
+            failures += 1
+            continue
         entry, ok = _stat_entry(p, root=root)
         h.update(entry.encode("utf-8"))
         h.update(b"\n")
@@ -289,13 +315,17 @@ def _profile_manifest(  # noqa: C901, PLR0912, PLR0913, PLR0915
     max_probe: int,
     audio_dir: str | None = None,
     audio_path_resolution: str | None = None,
+    include_files: list[str] | None = None,
 ) -> None:
+    from nemo_curator.stages.audio.common.manifest_reader import _row_names_file
+
+    wanted = None if include_files is None else {os.path.abspath(os.path.expanduser(p)) for p in include_files}
     audio_paths: list[str] = []
     keys: set[str] = set()
     has_transcript_value = False
     count = 0
-    # The manifest's own bytes ARE the dataset definition, so hash them all; then fold in each
-    # referenced audio file's size+mtime so audio edited in place (manifest untouched) is caught.
+    # Selected rows define execution. Hash all of their bytes and referenced-file stats;
+    # excluded rows must not invalidate that computation or enter its delta inventory.
     content = hashlib.sha256()
     audio_stats = hashlib.sha256()
     root = (
@@ -311,23 +341,25 @@ def _profile_manifest(  # noqa: C901, PLR0912, PLR0913, PLR0915
     row_identity: dict[str, list[str]] = {}
     try:
         with open(path, encoding="utf-8") as f:
-            for line in f:
+            for line_number, line in enumerate(f, 1):
                 line = line.strip()  # noqa: PLW2901
                 if not line:
                     continue
-                count += 1
-                content.update(line.encode("utf-8"))
-                content.update(b"\n")
                 try:
                     row = json.loads(line)
                 except json.JSONDecodeError as exc:
-                    location = f"{path}:line{count}"
+                    location = f"{path}:line{line_number}"
                     prof.unreadable.append(location)
                     prof.source_errors.append(f"{location}: invalid JSON ({exc.msg})")
                     continue
                 if not isinstance(row, dict):
-                    prof.source_errors.append(f"{path}:line{count}: manifest row must be a JSON object")
+                    prof.source_errors.append(f"{path}:line{line_number}: manifest row must be a JSON object")
                     continue
+                if wanted is not None and not _row_names_file(row, audio_filepath_key, wanted):
+                    continue
+                count += 1
+                content.update(line.encode("utf-8"))
+                content.update(b"\n")
                 keys.update(row.keys())
                 # A transcript COLUMN existing isn't enough -- an all-empty "text" field
                 # would falsely imply transcripts (and e.g. that WER is computable). Require
@@ -350,6 +382,8 @@ def _profile_manifest(  # noqa: C901, PLR0912, PLR0913, PLR0915
                         # identity for a path interpretation execution will reject.
                         relative_refs += 1
                         audio_stats.update(f"invalid_resolution|{audio_path_resolution}|{expanded_ap}".encode())
+                        continue
+                    if not _workspace_allowed(expanded_ap, prof):
                         continue
                     if "://" in expanded_ap:
                         # A URI cannot be statted or probed with the local filesystem APIs.
@@ -447,6 +481,10 @@ def _fold_identity_files(prof: DataProfile, paths: list[str] | tuple[str, ...]) 
     failures = 0
     for index, raw in enumerate(paths):
         path = os.path.expanduser(str(raw))
+        if not _workspace_allowed(path, prof):
+            complete = False
+            failures += 1
+            continue
         if "://" in path and not path.startswith("file://"):
             h.update(f"{index}|remote|{path}".encode())
             h.update(b"\n")
@@ -493,6 +531,8 @@ def _probe_files(paths: list[str], prof: DataProfile) -> None:
     chans: Counter[int] = Counter()
     codecs: Counter[str] = Counter()
     for p in paths:
+        if not _workspace_allowed(p, prof):
+            continue
         if not os.path.exists(p):
             prof.unreadable.append(p)
             continue

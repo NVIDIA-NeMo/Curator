@@ -387,7 +387,10 @@ def _resolve_manifest_reader(recipe: Recipe, stage: StageRef, data: str | None) 
         stage.ref,
         configured_paths=paths,
         primary_path=primary,
-        profile_kwargs={"audio_filepath_key": stage.params.get("include_files_key", "audio_filepath")},
+        profile_kwargs={
+            "audio_filepath_key": stage.params.get("include_files_key", "audio_filepath"),
+            "include_files": stage.params.get("include_files"),
+        },
         # A URI, glob, or directory is a selector, not one manifest.  Passing a
         # directory to profile_data would incorrectly identify its audio files as
         # the input rather than the manifests selected by ManifestReader.

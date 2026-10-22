@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -472,6 +473,164 @@ def test_transformed_candidate_enforces_exact_hash_and_own_smoke_token(tmp_path:
     assert "exact-hash" in bare["reason"]
     assert wrong_smoke["status"] == "refused"
     assert "authoritative smoke" in wrong_smoke["reason"]
+
+
+@pytest.mark.parametrize("operation", ["continuation", "delta"])
+@pytest.mark.parametrize("evidence", ["bare_true", "missing", "wrong_hash_token", "valid"])
+def test_checkpoint_execution_checks_the_approved_branch_before_carrying_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, operation: str, evidence: str
+) -> None:
+    from nemo_curator.stages.audio.audio_agent import profiler
+
+    _managed_runs(monkeypatch, tmp_path)
+    monkeypatch.delenv("AUDIO_AGENT_REQUIRE_SMOKE", raising=False)
+    monkeypatch.setattr(profiler, "_probe_files", lambda *_args: None)
+    audio = tmp_path / "clip.wav"
+    audio.write_bytes(b"source identity")
+    unchanged = tmp_path / "unchanged.wav"
+    unchanged.write_bytes(b"unchanged source identity")
+    source = tmp_path / "input.jsonl"
+    source.write_text("".join(json.dumps({"audio_filepath": str(path)}) + "\n" for path in (audio, unchanged)))
+    initial = Recipe.from_dict(
+        aa.plan_checkpoint(_duration_recipe(tmp_path, checkpoint=True), decision_stage="GetAudioDurationStage")[
+            "candidates"
+        ][0]["recipe"]
+    ).freeze()
+    checkpoint_path = tmp_path / "checkpoint.jsonl"
+    checkpoint_bytes = "".join(
+        json.dumps({"audio_filepath": str(path), "duration": 7.0}) + "\n" for path in (audio, unchanged)
+    ).encode()
+    checkpoint_path.write_bytes(checkpoint_bytes)
+    profile = verbs._profile_binding(verbs._dataset_binding(initial, None))
+    step = artifacts.plan_steps(initial, profile.dataset_key())[2]
+    artifacts.publish(
+        artifacts.Artifact(
+            step_key=step.step_key,
+            input_key=step.input_key,
+            stage_ref=step.stage_ref,
+            stage_index=step.index,
+            semantic_params=step.semantic_params,
+            uri=step.uri,
+            kind="manifest",
+            dataset_key=profile.dataset_key(),
+            fingerprint_tier="stat",
+            impl_version=step.impl_version,
+            deterministic=True,
+        )
+    )
+    artifacts.save_coverage(step.step_key, profile.inventory)
+    tuned = Recipe.from_dict(
+        aa.plan_checkpoint(initial, decision_stage="GetAudioDurationStage", decision_value=8.0)["candidates"][0][
+            "recipe"
+        ]
+    ).freeze()
+    if operation == "delta":
+        audio.write_bytes(b"changed selected source identity")
+    confirmation = True if evidence == "bare_true" else tuned.config_hash
+    token = (
+        _safety.smoke_token(tuned.config_hash)
+        if evidence == "valid"
+        else (_safety.smoke_token(initial.config_hash) if evidence == "wrong_hash_token" else None)
+    )
+    executions = []
+
+    def execute(recipe: Recipe, *_args: object, **kwargs: object) -> dict[str, str]:
+        executions.append(recipe)
+        if operation == "continuation":
+            assert kwargs["confirm"] == recipe.config_hash
+            assert _safety.verify_smoke_token(kwargs["smoke_token"], recipe.config_hash)
+        return {"status": "completed"}
+
+    monkeypatch.setattr(verbs, "run" if operation == "continuation" else "_execute_delta", execute)
+    if operation == "continuation":
+        result = aa.plan_continuation(tuned, execute=True, choice="extend", confirm=confirmation, smoke_token=token)
+    else:
+        result = aa.delta_run(tuned, confirm=confirmation, smoke_token=token)
+
+    if evidence == "valid":
+        assert len(executions) == 1, result
+    else:
+        assert result["status"] == "refused", result
+        expected_reason = "exact-hash" if evidence == "bare_true" else "smoke"
+        assert expected_reason in result["reason"]
+        assert executions == []
+    assert checkpoint_path.read_bytes() == checkpoint_bytes
+
+
+@pytest.mark.parametrize("policy", ["expired", "future", "malformed", "invalid_type", "negative_retention"])
+def test_checkpoint_retention_controls_reuse_and_managed_collection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, policy: str
+) -> None:
+    _managed_runs(monkeypatch, tmp_path)
+    recipe = Recipe.from_dict(_derived(_duration_recipe(tmp_path), accept=True)["recipe"]).freeze()
+    step_key, path = _publish_managed(recipe, rows='{"duration":7.0}\n')
+    artifact = artifacts.load(step_key)
+    artifact.metrics["checkpoint_policy"] = {
+        "retention_sec": 600,
+        "expires_at": {
+            "expired": "2000-01-01T00:00:00Z",
+            "future": "2999-01-01T00:00:00Z",
+            "malformed": "invalid",
+            "invalid_type": "2000-01-01T00:00:00Z",
+            "negative_retention": "2000-01-01T00:00:00Z",
+        }[policy],
+    }
+    if policy == "invalid_type":
+        artifact.metrics["checkpoint_policy"] = "invalid"
+    elif policy == "negative_retention":
+        artifact.metrics["checkpoint_policy"]["retention_sec"] = -1
+    artifacts.save(artifact)
+
+    found, reasons = artifacts.lookup(step_key, dataset_key=_KEY)
+    assert found is not None
+    assert bool(reasons) is (policy != "future")
+    listed = next(entry for entry in aa.checkpoints()["checkpoints"] if entry["step_key"] == step_key)
+    assert listed["collectable"] is (policy == "expired")
+    collected = aa.checkpoints(gc=True)
+    assert bool(collected["removed"]) is (policy == "expired")
+    assert path.exists() is (policy != "expired")
+
+
+def test_published_checkpoint_expiry_does_not_expire_final_outputs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import calendar
+    import time
+
+    _managed_runs(monkeypatch, tmp_path)
+    recipe = Recipe.from_dict(_derived(_duration_recipe(tmp_path), accept=True, retention_sec=600)["recipe"]).freeze()
+    stages, issues = build_stages(recipe)
+    assert stages is not None, issues
+    checkpoint_path = Path(recipe.stages[2].params["output_path"])
+    checkpoint_path.write_text('{"audio_filepath":"clip.wav","duration":7.0}\n')
+    final_path = Path(recipe.stages[-1].params["output_path"])
+    final_path.write_bytes(checkpoint_path.read_bytes())
+    published = verbs._publish_artifacts(
+        recipe,
+        stages,
+        dataset_key=_KEY,
+        fingerprint_tier="stat",
+        per_stage={},
+        run_id="retention-test",
+        input_count=1,
+        data_profile={"manifest_keys": ["audio_filepath"]},
+        started_at="",
+        ended_at="",
+    )
+    checkpoint_record = next(item for item in published if item["stage"] == "ManifestCheckpointStage")
+    final_record = next(item for item in published if item["stage"] == "ManifestWriterStage")
+    saved = artifacts.load(checkpoint_record["step_key"])
+    deadline = calendar.timegm(time.strptime(saved.metrics["checkpoint_policy"]["expires_at"], "%Y-%m-%dT%H:%M:%SZ"))
+    assert saved.ttl_sec == 0
+    monkeypatch.setattr(artifacts.time, "time", lambda: deadline + 1)
+
+    assert artifacts.lookup(checkpoint_record["step_key"], dataset_key=_KEY)[1] == [
+        "checkpoint retention period expired"
+    ]
+    assert artifacts.lookup(final_record["step_key"], dataset_key=_KEY)[1] == []
+    assert len(aa.checkpoints(gc=True)["removed"]) == 1
+    assert not checkpoint_path.exists()
+    assert final_path.exists()
 
 
 def test_checkpoint_insertion_preserves_first_run_selector_verdicts_exactly(tmp_path: Path) -> None:

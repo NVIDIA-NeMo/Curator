@@ -414,23 +414,12 @@ def _profile_binding(binding: Any):  # noqa: ANN202, ANN401 - DataProfile | None
     """Profile only the source the recipe actually executes, never caller text."""
     if binding.status not in {"resolved", "ambiguous"} or not binding.profile_source:
         return None
-    allowed = {
-        "audio_filepath_key",
-        "audio_dir",
-        "audio_path_resolution",
-        "case_sensitive_extensions",
-        "exclude_stage_intermediates",
-        "folder_extensions",
-        "identity_files",
-        "max_files",
-        "max_probe",
-        "recursive",
-    }
-    kwargs = {key: value for key, value in binding.profile_kwargs.items() if key in allowed}
-    prof = profile_data(binding.profile_source, **kwargs)
+    # Source adapters own these options. Silently dropping one changes which inputs
+    # the identity covers while execution still honors the authored selection.
+    prof = profile_data(binding.profile_source, **binding.profile_kwargs)
     # A lexical remote selector or unsupported selector must not become a
     # reusable shape key merely because DataProfile can hash its spelling.
-    return prof if prof.kind != "unknown" else None
+    return prof if prof.kind != "unknown" or prof.source_errors else None
 
 
 def _profile_error(profile: Any) -> str:  # noqa: ANN401
@@ -1072,13 +1061,23 @@ def context(
             "reason": "path(s) resolve outside the allowed workspace",
             "violations": pviol,
         }
-    return _context.assemble(
+    result = _context.assemble(
         goal,
         data=data,
         selected_stages=stages,
         roles=roles,
         planning_preference=planning_preference,
     ).to_dict()
+    profile_errors = (result.get("data_profile") or {}).get("source_errors")
+    if profile_errors:
+        return _safety.redact(
+            {
+                "status": "refused",
+                "reason": "; ".join(profile_errors),
+                "data_profile": result["data_profile"],
+            }
+        )
+    return result
 
 
 def resolve(
@@ -1593,6 +1592,42 @@ def _is_reusable_checkpoint_plan(rec: Recipe) -> bool:
         and stage.params.get("planning_provenance") == REUSABLE_CHECKPOINT_PROVENANCE
         for stage in rec.stages
     )
+
+
+def _approval_error(rec: Recipe, *, confirm: bool | str, smoke_token: str | None) -> dict[str, Any] | None:
+    """Check the caller's evidence against the exact approved recipe before deriving execution."""
+    checkpoint_plan = _is_reusable_checkpoint_plan(rec)
+    confirm_with = (
+        f"pass confirm={rec.config_hash!r} to proceed"
+        if checkpoint_plan
+        else f"pass confirm={rec.config_hash!r} (or confirm=True) to proceed"
+    )
+    if confirm is not True and not isinstance(confirm, str):
+        return {
+            "reason": "full run requires explicit confirmation (0 silent full-scale runs)",
+            "confirm_with": confirm_with,
+        }
+    if checkpoint_plan and confirm is True:
+        return {
+            "reason": "checkpoint-planned recipes require exact-hash approval; bare confirm=True is not authoritative",
+            "confirm_with": confirm_with,
+        }
+    if isinstance(confirm, str) and confirm != rec.config_hash:
+        return {
+            "reason": "plan-execution integrity check failed: confirmed hash does not match the recipe",
+            "confirmed": confirm,
+        }
+    if (checkpoint_plan or _safety.require_smoke()) and not _safety.verify_smoke_token(smoke_token, rec.config_hash):
+        return {
+            "reason": (
+                "checkpoint-planned recipes require authoritative smoke evidence for this exact config_hash: "
+                "run smoke on this recipe and pass its 'smoke_token'"
+                if checkpoint_plan
+                else "run requires smoke evidence (AUDIO_AGENT_REQUIRE_SMOKE is set): "
+                "run smoke on this recipe and pass its 'smoke_token'"
+            )
+        }
+    return None
 
 
 def _checkpoint_decision_refusal(rec: Recipe) -> dict[str, Any] | None:
@@ -2164,7 +2199,6 @@ def run(  # noqa: PLR0913, C901, PLR0911, PLR0912, PLR0915 - one verb, one keywo
     checkpoint_refusal = _checkpoint_decision_refusal(rec)
     if checkpoint_refusal is not None:
         return _safety.redact(checkpoint_refusal)
-    authoritative_checkpoint_plan = _is_reusable_checkpoint_plan(rec)
     if goal is not None and not isinstance(goal, dict):
         return {
             "status": "refused",
@@ -2191,60 +2225,15 @@ def run(  # noqa: PLR0913, C901, PLR0911, PLR0912, PLR0915 - one verb, one keywo
     if dp_obj is not None and _profile_error(dp_obj):
         return _safety.redact(_profile_refusal(binding, dp_obj))
 
-    # Only an explicit ``True`` or a hash string counts as confirmation. Gating on
-    # ``confirm is False`` alone let any other falsy value (None / 0 / [] / {}) -- e.g. a
-    # JSON-RPC ``confirm: null`` forwarded by the MCP adapter -- slip past BOTH this refusal
-    # and the config_hash integrity check below into a silent full-scale run.
-    if confirm is not True and not isinstance(confirm, str):
+    approval_error = _approval_error(rec, confirm=confirm, smoke_token=smoke_token)
+    if approval_error is not None:
         return {
             "status": "refused",
-            "reason": "full run requires explicit confirmation (0 silent full-scale runs)",
             "recipe_id": rec.recipe_id,
             "config_hash": rec.config_hash,
             "estimate": _estimate(data_profile),
-            "confirm_with": (
-                f"pass confirm={rec.config_hash!r} to proceed"
-                if authoritative_checkpoint_plan
-                else f"pass confirm={rec.config_hash!r} (or confirm=True) to proceed"
-            ),
             "data_binding": binding.to_dict(),
-        }
-    if authoritative_checkpoint_plan and confirm is True:
-        return {
-            "status": "refused",
-            "reason": (
-                "checkpoint-planned recipes require exact-hash approval; bare confirm=True is not authoritative"
-            ),
-            "recipe_id": rec.recipe_id,
-            "config_hash": rec.config_hash,
-            "confirm_with": f"pass confirm={rec.config_hash!r} to proceed",
-            "data_binding": binding.to_dict(),
-        }
-    if isinstance(confirm, str) and confirm != rec.config_hash:
-        return {
-            "status": "refused",
-            "reason": "plan-execution integrity check failed: confirmed hash does not match the recipe",
-            "confirmed": confirm,
-            "config_hash": rec.config_hash,
-            "data_binding": binding.to_dict(),
-        }
-
-    if (authoritative_checkpoint_plan or _safety.require_smoke()) and not _safety.verify_smoke_token(
-        smoke_token, rec.config_hash
-    ):
-        return {
-            "status": "refused",
-            "reason": (
-                "checkpoint-planned recipes require authoritative smoke evidence "
-                "for this exact config_hash: run smoke on this recipe and pass its "
-                "'smoke_token'"
-                if authoritative_checkpoint_plan
-                else "run requires smoke evidence (AUDIO_AGENT_REQUIRE_SMOKE is set): "
-                "run smoke on this recipe and pass its 'smoke_token'"
-            ),
-            "recipe_id": rec.recipe_id,
-            "config_hash": rec.config_hash,
-            "data_binding": binding.to_dict(),
+            **approval_error,
         }
     checkpoint_refusals = _checkpoint_output_refusals(rec)
     if checkpoint_refusals:
@@ -2883,7 +2872,8 @@ def _publish_artifacts(  # noqa: PLR0913, C901, PLR0912, PLR0915 - publishing ga
         # From the stage itself, NOT from ``semantic_params``: retention and owner are
         # lifecycle policy and were deliberately dropped from the reuse identity, so a
         # checkpoint keeps one address however long it is kept. They still have to reach the
-        # record -- ``ttl_sec`` is what tells the ``checkpoints`` collector an entry expired.
+        # record. Retention governs these checkpoint bytes; upstream freshness alone is
+        # inherited by downstream artifacts, whose outputs have an independent lifetime.
         checkpoint_retention = int(getattr(st, "retention_sec", 0) or 0)
         checkpoint_policy = (
             {
@@ -3599,7 +3589,7 @@ def checkpoints(*, gc: bool = False) -> dict[str, Any]:
     address them and no run will ever find them. ``stale`` -- a record exists but refuses
     reuse, with the reasons listed.
 
-    ``gc`` removes orphans and entries past their declared ``ttl_sec``, and nothing else. A
+    ``gc`` removes orphans and entries past their freshness or checkpoint-retention deadline. A
     checkpoint stale because its stage's ``impl_version`` moved is kept: that is a property
     of the current checkout, and reverting the code makes it valid again. Deleting the bytes
     is reversible only by re-running the model, so the bar is "no future run can use this",
@@ -3626,6 +3616,10 @@ def checkpoints(*, gc: bool = False) -> dict[str, Any]:
         artifact = art_mod.load(step_key)
         reasons = art_mod.invalid_reasons(artifact) if artifact is not None else []
         expired = bool(artifact and artifact.ttl_sec and art_mod._age_sec(artifact) > artifact.ttl_sec)
+        if artifact is not None:
+            # An unverifiable policy blocks reuse, but must never authorize deletion.
+            with contextlib.suppress(TypeError, ValueError):
+                expired = expired or art_mod.checkpoint_expired(artifact)
         size = os.path.getsize(path)
         entry = {
             "step_key": step_key,
@@ -4210,17 +4204,9 @@ def delta_run(  # noqa: PLR0913, PLR0911 - the same execution knobs as run(), wh
     if decision.status != "ready":
         card["next"] = _no_delta_next(adopted, dataset_key=dp.dataset_key())
         return _safety.redact(card)
-    # Same two-step shape ``run`` uses, for the same reason: gating on the hash comparison alone
-    # is correct today (None/0/[]/{} all differ from it), but it is one edit away from not being.
-    # ``run`` was hardened after a JSON-RPC ``confirm: null`` slipped through a single expression;
-    # a security-relevant idiom should not have two spellings in one file.
-    if confirm is not True and not (isinstance(confirm, str) and confirm == rec.config_hash):
-        card.update(
-            status="refused",
-            reason=("a delta run rewrites the prior manifests in place after merging; confirm it like any other run"),
-            confirm_with=f"pass confirm={rec.config_hash!r} (or confirm=True) to proceed",
-        )
-        return _safety.redact(card)
+    approval_error = _approval_error(rec, confirm=confirm, smoke_token=smoke_token)
+    if approval_error is not None:
+        return _safety.redact({**card, "status": "refused", **approval_error})
     return _safety.redact(
         _execute_delta(
             rec,
@@ -4398,24 +4384,9 @@ def _carry_approval(
     for ``run`` to refuse exactly as before, and a wrong hash or a missing/forged token still
     stops here.
     """
-    # Not confirmed at all: let ``run`` answer, so its refusal keeps the scale estimate.
-    if confirm is not True and not isinstance(confirm, str):
-        return confirm, smoke_token, ""
-    if isinstance(confirm, str) and confirm != approved.config_hash:
-        return (
-            confirm,
-            smoke_token,
-            ("plan-execution integrity check failed: confirmed hash does not match the recipe"),
-        )
-    if _safety.require_smoke() and not _safety.verify_smoke_token(smoke_token, approved.config_hash):
-        return (
-            confirm,
-            smoke_token,
-            (
-                "run requires smoke evidence (AUDIO_AGENT_REQUIRE_SMOKE is set): run smoke on this "
-                "recipe and pass its 'smoke_token'"
-            ),
-        )
+    error = _approval_error(approved, confirm=confirm, smoke_token=smoke_token)
+    if error is not None:
+        return confirm, smoke_token, error["reason"]
     carried = derived.config_hash if isinstance(confirm, str) else confirm
     return carried, _safety.smoke_token(derived.config_hash), ""
 
@@ -5909,7 +5880,12 @@ def _bound_recipe(  # noqa: C901, PLR0911
                     "local manifest files; remote or mixed selectors are unsupported"
                 ),
             )
-        tmp, count, error = _write_bounded_manifest(manifests, sample)
+        tmp, count, error = _write_bounded_manifest(
+            manifests,
+            sample,
+            include_files=src.params.get("include_files"),
+            include_files_key=src.params.get("include_files_key", "audio_filepath"),
+        )
         if error:
             return _SmokeBound(None, error=error)
         execution_knobs = {key: value for key, value in src.params.items() if key in EXECUTION_KNOB_PARAMS}
@@ -5919,6 +5895,8 @@ def _bound_recipe(  # noqa: C901, PLR0911
             "blocksize": None,
             "file_extensions": [".jsonl"],
             "storage_options": None,
+            "include_files": src.params.get("include_files"),
+            "include_files_key": src.params.get("include_files_key", "audio_filepath"),
             **execution_knobs,
         }
         rpt.notes.append(f"bounded via {len(manifests)} resolved local manifest file(s) ({count}/{sample} rows)")
@@ -6163,8 +6141,14 @@ def _inside_smoke_root(path: str, root: str) -> bool:
 def _write_bounded_manifest(
     paths: tuple[str, ...],
     n: int,
+    *,
+    include_files: list[str] | None = None,
+    include_files_key: str = "audio_filepath",
 ) -> tuple[str, int, str]:
-    """Concatenate at most ``n`` valid JSON-object rows from ordered local files."""
+    """Sample the source's selected rows in execution order, before applying the cap."""
+    from nemo_curator.stages.audio.common.manifest_reader import _row_names_file
+
+    wanted = None if include_files is None else {os.path.abspath(os.path.expanduser(p)) for p in include_files}
     fd, tmp = tempfile.mkstemp(suffix=".jsonl", prefix="audio_agent_smoke_")
     count = 0
     try:
@@ -6189,6 +6173,8 @@ def _write_bounded_manifest(
                                     count,
                                     f"{path}:{lineno} must contain a JSON object",
                                 )
+                            if wanted is not None and not _row_names_file(row, include_files_key, wanted):
+                                continue
                             out.write(line if line.endswith("\n") else line + "\n")
                             count += 1
                             if count >= n:

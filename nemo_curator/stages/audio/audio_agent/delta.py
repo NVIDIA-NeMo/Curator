@@ -667,6 +667,11 @@ def prefix_recipe(  # noqa: PLR0913 - the recipe plus the four facts that narrow
                 f"parameter), so the changed files cannot be run on their own"
             ),
         )
+    selection = source.params.get(_INCLUDE_PARAM)
+    if selection is not None:
+        wanted = {os.path.abspath(os.path.expanduser(path)) for path in selection}
+        if any(os.path.abspath(os.path.expanduser(path)) not in wanted for path in files):
+            return None, {}, "changed files extend beyond the source's configured include_files selection"
     redirect = {s.uri: os.path.join(sandbox, f"{s.index:02d}-{os.path.basename(s.uri)}") for s in sinks_}
     by_index = {s.index: s for s in sinks_}
     stages: list[StageRef] = []

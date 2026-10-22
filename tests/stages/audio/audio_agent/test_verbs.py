@@ -58,6 +58,99 @@ _WRITER = {"ref": "ManifestWriterStage", "params": {"output_path": "/tmp/out.jso
 _RECIPE = {"stages": [_READER, {"ref": "GetAudioDurationStage", "params": {}}, _WRITER]}
 
 
+@pytest.mark.parametrize("source_kind", ["folder", "manifest"])
+def test_public_reuse_identity_tracks_only_selected_inputs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, source_kind: str
+) -> None:
+    from nemo_curator.stages.audio.audio_agent import profiler
+
+    monkeypatch.setenv("AUDIO_AGENT_RUNS_DIR", str(tmp_path / "runs"))
+    monkeypatch.setattr(profiler, "_probe_files", lambda *_args: None)
+    audio = tmp_path / "audio"
+    audio.mkdir()
+    for name in ("a.wav", "b.wav", "c.wav"):
+        (audio / name).write_bytes(b"identity fixture")
+    if source_kind == "folder":
+        source = {
+            "ref": "CreateInitialManifestAudioFolderStage",
+            "params": {"data_dir": str(audio), "include_files": [str(audio / "c.wav")], "max_samples": 1},
+        }
+    else:
+        manifest = tmp_path / "input.jsonl"
+        manifest.write_text(
+            "".join(json.dumps({"recording": str(audio / name)}) + "\n" for name in ("a.wav", "c.wav"))
+        )
+        source = {
+            "ref": "ManifestReader",
+            "params": {
+                "manifest_path": str(manifest),
+                "include_files": [str(audio / "c.wav")],
+                "include_files_key": "recording",
+            },
+        }
+    recipe = {
+        "stages": [source, {"ref": "ManifestWriterStage", "params": {"output_path": str(tmp_path / "out.jsonl")}}]
+    }
+
+    before = verbs.reuse_scan(recipe)["dataset_key"]
+    (audio / "a.wav").write_bytes(b"excluded source changed size")
+    assert verbs.reuse_scan(recipe)["dataset_key"] == before
+    (audio / "c.wav").write_bytes(b"selected source changed size")
+    assert verbs.reuse_scan(recipe)["dataset_key"] != before
+
+
+@pytest.mark.parametrize("verb", ["context", "validate"])
+def test_public_planning_refuses_outside_manifest_references(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, verb: str
+) -> None:
+    import importlib
+
+    import soundfile
+
+    from nemo_curator.stages.audio.audio_agent.contracts import EnvProfile
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    outside = tmp_path / "outside.wav"
+    outside.write_bytes(b"must not be read")
+    manifest = workspace / "input.jsonl"
+    manifest.write_text(json.dumps({"audio_filepath": str(outside)}) + "\n")
+    monkeypatch.setenv("AUDIO_AGENT_WORKSPACE", str(workspace))
+    monkeypatch.setattr(soundfile, "info", lambda *_a, **_kw: pytest.fail("outside audio was probed"))
+    context_module = importlib.import_module("nemo_curator.stages.audio.audio_agent.context")
+    monkeypatch.setattr(context_module, "probe_env", EnvProfile)
+    if verb == "context":
+        result = aa.context(data=str(manifest))
+        assert result["status"] == "refused"
+    else:
+        result = aa.validate(
+            {
+                "stages": [
+                    {"ref": "ManifestReader", "params": {"manifest_path": str(manifest)}},
+                    {"ref": "ManifestWriterStage", "params": {"output_path": str(workspace / "out.jsonl")}},
+                ]
+            }
+        )
+        assert not result["runnable"]
+    assert "outside the allowed workspace" in str(result)
+    assert not (workspace / "out.jsonl").exists()
+
+
+def test_derived_profile_source_keeps_fatal_workspace_errors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    monkeypatch.setenv("AUDIO_AGENT_WORKSPACE", str(workspace))
+    binding = SimpleNamespace(status="resolved", profile_source=str(outside), profile_kwargs={"max_probe": 0})
+
+    profile = verbs._profile_binding(binding)
+
+    assert profile is not None
+    assert "outside the allowed workspace" in verbs._profile_error(profile)
+    assert not profile.stat_digest
+
+
 @pytest.fixture
 def delta_publication_case(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, change_kind: str) -> SimpleNamespace:
     from nemo_curator.stages.audio.audio_agent import artifacts, delta

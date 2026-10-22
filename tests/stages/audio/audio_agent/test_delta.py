@@ -951,6 +951,51 @@ class TestPlan:
         assert "corpus together" in decision.reason
 
 
+def test_public_delta_plan_never_adds_excluded_manifest_rows(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from nemo_curator.stages.audio.audio_agent import verbs
+
+    monkeypatch.setattr(profiler, "_probe_files", lambda *_args: None)
+    audio = tmp_path / "audio"
+    _corpus(audio, ("a.wav", "b.wav", "c.wav"))
+    manifest = tmp_path / "input.jsonl"
+    manifest.write_text(
+        "".join(
+            json.dumps({"audio_filepath": str(audio / name), "recording": str(audio / name)}) + "\n"
+            for name in ("c.wav", "a.wav", "b.wav")
+        )
+    )
+    rec, _ = _pipeline(tmp_path, manifest)
+    rec.stages[0].params.update(
+        include_files=[str(audio / "a.wav"), str(audio / "b.wav")], include_files_key="recording"
+    )
+    rec = rec.freeze()
+    before = verbs._profile_binding(verbs._dataset_binding(rec, None))
+    _publish(
+        rec,
+        2,
+        dataset_key=before.dataset_key(),
+        coverage=before.inventory,
+        rows=[{"audio_filepath": str(audio / name)} for name in ("a.wav", "b.wav")],
+    )
+    (audio / "a.wav").write_bytes(b"changed selected input")
+
+    result = verbs.delta_run(rec, confirm=False)
+
+    assert result["delta"]["status"] == "ready"
+    assert result["delta"]["files"] == [str(audio / "a.wav")]
+
+
+def test_delta_prefix_refuses_to_widen_an_authored_selection(tmp_path: Path) -> None:
+    rec, _ = _pipeline(tmp_path, tmp_path / "input.jsonl")
+    rec.stages[0].params["include_files"] = [str(tmp_path / "a.wav")]
+    built, _, reason = delta.prefix_recipe(
+        rec.freeze(), prefix=1, files=(str(tmp_path / "c.wav"),), sandbox=str(tmp_path / "scratch"), sinks_=[]
+    )
+    assert built is None
+    assert "configured include_files" in reason
+    assert not (tmp_path / "scratch").exists()
+
+
 def test_republish_retains_generated_asset_dependency_checks(tmp_path: Path) -> None:
     rec, out = _pipeline(tmp_path, tmp_path / "source.jsonl")
     asset = tmp_path / "generated.bin"

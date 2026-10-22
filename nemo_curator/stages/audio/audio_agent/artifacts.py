@@ -830,6 +830,11 @@ def invalid_reasons(  # noqa: C901, PLR0912
     reasons.extend(_impl_reasons(artifact))
     if artifact.ttl_sec and _age_sec(artifact) > artifact.ttl_sec:
         reasons.append(f"older than its {artifact.ttl_sec}s freshness window (re-fetch may differ)")
+    try:
+        if checkpoint_expired(artifact):
+            reasons.append("checkpoint retention period expired")
+    except (TypeError, ValueError):
+        reasons.append("checkpoint retention policy cannot be verified")
     if require_high_trust:
         reasons.extend(caution_reasons(artifact))
     return reasons
@@ -903,6 +908,37 @@ def caution_reasons(artifact: Artifact) -> list[str]:
     if artifact.fingerprint_tier != "stat":
         reasons.append("source identified only by its shape, so a file edited in place would be invisible")
     return reasons
+
+
+def checkpoint_expired(artifact: Artifact) -> bool:
+    """Check the saved checkpoint lifecycle deadline independently of freshness.
+
+    Malformed policies refuse reuse but are not evidence that deletion is safe.
+    Records without lifecycle policy retain their historical behavior.
+    """
+    if artifact.stage_ref != "ManifestCheckpointStage":
+        return False
+    policy = artifact.metrics.get("checkpoint_policy")
+    if policy is None:
+        return False
+    if not isinstance(policy, dict):
+        msg = "checkpoint policy must be an object"
+        raise TypeError(msg)
+    retention = policy.get("retention_sec", 0)
+    if isinstance(retention, bool) or not isinstance(retention, int):
+        msg = "checkpoint retention must be an integer"
+        raise TypeError(msg)
+    if retention < 0:
+        msg = "checkpoint retention must be nonnegative"
+        raise ValueError(msg)
+    if not retention:
+        return False
+    try:
+        deadline = calendar.timegm(time.strptime(policy["expires_at"], "%Y-%m-%dT%H:%M:%SZ"))
+    except (KeyError, TypeError, ValueError) as exc:
+        msg = "checkpoint expiry must be a UTC timestamp"
+        raise ValueError(msg) from exc
+    return time.time() >= deadline
 
 
 def _age_sec(artifact: Artifact) -> float:

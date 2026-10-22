@@ -110,6 +110,42 @@ def test_manifest_directory_is_concatenated_and_capped_in_execution_order(
     assert any("resolved local manifest" in note for note in result["notes"])
 
 
+@pytest.mark.parametrize("selection", [[], ["b.wav"]])
+def test_smoke_samples_selected_rows_with_the_real_manifest_reader(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, selection: list[str]
+) -> None:
+    from nemo_curator.stages.audio.common import ManifestReader, ManifestReaderStage
+    from nemo_curator.tasks import FileGroupTask
+
+    manifest = tmp_path / "input.jsonl"
+    manifest.write_text(
+        "".join(json.dumps({"recording": str(tmp_path / name)}) + "\n" for name in ("a.wav", "b.wav", "b.wav"))
+    )
+    captured = []
+
+    def inspect_source(source: ManifestReader) -> None:
+        assert source.include_files_key == "recording"
+        reader = ManifestReaderStage(include_files=source.include_files, include_files_key=source.include_files_key)
+        tasks = reader.process(FileGroupTask(dataset_name="test", data=[source.manifest_path]))
+        captured.extend(task.data for task in tasks)
+
+    _stub_smoke_runtime(monkeypatch, inspect_source)
+    result = verbs.smoke(
+        _source_recipe(
+            "ManifestReader",
+            {
+                "manifest_path": str(manifest),
+                "include_files_key": "recording",
+                "include_files": [str(tmp_path / name) for name in selection],
+            },
+        ),
+        sample=1,
+    )
+
+    assert [Path(row["recording"]).name for row in captured] == selection
+    assert result["input_count"] == len(selection)
+
+
 def test_remote_manifest_selector_refuses_before_execution(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

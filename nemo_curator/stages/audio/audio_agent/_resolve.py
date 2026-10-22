@@ -23,6 +23,7 @@ importable stages (the anti-hallucination guarantee), and derive the Hydra
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from os import PathLike, fspath
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -113,14 +114,9 @@ def resolved_contract_for(ref: str, params: dict[str, Any] | None = None) -> Res
     never calls, and execution knobs are dropped first so a caller can pass a recipe's params
     verbatim without the ``resources`` entry turning into a spurious "could not be configured".
 
-    It is NOT true that no stage touches disk in ``__init__``, though this docstring said so and
-    cited a regression test that did not exist. ``AudioDataFilterStage.__init__`` calls
-    ``load_config(config_path)``, so a ``config_path`` supplied through the ``describe`` MCP tool
-    is opened here -- an existence-and-parseability oracle for arbitrary paths, and one the
-    workspace lock does not cover (``describe`` performs no path check, and ``config_path`` is a
-    deliberately unlocked shared-dependency param). No file content reaches the response. The
-    test in ``test_contract_resolution.py`` now pins the real boundary: that stage is listed as a
-    known exception, so a NEW stage doing I/O here fails rather than joining it silently.
+    Some constructors read configuration files. Caller-supplied configuration paths must
+    satisfy the workspace lock before construction; otherwise return an unresolved contract
+    without inspecting the file. Packaged defaults remain trusted library dependencies.
 
     Falls back to the instance-free contract rather than raising, because a stage with required
     arguments has to stay describable to a caller who does not yet know what to pass -- that
@@ -128,6 +124,7 @@ def resolved_contract_for(ref: str, params: dict[str, Any] | None = None) -> Res
     :meth:`ResolvedContract.unresolved_detail`.
     """
     from nemo_curator.stages.audio._agent._agent_registry import build_contract, stage_params, static_contract
+    from nemo_curator.stages.audio.audio_agent._safety import path_violations
     from nemo_curator.stages.audio.audio_agent.recipe import EXECUTION_KNOB_PARAMS
 
     cls = resolve_stage_class(ref)
@@ -137,6 +134,16 @@ def resolved_contract_for(ref: str, params: dict[str, Any] | None = None) -> Res
     # this used to re-import the module and rebuild a frozenset from a frozenset for every key.
     given = {k: v for k, v in (params or {}).items() if k not in EXECUTION_KNOB_PARAMS}
     missing = tuple(spec.name for spec in specs if spec.required and spec.name not in given)
+
+    config_path = given.get("config_path")
+    if isinstance(config_path, (str, PathLike)) and path_violations([fspath(config_path)]):
+        return ResolvedContract(
+            static_contract(cls),
+            "configuration path resolves outside the allowed workspace; supply an in-workspace "
+            "configuration or inline parameters to inspect the configured contract",
+            missing,
+            accepted,
+        )
 
     try:
         instance = cls(**given)
