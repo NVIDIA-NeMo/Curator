@@ -18,6 +18,9 @@ The benchmark runner and CI orchestration need the same YAML merge, validation,
 environment expansion, and per-entry planning behavior. Keep those shared pieces
 here instead of in ``benchmarking/run.py`` so external launchers can import them
 without pulling in Curator runtime dependencies.
+
+These source-tree helpers do not require installing a separate package. Add
+``<curator checkout>/benchmarking`` to ``PYTHONPATH`` to import them.
 """
 
 from __future__ import annotations
@@ -173,16 +176,12 @@ def assert_valid_config_dict(data: dict[str, Any]) -> None:  # noqa: C901, PLR09
     if has_legacy and has_paths:
         msg = (
             "Configuration error: 'results_path', 'datasets_path', and 'model_weights_path' "
-            "are deprecated and cannot be used together with the 'paths' section. "
+            "cannot be used together with the 'paths' section. "
             "Please remove the legacy path fields and use only the 'paths' section."
         )
         raise ValueError(msg)
 
     if has_legacy:
-        logger.warning(
-            "'results_path', 'datasets_path', and 'model_weights_path' are deprecated. "
-            "Please migrate to using the 'paths' section instead."
-        )
         missing = [k for k in _LEGACY_PATH_FIELDS if k not in data]
         if missing:
             msg = f"Invalid configuration: missing required legacy path fields: {missing}"
@@ -287,48 +286,3 @@ def exact_entry_config(
         msg = f"benchmark config does not contain entry: {entry_name}"
         raise ValueError(msg)
     return {"entries": [copy.deepcopy(entries[0])]}
-
-
-def legacy_path_config(base_config: dict[str, Any], override_config: dict[str, Any]) -> dict[str, Any]:
-    """Convert modern ``paths`` overrides into the legacy path-field shape."""
-
-    paths = {
-        item["name"]: item["host_path"]
-        for item in override_config.get("paths", [])
-        if item.get("name") in {"results_path", "datasets_path", "model_weights_path"}
-    }
-    missing = sorted({"results_path", "datasets_path", "model_weights_path"} - set(paths))
-    if missing:
-        msg = f"override config is missing required path entries: {missing}"
-        raise ValueError(msg)
-
-    legacy = dict(paths)
-    datasets = _merge_datasets(base_config.get("datasets", []), override_config.get("datasets", []))
-    if datasets:
-        legacy["datasets"] = datasets
-    return legacy
-
-
-def _merge_datasets(
-    base_datasets: list[dict[str, Any]],
-    override_datasets: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    merged = {dataset["name"]: copy.deepcopy(dataset) for dataset in base_datasets}
-    order = [dataset["name"] for dataset in base_datasets]
-    for dataset in override_datasets:
-        name = dataset["name"]
-        if name not in merged:
-            order.append(name)
-            merged[name] = copy.deepcopy(dataset)
-            continue
-
-        for fmt in dataset.get("formats", []):
-            base_formats = merged[name].setdefault("formats", [])
-            for index, base_fmt in enumerate(base_formats):
-                if base_fmt.get("type") == fmt.get("type"):
-                    base_formats[index] = copy.deepcopy(fmt)
-                    break
-            else:
-                base_formats.append(copy.deepcopy(fmt))
-
-    return [merged[name] for name in order]

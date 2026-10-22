@@ -216,6 +216,25 @@ Built-in sinks include:
 
 See [Sinks: Custom Reporting & Actions](#sinks-custom-reporting--actions) for details.
 
+### Automation Helpers
+
+Automation can use the same config loading and entry planning helpers as the
+runner without importing `run.py` or installing a separate benchmark package.
+From the repository root:
+
+```bash
+PYTHONPATH="$PWD/benchmarking${PYTHONPATH:+:$PYTHONPATH}" python - <<'PY'
+from nemo_curator_benchmarking.config import build_benchmark_config_plan, merge_config_files
+
+config = merge_config_files(["benchmarking/benchmarks.yaml"])
+plan = build_benchmark_config_plan(config)
+for entry in plan.entries:
+    print(entry.name, entry.timeout_s)
+PY
+```
+
+The helpers require PyYAML, but do not import Curator runtime dependencies.
+
 ## Configuration
 
 ### YAML Configuration Files
@@ -664,6 +683,17 @@ To force or skip setup:
 python benchmarking/tools/container.py start --setup-benchmark-env yes ...
 python benchmarking/tools/container.py start --setup-benchmark-env no ...
 ```
+
+After changing the FFmpeg installer, run its audio integration check explicitly
+in a prepared Curator environment, from the source checkout:
+
+```bash
+python tests/docker/common/test_install_ffmpeg.py
+```
+
+This verifies real FLAC decoding and conversion to 16-bit and floating-point WAV
+through FFmpeg and TorchCodec. Normal pytest collection runs only the lightweight
+installer checks; nightly benchmarks validate the full workloads.
 
 ### Shell and checks
 

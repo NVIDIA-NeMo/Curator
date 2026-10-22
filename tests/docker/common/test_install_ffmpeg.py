@@ -12,12 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""FFmpeg installer capability checks and CPU audio decoding regression."""
+"""FFmpeg installer corner cases and an explicit audio integration check.
+
+Run this file directly with Python in a prepared Curator environment to check
+real FLAC decoding and WAV conversion; pytest only runs the installer checks.
+"""
 
 import os
 import shutil
 import subprocess
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import pytest
 
@@ -69,21 +74,22 @@ def test_audio_capabilities_are_required_without_unnecessary_installation(
     assert ("repair requested" in result.stderr) is (missing is not None and not check_only)
 
 
-@pytest.mark.parametrize(("codec", "subtype"), [("pcm_s16le", "PCM_16"), ("pcm_f32le", "FLOAT")])
-def test_torchcodec_decodes_flac_and_resampled_pcm(tmp_path: Path, codec: str, subtype: str) -> None:
-    # These optional audio dependencies are needed only for the real decoder test.
-    np = pytest.importorskip("numpy")
-    sf = pytest.importorskip("soundfile")
-    torch = pytest.importorskip("torch")
-    decoders = pytest.importorskip("torchcodec.decoders")
+def check_audio_decoding(tmp_path: Path, codec: str, subtype: str) -> None:
+    # Audio runtime imports belong only to the explicitly requested integration check.
+    import numpy as np
+    import soundfile as sf
+    import torch
+    from torchcodec.decoders import AudioDecoder
+
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
-        pytest.skip("FFmpeg CLI is required for WAV/resampling verification")
+        msg = "FFmpeg CLI is required for WAV/resampling verification"
+        raise RuntimeError(msg)
 
     flac = tmp_path / "audio.flac"
     sf.write(flac, np.linspace(-0.5, 0.5, 1600), 16000, subtype="PCM_16")
     expected, sample_rate = sf.read(flac, dtype="float32", always_2d=True)
-    decoded = decoders.AudioDecoder(str(flac)).get_all_samples()
+    decoded = AudioDecoder(str(flac)).get_all_samples()
     assert decoded.sample_rate == sample_rate
     torch.testing.assert_close(decoded.data, torch.from_numpy(expected.T), rtol=0, atol=1e-6)
 
@@ -92,7 +98,16 @@ def test_torchcodec_decodes_flac_and_resampled_pcm(tmp_path: Path, codec: str, s
         [ffmpeg, "-v", "error", "-i", str(flac), "-ar", "8000", "-c:a", codec, str(wav)],
         check=True,
     )
-    resampled = decoders.AudioDecoder(str(wav)).get_all_samples()
+    resampled = AudioDecoder(str(wav)).get_all_samples()
     assert resampled.sample_rate == 8000
     assert resampled.data.shape == (1, 800)
     assert sf.info(wav).subtype == subtype
+
+
+if __name__ == "__main__":
+    with TemporaryDirectory() as directory:
+        for codec, subtype in (("pcm_s16le", "PCM_16"), ("pcm_f32le", "FLOAT")):
+            output = Path(directory) / codec
+            output.mkdir()
+            check_audio_decoding(output, codec, subtype)
+            print(f"FLAC decoding and {codec} WAV resampling passed.")
