@@ -1,0 +1,149 @@
+---
+description: "Identify document languages and scripts using FastText and GlotLID models for multilingual text processing"
+categories: ["how-to-guides"]
+tags: ["language-identification", "fasttext", "glotlid", "multilingual", "detection", "classification"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "how-to"
+modality: "text-only"
+---
+
+# Language Identification
+
+Large unlabeled text corpora often contain a variety of languages. NVIDIA NeMo Curator provides tools to accurately identify the language of each document, which is essential for language-specific curation tasks and building high-quality monolingual datasets.
+
+## How it Works
+
+NeMo Curator's language identification system works through a three-step process:
+
+1. **Text Preprocessing**: For FastText classification, normalize input text by stripping whitespace and converting newlines to spaces.
+
+2. **FastText Language Detection**: A FastText-compatible language identification model, such as [`lid.176.bin`](https://fasttext.cc/docs/en/language-identification.html) or [GlotLID](https://huggingface.co/cis-lmu/glotlid), analyzes the preprocessed text and returns:
+   - A confidence score (0.0 to 1.0) indicating certainty of the prediction
+   - The model's language label (for example, `en`) or language-script label (for example, `eng_Latn`)
+
+3. **Filtering and Scoring**: The pipeline filters documents based on a configurable confidence threshold (`min_langid_score`) and stores both the confidence score and language code as metadata.
+
+### Language Detection Process
+
+The `FastTextLangId` filter implements this workflow by:
+
+- Loading the FastText language identification model on worker initialization
+- Processing text through `model.predict()` with `k=1` to get the top language prediction
+- Removing the `__label__` prefix while preserving the model label's original casing (for example, `__label__en` becomes `en` and `__label__eng_Latn` becomes `eng_Latn`)
+- Comparing confidence scores against the threshold to determine document retention
+- Returning results as `[confidence_score, language_code]` for downstream processing
+
+The standard FastText model supports **176 languages**. GlotLID can be used when broader language coverage or script identification is required.
+
+## Usage
+
+The following example demonstrates how to create a language identification pipeline using Curator with distributed processing.
+
+<Tabs>
+<Tab title="Python">
+
+```python
+"""Language identification using Curator."""
+
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.text.filters import ScoreFilter
+from nemo_curator.stages.text.filters.fasttext import FastTextLangId
+from nemo_curator.stages.text.io.reader import JsonlReader
+
+def create_language_identification_pipeline(data_dir: str) -> Pipeline:
+    """Create a pipeline for language identification."""
+
+    # Define pipeline
+    pipeline = Pipeline(
+        name="language_identification",
+        description="Identify document languages using FastText"
+    )
+
+    # Add stages
+    # 1. Reader stage - creates tasks from JSONL files
+    pipeline.add_stage(
+        JsonlReader(
+            file_paths=data_dir,
+            files_per_partition=2,  # Each task processes 2 files
+        )
+    )
+
+    # 2. Language identification with filtering
+    # IMPORTANT: Download lid.176.bin or lid.176.ftz from https://fasttext.cc/docs/en/language-identification.html
+    fasttext_model_path = "/path/to/lid.176.bin"  # or lid.176.ftz (compressed)
+    pipeline.add_stage(
+        ScoreFilter(
+            FastTextLangId(model_path=fasttext_model_path, min_langid_score=0.3),
+            score_field="language"
+        )
+    )
+
+    return pipeline
+
+def main():
+    # Create pipeline
+    pipeline = create_language_identification_pipeline("./data")
+
+    # Print pipeline description
+    print(pipeline.describe())
+
+    # Create executor and run
+    results = pipeline.run()
+
+    # Process results
+
+    total_documents = sum(task.num_items for task in results) if results else 0
+    print(f"Total documents processed: {total_documents}")
+
+    # Access language scores
+    for i, batch in enumerate(results):
+        if batch.num_items &gt;0:
+            df = batch.to_pandas()
+            print(f"Batch {i} columns: {list(df.columns)}")
+            # Language scores are now in the 'language' field
+
+if __name__ == "__main__":
+    main()
+```
+
+</Tab>
+</Tabs>
+
+### Using GlotLID
+
+Download the GlotLID FastText model from [Hugging Face](https://huggingface.co/cis-lmu/glotlid), then pass its local path to `FastTextLangId` in the same way as the standard FastText model:
+
+```python
+glotlid_model_path = "/path/to/glotlid/model.bin"
+
+# Keep every script predicted for English.
+english_filter = FastTextLangId(model_path=glotlid_model_path, lang="eng")
+
+# Keep only English written in the Latin script.
+english_latin_filter = FastTextLangId(model_path=glotlid_model_path, lang="eng_Latn")
+```
+
+Language matching is case-insensitive. A filter without an underscore matches the language portion of a GlotLID label, while a filter containing an underscore matches the complete language-script label.
+
+## Understanding Results
+
+The language identification process adds a score field to each document batch:
+
+1. **`language` field**: Contains the FastText language identification results as a string representation of a list with two elements (for backend compatibility):
+   - Element 0: The confidence score (between 0 and 1)
+   - Element 1: The model label without the `__label__` prefix and with its original casing preserved (for example, `en` or `eng_Latn`)
+
+2. **Task-based processing**: Curator processes documents in batches (tasks), and results are available through the task's Pandas DataFrame:
+
+```python
+# Access results from pipeline execution
+for batch in results:
+    df = batch.to_pandas()
+    # Language scores are in the 'language' column
+    print(df[['text', 'language']].head())
+```
+
+<Tip>
+For quick exploratory inspection, converting a `DocumentBatch` to a Pandas DataFrame is fine. For performance and scalability, write transformations as `ProcessingStage`s (or with the `@processing_stage` decorator) and run them inside a `Pipeline` with an executor. Curator’s parallelism and resource scheduling apply when code runs as pipeline stages; ad‑hoc Pandas code executes on the driver and will not scale.
+</Tip>
