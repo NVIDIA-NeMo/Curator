@@ -268,7 +268,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
             embeddings = get_array_from_df(df, self.embedding_field).astype(cp.float32, copy=False)
             self._normalize_embeddings_in_place(embeddings)
             predict_start = time.perf_counter()
-            labels = cp.asarray(self.kmeans.predict(embeddings, convert_dtype=False)).astype(cp.int32, copy=False)
+            labels = cp.asarray(self.kmeans.predict(embeddings)).astype(cp.int32, copy=False)
             predict_time += time.perf_counter() - predict_start
             del df[self.embedding_field]
             write_start = time.perf_counter()
