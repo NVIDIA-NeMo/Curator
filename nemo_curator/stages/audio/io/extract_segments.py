@@ -73,6 +73,7 @@ if TYPE_CHECKING:
     import numpy as np
 
 from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract, StaticHints
+from nemo_curator.stages.audio.postprocessing.timestamp_mapper import _numeric_key
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -175,17 +176,19 @@ def _intervals_from_diar_segments(entry: dict, *, round_empty_intervals: bool = 
                 continue
         try:
             start_value, end_value = float(start), float(end)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             continue
-        if not math.isfinite(start_value) or not math.isfinite(end_value) or end_value <= start_value:
+        if not math.isfinite(start_value) or not math.isfinite(end_value):
             continue
         try:
             if end - start <= 0:
                 continue
         except TypeError:
+            if end_value <= start_value:
+                continue
             start, end = start_value, end_value
         valid_segments.append((start, end, isinstance(segment, Mapping)))
-    valid_segments.sort(key=lambda bounds: bounds[0])
+    valid_segments.sort(key=lambda bounds: _numeric_key(bounds[0]))
     return [
         _diar_interval(start, end, dictionary_turn=dictionary_turn, round_empty_intervals=round_empty_intervals)
         for start, end, dictionary_turn in valid_segments
