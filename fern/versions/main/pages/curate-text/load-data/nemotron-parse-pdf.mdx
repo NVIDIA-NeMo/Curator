@@ -101,7 +101,8 @@ source for the complete lifecycle and [Inference Server](/curate-text/synthetic/
 for the underlying configuration objects. For executor options, refer to
 [Execution Backends](/reference/infra/execution-backends).
 
-`main.py` always starts Dynamo with vLLM and does not expose a backend option.
+Without `--inference-server-endpoint`, `main.py` starts Dynamo with vLLM;
+with an existing endpoint it runs the CPU pipeline only. It does not expose a backend option.
 For local validation without an inference server, run `inprocess.py` with
 `--backend vllm` or `--backend hf`.
 
@@ -201,6 +202,9 @@ NemotronParsePDFReader(
 | `inference_server_max_retries` | int | `3` | Retries for transient HTTP failures. |
 
 ### Failure Behavior
+
+The following describes the default path with `parse_mode` unset. Served Parse 3.5
+retains page errors as described in its section below.
 
 PDF read and render failures happen in `PDFPreprocessStage`, before inference,
 so they behave identically for in-process and inference-server runs: the bad PDF

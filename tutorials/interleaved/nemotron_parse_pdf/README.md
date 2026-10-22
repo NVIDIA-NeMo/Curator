@@ -65,8 +65,9 @@ and stops Dynamo. No separately managed server process is required. It fixes
 the HTTP stage pool at `4 * num_gpus` workers. Use `CUDA_VISIBLE_DEVICES` or
 your Ray cluster resources to control which GPUs are used.
 
-`main.py` always starts Dynamo with vLLM and does not expose a `--backend`
-option.
+Without `--inference-server-endpoint`, `main.py` starts Dynamo with vLLM.
+The externally served Parse 3.5 path is described below; `main.py` does not expose
+a `--backend` option.
 
 **Alternative — Run inference in process:**
 
