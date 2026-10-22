@@ -629,8 +629,8 @@ def _check_output_completeness(ctx: CheckContext) -> CheckResult:
 @register("acceptance_evaluability")
 def _check_acceptance_evaluability(ctx: CheckContext) -> CheckResult:
     """Surface evidence requirements before approving a mechanically valid plan."""
+    from nemo_curator.stages.audio.audio_agent._verb_evidence import _terminal_evidence_outputs
     from nemo_curator.stages.audio.audio_agent.acceptance import evaluability_issues
-    from nemo_curator.stages.audio.audio_agent.verbs import _terminal_evidence_outputs
 
     _, row_coverage = _terminal_evidence_outputs(ctx.recipe, [])
     return CheckResult(issues=evaluability_issues(ctx.acceptance_criteria, row_coverage=row_coverage))

@@ -28,7 +28,14 @@ from typing import Any
 
 import pytest
 
-from nemo_curator.stages.audio.audio_agent import artifacts, profiler, reuse, run_store, verbs
+from nemo_curator.stages.audio.audio_agent import (
+    _reuse_summary,
+    _verb_publish,
+    _verb_reuse,
+    artifacts,
+    profiler,
+    run_store,
+)
 from nemo_curator.stages.audio.audio_agent.contracts import RunRecord
 from nemo_curator.stages.audio.audio_agent.recipe import Recipe
 
@@ -147,7 +154,7 @@ def _save_run(  # noqa: PLR0913 - a run record simply has this many fields
     steps = [p.step_key for p in artifacts.plan_steps(recipe, dataset_key)]
     artifacts.save_coverage(steps[-1], dict(prior_profile.inventory))
     run_id = run_store.new_run_id(recipe.config_hash)
-    summary = pipeline_summary if pipeline_summary is not None else reuse.summarize_pipeline(recipe)
+    summary = pipeline_summary if pipeline_summary is not None else _reuse_summary.summarize_pipeline(recipe)
     out = next(
         (str(s.params.get("output_path")) for s in recipe.stages if s.ref == "ManifestWriterStage"),
         "",
@@ -177,7 +184,7 @@ def _save_run(  # noqa: PLR0913 - a run record simply has this many fields
 class TestPipelineSummaryIsDurable:
     def test_summarize_pipeline_names_stages_and_key_params(self) -> None:
         recipe = _quality_recipe("/data", "/out.jsonl", mos=3.0)
-        summary = reuse.summarize_pipeline(recipe)
+        summary = _reuse_summary.summarize_pipeline(recipe)
 
         assert "UTMOSFilterStage" in summary
         assert "mos_threshold=3.0" in summary or "mos_threshold=3" in summary
@@ -187,7 +194,7 @@ class TestPipelineSummaryIsDurable:
 
     def test_a_long_pipeline_keeps_every_stage_and_every_behavioural_param(self) -> None:
         """Nothing is clipped: a summary that drops a threshold makes two runs look alike."""
-        summary = reuse.summarize_pipeline(_long_recipe("/data", "/out.jsonl", mos=3.0))
+        summary = _reuse_summary.summarize_pipeline(_long_recipe("/data", "/out.jsonl", mos=3.0))
 
         for ref in ("VADSegmentationStage", "UTMOSFilterStage", "ResampleAudioStage", "ManifestWriterStage"):
             assert ref in summary
@@ -210,7 +217,7 @@ class TestPipelineSummaryIsDurable:
             output_paths = [str(store / "out.jsonl")]  # noqa: RUF012
             per_stage_metrics: dict = {}  # noqa: RUF012
 
-        run_id = verbs._record_run(
+        run_id = _verb_publish._record_run(
             recipe,
             run_id=run_store.new_run_id(recipe.config_hash),
             data=folder,
@@ -241,7 +248,7 @@ class TestPipelineSummaryIsDurable:
             output_paths: list = []  # noqa: RUF012
             per_stage_metrics: dict = {}  # noqa: RUF012
 
-        run_id = verbs._record_run(
+        run_id = _verb_publish._record_run(
             recipe,
             run_id=run_store.new_run_id(recipe.config_hash),
             data=folder,
@@ -269,7 +276,7 @@ class TestPipelineSummaryIsDurable:
             pipeline_summary="",
         )
 
-        overview = verbs.runs(run_id=run_id)["overview"]
+        overview = _verb_reuse.runs(run_id=run_id)["overview"]
 
         assert overview["pipeline_summary"]
         assert "UTMOSFilterStage" in overview["pipeline_summary"]
@@ -296,7 +303,7 @@ class TestCurrentPromptRanksPriorsByPromptAndSummary:
         )
         (Path(folder) / "d.wav").write_bytes(b"RIFF" + b"\x09" * 4096)
 
-        listing = verbs.runs(
+        listing = _verb_reuse.runs(
             data=folder,
             goal="curate into 16 kHz mono clips with a quality filter",
         )
@@ -333,7 +340,7 @@ class TestCurrentPromptRanksPriorsByPromptAndSummary:
             input_count=7,
         )
 
-        listing = verbs.runs(data=folder, goal="apply a quality filter")
+        listing = _verb_reuse.runs(data=folder, goal="apply a quality filter")
         order = [c["run_id"] for c in listing["runs"]]
         scores = {c["run_id"]: c["match"]["score"] for c in listing["runs"]}
 
@@ -352,14 +359,14 @@ class TestCurrentPromptRanksPriorsByPromptAndSummary:
             created_at="2026-08-17T12:00:00Z",
         )
 
-        listing = verbs.runs(data=folder, goal="apply a quality filter")
-        single = verbs.runs(run_id=run_id)
+        listing = _verb_reuse.runs(data=folder, goal="apply a quality filter")
+        single = _verb_reuse.runs(run_id=run_id)
 
         assert "Never paste it verbatim" in listing["host_directive"]
         assert "Never paste it verbatim" in single["host_directive"]
 
     def test_a_prior_without_a_goal_scores_on_its_pipeline_not_on_placeholder_words(self) -> None:
-        match = reuse.prompt_summary_match("run that on the new files", reuse._NO_OBJECTIVE, "")
+        match = _reuse_summary.prompt_summary_match("run that on the new files", _reuse_summary._NO_OBJECTIVE, "")
 
         assert match["score"] == 0.0
         assert match["matched"] == []
@@ -374,7 +381,7 @@ class TestCurrentPromptRanksPriorsByPromptAndSummary:
             created_at="2026-08-17T12:00:00Z",
         )
 
-        listing = verbs.runs(data=folder, goal="apply a quality filter")
+        listing = _verb_reuse.runs(data=folder, goal="apply a quality filter")
         card = next(c for c in listing["runs"] if c["run_id"] == quality_id)
 
         assert card["match"]["score"] > 0

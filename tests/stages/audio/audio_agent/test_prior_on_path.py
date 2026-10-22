@@ -35,7 +35,14 @@ from pathlib import Path
 
 import pytest
 
-from nemo_curator.stages.audio.audio_agent import artifacts, profiler, reuse, run_index, run_store, verbs
+from nemo_curator.stages.audio.audio_agent import (
+    _reuse_history,
+    _verb_reuse,
+    artifacts,
+    profiler,
+    run_index,
+    run_store,
+)
 from nemo_curator.stages.audio.audio_agent.contracts import RunRecord
 from nemo_curator.stages.audio.audio_agent.recipe import Recipe
 
@@ -137,7 +144,7 @@ class TestItFiresWhenTheFolderWasCuratedByADifferentPipeline:
         (Path(folder) / "f.wav").write_bytes(b"RIFF" + b"\x05" * 4096)
         current = _current_recipe(folder, source="CreateInitialManifestAudioFolderStage", mono=False, mos=2.5)
 
-        result = verbs.reuse_scan(current, data=folder)
+        result = _verb_reuse.reuse_scan(current, data=folder)
         prior = result.get("prior_on_same_path")
 
         assert prior is not None, "a prior run on this same folder should be disclosed"
@@ -160,7 +167,7 @@ class TestItFiresWhenTheFolderWasCuratedByADifferentPipeline:
         (Path(folder) / "f.wav").write_bytes(b"RIFF" + b"\x05" * 4096)
         current = _current_recipe(folder, source="CreateInitialManifestAudioFolderStage", mono=False, mos=2.5)
 
-        delta = verbs.reuse_scan(current, data=folder)["prior_on_same_path"]["data_delta"]
+        delta = _verb_reuse.reuse_scan(current, data=folder)["prior_on_same_path"]["data_delta"]
 
         assert delta["basis"] == "inventory"
         assert delta["added"] == 1
@@ -177,7 +184,7 @@ class TestItFiresWhenTheFolderWasCuratedByADifferentPipeline:
         (Path(folder) / "d.wav").write_bytes(b"RIFF" + b"\x09" * 5000)
         current = _current_recipe(folder, source="CreateInitialManifestAudioFolderStage", mono=False, mos=2.5)
 
-        assert verbs.reuse_scan(current, data=folder)["prior_on_same_path"]["recommendation"] == "align"
+        assert _verb_reuse.reuse_scan(current, data=folder)["prior_on_same_path"]["recommendation"] == "align"
 
     def test_the_decision_itself_is_left_fresh(self, store: Path) -> None:
         """Advisory only: the notice never turns a correct 'fresh' into a reuse."""
@@ -190,7 +197,7 @@ class TestItFiresWhenTheFolderWasCuratedByADifferentPipeline:
         (Path(folder) / "d.wav").write_bytes(b"RIFF" + b"\x09" * 5000)
         current = _current_recipe(folder, source="CreateInitialManifestAudioFolderStage", mono=False, mos=2.5)
 
-        result = verbs.reuse_scan(current, data=folder)
+        result = _verb_reuse.reuse_scan(current, data=folder)
 
         assert result["decision"] == "fresh"
         assert result["reuse_point"] is None
@@ -208,7 +215,7 @@ class TestItFiresWhenTheFolderWasCuratedByADifferentPipeline:
         (Path(folder) / "d.wav").write_bytes(b"RIFF" + b"\x09" * 5000)
         current = _current_recipe(folder, source="CreateInitialManifestAudioFolderStage", mono=False, mos=2.5)
 
-        result = verbs.reuse_scan(current, data=folder)
+        result = _verb_reuse.reuse_scan(current, data=folder)
 
         assert result["decision"] == "fresh"
         assert result["prompt_user"] is True
@@ -228,13 +235,13 @@ class TestItStaysSilentWhenThereIsNothingToDisclose:
         (Path(other) / "x.wav").write_bytes(b"RIFF" + b"\x01" * 3000)
         current = _current_recipe(other, source="CreateInitialManifestAudioFolderStage", mono=False, mos=2.5)
 
-        assert "prior_on_same_path" not in verbs.reuse_scan(current, data=other)
+        assert "prior_on_same_path" not in _verb_reuse.reuse_scan(current, data=other)
 
     def test_no_prior_run_means_no_notice(self, store: Path) -> None:
         folder = _folder(store, ["a.wav", "b.wav"])
         current = _current_recipe(folder, source="CreateInitialManifestAudioFolderStage", mono=False, mos=2.5)
 
-        assert "prior_on_same_path" not in verbs.reuse_scan(current, data=folder)
+        assert "prior_on_same_path" not in _verb_reuse.reuse_scan(current, data=folder)
 
 
 class TestASecretParamNeverLeaksThroughTheDiff:
@@ -252,7 +259,7 @@ class TestASecretParamNeverLeaksThroughTheDiff:
 
         cur = prior.to_dict()
         cur["stages"][1]["params"]["hf_token"] = "SECRET-CURRENT-TOKEN"  # noqa: S105
-        result = verbs.reuse_scan(cur, data=folder)
+        result = _verb_reuse.reuse_scan(cur, data=folder)
 
         blob = repr(result)
         assert "SECRET-PRIOR-TOKEN" not in blob
@@ -272,7 +279,7 @@ class TestTheRecipeDiffIsStructural:
             }
         ).freeze()
 
-        diff = reuse._recipe_diff(prior, current)
+        diff = _reuse_history._recipe_diff(prior, current)
 
         assert not diff["added_stages"]
         assert not diff["removed_stages"]
@@ -285,7 +292,7 @@ class TestTheRecipeDiffIsStructural:
     def test_identical_recipes_diff_to_nothing(self) -> None:
         r = Recipe.from_dict({"stages": [{"ref": "GetAudioDurationStage", "params": {}}]}).freeze()
 
-        diff = reuse._recipe_diff(r, r)
+        diff = _reuse_history._recipe_diff(r, r)
 
         assert diff["identical"] is True
 
@@ -317,7 +324,7 @@ class TestSeveralPriorRunsAreRankedNotCollapsed:
         (Path(folder) / "d.wav").write_bytes(b"RIFF" + b"\x09" * 5000)
         current = _current_recipe(folder, source="CreateInitialManifestAudioFolderStage", mono=False, mos=2.5)
 
-        prior = verbs.reuse_scan(current, data=folder)["prior_on_same_path"]
+        prior = _verb_reuse.reuse_scan(current, data=folder)["prior_on_same_path"]
 
         assert prior["count"] == 2
         assert [m["run_id"] for m in prior["matches"]] == [near, far]
@@ -330,7 +337,7 @@ class TestSeveralPriorRunsAreRankedNotCollapsed:
         (Path(folder) / "d.wav").write_bytes(b"RIFF" + b"\x09" * 5000)
         current = _current_recipe(folder, source="CreateInitialManifestAudioFolderStage", mono=False, mos=2.5)
 
-        nxt = verbs.reuse_scan(current, data=folder)["prior_on_same_path"]["next"]
+        nxt = _verb_reuse.reuse_scan(current, data=folder)["prior_on_same_path"]["next"]
 
         assert near in nxt["inspect"]
         assert near in nxt["adopt"]
@@ -349,7 +356,7 @@ class TestTheSameFolderAndSameFilesUnderADifferentPipeline:
         )
         current = _current_recipe(folder, source="CreateInitialManifestAudioFolderStage", mono=False, mos=2.5)
 
-        prior = verbs.reuse_scan(current, data=folder)["prior_on_same_path"]
+        prior = _verb_reuse.reuse_scan(current, data=folder)["prior_on_same_path"]
 
         assert prior["recommendation"] == "align"
         assert prior["data_delta"]["added"] == 0
@@ -362,7 +369,7 @@ class TestTheSameFolderAndSameFilesUnderADifferentPipeline:
         prior = _prior_recipe(folder, source="CreateInitialManifestAudioFolderStage", mono=False, mos=3.0)
         _save_prior_run(folder, prior, prior_profile=_profile(folder))
 
-        notice = verbs.reuse_scan(prior.to_dict(), data=folder)["prior_on_same_path"]
+        notice = _verb_reuse.reuse_scan(prior.to_dict(), data=folder)["prior_on_same_path"]
 
         assert notice["same_recipe"] is True
         assert notice["recommendation"] == "fresh"
@@ -379,7 +386,7 @@ class TestListingRunsByFolderPath:
         )
         (Path(folder) / "c.wav").write_bytes(b"RIFF" + b"\x02" * 4096)
 
-        listing = verbs.runs(data=folder)
+        listing = _verb_reuse.runs(data=folder)
 
         assert [r["run_id"] for r in listing["runs"]] == [run_id]
         assert listing["same_folder_only"] == [run_id]
@@ -388,7 +395,7 @@ class TestListingRunsByFolderPath:
     def test_a_folder_with_no_history_lists_nothing_extra(self, store: Path) -> None:
         folder = _folder(store, ["a.wav"])
 
-        listing = verbs.runs(data=folder)
+        listing = _verb_reuse.runs(data=folder)
 
         assert listing["runs"] == []
         assert "same_folder_only" not in listing
@@ -403,7 +410,7 @@ class TestOneRunIsExplainedWithoutReadingEveryParam:
             prior_profile=_profile(folder),
         )
 
-        overview = verbs.runs(run_id=run_id)["overview"]
+        overview = _verb_reuse.runs(run_id=run_id)["overview"]
 
         assert "UTMOSFilterStage" in overview["pipeline"]
         assert overview["objective"] == "quality_filter"
@@ -419,7 +426,7 @@ class TestOneRunIsExplainedWithoutReadingEveryParam:
         assert thresholds[0]["params"]["mos_threshold"] == 3.0
 
     def test_an_unknown_run_id_is_still_an_error_not_an_empty_overview(self, store: Path) -> None:
-        assert "error" in verbs.runs(run_id="run-nope")
+        assert "error" in _verb_reuse.runs(run_id="run-nope")
 
 
 class TestFindRunsCanFilterByPath:

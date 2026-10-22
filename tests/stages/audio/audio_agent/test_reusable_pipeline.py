@@ -19,7 +19,14 @@ import pytest
 
 from nemo_curator.stages.audio import audio_agent as aa
 from nemo_curator.stages.audio.audio_agent import (
+    _checkpoint_decisions,
     _safety,
+    _verb_delta,
+    _verb_inputs,
+    _verb_publish,
+    _verb_reuse,
+    _verb_run,
+    _verb_validation,
     artifacts,
     checkpoint,
     cli,
@@ -28,7 +35,6 @@ from nemo_curator.stages.audio.audio_agent import (
     reusable_pipeline,
     reuse,
     run_store,
-    verbs,
 )
 from nemo_curator.stages.audio.audio_agent.contracts import RunRecord
 from nemo_curator.stages.audio.audio_agent.profiler import profile_data
@@ -438,7 +444,7 @@ def test_from_run_adoption_inherits_planning_preference(
         )
     )
 
-    adopted, _summary, refusal = verbs._adopt_recipe("preference-parent")
+    adopted, _summary, refusal = _verb_delta._adopt_recipe("preference-parent")
 
     assert refusal is None
     assert adopted.planning_preference == recipe.planning_preference
@@ -501,7 +507,7 @@ def test_checkpoint_execution_checks_the_approved_branch_before_carrying_evidenc
         json.dumps({"audio_filepath": str(path), "duration": 7.0}) + "\n" for path in (audio, unchanged)
     ).encode()
     checkpoint_path.write_bytes(checkpoint_bytes)
-    profile = verbs._profile_binding(verbs._dataset_binding(initial, None))
+    profile = _verb_inputs._profile_binding(_verb_inputs._dataset_binding(initial, None))
     step = artifacts.plan_steps(initial, profile.dataset_key())[2]
     artifacts.publish(
         artifacts.Artifact(
@@ -541,7 +547,11 @@ def test_checkpoint_execution_checks_the_approved_branch_before_carrying_evidenc
             assert _safety.verify_smoke_token(kwargs["smoke_token"], recipe.config_hash)
         return {"status": "completed"}
 
-    monkeypatch.setattr(verbs, "run" if operation == "continuation" else "_execute_delta", execute)
+    monkeypatch.setattr(
+        _verb_run if operation == "continuation" else _verb_delta,
+        "run" if operation == "continuation" else "_execute_delta",
+        execute,
+    )
     if operation == "continuation":
         result = aa.plan_continuation(tuned, execute=True, choice="extend", confirm=confirmation, smoke_token=token)
     else:
@@ -605,7 +615,7 @@ def test_published_checkpoint_expiry_does_not_expire_final_outputs(
     checkpoint_path.write_text('{"audio_filepath":"clip.wav","duration":7.0}\n')
     final_path = Path(recipe.stages[-1].params["output_path"])
     final_path.write_bytes(checkpoint_path.read_bytes())
-    published = verbs._publish_artifacts(
+    published = _verb_publish._publish_artifacts(
         recipe,
         stages,
         dataset_key=_KEY,
@@ -1242,7 +1252,7 @@ def test_intervening_stage_must_prove_exact_score_preservation(tmp_path: Path, i
     recipe.stages.insert(2, intervening)
     built, errors = build_stages(recipe)
     assert not errors
-    assert reusable_pipeline._score_lineage_reason(
+    assert _checkpoint_decisions._score_lineage_reason(
         recipe,
         built,
         producer_index=1,
@@ -1464,7 +1474,7 @@ def test_changed_dataset_is_routed_to_existing_delta_flow(tmp_path: Path, monkey
             status="completed",
         )
     )
-    monkeypatch.setattr(verbs, "_dataset_key_arg", lambda _data: "stat:current")
+    monkeypatch.setattr(_verb_reuse, "_dataset_key_arg", lambda _data: "stat:current")
 
     result = aa.plan_checkpoint(
         from_run="prior-run",
@@ -1498,7 +1508,7 @@ def test_checkpoint_artifact_uses_cumulative_prefix_trust(tmp_path: Path, monkey
     published: list[artifacts.Artifact] = []
     monkeypatch.setattr(artifacts, "publish", lambda artifact: published.append(artifact) or artifact)
 
-    verbs._publish_artifacts(
+    _verb_publish._publish_artifacts(
         recipe,
         stages,
         dataset_key="stat:data",
@@ -1526,7 +1536,7 @@ def test_validation_refuses_checkpoint_collision_even_when_authored_by_hand(tmp_
     recipe = _duration_recipe(tmp_path, checkpoint=True)
     recipe.stages[-1].params["output_path"] = recipe.stages[2].params["output_path"]
 
-    reasons = verbs._checkpoint_output_refusals(recipe)
+    reasons = _verb_validation._checkpoint_output_refusals(recipe)
 
     assert reasons
     assert "collides" in reasons[0]
@@ -2052,7 +2062,7 @@ def test_a_published_artifact_records_what_produced_it(
     published: list[artifacts.Artifact] = []
     monkeypatch.setattr(artifacts, "publish", lambda artifact: published.append(artifact) or artifact)
 
-    verbs._publish_artifacts(
+    _verb_publish._publish_artifacts(
         recipe,
         stages,
         dataset_key="stat:data",
@@ -2205,7 +2215,7 @@ def test_retention_policy_still_reaches_the_artifact_record(
     published: list[artifacts.Artifact] = []
     monkeypatch.setattr(artifacts, "publish", lambda artifact: published.append(artifact) or artifact)
 
-    verbs._publish_artifacts(
+    _verb_publish._publish_artifacts(
         recipe,
         stages,
         dataset_key="stat:data",
@@ -2232,7 +2242,7 @@ def test_prepare_only_breaks_nested_score_lineage(tmp_path: Path, nested: bool) 
     recipe = Recipe.from_dict(value)
     stages, issues = build_stages(recipe)
     assert issues == []
-    reason = reusable_pipeline._score_lineage_reason(
+    reason = _checkpoint_decisions._score_lineage_reason(
         recipe,
         stages,
         producer_index=1,

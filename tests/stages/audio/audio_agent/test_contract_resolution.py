@@ -38,7 +38,7 @@ import pytest
 
 from nemo_curator.stages.audio import audio_agent as aa
 from nemo_curator.stages.audio._agent._agent_registry import stage_params
-from nemo_curator.stages.audio.audio_agent import cli, verbs
+from nemo_curator.stages.audio.audio_agent import _verb_inspection, cli
 from nemo_curator.stages.audio.audio_agent._resolve import resolve_stage_class, resolved_contract_for
 
 
@@ -112,7 +112,7 @@ class TestADescribeAnswersTheQuestionItIsAskedFor:
         keys to report and nothing is being hidden.
         """
         mute = []
-        for entry in verbs.discover()["stages"]:
+        for entry in _verb_inspection.discover()["stages"]:
             out = aa.describe(entry["stage"])
             contract = out.get("contract") or {}
             if contract.get("accepts_task_type") != contract.get("produces_task_type"):
@@ -297,7 +297,7 @@ class TestAskingIsFree:
 
         risky = re.compile(r"\b(?:makedirs|mkdir|rmtree|urlopen|snapshot_download)\b|\bopen\(|requests\.")
         offenders = []
-        for entry in verbs.discover()["stages"]:
+        for entry in _verb_inspection.discover()["stages"]:
             cls = resolve_stage_class(entry["stage"])
             init = cls.__dict__.get("__init__")
             if init is None:
@@ -388,7 +388,7 @@ class TestTheDeclaredParamsAreConsistentWithWhatConstructionNeeds:
     def test_every_required_param_is_accepted_by_the_constructor(self) -> None:
         """``retry_with`` is only useful if passing those names actually works."""
         broken = []
-        for entry in verbs.discover()["stages"]:
+        for entry in _verb_inspection.discover()["stages"]:
             cls = resolve_stage_class(entry["stage"])
             specs = stage_params(cls)
             accepted = {spec.name for spec in specs}
@@ -488,7 +488,7 @@ def test_upstream_asr_wrappers_remain_importable_but_not_agent_selectable(module
     import importlib
 
     assert hasattr(importlib.import_module(module), name)
-    assert name not in {entry["stage"] for entry in verbs.discover()["stages"]}
+    assert name not in {entry["stage"] for entry in _verb_inspection.discover()["stages"]}
     with pytest.raises(KeyError, match="not a registered agent-ready audio stage"):
         resolve_stage_class(name)
 

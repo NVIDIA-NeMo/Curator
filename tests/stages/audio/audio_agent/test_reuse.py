@@ -28,7 +28,20 @@ from typing import Any, ClassVar
 
 import pytest
 
-from nemo_curator.stages.audio.audio_agent import artifacts, continuation, profiler, reuse, run_index, verbs
+from nemo_curator.stages.audio.audio_agent import (
+    _verb_continuation,
+    _verb_evidence,
+    _verb_publish,
+    _verb_reuse,
+    _verb_run,
+    _verb_runtime,
+    _verb_validation,
+    artifacts,
+    continuation,
+    profiler,
+    reuse,
+    run_index,
+)
 from nemo_curator.stages.audio.audio_agent.recipe import Recipe
 
 _READER = {"ref": "ManifestReader", "params": {"manifest_path": "/tmp/m.jsonl"}}  # noqa: S108
@@ -132,7 +145,7 @@ class TestContractShape:
         # Constructed past the door (a hand-built Recipe skips from_dict), so the run
         # must still say the bar went unchecked rather than imply it passed.
         rec = Recipe(stages=[], acceptance_criteria=["not a criterion"])
-        result = verbs._acceptance_result(rec, None, [], [])
+        result = _verb_evidence._acceptance_result(rec, None, [], [])
         assert result["overall"] == "unverifiable"
         assert "could not verify" in result["reason"]
 
@@ -487,7 +500,7 @@ class TestReuseDecision:
 
         monkeypatch.setattr(artifacts, "plan_steps", unexpected_plan)
 
-        published = verbs._publish_artifacts(
+        published = _verb_publish._publish_artifacts(
             rec,
             [object() for _ in rec.stages],
             dataset_key="",
@@ -878,7 +891,7 @@ class TestMaterializer:
             },
         }
 
-        result = verbs._execute_plan(
+        result = _verb_continuation._execute_plan(
             rec,
             plan,
             choice="extend",
@@ -969,8 +982,8 @@ class TestIndex:
         # Every scan prints dataset_key, so it is the obvious thing to paste into
         # `runs --data`. Profiling it as a path would quietly match nothing.
         src, key = _real_source(tmp_path)
-        assert verbs._dataset_key_arg(key) == key
-        assert verbs._dataset_key_arg(src) == key
+        assert _verb_reuse._dataset_key_arg(key) == key
+        assert _verb_reuse._dataset_key_arg(src) == key
 
     def test_a_failure_on_commit_stays_inside_the_cache(self, store: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         # The index is an advisory cache over the JSON records, so a locked database must degrade
@@ -1103,7 +1116,7 @@ class TestContinueVerb:
             )
         )
 
-        result = verbs.plan_continuation(
+        result = _verb_continuation.plan_continuation(
             rec,
             data=src,
             execute=True,
@@ -1128,7 +1141,7 @@ class TestContinueVerb:
         rec.freeze()
         _publish(rec, 3, dataset_key=key)
 
-        result = verbs.plan_continuation(
+        result = _verb_continuation.plan_continuation(
             rec,
             data=src,
             execute=True,
@@ -1162,7 +1175,7 @@ class TestContinueVerb:
             encoding="utf-8",
         )
 
-        result = verbs.plan_continuation(
+        result = _verb_continuation.plan_continuation(
             rec,
             data=src,
             execute=True,
@@ -1209,7 +1222,7 @@ class TestContinueVerb:
             seen["confirm"] = kwargs.get("confirm")
             return {"status": "completed", "run_id": "captured"}
 
-        monkeypatch.setattr(verbs, "run", _capture)
+        monkeypatch.setattr(_verb_run, "run", _capture)
         result = aa.plan_continuation(rec.to_dict(), data=src, execute=True, choice="extend", confirm=rec.config_hash)
 
         assert result.get("status") == "completed", result
@@ -1230,7 +1243,7 @@ class TestContinueVerb:
         def _must_not_run(*_args, **_kwargs):  # noqa: ANN202
             raise AssertionError("a mismatched confirmation reached run()")  # noqa: EM101
 
-        monkeypatch.setattr(verbs, "run", _must_not_run)
+        monkeypatch.setattr(_verb_run, "run", _must_not_run)
         result = aa.plan_continuation(
             rec.to_dict(), data=src, execute=True, choice="extend", confirm="0000000000000000"
         )
@@ -1304,25 +1317,25 @@ class TestContinueVerb:
             return "continued-run"
 
         monkeypatch.delenv("AUDIO_AGENT_REQUIRE_SMOKE", raising=False)
-        monkeypatch.setattr(verbs, "validate", lambda *_args, **_kwargs: {"runnable": True})
-        monkeypatch.setattr(verbs, "probe_env", lambda: env)
-        monkeypatch.setattr(verbs, "build_stages", fake_build)
-        monkeypatch.setattr(verbs, "_plan_resources", lambda *_args, **_kwargs: resource_plan)
-        monkeypatch.setattr(verbs, "_run_pipeline_autofallback", fake_execute)
-        monkeypatch.setattr(verbs, "build_run_report", fake_report)
-        monkeypatch.setattr(verbs, "_produced_roles_keys", lambda *_args, **_kw: ([], []))
+        monkeypatch.setattr(_verb_validation, "validate", lambda *_args, **_kwargs: {"runnable": True})
+        monkeypatch.setattr(profiler, "probe_env", lambda: env)
+        monkeypatch.setattr(_verb_run, "build_stages", fake_build)
+        monkeypatch.setattr(_verb_runtime, "_plan_resources", lambda *_args, **_kwargs: resource_plan)
+        monkeypatch.setattr(_verb_runtime, "_run_pipeline_autofallback", fake_execute)
+        monkeypatch.setattr(_verb_run._report_data, "build_run_report", fake_report)
+        monkeypatch.setattr(_verb_publish, "_produced_roles_keys", lambda *_args, **_kw: ([], []))
 
         def capture_acceptance(_recipe, report, *_args, **kwargs):  # noqa: ANN001, ANN202
             captured["acceptance_source_items"] = report.input_count
             captured["acceptance_source_recipe"] = kwargs["source_recipe"]
             return {}
 
-        monkeypatch.setattr(verbs, "_acceptance_result", capture_acceptance)
-        monkeypatch.setattr(verbs, "_publish_artifacts", fake_publish)
-        monkeypatch.setattr(verbs, "_record_run", fake_record)
+        monkeypatch.setattr(_verb_evidence, "_acceptance_result", capture_acceptance)
+        monkeypatch.setattr(_verb_publish, "_publish_artifacts", fake_publish)
+        monkeypatch.setattr(_verb_publish, "_record_run", fake_record)
         monkeypatch.setattr(run_store, "new_run_id", lambda _config_hash: "continued-run")
 
-        result = verbs.plan_continuation(
+        result = _verb_continuation.plan_continuation(
             rec,
             data=src,
             execute=True,
@@ -1367,7 +1380,7 @@ class TestContinueVerb:
         assert physical_a is not None, err
 
         logical_b, _mid_b, _final_b = _pipeline(source_b_dir, source=source_b)
-        poisoned = verbs._ContinuationRunContext(
+        poisoned = _verb_continuation._ContinuationRunContext(
             logical_recipe=logical_b.to_dict(),
             dataset_key=key_b,
             reuse_step_key=artifact_a.step_key,
@@ -1378,10 +1391,10 @@ class TestContinueVerb:
             raise AssertionError(msg)
 
         monkeypatch.delenv("AUDIO_AGENT_REQUIRE_SMOKE", raising=False)
-        monkeypatch.setattr(verbs, "probe_env", must_not_execute)
-        monkeypatch.setattr(verbs, "build_stages", must_not_execute)
+        monkeypatch.setattr(profiler, "probe_env", must_not_execute)
+        monkeypatch.setattr(_verb_run, "build_stages", must_not_execute)
 
-        result = verbs.run(
+        result = _verb_run.run(
             physical_a,
             confirm=True,
             _continuation_context=poisoned,
@@ -1412,7 +1425,7 @@ class TestContinueVerb:
         value: Any,  # noqa: ANN401
     ) -> None:
         with pytest.raises(TypeError, match=name):
-            verbs.run(
+            _verb_run.run(
                 _frozen([_READER]),
                 confirm=True,
                 **{name: value},
@@ -1422,7 +1435,7 @@ class TestContinueVerb:
         # An extend runs a REWRITTEN recipe (reader-on-artifact + tail). Publishing the tail
         # under that rewritten identity would describe a pipeline nobody asked for, so the same
         # follow-up request would recompute the tail forever.
-        from nemo_curator.stages.audio.audio_agent import continuation, verbs
+        from nemo_curator.stages.audio.audio_agent import continuation
         from nemo_curator.stages.audio.audio_agent.recipe import build_stages
 
         _src, key = _real_source(store)
@@ -1435,7 +1448,7 @@ class TestContinueVerb:
         assert stages is not None, issues
         Path(final).write_text('{"audio_filepath": "/tmp/a.wav", "duration": 1.0}\n')
 
-        published = verbs._publish_artifacts(
+        published = _verb_publish._publish_artifacts(
             materialized,
             stages,
             dataset_key=key,
@@ -1485,7 +1498,7 @@ class TestContractJudgesTheData:
     @staticmethod
     def _verdict(out: str, rec: Recipe) -> dict[str, Any]:
         report = type("R", (), {"accepted": 3, "input_count": 3, "output_paths": [out]})()
-        return verbs._acceptance_result(
+        return _verb_evidence._acceptance_result(
             TestContractJudgesTheData._with_writer(rec, out),
             report,
             ["duration"],
@@ -1547,7 +1560,7 @@ class TestContractJudgesTheData:
             }
         )
         report = type("R", (), {"accepted": 2, "input_count": 2, "output_paths": [out]})()
-        verdict = verbs._acceptance_result(
+        verdict = _verb_evidence._acceptance_result(
             self._with_writer(rec, out),
             report,
             ["transcript"],
@@ -1563,7 +1576,7 @@ class TestContractJudgesTheData:
         early.write_text('{"audio_filepath": "a.wav"}\n', encoding="utf-8")
         final = self._manifest(tmp_path, [{"duration": 1.0}, {"duration": 2.0}, {"duration": 3.0}])
         report = type("R", (), {"accepted": 3, "input_count": 3, "output_paths": [str(early), final]})()
-        verdict = verbs._acceptance_result(
+        verdict = _verb_evidence._acceptance_result(
             self._with_writer(self._recipe(), final),
             report,
             ["duration"],
@@ -1575,7 +1588,7 @@ class TestContractJudgesTheData:
     def test_unreadable_output_is_unverifiable_not_declaration_level_met(self, tmp_path: Path) -> None:
         missing = str(tmp_path / "never_written.jsonl")
         report = type("R", (), {"accepted": 3, "input_count": 3, "output_paths": [missing]})()
-        verdict = verbs._acceptance_result(
+        verdict = _verb_evidence._acceptance_result(
             self._with_writer(self._recipe(), missing),
             report,
             ["duration"],
@@ -1594,20 +1607,20 @@ class TestContractJudgesTheData:
     ) -> None:
         out = tmp_path / "large.jsonl"
         out.write_text(
-            ('{"duration": 1.0}\n' * verbs._EVIDENCE_ROWS) + bad_line,
+            ('{"duration": 1.0}\n' * _verb_evidence._EVIDENCE_ROWS) + bad_line,
             encoding="utf-8",
         )
         report = type(
             "R",
             (),
             {
-                "accepted": verbs._EVIDENCE_ROWS + 1,
-                "input_count": verbs._EVIDENCE_ROWS + 1,
+                "accepted": _verb_evidence._EVIDENCE_ROWS + 1,
+                "input_count": _verb_evidence._EVIDENCE_ROWS + 1,
                 "output_paths": [str(out)],
             },
         )()
 
-        verdict = verbs._acceptance_result(
+        verdict = _verb_evidence._acceptance_result(
             self._with_writer(self._recipe(), str(out)),
             report,
             ["duration"],
@@ -1635,7 +1648,7 @@ class TestContractJudgesTheData:
             {"accepted": 1, "input_count": 1, "output_paths": [str(early), str(terminal)]},
         )()
 
-        verdict = verbs._acceptance_result(
+        verdict = _verb_evidence._acceptance_result(
             self._with_writer(self._recipe(), str(terminal)),
             report,
             ["duration"],
@@ -1649,16 +1662,16 @@ class TestContractJudgesTheData:
     def test_the_row_preview_is_bounded_while_the_scan_still_counts_every_row(self, tmp_path: Path) -> None:
         """The preview is what a caller holds in memory, so it is capped; the summary beside it
         is not, or a bad row past the cap would be invisible to the success contract."""
-        rows = verbs._EVIDENCE_ROWS + 50
+        rows = _verb_evidence._EVIDENCE_ROWS + 50
         out = self._manifest(tmp_path, [{"duration": 1.0}] * rows)
-        preview, summary = verbs._scan_terminal_output([out], limit=verbs._EVIDENCE_ROWS)
-        assert len(preview) == verbs._EVIDENCE_ROWS
+        preview, summary = _verb_evidence._scan_terminal_output([out], limit=_verb_evidence._EVIDENCE_ROWS)
+        assert len(preview) == _verb_evidence._EVIDENCE_ROWS
         assert summary["valid_rows"] == rows
 
     def test_late_per_item_metric_failure_is_checked_beyond_the_preview(self, tmp_path: Path) -> None:
         out = self._manifest(
             tmp_path,
-            ([{"mos": 4.5}] * verbs._EVIDENCE_ROWS) + [{"mos": 3.0}],
+            ([{"mos": 4.5}] * _verb_evidence._EVIDENCE_ROWS) + [{"mos": 3.0}],
         )
         rec = Recipe.from_dict(
             {
@@ -1687,13 +1700,13 @@ class TestContractJudgesTheData:
             "R",
             (),
             {
-                "accepted": verbs._EVIDENCE_ROWS + 1,
-                "input_count": verbs._EVIDENCE_ROWS + 1,
+                "accepted": _verb_evidence._EVIDENCE_ROWS + 1,
+                "input_count": _verb_evidence._EVIDENCE_ROWS + 1,
                 "output_paths": [out],
             },
         )()
 
-        verdict = verbs._acceptance_result(
+        verdict = _verb_evidence._acceptance_result(
             rec,
             report,
             ["score"],
@@ -1723,7 +1736,7 @@ class TestContractJudgesTheData:
             },
         )()
 
-        verdict = verbs._acceptance_result(
+        verdict = _verb_evidence._acceptance_result(
             self._with_writer(self._recipe(), out),
             report,
             ["duration"],
@@ -1765,7 +1778,7 @@ class TestContractJudgesTheData:
             {"accepted": 3, "input_count": 3, "output_paths": [out]},
         )()
 
-        verdict = verbs._acceptance_result(
+        verdict = _verb_evidence._acceptance_result(
             rec,
             report,
             ["pred_text"],
@@ -1790,7 +1803,7 @@ class TestContractJudgesTheData:
         )
         location = out.as_uri() if as_uri else str(out)
 
-        preview, scan = verbs._scan_terminal_output([location])
+        preview, scan = _verb_evidence._scan_terminal_output([location])
 
         assert preview == [{"duration": 1.0}, {"duration": 2.0}]
         assert scan["status"] == "complete"
@@ -1807,7 +1820,7 @@ class TestContractJudgesTheData:
                 fh.write('{"pred_text": "hello"}\n')
                 fh.write('{"pred_text": "world"}\n')
 
-            preview, scan = verbs._scan_terminal_output([uri])
+            preview, scan = _verb_evidence._scan_terminal_output([uri])
 
             assert preview == [
                 {"pred_text": "hello"},
@@ -1833,7 +1846,9 @@ class TestReuseHonorsTheRequestedPath:
         wanted = tmp_path / "new.jsonl"
         rec = _frozen([_READER, {"ref": "ManifestWriterStage", "params": {"output_path": str(wanted)}}])
 
-        out = verbs._serve_as_is(rec, {"reuse_point": {"uri": str(stored), "rows": 1}}, parent=None, lineage={})
+        out = _verb_continuation._serve_as_is(
+            rec, {"reuse_point": {"uri": str(stored), "rows": 1}}, parent=None, lineage={}
+        )
 
         assert out["status"] == "reused"
         assert out["output"] == str(wanted)
@@ -1845,7 +1860,9 @@ class TestReuseHonorsTheRequestedPath:
         stored.write_text('{"duration": 1.0}\n', encoding="utf-8")
         rec = _frozen([_READER, {"ref": "ManifestWriterStage", "params": {"output_path": str(stored)}}])
 
-        out = verbs._serve_as_is(rec, {"reuse_point": {"uri": str(stored), "rows": 1}}, parent=None, lineage={})
+        out = _verb_continuation._serve_as_is(
+            rec, {"reuse_point": {"uri": str(stored), "rows": 1}}, parent=None, lineage={}
+        )
 
         assert out["output"] == str(stored)
         assert "copied to" not in out["note"]
@@ -1857,7 +1874,7 @@ class TestReuseHonorsTheRequestedPath:
         wanted = tmp_path / "wanted"
         rec = _frozen([{"ref": "ManifestGroupExportStage", "params": {"output_dir": str(wanted)}}])
 
-        output, delivered = verbs._deliver_to_declared_path(rec, str(stored))
+        output, delivered = _verb_continuation._deliver_to_declared_path(rec, str(stored))
 
         assert (output, delivered) == (str(wanted), True)
         assert sorted(path.name for path in wanted.iterdir()) == ["fresh.jsonl"]
@@ -1868,7 +1885,7 @@ class TestReuseHonorsTheRequestedPath:
         wanted = tmp_path / "wanted.jsonl"
         rec = _frozen([_READER, {"ref": "ManifestWriterStage", "params": {"output_path": str(wanted)}}])
 
-        output, delivered = verbs._deliver_to_declared_path(
+        output, delivered = _verb_continuation._deliver_to_declared_path(
             rec,
             str(stored),
             expected_digest="sha256:the-digest-recorded-before-the-source-changed",
@@ -1887,7 +1904,7 @@ class TestReuseHonorsTheRequestedPath:
         stale.write_text('{"duration": 99.0}\n', encoding="utf-8")
         rec = _frozen([{"ref": "ManifestGroupExportStage", "params": {"output_dir": str(wanted)}}])
 
-        result = verbs._serve_as_is(
+        result = _verb_continuation._serve_as_is(
             rec,
             {"reuse_point": {"uri": str(stored), "rows": 1}},
             parent=None,
@@ -1908,7 +1925,9 @@ class TestReuseHonorsTheRequestedPath:
             [_READER, {"ref": "ManifestWriterStage", "params": {"output_path": str(blocker / "want.jsonl")}}]
         )
 
-        out = verbs._serve_as_is(rec, {"reuse_point": {"uri": str(stored), "rows": 1}}, parent=None, lineage={})
+        out = _verb_continuation._serve_as_is(
+            rec, {"reuse_point": {"uri": str(stored), "rows": 1}}, parent=None, lineage={}
+        )
 
         assert out["status"] == "refused"
         assert "could not be copied" in out["reason"]
@@ -1919,7 +1938,9 @@ class TestReuseHonorsTheRequestedPath:
             [_READER, {"ref": "ManifestWriterStage", "params": {"output_path": str(tmp_path / "want.jsonl")}}]
         )
 
-        out = verbs._serve_as_is(rec, {"reuse_point": {"uri": str(stored), "rows": 1}}, parent=None, lineage={})
+        out = _verb_continuation._serve_as_is(
+            rec, {"reuse_point": {"uri": str(stored), "rows": 1}}, parent=None, lineage={}
+        )
 
         assert out["status"] == "refused"
         assert "does not exist or is empty" in out["reason"]
@@ -1929,7 +1950,9 @@ class TestReuseHonorsTheRequestedPath:
         stored.write_text('{"duration": 1.0}\n', encoding="utf-8")
         rec = _frozen([_READER])
 
-        out = verbs._serve_as_is(rec, {"reuse_point": {"uri": str(stored), "rows": 1}}, parent=None, lineage={})
+        out = _verb_continuation._serve_as_is(
+            rec, {"reuse_point": {"uri": str(stored), "rows": 1}}, parent=None, lineage={}
+        )
 
         assert out["output"] == str(stored)
 
@@ -1947,7 +1970,7 @@ class TestOutputTargetsAreStatedNotGuessed:
         out.write_text('{"a": 1}\n{"a": 2}\n{"a": 3}\n', encoding="utf-8")
         rec = _frozen([_READER, {"ref": "ManifestWriterStage", "params": {"output_path": str(out)}}])
 
-        target = next(t for t in verbs._output_targets(rec) if t["path"] == str(out))
+        target = next(t for t in _verb_validation._output_targets(rec) if t["path"] == str(out))
 
         assert target["exists"] is True
         assert target["kind"] == "file"
@@ -1958,7 +1981,7 @@ class TestOutputTargetsAreStatedNotGuessed:
         out = tmp_path / "not_yet.jsonl"
         rec = _frozen([_READER, {"ref": "ManifestWriterStage", "params": {"output_path": str(out)}}])
 
-        target = next(t for t in verbs._output_targets(rec) if t["path"] == str(out))
+        target = next(t for t in _verb_validation._output_targets(rec) if t["path"] == str(out))
 
         assert target["exists"] is False
         assert "note" not in target  # nothing to warn about
@@ -1970,7 +1993,7 @@ class TestOutputTargetsAreStatedNotGuessed:
         (groups / "b.txt").write_text("y", encoding="utf-8")
         rec = _frozen([_READER, {"ref": "ManifestGroupExportStage", "params": {"output_dir": str(groups)}}])
 
-        target = next(t for t in verbs._output_targets(rec) if t["path"] == str(groups))
+        target = next(t for t in _verb_validation._output_targets(rec) if t["path"] == str(groups))
 
         assert target["kind"] == "directory"
         assert target["files"] == 2
@@ -1978,7 +2001,7 @@ class TestOutputTargetsAreStatedNotGuessed:
     def test_validate_carries_the_targets_through(self, tmp_path: Path) -> None:
         out = tmp_path / "v.jsonl"
         out.write_text('{"a": 1}\n', encoding="utf-8")
-        verdict = verbs.validate(
+        verdict = _verb_validation.validate(
             {"stages": [_READER, {"ref": "ManifestWriterStage", "params": {"output_path": str(out)}}]}
         )
 
@@ -1986,7 +2009,7 @@ class TestOutputTargetsAreStatedNotGuessed:
         assert target["rows"] == 1
 
     def test_a_recipe_writing_nowhere_reports_no_targets(self) -> None:
-        assert verbs._output_targets(_frozen([_READER])) == []
+        assert _verb_validation._output_targets(_frozen([_READER])) == []
 
 
 class TestUnsavedPriorPrefixIsDisclosed:
@@ -2149,13 +2172,13 @@ class TestUnsavedPriorPrefixIsDisclosed:
         data, key = self._corpus(tmp_path)
         reader = {"ref": "ManifestReader", "params": {"manifest_path": data}}
         self._record_prior_run(_frozen([reader, _DUR, _WRITER]), dataset_key=key)
-        plan = verbs.plan_continuation(self._phase3(data), data=data)
+        plan = _verb_continuation.plan_continuation(self._phase3(data), data=data)
         assert plan["prior_unsaved"]["stages"] == ["ManifestReader", "GetAudioDurationStage"]
         assert plan["offer"]["why"]  # the offer travels with it, whatever it concludes
 
     def test_the_gate_stays_quiet_when_there_is_nothing_to_disclose(self, store: Path, tmp_path: Path) -> None:
         data, _key = self._corpus(tmp_path)
-        plan = verbs.plan_continuation(self._phase3(data), data=data)
+        plan = _verb_continuation.plan_continuation(self._phase3(data), data=data)
         assert "prior_unsaved" not in plan
         assert "offer" not in plan
 
@@ -2252,7 +2275,7 @@ class TestBothReuseEnginesClearTheSameBar:
     def test_the_parent_diff_plan_carries_a_validated_resume_point(self, store: Path, tmp_path: Path) -> None:
         data, key = self._corpus(tmp_path)
         _rec, out = self._parent(tmp_path, key, data)
-        plan = verbs.plan_continuation(self._extended(out, tmp_path, data), "parent", data=data)
+        plan = _verb_continuation.plan_continuation(self._extended(out, tmp_path, data), "parent", data=data)
         assert plan["mode"] == "incremental"
         assert plan["reuse_point"]["uri"] == out
         assert plan["reuse_point"]["step_key"]  # resolved from the registry, not from a path list
@@ -2260,7 +2283,7 @@ class TestBothReuseEnginesClearTheSameBar:
     def test_extend_is_no_longer_refused_for_want_of_a_uri(self, store: Path, tmp_path: Path) -> None:
         data, key = self._corpus(tmp_path)
         _rec, out = self._parent(tmp_path, key, data)
-        result = verbs.plan_continuation(
+        result = _verb_continuation.plan_continuation(
             self._extended(out, tmp_path, data), "parent", data=data, execute=True, choice="extend", confirm=False
         )
         # It stops at the confirm gate, which is correct; what it must not do is claim there is
@@ -2285,9 +2308,9 @@ class TestBothReuseEnginesClearTheSameBar:
                 output_paths=[out],
             )
         )
-        plan = verbs.plan_continuation(self._extended(out, tmp_path, data), "unbacked", data=data)
+        plan = _verb_continuation.plan_continuation(self._extended(out, tmp_path, data), "unbacked", data=data)
         assert plan.get("reuse_point_unavailable")
-        result = verbs.plan_continuation(
+        result = _verb_continuation.plan_continuation(
             self._extended(out, tmp_path, data), "unbacked", data=data, execute=True, choice="extend", confirm=False
         )
         assert result["status"] == "refused"
@@ -2321,7 +2344,7 @@ class TestBothReuseEnginesClearTheSameBar:
                 {"ref": "ManifestWriterStage", "params": {"output_path": str(tmp_path / "end.jsonl")}},
             ]
         )
-        plan = verbs.plan_continuation(extended, "deep", data=data)
+        plan = _verb_continuation.plan_continuation(extended, "deep", data=data)
         assert plan["reuse_point"]["uri"] == mid
         assert plan["source"] == "artifact_scan"
         assert "no reusable artifact" in plan["superseded_parent_diff"]
@@ -2375,7 +2398,7 @@ class TestAContinuedRunRecordsWhatWasAskedFor:
             failures=[],
             rows=1,
         )
-        run_id = verbs._record_run(
+        run_id = _verb_publish._record_run(
             materialized,
             run_id="continued",
             data=None,
@@ -2401,7 +2424,7 @@ class TestAContinuedRunRecordsWhatWasAskedFor:
         report = SimpleNamespace(
             accepted=1, input_count=1, output_paths=[], per_stage_metrics={}, stages=[], failures=[], rows=1
         )
-        run_id = verbs._record_run(
+        run_id = _verb_publish._record_run(
             asked,
             run_id="plain",
             data=None,
@@ -2472,7 +2495,7 @@ class TestServingAnExistingOutputIsEarned:
         reader = {"ref": "ManifestReader", "params": {"manifest_path": data}}
         rec = _frozen([reader, _DUR, {"ref": "ManifestWriterStage", "params": {"output_path": ghost}}])
         self._record(rec, key, ghost)
-        result = verbs.plan_continuation(rec, "p", data=data, execute=True, choice="as_is", confirm=False)
+        result = _verb_continuation.plan_continuation(rec, "p", data=data, execute=True, choice="as_is", confirm=False)
         assert result["status"] == "refused"
         assert "does not exist or is empty" in result["reason"]
 
@@ -2484,7 +2507,9 @@ class TestServingAnExistingOutputIsEarned:
         rec = _frozen([reader, _DUR, {"ref": "ManifestWriterStage", "params": {"output_path": str(empty)}}])
         self._record(rec, key, str(empty))
         assert (
-            verbs.plan_continuation(rec, "p", data=data, execute=True, choice="as_is", confirm=False)["status"]
+            _verb_continuation.plan_continuation(rec, "p", data=data, execute=True, choice="as_is", confirm=False)[
+                "status"
+            ]
             == "refused"
         )
 
@@ -2495,7 +2520,7 @@ class TestServingAnExistingOutputIsEarned:
         reader = {"ref": "ManifestReader", "params": {"manifest_path": data}}
         rec = _frozen([reader, _DUR, {"ref": "ManifestWriterStage", "params": {"output_path": str(partial)}}])
         self._record(rec, key, str(partial), status="failed")
-        result = verbs.plan_continuation(rec, "p", data=data, execute=True, choice="as_is", confirm=False)
+        result = _verb_continuation.plan_continuation(rec, "p", data=data, execute=True, choice="as_is", confirm=False)
         assert result["status"] == "refused"
         assert "not a complete result" in result["reason"]
 
@@ -2525,12 +2550,12 @@ class TestServingAnExistingOutputIsEarned:
         self._record(rec, key, str(outside))
         monkeypatch.setenv("AUDIO_AGENT_WORKSPACE", str(workspace))
         monkeypatch.setattr(
-            verbs,
+            _verb_continuation,
             "_has_content",
             lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("outside legacy output was read")),
         )
 
-        result = verbs.plan_continuation(
+        result = _verb_continuation.plan_continuation(
             rec,
             "p",
             data=data,
@@ -2550,7 +2575,7 @@ class TestServingAnExistingOutputIsEarned:
         rec = _frozen([reader, _DUR, {"ref": "ManifestWriterStage", "params": {"output_path": out}}])
         _publish(rec, 2, dataset_key=key)
         self._record(rec, key, out)
-        result = verbs.plan_continuation(rec, "p", data=data, execute=True, choice="as_is", confirm=False)
+        result = _verb_continuation.plan_continuation(rec, "p", data=data, execute=True, choice="as_is", confirm=False)
         assert result["status"] == "reused"
         assert result["evidence"] == "artifact"
 
@@ -2563,7 +2588,7 @@ class TestServingAnExistingOutputIsEarned:
         reader = {"ref": "ManifestReader", "params": {"manifest_path": data}}
         rec = _frozen([reader, _DUR, {"ref": "ManifestWriterStage", "params": {"output_path": str(out)}}])
         self._record(rec, key, str(out))
-        result = verbs.plan_continuation(rec, "p", data=data, execute=True, choice="as_is", confirm=False)
+        result = _verb_continuation.plan_continuation(rec, "p", data=data, execute=True, choice="as_is", confirm=False)
         assert result["status"] == "reused"
         assert result["evidence"] == "run_record"
         assert "No artifact record backs this output" in result["note"]
@@ -2575,7 +2600,7 @@ class TestServingAnExistingOutputIsEarned:
         reader = {"ref": "ManifestReader", "params": {"manifest_path": data}}
         rec = _frozen([reader, _DUR, {"ref": "ManifestWriterStage", "params": {"output_path": declared}}])
         self._record(rec, key, ghost)
-        verbs.plan_continuation(rec, "p", data=data, execute=True, choice="as_is", confirm=False)
+        _verb_continuation.plan_continuation(rec, "p", data=data, execute=True, choice="as_is", confirm=False)
         assert not os.path.exists(declared)
 
 
@@ -2587,24 +2612,24 @@ class TestTheRecommendationIsActedOn:
         _publish(rec, 3, fingerprint_tier="shape")  # cannot see a file edited in place
         scan = reuse.scan(rec, dataset_key=_KEY)
         assert scan["recommended"] == "fresh"
-        assert verbs._chosen_by_default({**scan, "mode": "already_done"}) == "fresh"
+        assert _verb_continuation._chosen_by_default({**scan, "mode": "already_done"}) == "fresh"
 
     def test_a_high_trust_candidate_follows_the_mode(self, store: Path) -> None:
         rec, _mid, _final = _pipeline(store)
         _publish(rec, 3)
         scan = reuse.scan(rec, dataset_key=_KEY)
         assert scan["recommended"] == "as_is"
-        assert verbs._chosen_by_default({**scan, "mode": "already_done"}) == "as_is"
+        assert _verb_continuation._chosen_by_default({**scan, "mode": "already_done"}) == "as_is"
 
     def test_a_plan_with_no_recommendation_falls_back_to_the_mode(self) -> None:
-        assert verbs._chosen_by_default({"mode": "incremental"}) == "extend"
-        assert verbs._chosen_by_default({"mode": "already_done"}) == "as_is"
-        assert verbs._chosen_by_default({"mode": "full_rerun"}) == "fresh"
+        assert _verb_continuation._chosen_by_default({"mode": "incremental"}) == "extend"
+        assert _verb_continuation._chosen_by_default({"mode": "already_done"}) == "as_is"
+        assert _verb_continuation._chosen_by_default({"mode": "full_rerun"}) == "fresh"
 
     def test_an_unoffered_recommendation_is_not_obeyed(self) -> None:
         # Defence against a recommendation the card never presented as a choice.
         plan = {"mode": "already_done", "recommended": "teleport", "choices": [{"id": "as_is"}, {"id": "fresh"}]}
-        assert verbs._chosen_by_default(plan) == "as_is"
+        assert _verb_continuation._chosen_by_default(plan) == "as_is"
 
     def test_low_trust_output_is_not_served_without_being_asked_for(self, store: Path, tmp_path: Path) -> None:
         # End to end: the low-trust path must not come back "reused" when no choice was stated.
@@ -2620,7 +2645,7 @@ class TestTheRecommendationIsActedOn:
             ]
         )
         _publish(rec, 2, dataset_key=key, fingerprint_tier="shape")
-        result = verbs.plan_continuation(rec, data=str(manifest), execute=True, confirm=False)
+        result = _verb_continuation.plan_continuation(rec, data=str(manifest), execute=True, confirm=False)
         assert result["status"] != "reused"
 
 
@@ -2732,7 +2757,7 @@ class TestUnmeasuredWorkIsNotAssumedCheap:
             [reader, _ASR, {"ref": "ManifestWriterStage", "params": {"output_path": str(store / "t.jsonl")}}]
         )
         _publish(rec, 2, dataset_key=key, duration_sec=2.0)
-        plan = verbs.plan_continuation(rec, data=src)
+        plan = _verb_continuation.plan_continuation(rec, data=src)
         assert plan["unpriced_stages"] == ["ASRStage"]
         assert plan["prompt_user"] is True
 
@@ -2772,7 +2797,7 @@ class TestNonDeterminismAsksRatherThanHides:
         result = reuse.scan(rec, dataset_key=_KEY)
         assert result["prompt_user"] is True
         assert result["recommended"] == "fresh"
-        assert verbs._chosen_by_default(result) == "fresh"
+        assert _verb_continuation._chosen_by_default(result) == "fresh"
 
     def test_the_one_stage_that_documents_its_randomness_declares_it(self) -> None:
         # pyannote's own card note: the internal long-turn VAD re-segments with randomized chunk
@@ -2968,7 +2993,7 @@ class TestGeneratedOutputIntegrity:
         )
         stages, issues = build_stages(rec)
         assert stages, issues
-        verbs._publish_artifacts(
+        _verb_publish._publish_artifacts(
             rec,
             stages,
             dataset_key=_KEY,
@@ -3000,7 +3025,7 @@ class TestGeneratedOutputIntegrity:
         )
         stages, issues = build_stages(rec)
         assert stages, issues
-        verbs._publish_artifacts(
+        _verb_publish._publish_artifacts(
             rec,
             stages,
             dataset_key=_KEY,
@@ -3032,7 +3057,7 @@ class TestGeneratedOutputIntegrity:
         assert stages, issues
         Path(final).write_text('{"duration": 1}\n')
         plans = artifacts.plan_steps(rec, _KEY)
-        verbs._publish_artifacts(
+        _verb_publish._publish_artifacts(
             materialized,
             stages,
             dataset_key=_KEY,
@@ -3083,7 +3108,7 @@ def test_pipeline_history_redacts_nested_credentials_before_formatting(store: Pa
         ]
     )
     original = recipe.to_dict()
-    run_id = verbs._record_run(
+    run_id = _verb_publish._record_run(
         recipe,
         run_id="nested-display-credentials",
         data=None,
@@ -3097,7 +3122,7 @@ def test_pipeline_history_redacts_nested_credentials_before_formatting(store: Pa
     assert record is not None
     assert "opaque-summary-value" not in record.pipeline_summary
     assert "target_value=3" in record.pipeline_summary
-    assert "opaque-summary-value" not in json.dumps(verbs.runs(run_id=run_id))
-    assert "opaque-summary-value" not in json.dumps(verbs.runs())
+    assert "opaque-summary-value" not in json.dumps(_verb_reuse.runs(run_id=run_id))
+    assert "opaque-summary-value" not in json.dumps(_verb_reuse.runs())
     assert "opaque-summary-value" in json.dumps(run_store.load_exact_recipe(run_id))
     assert recipe.to_dict() == original

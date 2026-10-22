@@ -22,7 +22,15 @@ from types import SimpleNamespace
 import pytest
 
 from nemo_curator.stages.audio import audio_agent as aa
-from nemo_curator.stages.audio.audio_agent import env_health, verbs
+from nemo_curator.stages.audio.audio_agent import (
+    _verb_continuation,
+    _verb_run,
+    _verb_runtime,
+    _verb_smoke_inputs,
+    _verb_validation,
+    env_health,
+    profiler,
+)
 from nemo_curator.stages.audio.audio_agent._device_capabilities import gpu_optional
 from nemo_curator.stages.audio.audio_agent.contracts import EnvProfile
 from nemo_curator.stages.audio.audio_agent.diagnostics import (
@@ -515,7 +523,7 @@ def test_validate_projects_recipe_environment_blocker_without_touching_defaults(
         },
     )
     frozen_before = Recipe.from_dict(recipe).freeze()
-    monkeypatch.setattr(verbs, "probe_env", _cuda_mismatch)
+    monkeypatch.setattr(profiler, "probe_env", _cuda_mismatch)
 
     result = aa.validate(recipe)
 
@@ -537,7 +545,7 @@ def test_validate_keeps_non_jit_gpu_recipe_runnable_for_bounded_evidence(
             "params": {"resources": {"cpus": 1, "gpus": 1}},
         },
     )
-    monkeypatch.setattr(verbs, "probe_env", _cuda_mismatch)
+    monkeypatch.setattr(profiler, "probe_env", _cuda_mismatch)
 
     result = aa.validate(recipe)
 
@@ -565,7 +573,7 @@ def test_validate_respects_external_ray_instead_of_local_machine_gates(
         available_secrets=[],
     )
     monkeypatch.setenv("RAY_ADDRESS", "ray://remote.example:10001")
-    monkeypatch.setattr(verbs, "probe_env", lambda: local_env)
+    monkeypatch.setattr(profiler, "probe_env", lambda: local_env)
 
     result = aa.validate(recipe)
 
@@ -600,7 +608,7 @@ def test_validate_keeps_local_gates_for_ray_discovery_and_loopback(
     )
     local_env = _healthy_env(has_ffmpeg=False)
     monkeypatch.setenv("RAY_ADDRESS", address)
-    monkeypatch.setattr(verbs, "probe_env", lambda: local_env)
+    monkeypatch.setattr(profiler, "probe_env", lambda: local_env)
 
     result = aa.validate(recipe)
 
@@ -697,18 +705,18 @@ def test_execution_refuses_before_ray_or_output_preparation(
             },
         },
     )
-    monkeypatch.setattr(verbs, "probe_env", _cuda_mismatch)
+    monkeypatch.setattr(profiler, "probe_env", _cuda_mismatch)
 
     def must_not_run(*_args: object, **_kwargs: object) -> None:
         raise AssertionError("execution preparation ran before the environment gate")  # noqa: EM101
 
-    monkeypatch.setattr(verbs, "_bootstrap_ray", must_not_run)
-    monkeypatch.setattr(verbs, "_apply_ray_cluster_capacity", must_not_run)
-    monkeypatch.setattr(verbs, "_plan_resources", must_not_run)
-    monkeypatch.setattr(verbs, "_make_executor", must_not_run)
-    monkeypatch.setattr(verbs, "_run_pipeline_autofallback", must_not_run)
+    monkeypatch.setattr(_verb_runtime, "_bootstrap_ray", must_not_run)
+    monkeypatch.setattr(_verb_runtime, "_apply_ray_cluster_capacity", must_not_run)
+    monkeypatch.setattr(_verb_runtime, "_plan_resources", must_not_run)
+    monkeypatch.setattr(_verb_runtime, "_make_executor", must_not_run)
+    monkeypatch.setattr(_verb_runtime, "_run_pipeline_autofallback", must_not_run)
     if verb == "smoke":
-        monkeypatch.setattr(verbs, "_bound_recipe", must_not_run)
+        monkeypatch.setattr(_verb_smoke_inputs, "_bound_recipe", must_not_run)
         result = aa.smoke(recipe_dict, sample=1, bootstrap_ray=True)
     else:
         frozen = Recipe.from_dict(recipe_dict).freeze()
@@ -760,12 +768,12 @@ def test_public_smoke_failure_is_structured_and_redacted(
     tmp_path: Path,
 ) -> None:
     recipe = _recipe(tmp_path / "out.jsonl")
-    monkeypatch.setattr(verbs, "probe_env", _healthy_env)
+    monkeypatch.setattr(profiler, "probe_env", _healthy_env)
 
     def fail_with_secret(*_args: object, **_kwargs: object) -> None:
         raise RuntimeError("HF_TOKEN=plain-runtime-token Permission denied")  # noqa: EM101
 
-    monkeypatch.setattr(verbs, "_run_pipeline_autofallback", fail_with_secret)
+    monkeypatch.setattr(_verb_runtime, "_run_pipeline_autofallback", fail_with_secret)
 
     result = aa.smoke(recipe, sample=1, executor=object())
 
@@ -797,10 +805,10 @@ def test_continuation_never_reintroduces_recipe_secrets_after_run_redaction(
         def materialize(*_args: object, **_kwargs: object) -> tuple[Recipe, str]:
             return materialized, ""
 
-    monkeypatch.setattr(verbs, "validate", lambda *_args, **_kwargs: {"runnable": True})
-    monkeypatch.setattr(verbs, "run", lambda *_args, **_kwargs: {"status": "completed"})
-    monkeypatch.setattr(verbs, "_continuation_context_from_plan", lambda *_args: {})
-    result = verbs._execute_plan(
+    monkeypatch.setattr(_verb_validation, "validate", lambda *_args, **_kwargs: {"runnable": True})
+    monkeypatch.setattr(_verb_run, "run", lambda *_args, **_kwargs: {"status": "completed"})
+    monkeypatch.setattr(_verb_continuation, "_continuation_context_from_plan", lambda *_args: {})
+    result = _verb_continuation._execute_plan(
         Recipe.from_dict({"stages": []}),
         {
             "mode": "incremental",

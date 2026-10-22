@@ -9,6 +9,25 @@ its recorded trust tier, already produced an artifact?"**
 
 ---
 
+## Implementation boundaries
+
+`verbs.py` keeps the public import surface stable. Its implementations live in
+`_verb_*` modules grouped by responsibility: inspection and validation, smoke and
+full runs, checkpoint and continuation workflows, delta execution, artifact
+publication, output evidence, runtime lifecycle, and host-skill installation.
+Shared approval checks belong to `_verb_validation`; filesystem promotion belongs
+to `_verb_outputs`. Workflow dependencies that would cycle are imported at their
+call boundary, before the existing approval and execution sequence proceeds.
+
+`reuse.py` owns artifact lookup and reuse decisions; `_reuse_history` owns prior-run
+comparison and `_reuse_summary` owns intent matching. `reusable_pipeline.py` owns
+checkpoint planning, with card matching and candidate transformations in
+`_checkpoint_*`. `semantic_review.py` assembles the review packet from configured
+stage expansion, value normalization, and field-lineage helpers in `_semantic_*`.
+
+These modules derive evidence from stage contracts. They do not replace a stage's
+implementation or relax its data, approval, or persistence requirements.
+
 ## 1. Why the old design could not reuse
 
 The first reuse mechanism (`continuation.plan_continuation`) diffed a new recipe against one

@@ -26,7 +26,15 @@ from typing import Any
 import pandas as pd
 import pytest
 
-from nemo_curator.stages.audio.audio_agent import calibration_store, verbs
+from nemo_curator.stages.audio.audio_agent import (
+    _verb_inputs,
+    _verb_pretrain,
+    _verb_runtime,
+    _verb_smoke,
+    _verb_smoke_inputs,
+    calibration_store,
+    profiler,
+)
 from nemo_curator.stages.audio.audio_agent.contracts import SmokeReport
 from nemo_curator.stages.audio.audio_agent.recipe import Recipe
 from nemo_curator.stages.audio.common import ManifestCheckpointStage
@@ -45,10 +53,10 @@ def _stub_smoke_runtime(
 ) -> None:
     """Keep the test at the verb boundary while replacing only execution."""
     monkeypatch.delenv("AUDIO_AGENT_WORKSPACE", raising=False)
-    monkeypatch.setattr(verbs, "_profile_binding", lambda _binding: None)
-    monkeypatch.setattr(verbs, "probe_env", lambda: object())
+    monkeypatch.setattr(_verb_inputs, "_profile_binding", lambda _binding: None)
+    monkeypatch.setattr(profiler, "probe_env", lambda: object())
     monkeypatch.setattr(
-        verbs,
+        _verb_runtime,
         "_plan_resources",
         lambda *_args, **_kwargs: SimpleNamespace(
             mode="batch",
@@ -63,12 +71,12 @@ def _stub_smoke_runtime(
             inspect_stages(stages)
         return [], "batch"
 
-    monkeypatch.setattr(verbs, "_run_pipeline_autofallback", capture)
+    monkeypatch.setattr(_verb_runtime, "_run_pipeline_autofallback", capture)
 
 
 @pytest.mark.parametrize("sample", [0, -1, True, 1.5, "2"])
 def test_smoke_rejects_non_positive_or_non_integer_sample(sample: Any) -> None:  # noqa: ANN401
-    result = verbs.smoke(
+    result = _verb_smoke.smoke(
         _source_recipe("ManifestReader", {"manifest_path": "/does/not/matter.jsonl"}),
         sample=sample,
     )
@@ -99,7 +107,7 @@ def test_manifest_directory_is_concatenated_and_capped_in_execution_order(
             captured.extend(json.loads(line) for line in bounded)
 
     _stub_smoke_runtime(monkeypatch, inspect_source)
-    result = verbs.smoke(
+    result = _verb_smoke.smoke(
         _source_recipe("ManifestReader", {"manifest_path": str(manifests)}),
         sample=3,
     )
@@ -130,7 +138,7 @@ def test_smoke_samples_selected_rows_with_the_real_manifest_reader(
         captured.extend(task.data for task in tasks)
 
     _stub_smoke_runtime(monkeypatch, inspect_source)
-    result = verbs.smoke(
+    result = _verb_smoke.smoke(
         _source_recipe(
             "ManifestReader",
             {
@@ -150,12 +158,12 @@ def test_remote_manifest_selector_refuses_before_execution(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        verbs,
+        _verb_runtime,
         "_run_pipeline_autofallback",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("remote selector reached execution")),
     )
 
-    result = verbs.smoke(
+    result = _verb_smoke.smoke(
         _source_recipe(
             "ManifestReader",
             {"manifest_path": "s3://example-bucket/manifests/*.jsonl"},
@@ -175,14 +183,14 @@ def test_malformed_multi_manifest_refuses_before_execution(
     good = tmp_path / "b.jsonl"
     bad.write_text("{bad json}\n", encoding="utf-8")
     good.write_text('{"audio_filepath":"ok.wav"}\n', encoding="utf-8")
-    monkeypatch.setattr(verbs, "_profile_binding", lambda _binding: None)
+    monkeypatch.setattr(_verb_inputs, "_profile_binding", lambda _binding: None)
     monkeypatch.setattr(
-        verbs,
+        _verb_runtime,
         "_run_pipeline_autofallback",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("malformed selector reached execution")),
     )
 
-    result = verbs.smoke(
+    result = _verb_smoke.smoke(
         _source_recipe(
             "ManifestReader",
             {"manifest_path": [str(bad), str(good)]},
@@ -224,12 +232,12 @@ def test_unstaged_download_sources_refuse_before_execution(
     root = tmp_path / "unstaged"
     authored = {key: str(root) if value == "{root}" else value for key, value in params.items()}
     monkeypatch.setattr(
-        verbs,
+        _verb_runtime,
         "_run_pipeline_autofallback",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("download-capable source reached execution")),
     )
 
-    result = verbs.smoke(_source_recipe(ref, authored), sample=2)
+    result = _verb_smoke.smoke(_source_recipe(ref, authored), sample=2)
 
     assert result["status"] == "refused"
     assert "pre-stage" in result["reason"]
@@ -254,7 +262,7 @@ def test_prestaged_fleurs_is_adapted_to_a_bounded_local_manifest(
             captured.extend(json.loads(line) for line in bounded)
 
     _stub_smoke_runtime(monkeypatch, inspect_source)
-    result = verbs.smoke(
+    result = _verb_smoke.smoke(
         _source_recipe(
             "CreateInitialManifestFleursStage",
             {
@@ -305,7 +313,7 @@ def test_local_folder_sources_receive_an_ephemeral_sample_cap(
         seen.append(source.max_samples)
 
     _stub_smoke_runtime(monkeypatch, inspect_source)
-    result = verbs.smoke(_source_recipe(ref, authored), sample=1)
+    result = _verb_smoke.smoke(_source_recipe(ref, authored), sample=1)
 
     assert result["ran"] is True
     assert seen == [1]
@@ -334,10 +342,10 @@ def test_smoke_never_truncates_the_production_manifest_and_cleans_its_sandbox(
     authored = json.loads(json.dumps(recipe))
     sandbox_outputs: list[str] = []
 
-    monkeypatch.setattr(verbs, "_profile_binding", lambda _binding: None)
-    monkeypatch.setattr(verbs, "probe_env", lambda: object())
+    monkeypatch.setattr(_verb_inputs, "_profile_binding", lambda _binding: None)
+    monkeypatch.setattr(profiler, "probe_env", lambda: object())
     monkeypatch.setattr(
-        verbs,
+        _verb_runtime,
         "_plan_resources",
         lambda *_args, **_kwargs: SimpleNamespace(
             mode="batch",
@@ -356,8 +364,8 @@ def test_smoke_never_truncates_the_production_manifest_and_cleans_its_sandbox(
             raise RuntimeError("injected failure after writer setup")  # noqa: EM101
         return [], "batch"
 
-    monkeypatch.setattr(verbs, "_run_pipeline_autofallback", exercise_lifecycle)
-    result = verbs.smoke(recipe, sample=1)
+    monkeypatch.setattr(_verb_runtime, "_run_pipeline_autofallback", exercise_lifecycle)
+    result = _verb_smoke.smoke(recipe, sample=1)
 
     assert production.read_text(encoding="utf-8") == "KEEP-ME\n"
     assert recipe == authored
@@ -384,7 +392,7 @@ def test_remote_writer_destination_is_not_touched_by_smoke(
         monkeypatch,
         lambda _source: None,
     )
-    result = verbs.smoke(
+    result = _verb_smoke.smoke(
         {
             "stages": [
                 {
@@ -441,8 +449,8 @@ def test_output_isolation_covers_aliases_implicit_paths_and_hidden_writes(
     recipe = Recipe.from_dict(authored)
     report = SmokeReport(sample=1)
 
-    isolated = verbs._isolate_smoke_outputs(
-        verbs._SmokeBound(recipe),
+    isolated = _verb_smoke_inputs._isolate_smoke_outputs(
+        _verb_smoke_inputs._SmokeBound(recipe),
         report,
     )
 
@@ -451,13 +459,13 @@ def test_output_isolation_covers_aliases_implicit_paths_and_hidden_writes(
     stages = isolated.recipe.stages
     assert stages[0].params["output_path"] == stages[1].params["output_path"]
     assert stages[2].params["output_audio_tar_path"].endswith(".tar")
-    assert verbs._inside_smoke_root(stages[2].params["output_dir"], root)
-    assert verbs._inside_smoke_root(stages[3].params["output_dir"], root)
+    assert _verb_smoke_inputs._inside_smoke_root(stages[2].params["output_dir"], root)
+    assert _verb_smoke_inputs._inside_smoke_root(stages[3].params["output_dir"], root)
     assert stages[4].params["write_rttm"] is False
     assert stages[5].params["raw_data_dir"] == str(tmp_path / "readspeech")
     assert stages[5].params["auto_download"] is False
-    assert verbs._inside_smoke_root(stages[6].params["output_dir"], root)
-    verbs._cleanup(list(isolated.tmp_paths))
+    assert _verb_smoke_inputs._inside_smoke_root(stages[6].params["output_dir"], root)
+    _verb_smoke_inputs._cleanup(list(isolated.tmp_paths))
     assert not os.path.exists(root)
 
 
@@ -482,7 +490,7 @@ def test_direct_and_composite_split_writers_are_isolated(
         lambda _source: None,
         inspect_stages,
     )
-    result = verbs.smoke(
+    result = _verb_smoke.smoke(
         {
             "stages": [
                 {
@@ -516,7 +524,7 @@ def test_unknown_disk_writer_fails_the_future_stage_guard(
         lambda _stage: StageContract(gates=Gates(writes_to_disk=True)),
     )
 
-    issues = verbs._smoke_write_issues([object()], str(tmp_path))
+    issues = _verb_smoke_inputs._smoke_write_issues([object()], str(tmp_path))
 
     assert len(issues) == 1
     assert "does not declare output_path_params" in issues[0]
@@ -544,7 +552,7 @@ def test_an_empty_declaration_is_accepted_from_the_stage_it_is_true_of(
         lambda _stage: StageContract(gates=Gates(writes_to_disk=True, output_path_params=[])),
     )
 
-    assert verbs._smoke_write_issues([CreateInitialManifestReadSpeechStage()], str(tmp_path)) == []
+    assert _verb_smoke_inputs._smoke_write_issues([CreateInitialManifestReadSpeechStage()], str(tmp_path)) == []
 
 
 def test_an_empty_declaration_from_any_other_writer_is_refused(
@@ -568,7 +576,7 @@ def test_an_empty_declaration_from_any_other_writer_is_refused(
         lambda _stage: StageContract(gates=Gates(writes_to_disk=True, output_path_params=[])),
     )
 
-    issues = verbs._smoke_write_issues([object()], str(tmp_path))
+    issues = _verb_smoke_inputs._smoke_write_issues([object()], str(tmp_path))
 
     assert len(issues) == 1
     assert "empty output_path_params" in issues[0]
@@ -581,10 +589,10 @@ def test_smoke_token_is_issued_only_after_sampled_goals_are_met(
     source = tmp_path / "source.jsonl"
     source.write_text('{"audio_filepath":"clip.wav"}\n', encoding="utf-8")
 
-    monkeypatch.setattr(verbs, "_profile_binding", lambda _binding: None)
-    monkeypatch.setattr(verbs, "probe_env", lambda: object())
+    monkeypatch.setattr(_verb_inputs, "_profile_binding", lambda _binding: None)
+    monkeypatch.setattr(profiler, "probe_env", lambda: object())
     monkeypatch.setattr(
-        verbs,
+        _verb_runtime,
         "_plan_resources",
         lambda *_args, **_kwargs: SimpleNamespace(
             mode="batch",
@@ -593,7 +601,7 @@ def test_smoke_token_is_issued_only_after_sampled_goals_are_met(
         ),
     )
     monkeypatch.setattr(
-        verbs,
+        _verb_runtime,
         "_run_pipeline_autofallback",
         lambda *_args, **_kwargs: (
             [
@@ -607,7 +615,7 @@ def test_smoke_token_is_issued_only_after_sampled_goals_are_met(
         ),
     )
 
-    result = verbs.smoke(
+    result = _verb_smoke.smoke(
         _source_recipe("ManifestReader", {"manifest_path": str(source)}),
         sample=1,
     )
@@ -637,7 +645,7 @@ def test_zero_match_smoke_obeys_frozen_contract(
     recipe = _source_recipe("ManifestReader", {"manifest_path": str(source)})
     recipe["acceptance_criteria"] = criteria
 
-    result = verbs.smoke(recipe, sample=1)
+    result = _verb_smoke.smoke(recipe, sample=1)
 
     assert result["ran"]
     assert result["retained"] == 0
@@ -659,10 +667,10 @@ def test_permitted_empty_output_does_not_turn_an_execution_error_into_success(
         msg = "source read failed"
         raise RuntimeError(msg)
 
-    monkeypatch.setattr(verbs, "_run_pipeline_autofallback", fail)
+    monkeypatch.setattr(_verb_runtime, "_run_pipeline_autofallback", fail)
     recipe = _source_recipe("ManifestReader", {"manifest_path": str(source)})
     recipe["acceptance_criteria"] = [{"id": "empty", "type": "yield", "check": {"op": "==", "value": 0}}]
-    result = verbs.smoke(recipe, sample=1)
+    result = _verb_smoke.smoke(recipe, sample=1)
     assert result["errors"]
     assert "smoke_token" not in result
 
@@ -680,10 +688,10 @@ def test_a_smokes_measurements_are_waiting_for_the_next_run(
     source.write_text('{"audio_filepath":"clip.wav"}\n', encoding="utf-8")
     monkeypatch.setenv("AUDIO_AGENT_RUNS_DIR", str(tmp_path / "runs"))
 
-    monkeypatch.setattr(verbs, "_profile_binding", lambda _binding: None)
-    monkeypatch.setattr(verbs, "probe_env", lambda: object())
+    monkeypatch.setattr(_verb_inputs, "_profile_binding", lambda _binding: None)
+    monkeypatch.setattr(profiler, "probe_env", lambda: object())
     monkeypatch.setattr(
-        verbs,
+        _verb_runtime,
         "_plan_resources",
         lambda *_args, **_kwargs: SimpleNamespace(
             mode="batch",
@@ -692,7 +700,7 @@ def test_a_smokes_measurements_are_waiting_for_the_next_run(
         ),
     )
     monkeypatch.setattr(
-        verbs,
+        _verb_runtime,
         "_run_pipeline_autofallback",
         lambda *_args, **_kwargs: (
             [
@@ -711,7 +719,7 @@ def test_a_smokes_measurements_are_waiting_for_the_next_run(
         ),
     )
 
-    result = verbs.smoke(
+    result = _verb_smoke.smoke(
         _source_recipe("ManifestReader", {"manifest_path": str(source)}),
         sample=1,
     )
@@ -719,7 +727,7 @@ def test_a_smokes_measurements_are_waiting_for_the_next_run(
     assert result["calibration"]["ManifestReader"]["host_mem_gb"] == 9.0
     assert result["calibration_stored"] is True
 
-    resolved, note = verbs._calibration_for_run(None, result["config_hash"])
+    resolved, note = _verb_runtime._calibration_for_run(None, result["config_hash"])
 
     assert resolved["calibration"] == result["calibration"]
     assert resolved["machine_fingerprint"] == "smoke-test-machine"
@@ -750,10 +758,10 @@ def test_document_batch_required_output_is_checked_beyond_preview_rows(
         ),
     )
 
-    monkeypatch.setattr(verbs, "_profile_binding", lambda _binding: None)
-    monkeypatch.setattr(verbs, "probe_env", lambda: object())
+    monkeypatch.setattr(_verb_inputs, "_profile_binding", lambda _binding: None)
+    monkeypatch.setattr(profiler, "probe_env", lambda: object())
     monkeypatch.setattr(
-        verbs,
+        _verb_runtime,
         "_plan_resources",
         lambda *_args, **_kwargs: SimpleNamespace(
             mode="batch",
@@ -763,12 +771,12 @@ def test_document_batch_required_output_is_checked_beyond_preview_rows(
         ),
     )
     monkeypatch.setattr(
-        verbs,
+        _verb_runtime,
         "_run_pipeline_autofallback",
         lambda *_args, **_kwargs: ([batch], "batch"),
     )
 
-    result = verbs.smoke(
+    result = _verb_smoke.smoke(
         {
             "stages": [
                 {
@@ -818,12 +826,12 @@ def test_smoke_runs_pretrain_driver_lifecycle_inside_the_sandbox(
 
     _stub_smoke_runtime(monkeypatch, lambda _source: calls.append("execute"))
     monkeypatch.setattr(
-        verbs,
+        _verb_pretrain,
         "_pretrain_finalizer",
         lambda _stages: (_Finalizer(), ""),
     )
 
-    result = verbs.smoke(
+    result = _verb_smoke.smoke(
         _source_recipe("ManifestReader", {"manifest_path": str(source)}),
         sample=1,
     )
@@ -853,12 +861,12 @@ def test_smoke_counts_serialized_pretrain_rows_not_origin_stubs(
 
     _stub_smoke_runtime(monkeypatch, lambda _source: None)
     monkeypatch.setattr(
-        verbs,
+        _verb_pretrain,
         "_pretrain_finalizer",
         lambda _stages: (_Finalizer(), ""),
     )
     monkeypatch.setattr(
-        verbs,
+        _verb_runtime,
         "_run_pipeline_autofallback",
         lambda *_args, **_kwargs: (
             [SimpleNamespace(num_items=1, data={"is_stub": True})],
@@ -866,7 +874,7 @@ def test_smoke_counts_serialized_pretrain_rows_not_origin_stubs(
         ),
     )
 
-    result = verbs.smoke(
+    result = _verb_smoke.smoke(
         _source_recipe("ManifestReader", {"manifest_path": str(source)}),
         sample=1,
     )
@@ -888,10 +896,10 @@ def test_streaming_fallback_resets_attempt_outputs_before_batch_retry(
             raise RuntimeError("streaming mode requires batch mode: not enough GPU capacity")  # noqa: EM101
         return []
 
-    monkeypatch.setattr(verbs, "_make_executor", lambda mode: mode)
-    monkeypatch.setattr(verbs, "_run_pipeline", execute)
+    monkeypatch.setattr(_verb_runtime, "_make_executor", lambda mode: mode)
+    monkeypatch.setattr(_verb_runtime, "_run_pipeline", execute)
 
-    results, used_mode = verbs._run_pipeline_autofallback(
+    results, used_mode = _verb_runtime._run_pipeline_autofallback(
         [],
         "streaming",
         None,
@@ -923,14 +931,14 @@ def test_streaming_fallback_resets_owned_partial_checkpoint_before_batch_retry(
             raise RuntimeError("streaming mode requires batch mode: not enough GPU capacity")  # noqa: EM101
         return []
 
-    monkeypatch.setattr(verbs, "_make_executor", lambda mode: mode)
+    monkeypatch.setattr(_verb_runtime, "_make_executor", lambda mode: mode)
     monkeypatch.setattr("nemo_curator.pipeline.Pipeline.run", execute)
 
-    results, used_mode = verbs._run_pipeline_autofallback(
+    results, used_mode = _verb_runtime._run_pipeline_autofallback(
         [checkpoint],
         "streaming",
         None,
-        before_retry=verbs._automatic_retry_reset_hook([checkpoint]),
+        before_retry=_verb_runtime._automatic_retry_reset_hook([checkpoint]),
     )
 
     assert results == []
@@ -947,22 +955,22 @@ def test_resource_planning_failure_is_structured_and_cleans_output_sandbox(
     source = tmp_path / "source.jsonl"
     source.write_text('{"audio_filepath":"clip.wav"}\n', encoding="utf-8")
     roots: list[str] = []
-    isolate = verbs._isolate_smoke_outputs
+    isolate = _verb_smoke_inputs._isolate_smoke_outputs
 
     def capture_root(bound, report):  # noqa: ANN001, ANN202
         isolated = isolate(bound, report)
         roots.append(str(isolated.output_root))
         return isolated
 
-    monkeypatch.setattr(verbs, "_profile_binding", lambda _binding: None)
-    monkeypatch.setattr(verbs, "_isolate_smoke_outputs", capture_root)
+    monkeypatch.setattr(_verb_inputs, "_profile_binding", lambda _binding: None)
+    monkeypatch.setattr(_verb_smoke_inputs, "_isolate_smoke_outputs", capture_root)
     monkeypatch.setattr(
-        verbs,
+        _verb_runtime,
         "_plan_resources",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("planner unavailable")),
     )
 
-    result = verbs.smoke(
+    result = _verb_smoke.smoke(
         _source_recipe("ManifestReader", {"manifest_path": str(source)}),
         sample=1,
     )
@@ -1007,14 +1015,14 @@ def test_smoke_completeness_matches_required_output_semantics(
     source.write_text("{}\n" * len(rows))
     _stub_smoke_runtime(monkeypatch, lambda _source: None)
     monkeypatch.setattr(
-        verbs,
+        _verb_runtime,
         "_run_pipeline_autofallback",
         lambda *_args, **_kwargs: ([AudioTask(data=row) for row in rows], "batch"),
     )
     recipe = _source_recipe("ManifestReader", {"manifest_path": str(source)})
     recipe["acceptance_criteria"] = criteria
 
-    result = verbs.smoke(recipe, sample=len(rows))
+    result = _verb_smoke.smoke(recipe, sample=len(rows))
 
     assert result["ran"] is True
     assert result["goals_met"] is authorized

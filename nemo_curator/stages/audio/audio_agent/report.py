@@ -131,7 +131,7 @@ def _dedup_stage_perf(tasks: list[Any]) -> dict[str, Any]:
     batch, so summing over all output tasks over-counts. We de-duplicate by the
     identity of each StagePerfStats object before aggregating.
 
-    Underscored but NOT private: imported by ``verbs``, which reports the same per-stage
+    Underscored but NOT private: imported by ``_verb_evidence``, which reports the same per-stage
     numbers straight off a run rather than from a stored report.
     """
     import numpy as np
@@ -181,7 +181,7 @@ def _row_count(tasks: list[Any] | None) -> int:
     whole table -- so ``len(tasks)`` under-counts any pipeline that ends in a batch type
     (e.g. after ``AudioToDocumentStage``). Summing ``num_items`` gives the true row count.
 
-    Underscored but NOT private: imported by ``verbs``, so this is the one definition of
+    Underscored but NOT private: imported by ``_verb_smoke`` and ``_verb_continuation``, so this is the one definition of
     "how many rows came out" behind both the report and the run's own evidence. Two of them
     would let a report and the run that produced it disagree on the same number.
     """

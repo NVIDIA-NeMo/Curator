@@ -28,7 +28,13 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from nemo_curator.stages.audio.audio_agent import verbs
+from nemo_curator.stages.audio.audio_agent import (
+    _verb_evidence,
+    _verb_publish,
+    _verb_run,
+    _verb_runtime,
+    profiler,
+)
 from nemo_curator.stages.audio.audio_agent.recipe import Recipe, StageRef
 from nemo_curator.stages.audio.audio_agent.report import rows_written_in, sparse_fields_in
 
@@ -47,13 +53,13 @@ def _manifest(tmp_path: Path, rows: list[dict[str, Any]], name: str = "out.jsonl
 def _count_readbacks(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
     """Record which locations get read, while still performing the real read."""
     calls: list[list[str]] = []
-    real = verbs._scan_terminal_output
+    real = _verb_evidence._scan_terminal_output
 
     def counted(outputs: list[str], *, limit: int = 0) -> _Scan:
         calls.append(list(outputs))
         return real(outputs, limit=limit)
 
-    monkeypatch.setattr(verbs, "_scan_terminal_output", counted)
+    monkeypatch.setattr(_verb_evidence, "_scan_terminal_output", counted)
     return calls
 
 
@@ -68,7 +74,7 @@ _ALM_ROWS: list[dict[str, Any]] = [
 
 class TestSparseFieldsNamesWhatIsMissing:
     def test_a_field_blank_in_most_rows_is_reported(self, tmp_path: Path) -> None:
-        _rows, scan = verbs._scan_terminal_output([_manifest(tmp_path, _ALM_ROWS)], limit=0)
+        _rows, scan = _verb_evidence._scan_terminal_output([_manifest(tmp_path, _ALM_ROWS)], limit=0)
 
         sparse = {entry["field"]: entry for entry in sparse_fields_in(scan)}
 
@@ -81,19 +87,19 @@ class TestSparseFieldsNamesWhatIsMissing:
 
     def test_a_field_absent_from_a_row_counts_as_missing_a_value(self, tmp_path: Path) -> None:
         """Present-but-empty and absent-entirely are the same fact to whoever reads the row."""
-        _rows, scan = verbs._scan_terminal_output([_manifest(tmp_path, _ALM_ROWS)], limit=0)
+        _rows, scan = _verb_evidence._scan_terminal_output([_manifest(tmp_path, _ALM_ROWS)], limit=0)
 
         # filtered_windows is absent from the fourth row and empty in two others: 3 rows short.
         assert next(e for e in sparse_fields_in(scan) if e["field"] == "filtered_windows")["empty"] == 3
 
     def test_a_fully_populated_field_is_not_reported(self, tmp_path: Path) -> None:
-        _rows, scan = verbs._scan_terminal_output([_manifest(tmp_path, _ALM_ROWS)], limit=0)
+        _rows, scan = _verb_evidence._scan_terminal_output([_manifest(tmp_path, _ALM_ROWS)], limit=0)
 
         assert "audio_filepath" not in {entry["field"] for entry in sparse_fields_in(scan)}
 
     def test_a_complete_output_reports_nothing(self, tmp_path: Path) -> None:
         rows = [{"audio_filepath": f"{i}.wav", "text": "hello"} for i in range(3)]
-        _rows, scan = verbs._scan_terminal_output([_manifest(tmp_path, rows)], limit=0)
+        _rows, scan = _verb_evidence._scan_terminal_output([_manifest(tmp_path, rows)], limit=0)
 
         assert sparse_fields_in(scan) == []
 
@@ -103,35 +109,35 @@ class TestSparseFieldsNamesWhatIsMissing:
             {"a": 1, "b": None},
             {"a": 1, "b": None},
         ]
-        _rows, scan = verbs._scan_terminal_output([_manifest(tmp_path, rows)], limit=0)
+        _rows, scan = _verb_evidence._scan_terminal_output([_manifest(tmp_path, rows)], limit=0)
 
         assert [entry["field"] for entry in sparse_fields_in(scan)] == ["b", "c"]
 
     def test_an_unreadable_output_reports_nothing_rather_than_guessing(self) -> None:
-        _rows, scan = verbs._scan_terminal_output(["/nonexistent/out.jsonl"], limit=0)
+        _rows, scan = _verb_evidence._scan_terminal_output(["/nonexistent/out.jsonl"], limit=0)
 
         assert sparse_fields_in(scan) == []
 
 
 class TestRowsWrittenSeparatesEmptyFromUnread:
     def test_it_counts_the_rows_on_disk(self, tmp_path: Path) -> None:
-        _rows, scan = verbs._scan_terminal_output([_manifest(tmp_path, _ALM_ROWS)], limit=0)
+        _rows, scan = _verb_evidence._scan_terminal_output([_manifest(tmp_path, _ALM_ROWS)], limit=0)
 
         assert rows_written_in(scan) == 4
 
     def test_an_output_that_could_not_be_read_is_unknown_not_zero(self) -> None:
         """Zero claims the output exists and holds nothing; that is a different statement."""
-        _rows, scan = verbs._scan_terminal_output(["/nonexistent/out.jsonl"], limit=0)
+        _rows, scan = _verb_evidence._scan_terminal_output(["/nonexistent/out.jsonl"], limit=0)
 
         assert rows_written_in(scan) is None
 
     def test_an_empty_file_really_is_zero(self, tmp_path: Path) -> None:
-        _rows, scan = verbs._scan_terminal_output([_manifest(tmp_path, [])], limit=0)
+        _rows, scan = _verb_evidence._scan_terminal_output([_manifest(tmp_path, [])], limit=0)
 
         assert rows_written_in(scan) == 0
 
     def test_no_declared_output_is_unknown(self) -> None:
-        _rows, scan = verbs._scan_terminal_output([], limit=0)
+        _rows, scan = _verb_evidence._scan_terminal_output([], limit=0)
 
         assert rows_written_in(scan) is None
 
@@ -161,10 +167,12 @@ class TestTheReadbackHappensOnce:
     ) -> None:
         output = _manifest(tmp_path, _ALM_ROWS)
         rec = self._recipe(output)
-        _rows, scan = verbs._scan_terminal_output([output], limit=0)
+        _rows, scan = _verb_evidence._scan_terminal_output([output], limit=0)
 
         calls = _count_readbacks(monkeypatch)
-        verbs._acceptance_result(rec, _Report(), ["audio_filepath"], ["audio_filepath"], [output], output_scan=scan)
+        _verb_evidence._acceptance_result(
+            rec, _Report(), ["audio_filepath"], ["audio_filepath"], [output], output_scan=scan
+        )
 
         assert calls == []
 
@@ -174,10 +182,10 @@ class TestTheReadbackHappensOnce:
         output = _manifest(tmp_path, _ALM_ROWS)
         elsewhere = _manifest(tmp_path, [{"filtered_windows": [1]}], name="other.jsonl")
         rec = self._recipe(output)
-        _rows, stale = verbs._scan_terminal_output([elsewhere], limit=0)
+        _rows, stale = _verb_evidence._scan_terminal_output([elsewhere], limit=0)
 
         calls = _count_readbacks(monkeypatch)
-        result = verbs._acceptance_result(
+        result = _verb_evidence._acceptance_result(
             rec, _Report(), ["audio_filepath"], ["audio_filepath"], [output], output_scan=stale
         )
 
@@ -189,12 +197,12 @@ class TestTheReadbackHappensOnce:
         """Sharing the read must not weaken what the contract concludes from it."""
         output = _manifest(tmp_path, _ALM_ROWS)
         rec = self._recipe(output)
-        _rows, scan = verbs._scan_terminal_output([output], limit=0)
+        _rows, scan = _verb_evidence._scan_terminal_output([output], limit=0)
 
-        shared = verbs._acceptance_result(
+        shared = _verb_evidence._acceptance_result(
             rec, _Report(), ["audio_filepath"], ["audio_filepath"], [output], output_scan=scan
         )
-        unshared = verbs._acceptance_result(rec, _Report(), ["audio_filepath"], ["audio_filepath"], [output])
+        unshared = _verb_evidence._acceptance_result(rec, _Report(), ["audio_filepath"], ["audio_filepath"], [output])
 
         assert shared == unshared
         assert shared.get("overall") != "met"
@@ -226,17 +234,17 @@ class TestRunReportsItWithoutBeingAsked:
         source.write_text('{"audio_filepath": "/tmp/a.wav"}\n', encoding="utf-8")
 
         monkeypatch.delenv("AUDIO_AGENT_REQUIRE_SMOKE", raising=False)
-        monkeypatch.setattr(verbs, "probe_env", lambda: env)
-        monkeypatch.setattr(verbs, "build_stages", lambda _rec: ([object()], []))
-        monkeypatch.setattr(verbs, "_plan_resources", lambda *_a, **_k: plan)
+        monkeypatch.setattr(profiler, "probe_env", lambda: env)
+        monkeypatch.setattr(_verb_run, "build_stages", lambda _rec: ([object()], []))
+        monkeypatch.setattr(_verb_runtime, "_plan_resources", lambda *_a, **_k: plan)
         # Four rows come back in memory; the file on disk is what the report must read.
         monkeypatch.setattr(
-            verbs,
+            _verb_runtime,
             "_run_pipeline_autofallback",
             lambda *_a, **_k: ([SimpleNamespace(num_items=4)], "batch"),
         )
-        monkeypatch.setattr(verbs, "_publish_artifacts", lambda *_a, **_k: [])
-        monkeypatch.setattr(verbs, "_record_run", lambda *_a, **_k: "run-test")
+        monkeypatch.setattr(_verb_publish, "_publish_artifacts", lambda *_a, **_k: [])
+        monkeypatch.setattr(_verb_publish, "_record_run", lambda *_a, **_k: "run-test")
         monkeypatch.setattr(run_store, "new_run_id", lambda _config_hash: "run-test")
 
         stages = [
@@ -244,7 +252,7 @@ class TestRunReportsItWithoutBeingAsked:
             {"ref": "GetAudioDurationStage", "params": {}},
             *recipe["stages"],
         ]
-        return verbs.run({**recipe, "stages": stages}, confirm=True)
+        return _verb_run.run({**recipe, "stages": stages}, confirm=True)
 
     def test_a_run_with_no_success_contract_still_reports_the_blank_rows(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

@@ -901,7 +901,7 @@ def _nothing_to_compare(recipe: Recipe) -> str:
     and falls back to the same JSON records when the index is unavailable.
     """
     from nemo_curator.stages.audio.audio_agent import run_index
-    from nemo_curator.stages.audio.audio_agent.reuse import _MAX_PRIOR_RUNS
+    from nemo_curator.stages.audio.audio_agent._reuse_policy import _MAX_PRIOR_RUNS
 
     # An unfrozen recipe has no pipeline identity, and ``find_runs`` treats an absent
     # ``semantic_hash`` as "do not filter" -- so asking with one would hand back every run on the

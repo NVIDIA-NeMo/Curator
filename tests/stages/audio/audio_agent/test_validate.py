@@ -20,8 +20,8 @@ from types import SimpleNamespace
 from typing import ClassVar
 
 from nemo_curator.stages.audio import audio_agent as aa
-from nemo_curator.stages.audio.audio_agent import cli, verbs
-from nemo_curator.stages.audio.audio_agent.verbs import validate
+from nemo_curator.stages.audio.audio_agent import cli, profiler
+from nemo_curator.stages.audio.audio_agent._verb_validation import validate
 
 _READER_MANIFEST = Path(__file__).resolve().parents[3] / "fixtures/audio/alm/sample_input.jsonl"
 _READER = {"ref": "ManifestReader", "params": {"manifest_path": str(_READER_MANIFEST)}}
@@ -188,7 +188,7 @@ class TestCheckIsolation:
 class TestEnvironmentGates:
     def test_gpu_unavailable_is_reported_once(self, monkeypatch) -> None:  # noqa: ANN001
         monkeypatch.setattr(
-            verbs,
+            profiler,
             "probe_env",
             lambda: SimpleNamespace(
                 has_gpu=False,

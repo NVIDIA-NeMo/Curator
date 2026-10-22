@@ -38,7 +38,7 @@ from pathlib import Path
 
 import pytest
 
-from nemo_curator.stages.audio.audio_agent import verbs
+from nemo_curator.stages.audio.audio_agent import _verb_inspection
 
 _PACKAGE = Path(__file__).resolve().parents[4] / "nemo_curator" / "stages" / "audio" / "audio_agent"
 
@@ -111,14 +111,14 @@ def test_the_scan_finds_the_names_it_is_supposed_to_guard() -> None:
     """
     assert len(_HARDCODED) >= 20, f"expected ~22 hardcoded stage names, found {len(_HARDCODED)}"
     assert "ManifestReader" in _HARDCODED, "the unsuffixed refs are not being picked up"
-    assert {"verbs.py", "checks.py", "input_identity.py"} <= set().union(*_HARDCODED.values())
+    assert {"_verb_smoke_inputs.py", "checks.py", "input_identity.py"} <= set().union(*_HARDCODED.values())
 
 
 @pytest.mark.parametrize("name", sorted(_HARDCODED))
 def test_every_hardcoded_stage_name_still_exists(name: str) -> None:
     """The whole point: a rename upstream fails here, at the rename, rather than showing up
     later as a special case that quietly stopped applying."""
-    catalog = {stage["stage"] for stage in verbs.discover()["stages"]}
+    catalog = {stage["stage"] for stage in _verb_inspection.discover()["stages"]}
     if name in catalog:
         return
 
@@ -144,7 +144,7 @@ def test_an_allowlisted_name_still_resolves_to_a_real_class(name: str) -> None:
 def test_the_allowlist_has_not_gone_stale() -> None:
     """If an allowlisted name joins the audio catalog, or stops being referenced at all, the
     entry and its reasoning are no longer true and should not keep vouching for it."""
-    catalog = {stage["stage"] for stage in verbs.discover()["stages"]}
+    catalog = {stage["stage"] for stage in _verb_inspection.discover()["stages"]}
     for name in _NOT_IN_AUDIO_CATALOG:
         assert name not in catalog, f"{name!r} is in the audio catalog now; drop the allowlist entry"
         assert name in _HARDCODED, f"{name!r} is no longer hardcoded anywhere; drop the allowlist entry"

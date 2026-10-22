@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from nemo_curator.stages.audio.audio_agent import _checkpoint_decisions
 from nemo_curator.stages.audio.audio_agent.recipe import Recipe, StageRef
 
 _QUALITY_STAGES = frozenset({"UTMOSFilterStage", "SIGMOSFilterStage"})
@@ -41,10 +42,9 @@ def build_planning_advisories(  # noqa: C901 - each branch removes an unproven a
     if preference.get("curation_mode") != "refine_later":
         return []
 
-    from nemo_curator.stages.audio.audio_agent import reusable_pipeline
     from nemo_curator.stages.audio.audio_agent.index import get_index
 
-    exact_pairs, _ = reusable_pipeline._decision_pairs(
+    exact_pairs, _ = _checkpoint_decisions._decision_pairs(
         recipe,
         decision_stage=None,
     )
@@ -547,7 +547,7 @@ def _checkpoint_proof(
 ) -> tuple[Any, dict[str, Any]] | None:
     from nemo_curator.stages.audio.audio_agent import reusable_pipeline
 
-    pairs, _ = reusable_pipeline._decision_pairs(
+    pairs, _ = _checkpoint_decisions._decision_pairs(
         alternative,
         decision_stage=alternative.stages[producer_index].ref,
     )

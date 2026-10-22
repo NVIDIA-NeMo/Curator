@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from nemo_curator.stages.audio.audio_agent import artifacts, reuse, verbs
+from nemo_curator.stages.audio.audio_agent import _verb_publish, artifacts, reuse
 from nemo_curator.stages.audio.audio_agent.recipe import Recipe, StageRef, build_stages
 
 
@@ -190,7 +190,7 @@ def test_disabled_sink_cannot_publish_unrelated_existing_files(
     assert stages
     assert not issues
     assert not artifacts.plan_steps(recipe, "stat:fixture")[-1].persists()
-    published = verbs._publish_artifacts(
+    published = _verb_publish._publish_artifacts(
         recipe,
         stages,
         dataset_key="stat:fixture",

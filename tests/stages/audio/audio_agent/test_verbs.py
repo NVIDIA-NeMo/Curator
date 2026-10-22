@@ -26,7 +26,25 @@ import pytest
 import yaml
 
 from nemo_curator.stages.audio import audio_agent as aa
-from nemo_curator.stages.audio.audio_agent import cli, run_store, verbs
+from nemo_curator.stages.audio.audio_agent import (
+    _verb_continuation,
+    _verb_delta,
+    _verb_evidence,
+    _verb_inputs,
+    _verb_outputs,
+    _verb_pretrain,
+    _verb_publish,
+    _verb_report,
+    _verb_reuse,
+    _verb_run,
+    _verb_runtime,
+    _verb_smoke,
+    _verb_smoke_inputs,
+    _verb_validation,
+    cli,
+    profiler,
+    run_store,
+)
 from nemo_curator.stages.audio.audio_agent.recipe import Recipe
 from nemo_curator.stages.audio.audio_agent.report import _row_count
 from nemo_curator.stages.base import ProcessingStage
@@ -92,11 +110,11 @@ def test_public_reuse_identity_tracks_only_selected_inputs(
         "stages": [source, {"ref": "ManifestWriterStage", "params": {"output_path": str(tmp_path / "out.jsonl")}}]
     }
 
-    before = verbs.reuse_scan(recipe)["dataset_key"]
+    before = _verb_reuse.reuse_scan(recipe)["dataset_key"]
     (audio / "a.wav").write_bytes(b"excluded source changed size")
-    assert verbs.reuse_scan(recipe)["dataset_key"] == before
+    assert _verb_reuse.reuse_scan(recipe)["dataset_key"] == before
     (audio / "c.wav").write_bytes(b"selected source changed size")
-    assert verbs.reuse_scan(recipe)["dataset_key"] != before
+    assert _verb_reuse.reuse_scan(recipe)["dataset_key"] != before
 
 
 @pytest.mark.parametrize("verb", ["context", "validate"])
@@ -144,10 +162,10 @@ def test_derived_profile_source_keeps_fatal_workspace_errors(tmp_path: Path, mon
     monkeypatch.setenv("AUDIO_AGENT_WORKSPACE", str(workspace))
     binding = SimpleNamespace(status="resolved", profile_source=str(outside), profile_kwargs={"max_probe": 0})
 
-    profile = verbs._profile_binding(binding)
+    profile = _verb_inputs._profile_binding(binding)
 
     assert profile is not None
-    assert "outside the allowed workspace" in verbs._profile_error(profile)
+    assert "outside the allowed workspace" in _verb_inputs._profile_error(profile)
     assert not profile.stat_digest
 
 
@@ -233,7 +251,7 @@ def test_delta_publishes_all_manifests_or_preserves_every_prior_output(
             Path(stage.params["output_path"]).write_text(json.dumps(row) + "\n")
         return {"status": "completed"}
 
-    monkeypatch.setattr(verbs, "run", run_changed_files)
+    monkeypatch.setattr(_verb_run, "run", run_changed_files)
     replace = os.replace
 
     def fail_second_promotion(src: str, dst: str) -> None:
@@ -243,7 +261,7 @@ def test_delta_publishes_all_manifests_or_preserves_every_prior_output(
 
     if failure == "promotion":
         monkeypatch.setattr(os, "replace", fail_second_promotion)
-    result = verbs._execute_delta(
+    result = _verb_delta._execute_delta(
         case.recipe,
         decision,
         dp=case.profile,
@@ -311,7 +329,7 @@ def test_published_manifest_tracks_implicit_generated_audio(
     stages, errors = build_stages(rec)
     assert not errors
     warnings = []
-    published = verbs._publish_artifacts(
+    published = _verb_publish._publish_artifacts(
         rec,
         stages,
         dataset_key="fixture",
@@ -338,10 +356,10 @@ def test_manifest_asset_dependencies_refuse_missing_or_unreadable_evidence(tmp_p
     manifest = tmp_path / "out.jsonl"
     manifest.write_text(json.dumps({"converted": str(tmp_path / "missing.wav")}) + "\n")
     with pytest.raises(ValueError, match="missing or unreadable"):
-        verbs._manifest_asset_dependencies(str(manifest), {"converted"})
+        _verb_evidence._manifest_asset_dependencies(str(manifest), {"converted"})
     manifest.write_text("corrupt-json\n")
     with pytest.raises(json.JSONDecodeError, match="Expecting value"):
-        verbs._manifest_asset_dependencies(str(manifest), {"converted"})
+        _verb_evidence._manifest_asset_dependencies(str(manifest), {"converted"})
 
 
 @pytest.mark.parametrize("rows", [[], [{"row": 1}, {"row": 2}]])
@@ -366,7 +384,7 @@ def test_run_pipeline_prepares_sinks_before_serialized_workers(tmp_path: Path, r
                 workers[1].process(task)
             return []
 
-    assert verbs._run_pipeline(stages, Executor()) == []
+    assert _verb_runtime._run_pipeline(stages, Executor()) == []
     assert [json.loads(line) for line in checkpoint_path.read_text().splitlines()] == rows
     assert manifest_path.read_bytes() == checkpoint_path.read_bytes()
     assert Path(f"{checkpoint_path}._COMPLETE").exists()
@@ -384,7 +402,7 @@ def test_run_pipeline_does_not_launch_executor_after_preparation_failure(tmp_pat
             raise AssertionError("executor must not launch after failed preparation")  # noqa: EM101
 
     with pytest.raises(FileExistsError, match="refuses to overwrite"):
-        verbs._run_pipeline([ManifestCheckpointStage(str(retained))], Executor())
+        _verb_runtime._run_pipeline([ManifestCheckpointStage(str(retained))], Executor())
     assert retained.read_text() == '{"retained": true}\n'
 
 
@@ -415,9 +433,9 @@ def test_batch_fallback_prepares_a_clean_second_attempt(tmp_path: Path, monkeypa
                 raise RuntimeError("streaming mode requires batch mode: not enough GPU capacity")  # noqa: EM101
             return []
 
-    monkeypatch.setattr(verbs, "_make_executor", Executor)
-    result, mode = verbs._run_pipeline_autofallback(
-        stages, "streaming", None, before_retry=verbs._automatic_retry_reset_hook(stages)
+    monkeypatch.setattr(_verb_runtime, "_make_executor", Executor)
+    result, mode = _verb_runtime._run_pipeline_autofallback(
+        stages, "streaming", None, before_retry=_verb_runtime._automatic_retry_reset_hook(stages)
     )
     assert result == []
     assert mode == "batch"
@@ -430,8 +448,8 @@ def test_serialized_agent_guard_attaches_resource_metrics_via_stage_api(
     monkeypatch: pytest.MonkeyPatch, probe_enabled: bool
 ) -> None:
     from nemo_curator.backends.base import BaseStageAdapter
+    from nemo_curator.stages.audio import utils as audio_utils
     from nemo_curator.tasks import AudioTask
-    from nemo_curator.utils import performance_utils
 
     starts = []
     readings = []
@@ -444,11 +462,11 @@ def test_serialized_agent_guard_attaches_resource_metrics_via_stage_api(
         readings.append(kwargs)
         return {"worker_lifetime_peak_host_mem_gb": 0.25, "throughput": 123.0}
 
-    monkeypatch.setattr(performance_utils, "begin_resource_probe", begin)
-    monkeypatch.setattr(performance_utils, "resource_probe_metrics", metrics)
+    monkeypatch.setattr(audio_utils, "begin_resource_probe", begin)
+    monkeypatch.setattr(audio_utils, "resource_probe_metrics", metrics)
     stage = _ReviewSourceStage()
     stage.RESOURCE_PROBE = probe_enabled
-    with verbs._raise_on_failed_tasks([stage]):
+    with _verb_runtime._raise_on_failed_tasks([stage]):
         worker = pickle.loads(pickle.dumps(stage))  # noqa: S301
         worker._log_metrics({"throughput": 7.0, "own_metric": 2.0})
         results = BaseStageAdapter(worker).process_batch([AudioTask(data={"kept": 1})])
@@ -503,9 +521,9 @@ def test_failed_tasks_never_publish_checkpoint_completion(
             return tasks
 
     execute = (
-        (lambda: verbs._run_pipeline_autofallback(stages, "batch", Executor()))
+        (lambda: _verb_runtime._run_pipeline_autofallback(stages, "batch", Executor()))
         if fallback
-        else (lambda: verbs._run_pipeline(stages, Executor()))
+        else (lambda: _verb_runtime._run_pipeline(stages, Executor()))
     )
     with pytest.raises(RuntimeError, match="recorded failed tasks"):
         execute()
@@ -541,8 +559,8 @@ def test_source_resume_refuses_atomic_output_before_execution(
     def must_not_execute(*_args, **_kwargs):  # noqa: ANN202
         raise AssertionError("unsafe source resume must refuse before execution or staging")  # noqa: EM101
 
-    monkeypatch.setattr(verbs, "probe_env", must_not_execute)
-    monkeypatch.setattr(verbs, "_run_pipeline", must_not_execute)
+    monkeypatch.setattr(profiler, "probe_env", must_not_execute)
+    monkeypatch.setattr(_verb_runtime, "_run_pipeline", must_not_execute)
     result = aa.run(recipe, confirm=recipe.config_hash, checkpoint_path=str(resume))
     assert result["status"] == "refused"
     assert result["reason_code"] == "source_resume_atomic_output_unsupported"
@@ -554,7 +572,7 @@ def test_source_resume_refuses_atomic_output_before_execution(
     stages, issues = build_stages(recipe)
     assert not issues
     with pytest.raises(ValueError, match="source checkpoint resume is unsupported"):
-        verbs._prepare_staged_file_outputs(stages, checkpoint_path=str(resume))
+        _verb_outputs._prepare_staged_file_outputs(stages, checkpoint_path=str(resume))
     assert stages[-1].output_path == str(final)
     assert final.read_text() == '{"retained": true}\n'
 
@@ -566,14 +584,14 @@ def test_atomic_output_staging_without_source_resume_remains_transactional(tmp_p
     final = tmp_path / "output.jsonl"
     final.write_text('{"old": true}\n')
     writer = ManifestWriterStage(str(final))
-    staged = verbs._prepare_staged_file_outputs([writer])
+    staged = _verb_outputs._prepare_staged_file_outputs([writer])
     writer.prepare_on_driver()
     writer.setup()
     writer.process(AudioTask(data={"new": True}))
     writer.finalize()
     assert final.read_text() == '{"old": true}\n'
-    verbs._promote_staged_file_outputs(staged)
-    verbs._restore_staged_file_outputs(staged)
+    _verb_outputs._promote_staged_file_outputs(staged)
+    _verb_outputs._restore_staged_file_outputs(staged)
     assert json.loads(final.read_text()) == {"new": True}
 
 
@@ -617,7 +635,7 @@ class TestRunWorkspaceLock:
         }
         monkeypatch.setenv("AUDIO_AGENT_WORKSPACE", str(workspace))
         monkeypatch.setattr(
-            verbs,
+            _verb_inputs,
             "_dataset_binding",
             lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("outside source was inspected")),
         )
@@ -639,7 +657,7 @@ class TestRunWorkspaceLock:
         }
         monkeypatch.setenv("AUDIO_AGENT_WORKSPACE", str(workspace))
         monkeypatch.setattr(
-            verbs,
+            _verb_inputs,
             "_dataset_binding",
             lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("outside source was inspected")),
         )
@@ -719,8 +737,8 @@ class TestVerbInputBinding:
         def must_not_bound(*_args, **_kwargs):  # noqa: ANN202
             raise AssertionError("smoke attempted to bound a mismatched source")  # noqa: EM101
 
-        monkeypatch.setattr(verbs, "_bound_recipe", must_not_bound)
-        result = verbs.smoke(self._recipe(configured), data=asserted)
+        monkeypatch.setattr(_verb_smoke_inputs, "_bound_recipe", must_not_bound)
+        result = _verb_smoke.smoke(self._recipe(configured), data=asserted)
 
         assert result["status"] == "refused"
         assert result["data_binding"]["status"] == "mismatch"
@@ -733,8 +751,8 @@ class TestVerbInputBinding:
             raise AssertionError("executor was called for a mismatched source")  # noqa: EM101
 
         monkeypatch.delenv("AUDIO_AGENT_REQUIRE_SMOKE", raising=False)
-        monkeypatch.setattr(verbs, "_run_pipeline_autofallback", must_not_run)
-        result = verbs.run(self._recipe(configured), confirm=True, data=asserted)
+        monkeypatch.setattr(_verb_runtime, "_run_pipeline_autofallback", must_not_run)
+        result = _verb_run.run(self._recipe(configured), confirm=True, data=asserted)
 
         assert result["status"] == "refused"
         assert result["data_binding"]["status"] == "mismatch"
@@ -743,7 +761,7 @@ class TestVerbInputBinding:
         configured = self._manifest(tmp_path / "configured.jsonl")
         monkeypatch.setenv("AUDIO_AGENT_RUNS_DIR", str(tmp_path / "runs"))
 
-        result = verbs.reuse_scan(self._recipe(configured))
+        result = _verb_reuse.reuse_scan(self._recipe(configured))
 
         assert result["dataset_key"].startswith(("stat:", "shape:"))
         assert result["data_binding"]["primary_path"] == configured
@@ -754,7 +772,7 @@ class TestVerbInputBinding:
         output = tmp_path / "output.jsonl"
         output.write_text('{"audio_filepath": "/tmp/clip.wav"}\n', encoding="utf-8")
 
-        result = verbs.report(str(output), recipe=self._recipe(configured), data=asserted)
+        result = _verb_report.report(str(output), recipe=self._recipe(configured), data=asserted)
 
         assert result["status"] == "refused"
         assert result["data_binding"]["status"] == "mismatch"
@@ -823,7 +841,7 @@ class TestPostHocReportIntegrity:
         return recipe
 
     def test_missing_output_is_an_explicit_error(self, tmp_path) -> None:  # noqa: ANN001
-        result = verbs.report(str(tmp_path / "missing.jsonl"))
+        result = _verb_report.report(str(tmp_path / "missing.jsonl"))
 
         assert result["status"] == "error"
         assert result["output_scan"]["status"] == "missing"
@@ -833,12 +851,12 @@ class TestPostHocReportIntegrity:
         output = tmp_path / "bad.jsonl"
         output.write_text('{"ok": 1}\n{bad json}\n', encoding="utf-8")
         monkeypatch.setattr(
-            verbs,
+            profiler,
             "probe_env",
             lambda: SimpleNamespace(to_dict=dict),
         )
 
-        result = verbs.report(str(output))
+        result = _verb_report.report(str(output))
 
         assert result["status"] == "error"
         assert result["accepted"] == 1
@@ -853,7 +871,7 @@ class TestPostHocReportIntegrity:
         unrelated = tmp_path / "unrelated.jsonl"
         unrelated.write_text('{"audio_filepath":"other.wav"}\n', encoding="utf-8")
 
-        result = verbs.report(
+        result = _verb_report.report(
             str(unrelated),
             recipe=self._recipe(source, declared),
         )
@@ -872,7 +890,7 @@ class TestPostHocReportIntegrity:
         output = tmp_path / "out.jsonl"
         output.write_text('{"audio_filepath":"clip.wav","text":""}\n', encoding="utf-8")
         monkeypatch.setattr(
-            verbs,
+            profiler,
             "probe_env",
             lambda: SimpleNamespace(to_dict=dict),
         )
@@ -885,7 +903,7 @@ class TestPostHocReportIntegrity:
             }
         ]
 
-        result = verbs.report(
+        result = _verb_report.report(
             str(output),
             recipe=self._recipe(source, output, criteria=criteria),
         )
@@ -913,7 +931,7 @@ class TestPostHocReportIntegrity:
             encoding="utf-8",
         )
         monkeypatch.setattr(
-            verbs,
+            profiler,
             "probe_env",
             lambda: SimpleNamespace(to_dict=dict),
         )
@@ -931,7 +949,7 @@ class TestPostHocReportIntegrity:
             }
         ]
 
-        result = verbs.report(
+        result = _verb_report.report(
             str(output),
             recipe=self._recipe(source, output, criteria=criteria),
         )
@@ -948,12 +966,12 @@ class TestPostHocReportIntegrity:
         output = tmp_path / "out.jsonl"
         output.write_text('{"audio_filepath":"a.wav"}\n', encoding="utf-8")
         monkeypatch.setattr(
-            verbs,
+            profiler,
             "probe_env",
             lambda: SimpleNamespace(to_dict=dict),
         )
 
-        result = verbs.report(str(output))
+        result = _verb_report.report(str(output))
 
         assert result["accepted"] == 1
         assert result["output_rows"] == 1
@@ -971,12 +989,12 @@ class TestPostHocReportIntegrity:
         (output / "a.wav").write_bytes(b"RIFF-a")
         (output / "b.flac").write_bytes(b"fLaC-b")
         monkeypatch.setattr(
-            verbs,
+            profiler,
             "probe_env",
             lambda: SimpleNamespace(to_dict=dict),
         )
 
-        result = verbs.report(str(output))
+        result = _verb_report.report(str(output))
 
         assert result["status"] == "ok"
         assert result["accepted"] is None
@@ -996,7 +1014,7 @@ class TestPretrainFinalizerContract:
         return stage
 
     def test_partial_shard_pipeline_is_refused(self) -> None:
-        finalizer, error = verbs._pretrain_finalizer(
+        finalizer, error = _verb_pretrain._pretrain_finalizer(
             [
                 self._stage(
                     "SnippetManifestWriterStage",
@@ -1010,7 +1028,7 @@ class TestPretrainFinalizerContract:
         assert "SnippetExtractionStage" in error
 
     def test_complete_shard_pipeline_resolves_driver_outputs(self) -> None:
-        finalizer, error = verbs._pretrain_finalizer(
+        finalizer, error = _verb_pretrain._pretrain_finalizer(
             [
                 self._stage(
                     "SnippetExtractionStage",
@@ -1029,7 +1047,7 @@ class TestPretrainFinalizerContract:
         )
 
         assert error == ""
-        assert finalizer == verbs._PretrainFinalizer(
+        assert finalizer == _verb_pretrain._PretrainFinalizer(
             manifest_path="/tmp/snippets.jsonl",  # noqa: S108
             metrics_path="/tmp/metrics.json",  # noqa: S108
             audio_tar_path="/tmp/snippets.tar",  # noqa: S108
@@ -1090,10 +1108,10 @@ class TestContinuationExecutionEvidence:
             captured.update(kwargs)
             return {"status": "completed"}
 
-        monkeypatch.setattr(verbs, "run", fake_run)
+        monkeypatch.setattr(_verb_run, "run", fake_run)
         rec = Recipe.from_dict(_RECIPE).freeze()
 
-        result = verbs._execute_plan(
+        result = _verb_continuation._execute_plan(
             rec,
             {"mode": "full_rerun", "source": "none"},
             choice="fresh",
@@ -1166,28 +1184,28 @@ class TestRunAcceptanceResult:
             return "run-test"
 
         monkeypatch.delenv("AUDIO_AGENT_REQUIRE_SMOKE", raising=False)
-        monkeypatch.setattr(verbs, "probe_env", lambda: env)
-        monkeypatch.setattr(verbs, "build_stages", lambda _rec: ([object()], []))
+        monkeypatch.setattr(profiler, "probe_env", lambda: env)
+        monkeypatch.setattr(_verb_run, "build_stages", lambda _rec: ([object()], []))
         monkeypatch.setattr(
-            verbs,
+            _verb_runtime,
             "_plan_resources",
             lambda *_args, **_kwargs: resource_plan,
         )
         monkeypatch.setattr(
-            verbs,
+            _verb_runtime,
             "_run_pipeline_autofallback",
             lambda *_args, **_kwargs: ([object()], "batch"),
         )
-        monkeypatch.setattr(verbs, "build_run_report", lambda **_kwargs: report)
-        monkeypatch.setattr(verbs, "_produced_roles_keys", lambda *_args, **_kw: ([], []))
-        monkeypatch.setattr(verbs, "_acceptance_result", fake_acceptance)
-        monkeypatch.setattr(verbs, "_publish_artifacts", lambda *_args, **_kwargs: [])
-        monkeypatch.setattr(verbs, "_record_run", fake_record)
+        monkeypatch.setattr(_verb_run._report_data, "build_run_report", lambda **_kwargs: report)
+        monkeypatch.setattr(_verb_publish, "_produced_roles_keys", lambda *_args, **_kw: ([], []))
+        monkeypatch.setattr(_verb_evidence, "_acceptance_result", fake_acceptance)
+        monkeypatch.setattr(_verb_publish, "_publish_artifacts", lambda *_args, **_kwargs: [])
+        monkeypatch.setattr(_verb_publish, "_record_run", fake_record)
         monkeypatch.setattr(run_store, "new_run_id", lambda _config_hash: "run-test")
         manifest = tmp_path / "source.jsonl"
         manifest.write_text('{"audio_filepath": "/tmp/a.wav"}\n', encoding="utf-8")
 
-        result = verbs.run(
+        result = _verb_run.run(
             {
                 **_RECIPE,
                 "stages": [
@@ -1360,7 +1378,7 @@ def test_alm_acceptance_uses_finalized_serialized_count_without_claiming_source_
             "acceptance_criteria": [{"id": "segments", "type": "output_completeness", "check": {"field": "segments"}}],
         }
     )
-    outputs, cardinality_proven = verbs._terminal_evidence_outputs(recipe, [str(manifest)])
+    outputs, cardinality_proven = _verb_evidence._terminal_evidence_outputs(recipe, [str(manifest)])
     assert outputs == [str(manifest)]
     assert cardinality_proven is False
     receipts = {
@@ -1369,7 +1387,7 @@ def test_alm_acceptance_uses_finalized_serialized_count_without_claiming_source_
         "wrong_count": (str(manifest), 3),
         "absent": None,
     }
-    result = verbs._acceptance_result(
+    result = _verb_evidence._acceptance_result(
         recipe,
         SimpleNamespace(accepted=4, input_count=1),
         ["segments"],
@@ -1388,14 +1406,14 @@ def test_nested_acceptance_recipe_is_rejected_before_data_access(monkeypatch: py
     def unexpected_access(*_args, **_kwargs):  # noqa: ANN202
         pytest.fail("unsupported acceptance must be rejected before accessing the dataset")
 
-    monkeypatch.setattr(verbs, "_dataset_binding", unexpected_access)
+    monkeypatch.setattr(_verb_inputs, "_dataset_binding", unexpected_access)
     recipe = Recipe(
         acceptance_criteria=[
             {"id": "speakers", "type": "output_completeness", "check": {"field": "segments[].speaker_id"}}
         ]
     )
     with pytest.raises(ValueError, match=r"nested field.*not supported"):
-        verbs.validate(recipe)
+        _verb_validation.validate(recipe)
 
 
 def test_run_pipeline_binds_manifest_resume_to_configured_pipeline(
@@ -1431,11 +1449,14 @@ def test_run_pipeline_binds_manifest_resume_to_configured_pipeline(
 
     monkeypatch.setattr(Pipeline, "run", execute)
     for _ in range(2):
-        assert verbs._run_pipeline([ManifestWriterStage(str(output))], object(), checkpoint_path=str(checkpoint)) == []
+        assert (
+            _verb_runtime._run_pipeline([ManifestWriterStage(str(output))], object(), checkpoint_path=str(checkpoint))
+            == []
+        )
     assert output.read_text() == '{"finished_source": true}\n'
     assert len(calls) == 2
     with pytest.raises(RuntimeError, match="cannot authenticate"):
-        verbs._run_pipeline(
+        _verb_runtime._run_pipeline(
             [GetAudioDurationStage(), ManifestWriterStage(str(output))], object(), checkpoint_path=str(checkpoint)
         )
     assert len(calls) == 2
@@ -1464,7 +1485,7 @@ def test_success_does_not_consume_a_previous_attempt_failure(tmp_path: Path, mon
                 tasks = BaseStageAdapter(worker).process_batch(tasks)
             return tasks
 
-    assert len(verbs._run_pipeline(stages, Executor())) == 1
+    assert len(_verb_runtime._run_pipeline(stages, Executor())) == 1
     assert Path(f"{checkpoint}._COMPLETE").exists()
     assert (previous / "failed_tasks.json").exists()
     assert all("process_batch" not in vars(stage) for stage in stages)
@@ -1502,7 +1523,7 @@ def test_report_redacts_configured_transcript_aliases(tmp_path: Path, with_recip
             ]
         }
     )
-    result = verbs.report(str(output), recipe=recipe if with_recipe else None)
+    result = _verb_report.report(str(output), recipe=recipe if with_recipe else None)
     assert result["status"] == "ok"
     assert result["output_paths"] == [str(output)]
     example = result["examples"][0]
@@ -1549,9 +1570,9 @@ def test_execution_results_keep_unknown_transcripts_private(
             return tasks
 
     result = (
-        verbs.smoke(recipe, sample=1, executor=Executor())
+        _verb_smoke.smoke(recipe, sample=1, executor=Executor())
         if surface == "smoke"
-        else verbs.run(recipe, confirm=recipe.config_hash, executor=Executor())
+        else _verb_run.run(recipe, confirm=recipe.config_hash, executor=Executor())
     )
     assert result["status"] == "completed", result
     assert "private utterance" not in json.dumps(result)
@@ -1579,13 +1600,13 @@ def test_output_targets_inspect_the_writers_filesystem(tmp_path: Path, scheme: s
     with fs.open(resolved, "wt") as handle:
         handle.write(content)
     recipe = Recipe.from_dict({"stages": [{"ref": "ManifestWriterStage", "params": {"output_path": path}}]})
-    target = verbs._output_targets(recipe)[0]
+    target = _verb_validation._output_targets(recipe)[0]
     assert target["exists"] is True
     assert target["kind"] == "file"
     assert target["rows"] == 1
     assert target["bytes"] == len(content)
     assert fs.cat(resolved).decode() == content
-    assert verbs.validate(recipe)["output_targets"] == [target]
+    assert _verb_validation.validate(recipe)["output_targets"] == [target]
 
 
 def test_output_target_probe_failure_is_unknown(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1598,7 +1619,7 @@ def test_output_target_probe_failure_is_unknown(tmp_path: Path, monkeypatch: pyt
     recipe = Recipe.from_dict(
         {"stages": [{"ref": "ManifestWriterStage", "params": {"output_path": str(tmp_path / "output.jsonl")}}]}
     )
-    target = verbs._output_targets(recipe)[0]
+    target = _verb_validation._output_targets(recipe)[0]
     assert target["exists"] is None
     assert "PermissionError" in target["probe_error"]
 
@@ -1610,7 +1631,7 @@ def test_partial_success_executor_is_refused_before_output_preparation(tmp_path:
     stage = ManifestWriterStage(str(output))
     executor = SimpleNamespace(config={"ignore_failures": True})
     with pytest.raises(ValueError, match="ignore_failures=False"):
-        verbs._run_pipeline([stage], executor)
+        _verb_runtime._run_pipeline([stage], executor)
     assert not output.exists()
 
 
@@ -1620,7 +1641,7 @@ def test_failure_guard_serializes_and_restores_an_instance_batch_override() -> N
     stage = _ReviewFailureStage()
     original = stage.process_batch
     stage.process_batch = original
-    with verbs._raise_on_failed_tasks([stage]):
+    with _verb_runtime._raise_on_failed_tasks([stage]):
         worker = pickle.loads(pickle.dumps(stage))  # noqa: S301
         with pytest.raises(RuntimeError, match="recorded failed tasks"):
             worker.process_batch([AudioTask(data={"fail": True})])
@@ -1657,7 +1678,7 @@ def test_pretrain_finalizer_recovers_renamed_metrics_after_integrity_drop(tmp_pa
         segments_key="turns",
         duration_key="clip_duration",
     )
-    finalizer, error = verbs._pretrain_finalizer([extraction, writer, aggregator])
+    finalizer, error = _verb_pretrain._pretrain_finalizer([extraction, writer, aggregator])
     assert not error
     finalizer.prepare()
     rows = [
@@ -1691,7 +1712,7 @@ def test_pretrain_finalizer_recovers_renamed_metrics_after_integrity_drop(tmp_pa
 
 def test_pretrain_finalizer_refuses_mismatched_reconciliation_keys() -> None:
     make = TestPretrainFinalizerContract._stage
-    finalizer, error = verbs._pretrain_finalizer(
+    finalizer, error = _verb_pretrain._pretrain_finalizer(
         [
             make("SnippetExtractionStage", output_audio_tar_path="audio.tar", id_key="source_id"),
             make("SnippetManifestWriterStage", output_path="manifest.jsonl"),
@@ -1717,7 +1738,7 @@ def test_relative_yield_requires_source_preserving_cardinality(
     source.write_text("{}\n" * 10)
     output = tmp_path / "output.jsonl"
     output.write_text('{"original_file":"one-recording"}\n' * 10)
-    monkeypatch.setattr(verbs, "probe_env", lambda: SimpleNamespace(to_dict=dict))
+    monkeypatch.setattr(profiler, "probe_env", lambda: SimpleNamespace(to_dict=dict))
     recipe = Recipe.from_dict(
         {
             "stages": [
@@ -1732,17 +1753,17 @@ def test_relative_yield_requires_source_preserving_cardinality(
         }
     )
     report = SimpleNamespace(accepted=10, input_count=10)
-    run_acceptance = verbs._acceptance_result(recipe, report, [], [])
-    posthoc = verbs.report(str(output), recipe=recipe)
+    run_acceptance = _verb_evidence._acceptance_result(recipe, report, [], [])
+    posthoc = _verb_report.report(str(output), recipe=recipe)
     suffix = Recipe.from_dict(
         {
             "stages": [recipe.stages[0].to_dict(), recipe.stages[-1].to_dict()],
             "acceptance_criteria": recipe.acceptance_criteria,
         }
     )
-    continued = verbs._acceptance_result(suffix, report, [], [], source_recipe=recipe)
+    continued = _verb_evidence._acceptance_result(suffix, report, [], [], source_recipe=recipe)
 
-    reused = verbs._serve_as_is(
+    reused = _verb_continuation._serve_as_is(
         recipe,
         {"reuse_point": {"uri": str(output), "rows": 10}},
         parent=SimpleNamespace(input_count=10, status="completed"),

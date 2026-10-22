@@ -20,7 +20,7 @@ from types import SimpleNamespace
 import pytest
 
 from nemo_curator.stages.audio import audio_agent as aa
-from nemo_curator.stages.audio.audio_agent import _safety, continuation
+from nemo_curator.stages.audio.audio_agent import _safety, _verb_publish, continuation
 from nemo_curator.stages.audio.audio_agent.recipe import Recipe
 
 _READER = {"ref": "ManifestReader", "params": {"manifest_path": "/tmp/m.jsonl"}}  # noqa: S108
@@ -155,7 +155,7 @@ class TestAudioDirectoryBoundary:
         assert "persist a manifest" in error
 
     def test_reuse_scan_refuses_unsafe_directory(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        from nemo_curator.stages.audio.audio_agent import artifacts, reuse, verbs
+        from nemo_curator.stages.audio.audio_agent import artifacts, reuse
         from nemo_curator.stages.audio.audio_agent.recipe import build_stages
 
         monkeypatch.setenv("AUDIO_AGENT_RUNS_DIR", str(tmp_path / "runs"))
@@ -166,7 +166,7 @@ class TestAudioDirectoryBoundary:
         (directory / "converted.wav").write_bytes(b"fixture")
         stages, issues = build_stages(recipe)
         assert not issues
-        verbs._publish_artifacts(
+        _verb_publish._publish_artifacts(
             recipe,
             stages,
             dataset_key="directory-binding-test",

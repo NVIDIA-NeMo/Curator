@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from nemo_curator.stages.audio.audio_agent import _verb_smoke, _verb_smoke_inputs
 from nemo_curator.stages.audio.audio_agent.input_identity import (
     SUPPORTED_SOURCE_REFS,
     canonical_source,
@@ -330,13 +331,11 @@ class TestManifestReader:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        from nemo_curator.stages.audio.audio_agent import verbs
-
         def must_not_bound(*_args: object, **_kwargs: object) -> None:
             raise AssertionError("smoke attempted to bound a missing manifest selector")  # noqa: EM101
 
-        monkeypatch.setattr(verbs, "_bound_recipe", must_not_bound)
-        result = verbs.smoke(_recipe("ManifestReader", {"manifest_path": str(tmp_path / "*.jsonl")}))
+        monkeypatch.setattr(_verb_smoke_inputs, "_bound_recipe", must_not_bound)
+        result = _verb_smoke.smoke(_recipe("ManifestReader", {"manifest_path": str(tmp_path / "*.jsonl")}))
 
         assert result["status"] == "refused"
         assert result["data_binding"]["status"] == "missing"

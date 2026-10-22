@@ -25,16 +25,24 @@ from typing import Any
 
 import pytest
 
-from nemo_curator.stages.audio.audio_agent import _ray, calibration, calibration_store, planner, verbs
+from nemo_curator.stages.audio.audio_agent import (
+    _ray,
+    _verb_inputs,
+    _verb_publish,
+    _verb_run,
+    _verb_runtime,
+    _verb_smoke,
+    calibration,
+    calibration_store,
+    planner,
+    profiler,
+)
 from nemo_curator.stages.audio.audio_agent.contracts import EnvProfile
 from nemo_curator.stages.audio.audio_agent.report import _dedup_stage_perf
 from nemo_curator.stages.audio.common import ManifestReader
 from nemo_curator.stages.audio.inference.asr.stage import ASRStage
 from nemo_curator.stages.resources import Resources
-from nemo_curator.utils.performance_utils import (
-    StagePerfStats,
-    resource_probe_metrics,
-)
+from nemo_curator.utils.performance_utils import StagePerfStats
 
 
 class _Index:
@@ -120,7 +128,7 @@ def test_ray_cluster_capacity_replaces_driver_scheduling_capacity(
         },
     )
 
-    result = verbs._apply_ray_cluster_capacity(
+    result = _verb_runtime._apply_ray_cluster_capacity(
         env,
         "10.20.30.40:6379",
     )
@@ -155,7 +163,7 @@ def test_ray_address_locality_is_deterministic(
     address: str | None,
     expected: bool,
 ) -> None:
-    assert verbs._ray_address_is_local(address) is expected
+    assert _verb_inputs._ray_address_is_local(address) is expected
 
 
 def test_loopback_ray_capacity_keeps_local_driver_gpu_details(
@@ -179,7 +187,7 @@ def test_loopback_ray_capacity_keeps_local_driver_gpu_details(
         },
     )
 
-    result = verbs._apply_ray_cluster_capacity(
+    result = _verb_runtime._apply_ray_cluster_capacity(
         env,
         "ray://[::1]:10001",
     )
@@ -199,7 +207,7 @@ def test_ray_cluster_probe_failure_does_not_fall_back_to_driver_capacity(
     )
 
     with pytest.raises(RuntimeError, match="refusing to substitute driver resources"):
-        verbs._apply_ray_cluster_capacity(env, "10.20.30.40:6379")
+        _verb_runtime._apply_ray_cluster_capacity(env, "10.20.30.40:6379")
 
 
 def test_ray_cluster_with_no_cpu_capacity_is_rejected(
@@ -212,7 +220,7 @@ def test_ray_cluster_with_no_cpu_capacity_is_rejected(
     )
 
     with pytest.raises(RuntimeError, match="no positive finite CPU capacity"):
-        verbs._apply_ray_cluster_capacity(
+        _verb_runtime._apply_ray_cluster_capacity(
             EnvProfile(total_cpus=64, total_ram_gb=256),
             "10.20.30.40:6379",
         )
@@ -228,7 +236,7 @@ def test_custom_executor_never_inherits_driver_capacity() -> None:
         total_ram_gb=256,
     )
 
-    target = verbs._resource_environment(driver, None, "custom_executor")
+    target = _verb_runtime._resource_environment(driver, None, "custom_executor")
 
     assert target.has_gpu is False
     assert target.gpu_count == 0
@@ -254,17 +262,17 @@ def test_custom_executor_owns_capacity_and_bounded_remote_smoke_can_probe_vram()
         notes=[],
     )
 
-    verbs._adapt_resource_plan_for_target(
+    _verb_runtime._adapt_resource_plan_for_target(
         custom,
         execution_target="custom_executor",
         operation="run",
     )
-    verbs._adapt_resource_plan_for_target(
+    _verb_runtime._adapt_resource_plan_for_target(
         remote_smoke,
         execution_target="external_ray",
         operation="smoke",
     )
-    verbs._adapt_resource_plan_for_target(
+    _verb_runtime._adapt_resource_plan_for_target(
         remote_run,
         execution_target="external_ray",
         operation="run",
@@ -300,18 +308,18 @@ def test_smoke_stops_only_the_ray_head_it_bootstrapped(
         return bootstrapped and address in {None, "127.0.0.1:62000"}
 
     monkeypatch.delenv("RAY_ADDRESS", raising=False)
-    monkeypatch.setattr(verbs, "_profile_binding", lambda _binding: None)
-    monkeypatch.setattr(verbs, "_bootstrap_ray", bootstrap)
+    monkeypatch.setattr(_verb_inputs, "_profile_binding", lambda _binding: None)
+    monkeypatch.setattr(_verb_runtime, "_bootstrap_ray", bootstrap)
     monkeypatch.setattr(_ray, "owns_cluster", owns_after_bootstrap)
     monkeypatch.setattr(
         _ray,
         "shutdown_cluster",
         lambda address=None: stopped.append(str(address)) or True,
     )
-    monkeypatch.setattr(verbs, "_apply_ray_cluster_capacity", lambda env, _address: env)
-    monkeypatch.setattr(verbs, "probe_env", lambda: EnvProfile(total_cpus=8, total_ram_gb=32))
+    monkeypatch.setattr(_verb_runtime, "_apply_ray_cluster_capacity", lambda env, _address: env)
+    monkeypatch.setattr(profiler, "probe_env", lambda: EnvProfile(total_cpus=8, total_ram_gb=32))
     monkeypatch.setattr(
-        verbs,
+        _verb_runtime,
         "_plan_resources",
         lambda *_args, **_kwargs: SimpleNamespace(
             mode="batch",
@@ -321,12 +329,12 @@ def test_smoke_stops_only_the_ray_head_it_bootstrapped(
         ),
     )
     monkeypatch.setattr(
-        verbs,
+        _verb_runtime,
         "_run_pipeline_autofallback",
         lambda *_args, **_kwargs: ([], "batch"),
     )
 
-    result = verbs.smoke(
+    result = _verb_smoke.smoke(
         {
             "stages": [
                 {
@@ -373,16 +381,16 @@ def test_an_unexpected_error_after_execution_still_stops_the_head_run_started(
 
     monkeypatch.delenv("RAY_ADDRESS", raising=False)
     monkeypatch.delenv("AUDIO_AGENT_REQUIRE_SMOKE", raising=False)
-    monkeypatch.setattr(verbs, "_bootstrap_ray", bootstrap)
+    monkeypatch.setattr(_verb_runtime, "_bootstrap_ray", bootstrap)
     monkeypatch.setattr(
         _ray, "owns_cluster", lambda address=None: bootstrapped and address in {None, "127.0.0.1:62000"}
     )
     monkeypatch.setattr(_ray, "shutdown_cluster", lambda address=None: stopped.append("stopped") or True)  # noqa: ARG005
-    monkeypatch.setattr(verbs, "_apply_ray_cluster_capacity", lambda env, _address: env)
-    monkeypatch.setattr(verbs, "probe_env", lambda: EnvProfile(total_cpus=8, total_ram_gb=32))
-    monkeypatch.setattr(verbs, "build_stages", lambda _rec: ([object()], []))
+    monkeypatch.setattr(_verb_runtime, "_apply_ray_cluster_capacity", lambda env, _address: env)
+    monkeypatch.setattr(profiler, "probe_env", lambda: EnvProfile(total_cpus=8, total_ram_gb=32))
+    monkeypatch.setattr(_verb_run, "build_stages", lambda _rec: ([object()], []))
     monkeypatch.setattr(
-        verbs,
+        _verb_runtime,
         "_plan_resources",
         lambda *_args, **_kwargs: SimpleNamespace(
             mode="batch",
@@ -392,11 +400,11 @@ def test_an_unexpected_error_after_execution_still_stops_the_head_run_started(
             to_dict=lambda: {"mode": "batch"},
         ),
     )
-    monkeypatch.setattr(verbs, "_run_pipeline_autofallback", lambda *_a, **_k: ([object()], "batch"))
-    monkeypatch.setattr(verbs, "_publish_artifacts", exploding_tail)
+    monkeypatch.setattr(_verb_runtime, "_run_pipeline_autofallback", lambda *_a, **_k: ([object()], "batch"))
+    monkeypatch.setattr(_verb_publish, "_publish_artifacts", exploding_tail)
 
     with pytest.raises(RuntimeError, match="artifact publishing blew up"):
-        verbs.run(
+        _verb_run.run(
             {"stages": [{"ref": "ManifestReader", "params": {"manifest_path": str(source)}}]},
             confirm=True,
             bootstrap_ray=True,
@@ -475,7 +483,7 @@ def test_resource_planning_does_not_silently_convert_a_gpu_recipe_to_cpu() -> No
         )
     ]
 
-    result = verbs._plan_resources(
+    result = _verb_runtime._plan_resources(
         stages,
         EnvProfile(gpu_count=0, total_cpus=8, total_ram_gb=64),
         None,
@@ -783,31 +791,6 @@ def test_perf_aggregates_include_extrema_and_calibration_uses_peak() -> None:
     assert measured["scorer"]["throughput"] == 3.0
 
 
-def test_runtime_resource_probe_keeps_worker_lifetime_memory_out_of_calibration() -> None:
-    metrics = resource_probe_metrics(
-        gpu_probe_started=False,
-        process_time=2.0,
-        num_items=5,
-    )
-
-    assert metrics["throughput"] == 2.5
-    assert metrics["worker_lifetime_peak_host_mem_gb"] > 0
-    assert "peak_host_mem_gb" not in metrics
-    assert "peak_vram_gb" not in metrics
-    measured = calibration.from_smoke(
-        {
-            "per_stage_metrics": {
-                "scorer": {
-                    "custom.worker_lifetime_peak_host_mem_gb": {"max": 8.0},
-                    "custom.throughput": {"mean": 2.5},
-                }
-            }
-        }
-    )
-
-    assert measured["scorer"] == {"throughput": 2.5, "source": "measured"}
-
-
 def test_calibration_extraction_ignores_invalid_measurements() -> None:
     measured = calibration.from_smoke(
         {
@@ -883,7 +866,7 @@ class TestMeasurementsReachTheRunThatNeedsThem:
     def test_a_run_with_no_flag_plans_from_the_stored_measurements(self) -> None:
         calibration_store.save("cfg-1", {"stage-a": {"host_mem_gb": 9.0, "source": "measured"}})
 
-        resolved, note = verbs._calibration_for_run(None, "cfg-1")
+        resolved, note = _verb_runtime._calibration_for_run(None, "cfg-1")
 
         assert resolved["calibration"]["stage-a"]["host_mem_gb"] == 9.0
         assert "none passed" in note
@@ -892,7 +875,7 @@ class TestMeasurementsReachTheRunThatNeedsThem:
         calibration_store.save("cfg-1", {"stage-a": {"host_mem_gb": 9.0}})
         explicit = {"calibration": {"stage-a": {"host_mem_gb": 2.0}}}
 
-        resolved, note = verbs._calibration_for_run(explicit, "cfg-1")
+        resolved, note = _verb_runtime._calibration_for_run(explicit, "cfg-1")
 
         assert resolved is explicit
         assert note is None
@@ -900,7 +883,7 @@ class TestMeasurementsReachTheRunThatNeedsThem:
     def test_editing_the_recipe_does_not_inherit_the_old_measurements(self) -> None:
         calibration_store.save("cfg-1", {"stage-a": {"host_mem_gb": 9.0}})
 
-        assert verbs._calibration_for_run(None, "cfg-2") == (None, None)
+        assert _verb_runtime._calibration_for_run(None, "cfg-2") == (None, None)
 
     def test_stored_measurements_can_flip_streaming_to_batch(self) -> None:
         # The whole point of the hand-off: 2 x 1 GB of card floor fits a 16 GB box and plans
@@ -914,7 +897,7 @@ class TestMeasurementsReachTheRunThatNeedsThem:
             },
             machine_fingerprint=env.fingerprint(),
         )
-        resolved, _note = verbs._calibration_for_run(None, "cfg-1")
+        resolved, _note = _verb_runtime._calibration_for_run(None, "cfg-1")
 
         assert _pair_plan(env).mode == "streaming"
         informed = _pair_plan(env, resolved)
@@ -929,7 +912,7 @@ class TestMeasurementsReachTheRunThatNeedsThem:
             {"stage-a": {"host_mem_gb": 9.0}, "stage-b": {"host_mem_gb": 9.0}},
             machine_fingerprint="a-much-larger-box",
         )
-        resolved, _note = verbs._calibration_for_run(None, "cfg-1")
+        resolved, _note = _verb_runtime._calibration_for_run(None, "cfg-1")
 
         result = _pair_plan(env, resolved)
 

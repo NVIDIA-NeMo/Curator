@@ -31,7 +31,15 @@ from typing import Any
 
 import pytest
 
-from nemo_curator.stages.audio.audio_agent import artifacts, cli, delta, verbs
+from nemo_curator.stages.audio.audio_agent import (
+    _verb_continuation,
+    _verb_delta,
+    _verb_reuse,
+    _verb_run,
+    artifacts,
+    cli,
+    delta,
+)
 from nemo_curator.stages.audio.audio_agent.recipe import Recipe
 
 
@@ -70,7 +78,7 @@ def _rows(path: Path | str) -> list[dict[str, Any]]:
 
 
 def _run(rec: Recipe, folder: Path) -> dict[str, Any]:
-    return verbs.run(rec, confirm=True, data=str(folder))
+    return _verb_run.run(rec, confirm=True, data=str(folder))
 
 
 @pytest.mark.usefixtures("store")
@@ -87,13 +95,13 @@ class TestDeltaExecution:
 
         _wav(folder / "c.wav")
         # Unconfirmed, this is a card and a refusal -- the same shape run() returns.
-        card = verbs.delta_run(rec, data=str(folder))
+        card = _verb_delta.delta_run(rec, data=str(folder))
         assert card["status"] == "refused", card
         assert card["delta"]["change"]["added"] == 1
         assert card["delta"]["file_count"] == 1
         assert card["delta"]["change"]["added_files"] == ["c.wav"]
 
-        done = verbs.delta_run(rec, data=str(folder), confirm=True)
+        done = _verb_delta.delta_run(rec, data=str(folder), confirm=True)
         assert done["status"] == "completed", done
         assert done["ran_files"] == [str(folder / "c.wav")]
         # As a set: parallel writers append in completion order, so no run has a fixed row order.
@@ -110,7 +118,7 @@ class TestDeltaExecution:
         rec = _recipe(folder, out)
         assert _run(rec, folder)["status"] == "completed"
         _wav(folder / "c.wav")
-        verbs.delta_run(rec, data=str(folder), confirm=True)
+        _verb_delta.delta_run(rec, data=str(folder), confirm=True)
         incremental = _rows(out)
 
         whole = tmp_path / "out" / "whole.jsonl"
@@ -129,9 +137,9 @@ class TestDeltaExecution:
         rec = _recipe(folder, out)
         assert _run(rec, folder)["status"] == "completed"
         _wav(folder / "c.wav")
-        verbs.delta_run(rec, data=str(folder), confirm=True)
+        _verb_delta.delta_run(rec, data=str(folder), confirm=True)
 
-        scan = verbs.reuse_scan(rec, data=str(folder))
+        scan = _verb_reuse.reuse_scan(rec, data=str(folder))
         assert scan["decision"] == "already_done", scan["rationale"]
 
     def test_a_second_delta_resumes_from_what_the_first_one_merged(self, tmp_path: Path) -> None:
@@ -149,13 +157,13 @@ class TestDeltaExecution:
         assert _run(rec, folder)["status"] == "completed"
 
         _wav(folder / "c.wav")
-        assert verbs.delta_run(rec, data=str(folder), confirm=True)["status"] == "completed"
+        assert _verb_delta.delta_run(rec, data=str(folder), confirm=True)["status"] == "completed"
 
         _wav(folder / "d.wav")
-        offered = verbs.reuse_scan(rec, data=str(folder))["delta"]
+        offered = _verb_reuse.reuse_scan(rec, data=str(folder))["delta"]
         assert offered["status"] == "ready", offered["reason"]
 
-        done = verbs.delta_run(rec, data=str(folder), confirm=True)
+        done = _verb_delta.delta_run(rec, data=str(folder), confirm=True)
         assert done["status"] == "completed", done
         assert done["ran_files"] == [str(folder / "d.wav")]
         assert done["merged"][0]["rows_kept"] == 3
@@ -193,7 +201,7 @@ class TestDeltaExecution:
         assert len(exported) == 2, exported
 
         _wav(folder / "c.wav")
-        done = verbs.delta_run(rec, data=str(folder), confirm=True)
+        done = _verb_delta.delta_run(rec, data=str(folder), confirm=True)
 
         assert done["status"] == "tail_required", done
         assert done["tail"]["stages"] == 1
@@ -201,7 +209,7 @@ class TestDeltaExecution:
         assert len(_rows(checkpoint)) == 3, "the prefix's own manifest is merged and current"
         assert sorted(p.name for p in groups.glob("*.jsonl")) == exported, "the tail has not run yet"
 
-        tail = verbs.plan_continuation(rec, data=str(folder), execute=True, choice="extend", confirm=True)
+        tail = _verb_continuation.plan_continuation(rec, data=str(folder), execute=True, choice="extend", confirm=True)
         assert tail.get("status") not in {"error", "failed", "refused"}, tail
         assert len(sorted(groups.glob("*.jsonl"))) == 3, "the tail reran over every row"
 
@@ -231,7 +239,7 @@ class TestDeltaExecution:
         assert _run(rec, folder)["status"] == "completed"
 
         _wav(folder / "c.wav")
-        done = verbs.delta_run(rec, data=str(folder), confirm=True)
+        done = _verb_delta.delta_run(rec, data=str(folder), confirm=True)
 
         assert done["status"] == "completed", done
         assert "acceptance" in done, "a delta that rewrites the deliverable must judge it"
@@ -269,7 +277,7 @@ class TestDeltaExecution:
         assert _run(rec, folder)["status"] == "completed"
 
         _wav(folder / "c.wav")
-        done = verbs.delta_run(rec, data=str(folder), confirm=True)
+        done = _verb_delta.delta_run(rec, data=str(folder), confirm=True)
 
         assert done["status"] == "tail_required", done
         assert "acceptance" not in done, "a verdict here would describe output the tail has not written"
@@ -293,13 +301,13 @@ class TestDeltaExecution:
         assert _run(rec, folder)["status"] == "completed"
 
         _wav(folder / "c.wav")
-        assert verbs.delta_run(rec, data=str(folder), confirm=True)["status"] == "completed"
+        assert _verb_delta.delta_run(rec, data=str(folder), confirm=True)["status"] == "completed"
         after_first = [r["audio_filepath"] for r in _rows(out)]
         assert len(after_first) == 3, after_first
 
         # Nothing changed in between, so this is the retry shape. Whatever it decides -- a
         # refusal is a perfectly good answer -- it must not leave a duplicated row behind.
-        verbs.delta_run(rec, data=str(folder), confirm=True)
+        _verb_delta.delta_run(rec, data=str(folder), confirm=True)
         after_second = [r["audio_filepath"] for r in _rows(out)]
         assert len(after_second) == len(set(after_second)), f"a retry duplicated rows: {after_second}"
         assert sorted(after_second) == sorted(after_first)
@@ -312,7 +320,7 @@ class TestDeltaExecution:
         assert _run(rec, folder)["status"] == "completed"
 
         (folder / "b.wav").unlink()
-        done = verbs.delta_run(rec, data=str(folder), confirm=True)
+        done = _verb_delta.delta_run(rec, data=str(folder), confirm=True)
         assert done["status"] == "completed", done
         assert done["ran_files"] == []
         assert [os.path.basename(r["audio_filepath"]) for r in _rows(out)] == ["a.wav"]
@@ -326,7 +334,7 @@ class TestDeltaExecution:
         assert {round(r["duration"], 2) for r in _rows(out)} == {0.25}
 
         _wav(folder / "b.wav", seconds=0.5)  # same name, different audio
-        done = verbs.delta_run(rec, data=str(folder), confirm=True)
+        done = _verb_delta.delta_run(rec, data=str(folder), confirm=True)
         assert done["status"] == "completed", done
         rows = {os.path.basename(r["audio_filepath"]): round(r["duration"], 2) for r in _rows(out)}
         assert rows == {"a.wav": 0.25, "b.wav": 0.5}
@@ -338,7 +346,7 @@ class TestDeltaExecution:
         assert _run(rec, folder)["status"] == "completed"
         _wav(folder / "b.wav")
 
-        refused = verbs.delta_run(rec, data=str(folder), confirm="not-the-hash")
+        refused = _verb_delta.delta_run(rec, data=str(folder), confirm="not-the-hash")
         assert refused["status"] == "refused"
         assert "confirm" in refused["reason"]
         assert len(_rows(out)) == 1, "a refused delta must not touch the prior manifest"
@@ -349,7 +357,7 @@ class TestDeltaExecution:
         rec = _recipe(folder, out)
         assert _run(rec, folder)["status"] == "completed"
 
-        card = verbs.delta_run(rec, data=str(folder))
+        card = _verb_delta.delta_run(rec, data=str(folder))
         assert card["status"] == "no_delta"
         # Nothing changed, so the ordinary probe already serves it; that is not a delta's job.
         assert card["delta"]["reason"]
@@ -392,7 +400,7 @@ class TestTheCardOffersIt:
         assert _run(rec, folder)["status"] == "completed"
         _wav(folder / "c.wav")
 
-        scan = verbs.reuse_scan(rec, data=str(folder))
+        scan = _verb_reuse.reuse_scan(rec, data=str(folder))
 
         # `decision` names the cheapest correct action, because that is the field a host branches on.
         assert scan["decision"] == "delta"
@@ -408,7 +416,7 @@ class TestTheCardOffersIt:
         folder, out = tmp_path / "audio", tmp_path / "out" / "m.jsonl"
         _wav(folder / "a.wav")
 
-        scan = verbs.reuse_scan(_recipe(folder, out), data=str(folder))
+        scan = _verb_reuse.reuse_scan(_recipe(folder, out), data=str(folder))
 
         assert scan["decision"] == "fresh"
         assert "delta" not in scan
@@ -426,7 +434,7 @@ class TestTheCardOffersIt:
         for name in ("x.wav", "y.wav"):
             _wav(folder / name)
 
-        scan = verbs.reuse_scan(rec, data=str(folder))
+        scan = _verb_reuse.reuse_scan(rec, data=str(folder))
 
         assert scan["delta"]["status"] != "ready"
         assert scan["delta"]["change"]["kind"] == "unrelated"
@@ -452,7 +460,7 @@ class TestTheCardOffersIt:
         assert _run(rec, folder)["status"] == "completed"
         _wav(folder / "b.wav")
 
-        scan = verbs.reuse_scan(rec, data=str(folder))
+        scan = _verb_reuse.reuse_scan(rec, data=str(folder))
 
         assert scan["decision"] == "fresh"
         assert scan["prior_on_other_data"]["saved"] is False
@@ -473,7 +481,7 @@ class TestMergeSafety:
         parent = tmp_path / "does-not-exist"
         decision = SimpleNamespace(uri=str(parent / "manifest.jsonl"))
 
-        result = verbs._execute_delta(
+        result = _verb_delta._execute_delta(
             SimpleNamespace(config_hash="expected-hash"),
             decision,
             dp=SimpleNamespace(),
@@ -508,7 +516,7 @@ class TestMergeSafety:
             (Path(sandbox) / "scratch.txt").write_text("temporary")
             return {"status": "completed"}
 
-        monkeypatch.setattr(verbs, "_execute_delta_in_sandbox", execute_in_sandbox)
+        monkeypatch.setattr(_verb_delta, "_execute_delta_in_sandbox", execute_in_sandbox)
         decision = SimpleNamespace(uri=str(parent / "manifest.jsonl"))
         kwargs = {
             "dp": SimpleNamespace(),
@@ -521,8 +529,8 @@ class TestMergeSafety:
             "goal": None,
         }
 
-        assert verbs._execute_delta(SimpleNamespace(), decision, **kwargs)["status"] == "completed"
-        assert verbs._execute_delta(SimpleNamespace(), decision, **kwargs)["status"] == "completed"
+        assert _verb_delta._execute_delta(SimpleNamespace(), decision, **kwargs)["status"] == "completed"
+        assert _verb_delta._execute_delta(SimpleNamespace(), decision, **kwargs)["status"] == "completed"
 
         assert len(set(used)) == 2, "concurrent/repeated deltas must never share scratch state"
         assert all(not os.path.exists(path) for path in used), "each invocation cleans only its own scratch"
@@ -530,14 +538,14 @@ class TestMergeSafety:
 
     def test_delta_cleanup_refuses_a_path_that_was_replaced_after_creation(self, tmp_path: Path) -> None:
         output = tmp_path / "out" / "manifest.jsonl"
-        sandbox, identity = verbs._create_delta_sandbox(str(output))
+        sandbox, identity = _verb_delta._create_delta_sandbox(str(output))
         moved = f"{sandbox}.moved"
         os.rename(sandbox, moved)
         os.mkdir(sandbox)
         replacement = Path(sandbox) / "replacement.txt"
         replacement.write_text("not ours")
 
-        assert verbs._remove_owned_temporary(sandbox, identity) is False
+        assert _verb_delta._remove_owned_temporary(sandbox, identity) is False
         assert replacement.read_text() == "not ours"
 
     def test_rows_with_different_columns_are_not_merged(self, tmp_path: Path) -> None:
@@ -618,7 +626,7 @@ class TestAdoptingAPriorRunsRecipe:
         _wav(folder / "c.wav")
         # Session two: same request, planned again into its own output, and every matcher misses.
         second_out = tmp_path / "out" / "second.jsonl"
-        scan = verbs.reuse_scan(_drifted(folder, second_out), data=str(folder))
+        scan = _verb_reuse.reuse_scan(_drifted(folder, second_out), data=str(folder))
         assert scan["decision"] == "fresh"
         # A delta cannot help here: it resumes from THIS pipeline's artifacts, and the drift moved
         # every key. The notice is the only thing that can still connect the two sessions.
@@ -628,12 +636,12 @@ class TestAdoptingAPriorRunsRecipe:
         assert notice["recommendation"] == "align"
         assert notice["data_delta"]["added_files"] == ["c.wav"]
 
-        card = verbs.delta_run(from_run=first["run_id"], data=str(folder))
+        card = _verb_delta.delta_run(from_run=first["run_id"], data=str(folder))
         assert card["adopted_from"]["run_id"] == first["run_id"]
         assert card["delta"]["change"]["added_files"] == ["c.wav"]
         assert card["delta"]["status"] == "ready", card["delta"].get("reason")
 
-        done = verbs.delta_run(from_run=first["run_id"], data=str(folder), confirm=True)
+        done = _verb_delta.delta_run(from_run=first["run_id"], data=str(folder), confirm=True)
         assert done["status"] == "completed", done
         assert done["ran_files"] == [str(folder / "c.wav")]
         # The deliverable is the prior run's manifest, now covering the whole folder.
@@ -647,7 +655,7 @@ class TestAdoptingAPriorRunsRecipe:
         first = _run(_recipe(folder, out), folder)
         _wav(folder / "b.wav")
 
-        card = verbs.delta_run(from_run=first["run_id"], data=str(folder))
+        card = _verb_delta.delta_run(from_run=first["run_id"], data=str(folder))
 
         assert card["adopted_from"]["pipeline"] == [s["ref"] for s in card["recipe"]["stages"]]
         assert card["adopted_from"]["identity_reproduced"] is True
@@ -661,7 +669,7 @@ class TestAdoptingAPriorRunsRecipe:
         _wav(folder / "a.wav")
         first = _run(_recipe(folder, out), folder)
 
-        card = verbs.delta_run(from_run=first["run_id"], data=str(folder))
+        card = _verb_delta.delta_run(from_run=first["run_id"], data=str(folder))
 
         assert card["status"] == "no_delta"
         assert "already covers this input" in card["next"]
@@ -672,19 +680,19 @@ class TestAdoptingAPriorRunsRecipe:
         _wav(folder / "a.wav")
         first = _run(_recipe(folder, out), folder)
 
-        refused = verbs.delta_run(_recipe(folder, out), from_run=first["run_id"], data=str(folder))
+        refused = _verb_delta.delta_run(_recipe(folder, out), from_run=first["run_id"], data=str(folder))
 
         assert refused["status"] == "refused"
         assert "not both" in refused["reason"]
 
     def test_neither_a_recipe_nor_a_run_is_refused(self) -> None:
-        refused = verbs.delta_run()
+        refused = _verb_delta.delta_run()
 
         assert refused["status"] == "refused"
         assert "from_run" in refused["reason"]
 
     def test_an_unknown_run_is_refused_by_id(self) -> None:
-        refused = verbs.delta_run(from_run="run-nope")
+        refused = _verb_delta.delta_run(from_run="run-nope")
 
         assert refused["status"] == "refused"
         assert "run-nope" in refused["reason"]
@@ -701,7 +709,7 @@ class TestAdoptingAPriorRunsRecipe:
             RunRecord(run_id=run_id, recipe=rec.to_dict(), semantic_hash=rec.semantic_hash, status="failed")
         )
 
-        refused = verbs.delta_run(from_run=run_id, data=str(folder))
+        refused = _verb_delta.delta_run(from_run=run_id, data=str(folder))
 
         assert refused["status"] == "refused"
         assert "completed" in refused["reason"]
@@ -742,7 +750,7 @@ class TestAPipelineHistoryCannotReproduce:
         rec = self._credentialed(tmp_path / "audio", tmp_path / "m.jsonl")
         run_id = self._record_with_masked_recipe(rec)
 
-        refused = verbs.delta_run(from_run=run_id)
+        refused = _verb_delta.delta_run(from_run=run_id)
 
         assert refused["status"] == "refused"
         assert "PyAnnoteDiarizationStage.hf_token" in refused["reason"]
@@ -759,7 +767,7 @@ class TestAPipelineHistoryCannotReproduce:
         assert oct(os.stat(path).st_mode)[-3:] == "600", "a stored credential is owner-only"
         assert run_store.load_exact_recipe(run_id) == rec.to_dict()
 
-        adopted, provenance, refusal = verbs._adopt_recipe(run_id)
+        adopted, provenance, refusal = _verb_delta._adopt_recipe(run_id)
         assert refusal is None, refusal
         assert adopted.semantic_hash == rec.semantic_hash, "the adopted pipeline is the one that ran"
         assert provenance["identity_reproduced"] is True

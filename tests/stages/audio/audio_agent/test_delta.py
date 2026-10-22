@@ -29,7 +29,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 from nemo_curator.stages.audio._agent._agent_ready import AgentReady, StageContract
-from nemo_curator.stages.audio.audio_agent import artifacts, delta, profiler
+from nemo_curator.stages.audio.audio_agent import _verb_delta, _verb_inputs, artifacts, delta, profiler
 from nemo_curator.stages.audio.audio_agent.recipe import Recipe
 from nemo_curator.stages.base import _STAGE_REGISTRY, ProcessingStage
 from nemo_curator.tasks import AudioTask
@@ -952,8 +952,6 @@ class TestPlan:
 
 
 def test_public_delta_plan_never_adds_excluded_manifest_rows(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from nemo_curator.stages.audio.audio_agent import verbs
-
     monkeypatch.setattr(profiler, "_probe_files", lambda *_args: None)
     audio = tmp_path / "audio"
     _corpus(audio, ("a.wav", "b.wav", "c.wav"))
@@ -969,7 +967,7 @@ def test_public_delta_plan_never_adds_excluded_manifest_rows(tmp_path: Path, mon
         include_files=[str(audio / "a.wav"), str(audio / "b.wav")], include_files_key="recording"
     )
     rec = rec.freeze()
-    before = verbs._profile_binding(verbs._dataset_binding(rec, None))
+    before = _verb_inputs._profile_binding(_verb_inputs._dataset_binding(rec, None))
     _publish(
         rec,
         2,
@@ -979,7 +977,7 @@ def test_public_delta_plan_never_adds_excluded_manifest_rows(tmp_path: Path, mon
     )
     (audio / "a.wav").write_bytes(b"changed selected input")
 
-    result = verbs.delta_run(rec, confirm=False)
+    result = _verb_delta.delta_run(rec, confirm=False)
 
     assert result["delta"]["status"] == "ready"
     assert result["delta"]["files"] == [str(audio / "a.wav")]

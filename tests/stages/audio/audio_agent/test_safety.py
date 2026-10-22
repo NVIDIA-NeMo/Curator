@@ -22,7 +22,7 @@ from pathlib import Path
 
 import pytest
 
-from nemo_curator.stages.audio.audio_agent import _safety
+from nemo_curator.stages.audio.audio_agent import _safety, _verb_evidence, _verb_run
 from nemo_curator.stages.audio.audio_agent.recipe import Recipe
 
 
@@ -361,12 +361,11 @@ class TestRedactionWalksEveryContainerNotJustTheTwoNoticedFirst:
     def test_a_tuple_row_value_reaches_the_host_redacted(self) -> None:
         """End-to-end over the path that makes this reachable: a manifest row whose value is a
         tuple, through the same rows -> ``redact`` sequence smoke and run use."""
-        from nemo_curator.stages.audio.audio_agent import verbs
 
         rows = [
             {"path": "/data/a.wav", "text": ("hello", "world"), "api_key": "9f3c1e-cred"}  # pragma: allowlist secret
         ]
-        out = _safety.redact(verbs._examples_from_rows(rows, limit=1))
+        out = _safety.redact(_verb_evidence._examples_from_rows(rows, limit=1))
 
         payload = json.dumps(out, default=str)
         assert "hello" not in payload, payload
@@ -413,11 +412,10 @@ class TestSmokeToken:
 
     def test_a_malformed_token_refuses_the_run_verb_in_json(self) -> None:
         """End-to-end, because the raise happened at the call site rather than in the helper."""
-        from nemo_curator.stages.audio.audio_agent import verbs
 
         os.environ["AUDIO_AGENT_REQUIRE_SMOKE"] = "1"
         try:
-            out = verbs.run(
+            out = _verb_run.run(
                 recipe={"stages": [{"ref": "MonoConversionStage", "params": {}}]},
                 confirm=True,
                 smoke_token="9f3c1e–abcdef",  # noqa: RUF001, S106 - en dash is intentional in this message

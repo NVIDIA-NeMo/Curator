@@ -43,13 +43,13 @@ _PACKAGE = Path(__file__).resolve().parents[4] / "nemo_curator" / "stages" / "au
 _CROSS_MODULE_PRIVATES: dict[str, tuple[str, frozenset[str]]] = {
     "_resume_breaks_on_disk_boundary": (
         "continuation",
-        frozenset({"checkpoint", "delta", "reusable_pipeline", "reuse"}),
+        frozenset({"checkpoint", "delta", "_checkpoint_candidates", "reuse"}),
     ),
     "_ensure_private_dir": ("run_store", frozenset({"artifacts", "calibration_store"})),
     "_write_private_json": ("run_store", frozenset({"artifacts", "calibration_store"})),
     "_clean": ("contracts", frozenset({"report"})),
-    "_row_count": ("report", frozenset({"verbs"})),
-    "_dedup_stage_perf": ("report", frozenset({"verbs"})),
+    "_row_count": ("report", frozenset({"_verb_smoke", "_verb_continuation"})),
+    "_dedup_stage_perf": ("report", frozenset({"_verb_evidence"})),
     "_known_dataset_keys": ("reuse", frozenset({"delta"})),
 }
 

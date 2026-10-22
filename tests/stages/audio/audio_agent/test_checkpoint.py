@@ -25,7 +25,7 @@ from typing import Any
 
 import pytest  # noqa: TC002
 
-from nemo_curator.stages.audio.audio_agent import checkpoint, reuse, verbs
+from nemo_curator.stages.audio.audio_agent import _verb_checkpoint, _verb_reuse, checkpoint, reuse
 from nemo_curator.stages.audio.audio_agent.recipe import Recipe
 
 _READER = {"ref": "ManifestReader", "params": {"manifest_path": "/tmp/m.jsonl"}}  # noqa: S108
@@ -217,19 +217,19 @@ class TestTheOfferOnAMiss:
 
 class TestTheVerb:
     def test_without_a_path_it_only_advises(self) -> None:
-        out = verbs.add_checkpoint(_recipe(_READER, _ASR, _DUR, _WRITER))
+        out = _verb_checkpoint.add_checkpoint(_recipe(_READER, _ASR, _DUR, _WRITER))
         assert out["status"] == "advice"
         assert out["advice"]["after_stage"] == "ASRStage"
         assert "recipe" not in out
 
     def test_with_a_path_it_returns_the_recipe_and_runs_nothing(self) -> None:
-        out = verbs.add_checkpoint(_recipe(_READER, _ASR, _DUR, _WRITER), output_path="/tmp/ck.jsonl")  # noqa: S108
+        out = _verb_checkpoint.add_checkpoint(_recipe(_READER, _ASR, _DUR, _WRITER), output_path="/tmp/ck.jsonl")  # noqa: S108
         assert out["status"] == "ok"
         assert [s["ref"] for s in out["recipe"]["stages"]].count("ManifestWriterStage") == 2
         assert "validate" in out["next"]
 
     def test_a_named_stage_is_still_checked(self) -> None:
-        out = verbs.add_checkpoint(
+        out = _verb_checkpoint.add_checkpoint(
             _recipe(_READER, _KEEPS_WAVEFORM, _ASR, _SANITIZER, _DUR, _WRITER),
             after="ASRStage",
         )
@@ -237,7 +237,7 @@ class TestTheVerb:
         assert "carrying audio in memory" in out["reason"]
 
     def test_a_stage_that_is_not_in_the_recipe_is_an_error(self) -> None:
-        out = verbs.add_checkpoint(_recipe(_READER, _ASR, _WRITER), after="NoSuchStage")
+        out = _verb_checkpoint.add_checkpoint(_recipe(_READER, _ASR, _WRITER), after="NoSuchStage")
         assert out["status"] == "error"
         assert "NoSuchStage" in out["reason"]
 
@@ -245,7 +245,7 @@ class TestTheVerb:
         """The checkpoint is a file the agent told the user to write, so its path answers to the
         same lock as everything else the agent proposes writing."""
         monkeypatch.setenv("AUDIO_AGENT_WORKSPACE", str(tmp_path))
-        out = verbs.add_checkpoint(_recipe(_READER, _ASR, _WRITER), output_path="/etc/ck.jsonl")
+        out = _verb_checkpoint.add_checkpoint(_recipe(_READER, _ASR, _WRITER), output_path="/etc/ck.jsonl")
         assert out["status"] == "refused"
         assert "workspace" in out["reason"].lower()
 
@@ -279,7 +279,7 @@ class TestTheLocationIsDerived:
         from nemo_curator.stages.audio.audio_agent import artifacts, run_store
 
         _managed_runs(monkeypatch, tmp_path)
-        out = verbs.add_checkpoint(_recipe(_READER, _ASR, _DUR, _WRITER), data=_KEY)
+        out = _verb_checkpoint.add_checkpoint(_recipe(_READER, _ASR, _DUR, _WRITER), data=_KEY)
 
         assert out["status"] == "ok"
         assert out["path_source"] == "derived"
@@ -303,22 +303,22 @@ class TestTheLocationIsDerived:
 
         assert loose.config_hash != strict.config_hash
         assert (
-            verbs.add_checkpoint(loose, data=_KEY)["output_path"]
-            == verbs.add_checkpoint(strict, data=_KEY)["output_path"]
+            _verb_checkpoint.add_checkpoint(loose, data=_KEY)["output_path"]
+            == _verb_checkpoint.add_checkpoint(strict, data=_KEY)["output_path"]
         )
 
     def test_two_datasets_never_share_an_address(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         _managed_runs(monkeypatch, tmp_path)
         recipe = _recipe(_READER, _ASR, _DUR, _WRITER)
 
-        mine = verbs.add_checkpoint(recipe, data=_KEY)["output_path"]
-        theirs = verbs.add_checkpoint(recipe, data="stat:ffffffffffffffff")["output_path"]
+        mine = _verb_checkpoint.add_checkpoint(recipe, data=_KEY)["output_path"]
+        theirs = _verb_checkpoint.add_checkpoint(recipe, data="stat:ffffffffffffffff")["output_path"]
         assert mine != theirs
 
     def test_an_explicit_path_still_wins(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         """For the user who asked to keep the metadata somewhere of their own."""
         _managed_runs(monkeypatch, tmp_path)
-        out = verbs.add_checkpoint(
+        out = _verb_checkpoint.add_checkpoint(
             _recipe(_READER, _ASR, _DUR, _WRITER),
             data=_KEY,
             output_path=str(tmp_path / "mine.jsonl"),
@@ -329,7 +329,7 @@ class TestTheLocationIsDerived:
     def test_without_data_it_still_only_advises(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         """No dataset key means no step key, so the caller is asked exactly as before."""
         _managed_runs(monkeypatch, tmp_path)
-        out = verbs.add_checkpoint(_recipe(_READER, _ASR, _DUR, _WRITER))
+        out = _verb_checkpoint.add_checkpoint(_recipe(_READER, _ASR, _DUR, _WRITER))
         assert out["status"] == "advice"
         assert "recipe" not in out
 
@@ -340,8 +340,8 @@ class TestTheLocationIsDerived:
         unreadable path still yields a weaker key tier, and a distinct one per path.
         """
         _managed_runs(monkeypatch, tmp_path)
-        monkeypatch.setattr(verbs, "_recipe_dataset_key", lambda *_a, **_k: "")
-        out = verbs.add_checkpoint(_recipe(_READER, _ASR, _DUR, _WRITER), data=str(tmp_path))
+        monkeypatch.setattr(_verb_reuse, "_recipe_dataset_key", lambda *_a, **_k: "")
+        out = _verb_checkpoint.add_checkpoint(_recipe(_READER, _ASR, _DUR, _WRITER), data=str(tmp_path))
         assert out["status"] == "advice"
         assert "recipe" not in out
 
@@ -356,6 +356,6 @@ class TestTheLocationIsDerived:
         _managed_runs(monkeypatch, tmp_path)
         recipe = _recipe(_READER, _ASR, _DUR, _WRITER)
 
-        one = verbs.add_checkpoint(recipe, data=str(tmp_path / "absent-a"))
-        two = verbs.add_checkpoint(recipe, data=str(tmp_path / "absent-b"))
+        one = _verb_checkpoint.add_checkpoint(recipe, data=str(tmp_path / "absent-a"))
+        two = _verb_checkpoint.add_checkpoint(recipe, data=str(tmp_path / "absent-b"))
         assert one["output_path"] != two["output_path"]

@@ -136,7 +136,7 @@ def _resume_breaks_on_disk_boundary(new_recipe: Recipe, prefix: int) -> str | No
     across either pair would hand the reader an empty dict and finish successfully with
     silently wrong timestamps or counts, which is the failure mode a guard is for.
 
-    Underscored but NOT private: imported by ``checkpoint``, ``delta``, ``reusable_pipeline``
+    Underscored but NOT private: imported by ``checkpoint``, ``delta``, ``_checkpoint_candidates``
     and ``reuse``, which all have to ask the same question before resuming a suffix from a
     manifest. Moving, renaming or narrowing it breaks four modules, and none of them will say
     so until the boundary they were guarding is already crossed.

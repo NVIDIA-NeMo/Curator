@@ -27,7 +27,7 @@ import pytest
 from fsspec.core import url_to_fs
 from fsspec.implementations.memory import MemoryFileSystem
 
-from nemo_curator.stages.audio.audio_agent import artifacts, run_index, run_store, verbs
+from nemo_curator.stages.audio.audio_agent import _verb_outputs, _verb_publish, artifacts, run_index, run_store
 from nemo_curator.stages.audio.audio_agent.artifacts import Artifact
 from nemo_curator.stages.audio.audio_agent.contracts import RunRecord
 from nemo_curator.stages.audio.audio_agent.recipe import Recipe
@@ -59,7 +59,7 @@ def test_cloud_credentials_are_masked_in_display_history_and_kept_only_in_the_ex
     ).freeze()
     run_id = "run-cloud-credential-redaction"
 
-    verbs._record_run(
+    _verb_publish._record_run(
         recipe,
         run_id=run_id,
         data="s3://bucket/input.jsonl",
@@ -113,13 +113,13 @@ def test_failed_run_staging_preserves_existing_final_output(tmp_path, stage_type
     final.write_text("existing\n", encoding="utf-8")
     stage = stage_type(output_path=str(final))
 
-    staged = verbs._prepare_staged_file_outputs([stage])
+    staged = _verb_outputs._prepare_staged_file_outputs([stage])
     assert stage.output_path != str(final)
     with open(stage.output_path, "w", encoding="utf-8") as stream:
         stream.write("partial\n")
 
-    verbs._discard_staged_file_outputs(staged)
-    verbs._restore_staged_file_outputs(staged)
+    _verb_outputs._discard_staged_file_outputs(staged)
+    _verb_outputs._restore_staged_file_outputs(staged)
 
     assert final.read_text(encoding="utf-8") == "existing\n"
     assert stage.output_path == str(final)
@@ -135,11 +135,11 @@ def test_successful_run_staging_atomically_replaces_final_output(tmp_path, stage
     final.write_text("existing\n", encoding="utf-8")
     stage = stage_type(output_path=str(final))
 
-    staged = verbs._prepare_staged_file_outputs([stage])
+    staged = _verb_outputs._prepare_staged_file_outputs([stage])
     with open(stage.output_path, "w", encoding="utf-8") as stream:
         stream.write("complete\n")
-    verbs._promote_staged_file_outputs(staged)
-    verbs._restore_staged_file_outputs(staged)
+    _verb_outputs._promote_staged_file_outputs(staged)
+    _verb_outputs._restore_staged_file_outputs(staged)
 
     assert final.read_text(encoding="utf-8") == "complete\n"
     assert stage.output_path == str(final)
@@ -156,14 +156,14 @@ def test_promotion_preflights_every_staged_output_before_replacing_any_final(tmp
         DocumentBatchJsonlWriterStage(output_path=str(document_final)),
     ]
 
-    staged = verbs._prepare_staged_file_outputs(stages)
+    staged = _verb_outputs._prepare_staged_file_outputs(stages)
     with open(staged[0].staged_path, "w", encoding="utf-8") as stream:
         stream.write("new manifest\n")
 
     with pytest.raises(FileNotFoundError, match=r"documents\.jsonl"):
-        verbs._promote_staged_file_outputs(staged)
-    verbs._discard_staged_file_outputs(staged)
-    verbs._restore_staged_file_outputs(staged)
+        _verb_outputs._promote_staged_file_outputs(staged)
+    _verb_outputs._discard_staged_file_outputs(staged)
+    _verb_outputs._restore_staged_file_outputs(staged)
 
     assert manifest_final.read_text(encoding="utf-8") == "existing manifest\n"
     assert document_final.read_text(encoding="utf-8") == "existing documents\n"
@@ -181,7 +181,7 @@ def test_promotion_rolls_back_every_final_when_a_later_replace_fails(
         ManifestWriterStage(output_path=str(manifest_final)),
         DocumentBatchJsonlWriterStage(output_path=str(document_final)),
     ]
-    staged = verbs._prepare_staged_file_outputs(stages)
+    staged = _verb_outputs._prepare_staged_file_outputs(stages)
     for output, content in zip(staged, ("new manifest\n", "new documents\n"), strict=True):
         with open(output.staged_path, "w", encoding="utf-8") as stream:
             stream.write(content)
@@ -197,9 +197,9 @@ def test_promotion_rolls_back_every_final_when_a_later_replace_fails(
     monkeypatch.setattr(os, "replace", fail_second_promotion)
 
     with pytest.raises(OSError, match="injected second promotion failure"):
-        verbs._promote_staged_file_outputs(staged)
-    verbs._discard_staged_file_outputs(staged)
-    verbs._restore_staged_file_outputs(staged)
+        _verb_outputs._promote_staged_file_outputs(staged)
+    _verb_outputs._discard_staged_file_outputs(staged)
+    _verb_outputs._restore_staged_file_outputs(staged)
 
     assert manifest_final.read_text(encoding="utf-8") == "existing manifest\n"
     assert document_final.read_text(encoding="utf-8") == "existing documents\n"
@@ -224,7 +224,7 @@ def test_remote_promotion_rolls_back_every_final_when_a_later_move_fails(
         fs, path = url_to_fs(uri)
         fs.pipe(path, content)
 
-    staged = verbs._prepare_staged_file_outputs(stages)
+    staged = _verb_outputs._prepare_staged_file_outputs(stages)
     for output, content in zip(staged, (b"new manifest\n", b"new documents\n"), strict=True):
         fs, path = url_to_fs(output.staged_path)
         fs.pipe(path, content)
@@ -248,9 +248,9 @@ def test_remote_promotion_rolls_back_every_final_when_a_later_move_fails(
     monkeypatch.setattr(MemoryFileSystem, "mv", fail_second_promotion)
 
     with pytest.raises(OSError, match="injected second remote promotion failure"):
-        verbs._promote_staged_file_outputs(staged)
-    verbs._discard_staged_file_outputs(staged)
-    verbs._restore_staged_file_outputs(staged)
+        _verb_outputs._promote_staged_file_outputs(staged)
+    _verb_outputs._discard_staged_file_outputs(staged)
+    _verb_outputs._restore_staged_file_outputs(staged)
 
     manifest_fs, manifest_path = url_to_fs(manifest_final)
     document_fs, document_path = url_to_fs(document_final)
