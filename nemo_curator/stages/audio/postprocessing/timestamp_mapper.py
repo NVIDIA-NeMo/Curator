@@ -445,6 +445,8 @@ class TimestampMapperStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             ),
             metadata_reads=[self.mappings_key],
             preserves_upstream_keys=False,
+            # Output aliases can recreate a blocked input name, including on a conditional branch.
+            removes_keys=sorted(_NEVER_PASS_KEYS - core_fields - {self.speaking_duration_key}),
             conditional_writes=conditional_writes,
         )
 

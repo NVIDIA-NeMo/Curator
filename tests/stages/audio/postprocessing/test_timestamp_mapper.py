@@ -643,6 +643,68 @@ def test_strict_sanitization_removes_non_json_values_before_real_writer(tmp_path
     assert json.loads((tmp_path / "out.jsonl").read_text()) == mapped.data
 
 
+@pytest.mark.parametrize("carrier", sorted(_NEVER_PASS_KEYS))
+def test_blocked_tensor_carrier_is_removed_before_planned_json_writer(carrier: str, tmp_path: Path) -> None:
+    mapper = TimestampMapperStage(passthrough_keys=[carrier])
+    writer = ManifestWriterStage(output_path=str(tmp_path / "out.jsonl"))
+    data = {"audio_filepath": "clip.wav", "duration": 1.0, carrier: torch.ones(4)}
+
+    report = validate_pipeline([mapper, writer], initial_keys=set(data), initial_tensor_keys={carrier})
+
+    assert report.ok
+    output = mapper.process(_make_task(data))
+    assert isinstance(output, AudioTask)
+    assert carrier not in output.data
+    writer.setup()
+    writer.process(output)
+    assert json.loads((tmp_path / "out.jsonl").read_text()) == output.data
+
+
+def test_retained_custom_tensor_still_blocks_planned_json_writer(tmp_path: Path) -> None:
+    mapper = TimestampMapperStage(passthrough_keys=["embedding"])
+    writer = ManifestWriterStage(output_path=str(tmp_path / "out.jsonl"))
+    embedding = torch.ones(4)
+    data = {"audio_filepath": "clip.wav", "duration": 1.0, "waveform": torch.ones(4), "embedding": embedding}
+
+    report = validate_pipeline([mapper, writer], initial_keys=set(data), initial_tensor_keys={"waveform", "embedding"})
+
+    assert not report.ok
+    assert any(issue.code == "tensor_into_sink" for issue in report.issues)
+    output = mapper.process(_make_task(data))
+    assert isinstance(output, AudioTask)
+    assert "waveform" not in output.data
+    assert output.data["embedding"] is embedding
+    writer.setup()
+    with pytest.raises(TypeError, match="JSON serializable"):
+        writer.process(output)
+
+
+@pytest.mark.parametrize(
+    "alias_field",
+    [
+        "original_file_key",
+        "original_start_ms_key",
+        "original_end_ms_key",
+        "duration_ms_key",
+        "duration_key",
+        "diar_segments_key",
+        "speaking_duration_key",
+    ],
+)
+def test_blocked_name_recreated_by_output_alias_is_not_declared_removed(alias_field: str, tmp_path: Path) -> None:
+    mapper = TimestampMapperStage(**{alias_field: "waveform"})
+    data = {"audio_filepath": "clip.wav", mapper.diar_segments_key: [[0.125, 0.375]]}
+    writer = ManifestWriterStage(output_path=str(tmp_path / "out.jsonl"))
+
+    assert "waveform" not in mapper.describe().removes_keys
+    output = mapper.process(_make_task(data))
+    assert isinstance(output, AudioTask)
+    assert "waveform" in output.data
+    writer.setup()
+    writer.process(output)
+    assert json.loads((tmp_path / "out.jsonl").read_text()) == output.data
+
+
 def test_legacy_positional_signature_is_preserved() -> None:
     signature = inspect.signature(TimestampMapperStage.__init__)
     assert [
