@@ -12,9 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import time
+
 import pytest
 
-from nemo_curator.core.serve import RayServeModelConfig
+from nemo_curator.core.serve import InferenceServer, RayServeModelConfig, is_inference_server_active
 from nemo_curator.core.serve.ray_serve.backend import RayServeBackend
 
 LLMConfig = pytest.importorskip("ray.serve.llm", reason="ray[serve] not installed").LLMConfig
@@ -45,3 +47,35 @@ class TestRayServeBackend:
         assert result.runtime_env["env_vars"]["MY_VAR"] == "1"
         assert result.runtime_env["env_vars"]["VLLM_LOGGING_LEVEL"] == "WARNING"
         assert result.runtime_env["env_vars"]["RAY_SERVE_LOG_TO_STDERR"] == "0"
+
+
+@pytest.mark.parametrize("stalled", [False, True])
+def test_deployment_readiness_is_bounded(
+    shared_ray_client: None,  # noqa: ARG001
+    monkeypatch: pytest.MonkeyPatch,
+    stalled: bool,
+) -> None:
+    from ray import serve
+
+    @serve.deployment(ray_actor_options={"num_cpus": 1000 if stalled else 0}, graceful_shutdown_timeout_s=0.1)
+    class Endpoint:
+        def __call__(self) -> dict:
+            return {"data": []}
+
+    # Replace the GPU model with a real CPU Serve replica; keep deployment,
+    # HTTP readiness, timeout, and cleanup on the real Ray integration path.
+    monkeypatch.setattr("ray.serve.llm.build_openai_app", lambda _: Endpoint.bind())
+    server = InferenceServer(models=[], health_check_timeout_s=5 if stalled else 60)
+    started = time.monotonic()
+    try:
+        if stalled:
+            with pytest.raises(TimeoutError, match="within 5s"):
+                server.start()
+            assert time.monotonic() - started < 60
+            assert not is_inference_server_active()
+            assert not serve.status().applications
+        else:
+            server.start()
+            assert is_inference_server_active()
+    finally:
+        server.stop()
