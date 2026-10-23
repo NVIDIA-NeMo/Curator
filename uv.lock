@@ -5762,6 +5762,7 @@ inference-server = [
     { name = "vllm", version = "0.22.0+cu129", source = { registry = "https://wheels.vllm.ai/0.22.0/cu129" }, extra = ["otel", "runai"], marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')" },
 ]
 interleaved-cpu = [
+    { name = "markdown-it-py" },
     { name = "matplotlib" },
     { name = "open-clip-torch" },
     { name = "pillow" },
@@ -6027,6 +6028,7 @@ requires-dist = [
     { name = "lmdb", specifier = ">=1.4" },
     { name = "loguru" },
     { name = "lxml", marker = "extra == 'text-cpu'" },
+    { name = "markdown-it-py", marker = "extra == 'interleaved-cpu'", specifier = ">=4,<5" },
     { name = "matplotlib", marker = "extra == 'interleaved-cpu'" },
     { name = "mecab-python3" },
     { name = "mwparserfromhell", marker = "extra == 'text-cpu'", specifier = "==0.6.5" },
