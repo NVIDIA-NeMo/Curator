@@ -12,16 +12,26 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Unit tests for :class:`ResumabilityActor` (counter math, dedup,
-rewrite-on-conflict, LMDB persistence). Instantiates the actor class directly
-(no ``@ray.remote``), so no live Ray cluster is needed.
+rewrite-on-conflict, LMDB persistence) and for the checkpoint-directory
+guards around it (filesystem detection, the bounded actor startup).
+Instantiates the actor class directly (no ``@ray.remote``) and mocks Ray for
+the startup path, so no live Ray cluster is needed.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
-from nemo_curator.utils.resumability_actor import ResumabilityActor
+import pytest
+import ray
+
+from nemo_curator.utils.resumability_actor import (
+    STARTUP_TIMEOUT_ENV_VAR,
+    ResumabilityActor,
+    create_resumability_actor,
+    filesystem_type,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -286,3 +296,55 @@ class TestMultipleWriters:
         reader = _new_actor(tmp_path, writer_id="reader")
         assert reader.are_completed(["s"]) == [True]
         reader.close()
+
+
+def test_filesystem_type_resolves_the_mount_backing_a_path() -> None:
+    """``filesystem_type`` is hand-rolled ``/proc/self/mountinfo`` parsing, and a
+    wrong answer is silent: a missed network mount loses the warning, a false one
+    cries wolf on a healthy cluster. Pin the parsing edges in one place."""
+    mountinfo = (
+        "33 1 8:1 / / rw,relatime shared:1 - xfs /dev/sda1 rw\n"
+        "849 33 0:57 / /home rw,relatime shared:468 - nfs 10.0.0.1:/vol/home1 rw,vers=3\n"
+        "870 33 0:58 / /lustre/fsw rw,relatime shared:511 - lustre 10.0.0.2@tcp:/fs rw\n"
+        "880 33 0:59 / /mnt/my\\040share rw,relatime - cifs //srv/share rw\n"
+    )
+    with patch("pathlib.Path.read_text", return_value=mountinfo):
+        # Longest matching mount wins, and the mount point itself matches.
+        assert filesystem_type("/lustre/fsw/projects/run") == "lustre"
+        assert filesystem_type("/home") == "nfs"
+        assert filesystem_type("/srv/data/checkpoints") == "xfs"
+        # "/homework" must not match the "/home" mount.
+        assert filesystem_type("/homework/checkpoints") == "xfs"
+        # Mount points escape spaces as octal.
+        assert filesystem_type("/mnt/my share/checkpoints") == "cifs"
+
+    # No /proc (or unreadable): unknown, which callers treat as fine.
+    with patch("pathlib.Path.read_text", side_effect=OSError):
+        assert filesystem_type("/anywhere") is None
+
+
+def test_actor_startup_timeout_raises_instead_of_hanging(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Opening LMDB on a wedged mount can block forever inside the actor. An
+    unbounded ``ray.get`` turned that into a silent hang, so the bound must fire
+    with a message naming the path, the filesystem, and the override."""
+    actor = MagicMock()
+    options = MagicMock()
+    options.remote.return_value = actor
+    monkeypatch.setattr(ResumabilityActor, "options", MagicMock(return_value=options))
+    monkeypatch.setattr("nemo_curator.utils.resumability_actor.filesystem_type", lambda _p: "nfs")
+
+    with (
+        patch("ray.get", side_effect=ray.exceptions.GetTimeoutError("wedged")),
+        patch("ray.kill") as kill,
+        pytest.raises(RuntimeError) as excinfo,
+    ):
+        create_resumability_actor("/home/me/ckpt")
+
+    message = str(excinfo.value)
+    assert "did not start within 120s" in message
+    assert "/home/me/ckpt" in message
+    assert "filesystem: nfs" in message
+    assert STARTUP_TIMEOUT_ENV_VAR in message
+    # The half-started actor holds the fixed cluster-wide name; it must not leak
+    # into the next run.
+    assert kill.call_count == 1
