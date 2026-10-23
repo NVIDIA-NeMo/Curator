@@ -19,7 +19,7 @@ import re
 import sys
 import tomllib
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import MagicMock, Mock
 
 import pytest
 
@@ -85,9 +85,15 @@ def test_tutorial_defaults_preserve_legacy_and_warn_writer(monkeypatch: pytest.M
     assert pipeline.stages[-1].on_materialize_error == "warn"
 
 
-def test_tutorial_requires_endpoint_for_selected_mode(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+def test_tutorial_starts_managed_dynamo_for_selected_mode(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     main = load_module(monkeypatch, "main")
-    monkeypatch.setattr(main, "get_available_cpu_gpu_resources", Mock(side_effect=AssertionError("no Ray probe")))
+    run = Mock()
+    server = MagicMock()
+    server.endpoint = "http://managed/v1"
+    monkeypatch.setattr(main, "_run_pipeline", run)
+    monkeypatch.setattr(main, "get_available_cpu_gpu_resources", Mock(return_value=(16, 1)))
+    create_server = Mock(return_value=server)
+    monkeypatch.setattr(main, "create_nemotron_parse_inference_server", create_server)
     monkeypatch.setattr(
         sys,
         "argv",
@@ -101,10 +107,26 @@ def test_tutorial_requires_endpoint_for_selected_mode(monkeypatch: pytest.Monkey
             str(tmp_path),
             "--parse-mode",
             "single",
+            "--model-path",
+            "nvidia/Nemotron-3.5-Parse",
+            "--enforce-eager",
         ],
     )
-    with pytest.raises(SystemExit, match="2"):
-        main.main()
+    main.main()
+    call = create_server.call_args.kwargs
+    assert call["model_path"] == "nvidia/Nemotron-3.5-Parse"
+    assert call["backend"] == "dynamo"
+    assert call["num_replicas"] == 1
+    assert call["engine_kwargs"] == {
+        "enforce_eager": True,
+        "distributed_executor_backend": "uni",
+        "tensor_parallel_size": 1,
+        "max_model_len": 16384,
+        "max_num_seqs": 64,
+        "max_num_batched_tokens": 16384,
+        "attention_config": {"flash_attn_version": 3},
+    }
+    run.assert_called_once()
 
 
 @pytest.mark.parametrize(

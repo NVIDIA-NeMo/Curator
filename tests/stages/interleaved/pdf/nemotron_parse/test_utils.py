@@ -164,6 +164,24 @@ class TestRenderPdfPages:
         assert render_pdf_pages(stream.getvalue()) == [page, page]
         assert render_pdf_pages(stream.getvalue(), keep_failed=True) == [page, None, page]
 
+    def test_selected_page_indexes_preserve_requested_order(self, monkeypatch: pytest.MonkeyPatch):
+        pdfium = pytest.importorskip("pypdfium2")
+        doc = pdfium.PdfDocument.new()
+        for _ in range(3):
+            doc.new_page(100, 100).close()
+        stream = io.BytesIO()
+        doc.save(stream)
+        doc.close()
+        rendered: list[int] = []
+
+        def render(_doc: object, index: int, _scale: float, _size: tuple[int, int] | None) -> Image.Image:
+            rendered.append(index)
+            return Image.new("RGB", (10, 10), (index, index, index))
+
+        monkeypatch.setattr(utils, "_render_page", render)
+        assert len(render_pdf_pages(stream.getvalue(), page_indices=[2, 0])) == 2
+        assert rendered == [2, 0]
+
 
 class TestBuildInterleavedRows:
     def test_basic_output(self):

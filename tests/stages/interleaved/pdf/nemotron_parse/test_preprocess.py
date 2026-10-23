@@ -76,3 +76,27 @@ def test_partial_render_preserves_physical_indexes(monkeypatch: pytest.MonkeyPat
     assert rows[2]["binary_content"]
     assert rows[1]["binary_content"] is None
     assert json.loads(rows[1]["materialize_error"])["stage"] == "render_pdf"
+
+
+def test_manifest_selected_pages_only_preserve_physical_indexes(tmp_path: Path):
+    (tmp_path / "three.pdf").write_bytes(pdf_bytes())
+    stage = preprocess.PDFPreprocessStage(pdf_dir=str(tmp_path), retain_failures=True)
+    task = FileGroupTask(
+        dataset_name="test",
+        data=[json.dumps({"file_name": "three.pdf", "selected_page_indices": [2, 0]})],
+    )
+    rows = stage.process(task).to_pyarrow().to_pylist()
+    assert [(row["position"], row["page_number"]) for row in rows] == [(2, 2), (0, 0)]
+
+
+@pytest.mark.parametrize("indexes", [[], [-1], [1, 1], [True]])
+def test_invalid_manifest_selected_pages_are_retained_as_failures(tmp_path: Path, indexes: list[int]):
+    (tmp_path / "three.pdf").write_bytes(pdf_bytes())
+    stage = preprocess.PDFPreprocessStage(pdf_dir=str(tmp_path), retain_failures=True)
+    task = FileGroupTask(
+        dataset_name="test",
+        data=[json.dumps({"file_name": "three.pdf", "selected_page_indices": indexes})],
+    )
+    rows = stage.process(task).to_pyarrow().to_pylist()
+    assert len(rows) == 1
+    assert json.loads(rows[0]["materialize_error"])["stage"] == "manifest"

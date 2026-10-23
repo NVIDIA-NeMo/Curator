@@ -153,7 +153,7 @@ class PDFPreprocessStage(ProcessingStage[FileGroupTask, InterleavedBatch]):
 
     _RENDER_TIMEOUT_S: int = 60  # hard limit per PDF render; kills hung C-extension
 
-    def _render_with_timeout(self, pdf_bytes: bytes, file_name: str) -> list:
+    def _render_with_timeout(self, pdf_bytes: bytes, file_name: str, page_indices: list[int] | None = None) -> list:
         """Render PDF with a process-based timeout.
 
         SIGALRM cannot be used here because Xenna runs stage workers in non-main
@@ -171,7 +171,13 @@ class PDFPreprocessStage(ProcessingStage[FileGroupTask, InterleavedBatch]):
 
         def _worker() -> None:
             try:
-                pages = render_pdf_pages(pdf_bytes, dpi=dpi, max_pages=max_pages, keep_failed=keep_failed)
+                pages = render_pdf_pages(
+                    pdf_bytes,
+                    dpi=dpi,
+                    max_pages=max_pages,
+                    keep_failed=keep_failed,
+                    page_indices=page_indices,
+                )
                 result_q.put(pages)
             except Exception:  # noqa: BLE001
                 result_q.put([])
@@ -235,7 +241,7 @@ class PDFPreprocessStage(ProcessingStage[FileGroupTask, InterleavedBatch]):
             error = json.dumps({"stage": "render_pdf", "type": "RenderError", "message": "Page rendering failed"})
         return {**row, "page_number": page_num, "materialize_error": error}
 
-    def process(self, task: FileGroupTask) -> InterleavedBatch | None:
+    def process(self, task: FileGroupTask) -> InterleavedBatch | None:  # noqa: C901
         rows: list[dict[str, Any]] = []
 
         parsed: list[dict] = [json.loads(e) for e in task.data]
@@ -260,7 +266,20 @@ class PDFPreprocessStage(ProcessingStage[FileGroupTask, InterleavedBatch]):
                 logger.warning(f"Could not read PDF: {file_name}")
                 continue
 
-            page_images = self._render_with_timeout(pdf_bytes, file_name)
+            page_indices = entry.get("selected_page_indices")
+            if page_indices is not None and (
+                not isinstance(page_indices, list)
+                or not page_indices
+                or any(not isinstance(page, int) or isinstance(page, bool) or page < 0 for page in page_indices)
+                or len(page_indices) != len(set(page_indices))
+            ):
+                msg = "selected_page_indices must be a nonempty list of unique nonnegative integers"
+                if self.retain_failures:
+                    rows.append(self._failed_row(sample_id, file_name, url, "manifest", msg))
+                logger.warning(f"Invalid selected_page_indices for {file_name}: {page_indices!r}")
+                continue
+
+            page_images = self._render_with_timeout(pdf_bytes, file_name, page_indices)
             if not page_images:
                 if self.retain_failures:
                     rows.append(self._failed_row(sample_id, file_name, url, "render_pdf", "No render result"))
@@ -268,9 +287,10 @@ class PDFPreprocessStage(ProcessingStage[FileGroupTask, InterleavedBatch]):
                 continue
 
             logger.debug(f"Rendered {file_name}: {len(page_images)} pages")
+            physical_indexes = range(len(page_images)) if page_indices is None else page_indices
             rows.extend(
                 self._page_row(sample_id, file_name, url, page_num, page_img)
-                for page_num, page_img in enumerate(page_images)
+                for page_num, page_img in zip(physical_indexes, page_images, strict=True)
             )
 
         if not rows:

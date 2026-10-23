@@ -41,7 +41,12 @@ def test_dynamo_server_has_pdf_defaults_and_overrides() -> None:
     assert model.runtime_env == {"uv": {"packages": ["albumentations==2.0.8"]}}
     assert isinstance(server.backend, DynamoServerConfig)
     assert server.backend.request_plane == "tcp"
-    assert server.backend.router.router_kwargs == {"trust_remote_code": True}
+    assert server.backend.router.router_kwargs == {
+        "dyn_chat_processor": "vllm",
+        "model_name": "nemotron-parse",
+        "model_path": "/models/nemotron-parse",
+        "trust_remote_code": True,
+    }
     assert server.backend.subprocess_env == {"DYN_TCP_REQUEST_TIMEOUT": "123"}
 
 

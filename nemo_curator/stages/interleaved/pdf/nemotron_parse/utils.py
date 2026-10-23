@@ -104,12 +104,14 @@ def _render_page(doc: Any, page_num: int, base_scale: float, max_size: tuple[int
                 page.close()
 
 
-def render_pdf_pages(
+def render_pdf_pages(  # noqa: PLR0913
     pdf_bytes: bytes,
     dpi: int = 300,
     max_pages: int = DEFAULT_MAX_PAGES,
     max_size: tuple[int, int] | None = (1664, 2048),
+    *,
     keep_failed: bool = False,
+    page_indices: list[int] | None = None,
 ) -> list[Image.Image | None]:
     """Render PDF pages to PIL images using pypdfium2.
 
@@ -126,8 +128,10 @@ def render_pdf_pages(
     how large the PDF page dimensions are, eliminating decompression-bomb
     errors downstream and keeping render time predictable.
 
-    With ``keep_failed``, a page that fails to render is returned as ``None``
-    so list indexes stay equal to physical page indexes.
+    With ``keep_failed``, a page that fails to render is returned as ``None``.
+    When ``page_indices`` is unset, list indexes stay equal to physical page
+    indexes. When it is set, results follow the requested order and callers
+    retain the supplied indexes alongside them.
     """
     import pypdfium2 as pdfium
 
@@ -136,7 +140,8 @@ def render_pdf_pages(
     try:
         doc = pdfium.PdfDocument(pdf_bytes)
         base_scale = dpi / 72.0
-        for page_num in range(min(len(doc), max_pages)):
+        indexes = range(min(len(doc), max_pages)) if page_indices is None else page_indices
+        for page_num in indexes:
             img = _render_page(doc, page_num, base_scale, max_size)
             if img is not None or keep_failed:
                 images.append(img)

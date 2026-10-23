@@ -66,8 +66,9 @@ stage defaults to `4 * num_gpus` workers; override it with `--client-num-workers
 Use `CUDA_VISIBLE_DEVICES` or your Ray cluster resources to control which GPUs are used.
 
 Without `--inference-server-endpoint`, `main.py` starts Dynamo with vLLM.
-The externally served Parse 3.5 path is described below; `main.py` does not expose
-a `--backend` option.
+This includes served Parse 3.5 when `--parse-mode` is selected and its model
+package is installed in the driver environment. `main.py` does not expose a
+`--backend` option.
 
 **Alternative — Run inference in process:**
 
@@ -174,6 +175,11 @@ python tutorials/interleaved/nemotron_parse_pdf/main.py \
     --parse-mode single --inference-batch-size 32 --client-num-workers 4 \
     --executor ray-data
 ```
+
+Omit `--inference-server-endpoint` to let the tutorial manage the same model
+through Dynamo. CUDA 13 environments must set
+`NEMO_CURATOR_DYNAMO_CUDA_TAG=cu130`; the default remains Curator's `cu129`
+actor environment.
 
 - `single` reads the whole page.
 - `double` also rereads table and chart crops from that answer.

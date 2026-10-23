@@ -414,6 +414,16 @@ class TestEnsureActorOverridesOnAllNodes:
 
         assert override_path.read_text() == f"ray=={ray.__version__}\n{dynamo_vllm._ACTOR_VENV_NIXL_CU13_EXCLUSION}\n"
 
+    def test_cu130_keeps_nixl_cu13(self, shared_ray_client: None, tmp_path: Path) -> None:
+        override_path = tmp_path / "override.txt"
+        with (
+            mock.patch.object(dynamo_vllm, "_ACTOR_VENV_OVERRIDES_PATH", override_path),
+            mock.patch.object(dynamo_vllm, "_ACTOR_VENV_CUDA_TAG", "cu130"),
+        ):
+            dynamo_vllm.ensure_actor_overrides_on_all_nodes()
+
+        assert override_path.read_text() == f"ray=={ray.__version__}\n"
+
 
 def test_dynamo_runtime_env_matches_base_environment() -> None:
     try:

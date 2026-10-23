@@ -37,8 +37,6 @@ def main() -> None:
     args.output_dir = os.path.abspath(args.output_dir)
     os.makedirs(args.output_dir, exist_ok=True)
 
-    if args.parse_mode is not None and args.inference_server_endpoint is None:
-        parser.error("--parse-mode requires an existing --inference-server-endpoint")
     if args.inference_server_endpoint is not None:
         _run_pipeline(
             args,
@@ -54,12 +52,24 @@ def main() -> None:
         parser.error("Dynamo serving requires at least one Ray-visible GPU")
 
     model_name = args.model_path
+    engine_kwargs = {"enforce_eager": True} if args.enforce_eager else {}
+    if args.parse_mode is not None:
+        engine_kwargs.update(
+            {
+                "distributed_executor_backend": "uni",
+                "tensor_parallel_size": 1,
+                "max_model_len": 16384,
+                "max_num_seqs": args.max_num_seqs,
+                "max_num_batched_tokens": 16384,
+                "attention_config": {"flash_attn_version": 3},
+            }
+        )
     server = create_nemotron_parse_inference_server(
         model_path=args.model_path,
         model_name=model_name,
         backend="dynamo",
         num_replicas=num_gpus,
-        engine_kwargs={"enforce_eager": True} if args.enforce_eager else None,
+        engine_kwargs=engine_kwargs or None,
     )
 
     with server:
