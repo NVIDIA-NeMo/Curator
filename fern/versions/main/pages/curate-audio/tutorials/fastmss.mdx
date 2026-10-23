@@ -21,8 +21,10 @@ diarization training workflows.
 Use an existing Linux Curator audio environment and separately install the
 dependencies required by the FastMSS checkout on every executor node. Configs,
 source audio, checkout and output paths must be shared across nodes. Curator
-does not bundle or install FastMSS; verify the upstream license for the revision
-you distribute before releasing an integrated workflow.
+does not bundle or install FastMSS. The compatibility baseline is
+[FastMSS `81fc2c3`](https://github.com/popcornell/FastMSS/tree/81fc2c3e4b938cf73343f58df9e013bc106cb77a),
+released under Apache 2.0. Use that exact revision to reproduce the example and
+keep its upstream `LICENSE`, `NOTICE` and `CITATION.cff` with the checkout.
 
 ## Compose a pipeline
 

@@ -13,12 +13,19 @@ multi-speaker ASR and speaker diarization training workflows.
   `$FASTMSS_MANIFEST_DIR/source_train.jsonl.gz`, with at least two speakers.
 - Shared filesystem paths for configs, source audio, the checkout and outputs.
 
-FastMSS is not vendored or installed by Curator. Use an upstream revision whose
-license is approved for your intended distribution. The adapter targets the
-Hydra CLI and recording-level manifest interface present in upstream commit
-`e481ceac821ef0cb31033bf43b45922e377f528d`; the upstream license change must be
-verified before this integration is released. This revision identifies the
-interface baseline, not a permissive license approval.
+FastMSS is not vendored or installed by Curator. The compatibility baseline is
+[upstream commit `81fc2c3e4b938cf73343f58df9e013bc106cb77a`](https://github.com/popcornell/FastMSS/tree/81fc2c3e4b938cf73343f58df9e013bc106cb77a),
+which includes the Apache-2.0 license. For a clean, reproducible checkout:
+
+```bash
+git clone https://github.com/popcornell/FastMSS.git /absolute/path/to/FastMSS
+git -C /absolute/path/to/FastMSS checkout --detach 81fc2c3e4b938cf73343f58df9e013bc106cb77a
+```
+
+Keep the upstream `LICENSE` and `NOTICE` with that checkout and use its
+`CITATION.cff` for attribution and research citation. Install the dependencies
+described upstream in the existing worker environment. The Curator adapter
+calls upstream's Hydra CLI and reads its recording-level NeMo manifest.
 
 ## Run a small simulation
 
@@ -102,6 +109,15 @@ of byte-identical regeneration or stable audio filenames across retries.
 python -m pytest tests/stages/audio/simulation/test_fastmss.py -m 'not gpu' -q
 ```
 
-These tests exercise the real subprocess, filesystem, manifest reader and agent
-contracts using a small protocol fixture. They do not test the FastMSS acoustic
-simulation algorithm or claim quality measurements for generated training data.
+The default tests exercise the subprocess, filesystem, manifest reader and agent
+contracts using a small protocol fixture. To also run the real upstream engine:
+
+```bash
+FASTMSS_TEST_ROOT="$FASTMSS_ROOT" python -m pytest \
+  tests/stages/audio/simulation/test_fastmss.py -m 'not gpu' -q
+```
+
+The opt-in test uses the documented YAML, generates two aligned tone sources,
+runs FastMSS, then checks the resulting waveform, recording duration and both
+speakers in the RTTM. Tones are test inputs, not a training dataset; this verifies
+the integration and does not measure perceptual quality or model accuracy.

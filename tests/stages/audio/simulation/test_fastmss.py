@@ -15,6 +15,7 @@
 """Exercise the external CLI boundary with real child processes and manifest I/O."""
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -229,3 +230,67 @@ def test_documented_yaml_resolves_external_defaults(
     assert config.manifest_dir == str(tmp_path / "source")
     assert config.min_max_spk == [2, 2]
     assert config.n_jobs == 1
+
+
+@pytest.mark.skipif(not os.environ.get("FASTMSS_TEST_ROOT"), reason="Set FASTMSS_TEST_ROOT to a real FastMSS checkout")
+def test_real_upstream_generates_audio_and_diarization_reference(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import numpy as np
+    import soundfile as sf
+    from lhotse import CutSet, MonoCut, Recording
+    from lhotse.supervision import AlignmentItem, SupervisionSegment
+
+    upstream = Path(os.environ["FASTMSS_TEST_ROOT"]).resolve()
+    sources = tmp_path / "sources"
+    sources.mkdir()
+    cuts = []
+    sample_rate = 16000
+    duration = 0.6
+    for index, frequency in enumerate((220, 330)):
+        audio = sources / f"speaker-{index}.wav"
+        samples = 0.05 * np.sin(2 * np.pi * frequency * np.arange(int(sample_rate * duration)) / sample_rate)
+        sf.write(audio, samples, sample_rate)
+        recording = Recording.from_file(audio)
+        supervision = SupervisionSegment(
+            id=f"utterance-{index}",
+            recording_id=recording.id,
+            start=0,
+            duration=duration,
+            channel=0,
+            text="hello world",
+            speaker=f"speaker-{index}",
+            alignment={"word": [AlignmentItem("hello", 0, 0.3), AlignmentItem("world", 0.3, 0.3)]},
+        )
+        cuts.append(
+            MonoCut(
+                id=f"cut-{index}",
+                start=0,
+                duration=duration,
+                channel=0,
+                recording=recording,
+                supervisions=[supervision],
+            )
+        )
+    CutSet.from_cuts(cuts).to_file(sources / "source_train.jsonl.gz")
+    monkeypatch.setenv("FASTMSS_ROOT", str(upstream))
+    monkeypatch.setenv("FASTMSS_MANIFEST_DIR", str(sources))
+    config = Path(__file__).resolve().parents[4] / "tutorials" / "audio" / "fastmss" / "meetings.yaml"
+    stage = FastMSSSimulationStage(
+        str(upstream),
+        str(tmp_path / "generated"),
+        overrides=["n_meetings=1", "duration=2", "hmm_params.p_ind=[0,1,0,0]"],
+        timeout_seconds=60,
+    )
+    output = stage.process(FileGroupTask(dataset_name="upstream-smoke", data=[str(config)]))
+    rows = ManifestReaderStage().process(output[0])
+    assert len(rows) == 1
+    row = rows[0].data
+    waveform, actual_rate = sf.read(row["audio_filepath"])
+    assert actual_rate == sample_rate
+    assert np.isfinite(waveform).all()
+    assert np.max(np.abs(waveform)) > 0
+    assert row["duration"] == pytest.approx(len(waveform) / sample_rate, abs=1e-5)
+    annotations = Path(row["rttm_filepath"]).read_text().splitlines()
+    assert {line.split()[7] for line in annotations} == {"speaker-0", "speaker-1"}
+    assert row["num_speakers"] == 2
