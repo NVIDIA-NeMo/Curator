@@ -51,7 +51,7 @@ import torch
 from loguru import logger
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
-from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, StageContract, StaticHints
+from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract, StaticHints
 from nemo_curator.stages.audio._agent._residency import (
     normalize_audio_waveform,
     resolve_audio,
@@ -303,6 +303,10 @@ class SIGMOSFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             reads_one_of=reads_one_of,
             conditional_reads=conditional_reads,
             writes=writes,
+            invalidates_prior_writes=IOSpec(
+                data_keys=score_keys if self.mode in {"task", "auto"} else [],
+                segment_data_keys=score_keys if self.mode in {"segments", "auto"} else [],
+            ),
             conditional_writes=[
                 *scoped_file_audio_hydration_writes(
                     self.input_residency,

@@ -1,0 +1,137 @@
+stage_id: InferenceSortformerStage
+category: diarize
+summary: "Speaker diarization (who spoke when) with NVIDIA Sortformer; passthrough annotates with diar_segments and num_speakers by default, while fan-out emits one sliced in-memory waveform task per turn."
+tags: [needs_gpu, needs_internet_first_run, batch_only]
+model_id: "nvidia/diar_streaming_sortformer_4spk-v2.1"
+model_version: "nvidia/diar_streaming_sortformer_4spk-v2.1"   # stage default model_name
+domain: {language: en, style: conversational}
+constraints:
+  max_speakers: 4
+  input_duration_sweetspot_sec: {min: 5.0, max: 3600.0}
+adapter_capabilities:
+  nemo_curator.models.audio.speaker_diarization.sortformer.NeMoSortformerAdapter:
+    supported_devices: [cpu, cuda]
+    cpu_requires:
+      precision: {value: fp32, default: fp32}
+  nemo_curator.models.audio.speaker_diarization.sortformer_tensorrt.TensorRTSortformerAdapter:
+    supported_devices: [cuda]
+resource:
+  cpus: 1.0
+  gpu_mem_gb: 8.0   # default stage reservation; not a measured throughput estimate
+  gpu_optional: true
+  bound: gpu
+  throughput_hint: "GPU by default; the NeMo adapter also supports CPU with resources.gpus=0 and fp32 precision. TensorRT requires a GPU."
+use_cases:
+  good_for:
+    - "diarizing meetings / calls / podcasts with up to 4 speakers"
+    - "per-speaker who-spoke-when labels (diar_segments) for downstream who-said-what"
+    - "local diarization when no HF token is available (unlike PyAnnote)"
+    - "speech-turn-only segment lists for consumers that reject silence placeholders (e.g. ALMDataBuilderStage windowing)"
+  avoid_for:
+    - ">4 speakers (accuracy degrades; use PyAnnoteDiarizationStage)"
+    - "music / non-speech"
+    - "non-English audio (trained primarily on English; accuracy drops)"
+    - "when you need explicit overlap_segments or timeline gap coverage as no-speaker rows (PyAnnoteDiarizationStage)"
+composition:
+  typical_upstream: [MonoConversionStage, ResampleAudioStage]
+  typical_downstream: [MergeAlignmentDiarizationStage, TimestampMapperStage, AudioToDocumentStage, ASRStage]
+params_of_note:
+  session_name_key: "Explicit session identity used for resident fan-out provenance and RTTM labels."
+  audio_item_id_key: "Fallback source identity for resident fan-out when no session identity is supplied."
+  adapter_target: Diarization adapter import path; the default is NeMoSortformerAdapter. TensorRTSortformerAdapter requires its configured local engine bundle.
+  adapter_kwargs: Provider-specific options; consult the selected adapter's constructor.
+  model_id: Canonical model identifier; model_name remains a compatibility alias.
+  audio_filepath_key: File input key; filepath_key remains a compatibility alias.
+  waveform_key: Resident waveform key. With input_residency omitted, a non-null key selects waveform input, preserving the adapter stage API.
+  sample_rate_key: Sample-rate field accompanying resident audio.
+  target_sample_rate: Model input rate; resident model input is downmixed and resampled independently of the source audio used for fan-out.
+  pred_text_key: Parent transcript field removed from fan-out children so ASR cannot reuse a full-recording transcript for each turn.
+  store_segments: Store nested diar_segments in annotation mode; fan-out consumes the intervals internally and emits individual turns.
+  skip_if_output_exists: Reuse complete annotation outputs, including an existing safe RTTM path when exporting. Fan-out always rebuilds children.
+  model_name: "the Sortformer checkpoint id (default streaming v2.1)"
+  model_path: "local .nemo checkpoint path; overrides model_name (skips the HF download)"
+  filepath_key: "file input key (default audio_filepath); set it to resampled_audio_filepath when consuming ResampleAudioStage's default disk output"
+  fanout: False annotates the recording. True emits cloned, channel-first source-audio slices and removes parent transcripts, diar_segments, and full-recording paths.
+  num_speakers_key: Whole-recording count, written by default under num_speakers. Set None to disable; when enabled, every fan-out child inherits the computed recording-level count.
+  input_residency: Explicit file, waveform, or auto selection. Auto prefers a complete waveform/sample_rate pair, falls back to the file only when both are absent, and rejects a partial pair.
+  chunk_len: "streaming chunk size in 80 ms frames (default 340 ~= 27.2 s); larger = more context/accuracy but higher latency + VRAM"
+  inference_batch_size: "internal batch size passed to diarize() (default 1; streaming state is per-clip)"
+  rttm_out_dir: "optional dir to also write RTTM files (sets writes_to_disk when provided)"
+  rttm_naming: task_id (default) retains main's safe task/shard layout and requires stable framework task IDs. source_hash derives a source-stable directory for subset retry and metadata continuation. legacy uses unsharded session filenames and may overwrite duplicate labels.
+semantic_facts:
+  diar_segments:
+    meaning: "Who-spoke-when as SPEECH TURNS ONLY: a list of {start, end, speaker} for ONE recording. Silence between turns is omitted (not written as placeholder rows)."
+    unit: "list of {start: s, end: s, speaker: label} dicts (times in seconds)"
+    provenance: "Sortformer neural-diarization output over the whole clip; labels are the model's clustered turn assignments. Unlike PyAnnoteDiarizationStage, this stage does NOT call add_non_speaker_segments / does NOT insert speaker='no-speaker' gap rows."
+    scope: "the whole recording in passthrough mode; with fanout=True each turn becomes one task whose waveform is sliced to that turn's start/end bounds"
+    propagation: "Passthrough writes diar_segments (NOT 'segments'). Fan-out removes the parent list and full-recording paths, then emits waveform + sample_rate + timing/provenance fields. For ASRStage set waveform_key='waveform' and sample_rate_key='sample_rate' (adjust both for custom output keys)."
+    counterexamples:
+      - "Passthrough mode only annotates. Fan-out cuts individual turn waveform slices, but it does NOT build one consolidated track per speaker; use SpeakerSeparationStage for that."
+      - "Do NOT expect timeline gap coverage or overlap_segments here -- for those use PyAnnoteDiarizationStage (which also injects no-speaker silence rows into segments)."
+  num_speakers:
+    meaning: Distinct labels across all retained turns in the whole recording.
+    unit: integer count; includes an unknown label when the selected adapter returns one
+    provenance: Computed from retained diarization segments.
+    scope: Whole recording, including when copied to each fan-out child.
+    propagation: Enabled by default. With num_speakers_key=None the stage does not write a count; existing upstream fields are retained.
+    counterexamples:
+    - A child with num_speakers=2 still contains only its own speaker turn; the count describes its parent recording.
+  speaker:
+    meaning: "A RELATIVE speaker label within one recording (speaker_0, speaker_1, ...) -- an arrival-time-ordered cluster id, not a global/person identity."
+    unit: "string label (or 'unknown')"
+    provenance: "Assigned by the diarizer's clustering for this clip only."
+    scope: "per recording; speaker_0 in one file is unrelated to speaker_0 in another"
+    propagation: "Attached per turn (or per fan-out child); at most 4 distinct speakers (model constraint)."
+    counterexamples:
+      - "Do not treat speaker_0 as a person across files, and do not filter for 'single speaker' via a per-segment speaker field -- 'one speaker' means the whole clip has exactly one distinct label."
+  waveform:
+    meaning: Cloned channel-first float32 samples for one emitted turn, with sample_rate in source samples per second.
+    scope: Per fan-out child; source channels and sample rate are retained.
+    counterexamples:
+    - These are source-audio slices, not the mono/resampled arrays submitted to the diarization adapter.
+  duration:
+    meaning: Sample-aligned child duration in seconds; start/end are offsets within the parent recording and start_ms/end_ms express the same bounds in milliseconds.
+    scope: One turn; segment_num indexes its original diarization interval.
+    counterexamples:
+    - Child waveform time zero is the parent's start offset, not start seconds into the child.
+  original_file:
+    meaning: "Existing parent provenance wins. Otherwise file input uses the selected file path; resident input uses the configured session identity, then audio item ID, then a deterministic content identity."
+    scope: Identifies the parent source for every child.
+    counterexamples:
+    - A resident-audio identity is not an accessible filesystem path.
+  rttm_filepath:
+    meaning: Relative RTTM path beneath rttm_out_dir; content describes the complete parent recording.
+    scope: Whole recording, even when inherited by a fan-out child.
+    counterexamples:
+    - The RTTM contains parent-relative timings, not timings relative to a child waveform.
+comparison:
+  language_support: "English (training domain); degrades on non-English. (external: NVIDIA model card)"
+  accuracy_hint: "up to 4 speakers; offline v1 reports DER 14.76 on DIHARD3-eval (external); degrades on >4 speakers or non-English"
+  latency_hint: "streaming; chunk_len=340 -> ~30 s look-ahead latency per the model card"
+  config_complexity: "medium (streaming chunk / context params)"
+  choose_when: "<=4 speakers, English, speech-turn-only lists (no silence placeholders), or a local diarizer. Use PyAnnoteDiarizationStage for >4 speakers / overlap_segments / non-English / explicit gap rows (needs an HF token; its segments mix speech with no-speaker)."
+  known_limitations: "Default model has a 4-speaker cap and English-conversational training; no overlap_segments list. Resident model input is downmixed and resampled independently of source-audio fan-out."
+conflicts_with: [PyAnnoteDiarizationStage]   # alternative diarizer
+notes:
+  - The stage is batch-only and preserves parent ordering when scattering model results and emitting turns.
+  - File annotation delegates decoding to the adapter. File fan-out also needs the stage's audio loader to decode source slices.
+  - Fan-out is not resumable through executor checkpoints because zero-child completion is not recorded. This is distinct from metadata continuation and per-file delta reuse.
+  - Configured per-row independence is declared only for the built-in NeMo adapter without RTTM or with source_hash naming. Custom and TensorRT adapters remain conservative for reuse.
+  - "Default task_id RTTM naming uses safe task/shard directories and requires stable framework task IDs. Metadata checkpoints do not restore that identity. Opt-in legacy naming can overwrite duplicate session labels and disables per-row independence."
+  - "With rttm_naming=source_hash, the digest includes the session label and the full real source path for file input, or selected waveform content/shape/dtype/sample rate for resident input. Temporary paths, task IDs, shard metadata, and processing order do not affect it. Identical content and labels can share a resident export; moving a file changes its path-based name."
+  - "Output key is `diar_segments`; MergeAlignmentDiarizationStage defaults to reading `segments` -- set its segments_key=diar_segments (or rename) when chaining."
+  - "Fan-out children are waveform-only audio carriers: each has a cloned channel-first `waveform` slice and `sample_rate`, drops `audio_filepath`/`resampled_audio_filepath`, and retains source provenance under `original_file` (explicit session or item identity before a content identity for resident audio). File-only downstream stages are intentionally incompatible unless audio is materialized separately."
+  - "ResampleAudioStage leaves audio_filepath unchanged by default. Route the converted input through filepath_key=resampled_audio_filepath, resident waveform input, or update_audio_filepath=True on the resampler."
+  - "Speech-turn-only list: silence between turns is simply absent. Window duration for consumers that use first_start→last_end still spans those gaps without needing placeholder rows."
+  - "Streaming defaults (chunk_len=340, fifo_len=40, spkcache_len=188, spkcache_update_period=300, chunk_right_context=40) match the model card's recommended streaming config."
+  - "GPU is reserved by default; CPU is supported by the NeMo adapter with resources.gpus=0 and fp32 precision. The default checkpoint needs internet on first use; model_path can point to a pre-cached local .nemo file."
+  - "Model constraints (4-speaker cap, 16 kHz, English-conversational training) are model-card facts, not enforced in source."
+  - "(external) Sortformer is an end-to-end neural diarizer (arrival-time ordering, Sort Loss; arXiv 2409.06656). Streaming v2.1 handles long/streaming audio; offline v1 (used by SpeakerSeparationStage) bounds a single recording by GPU memory (~12 min on a 48 GB A6000)."
+presets:
+  streaming_v2: {model_name: "nvidia/diar_streaming_sortformer_4spk-v2"}
+  offline_v1: {model_name: "nvidia/diar_sortformer_4spk-v1"}
+versions:   # verified interchangeable via model_name -- load + run + IDENTICAL diar_segments structure, no module code change (tested 2026-07-23, RTX 4090)
+  "nvidia/diar_sortformer_4spk-v1": "WHEN: batch/offline diarization of short-to-medium clips (non-streaming). Also the checkpoint used by SpeakerSeparationStage. Preset: offline_v1."
+  "nvidia/diar_streaming_sortformer_4spk-v2": "WHEN: long or streaming audio / low-latency. Tune chunk_len for latency vs accuracy. Preset: streaming_v2. (The stage's default model_name is the -v2.1 point-release of this same streaming family -- not independently tested here.)"
+verified: {params: mechanical, semantic_facts: mechanical, tags: mechanical, model_version: mechanical, resource: mechanical, adapter_capabilities: mechanical, constraints: best_guess, domain: best_guess, use_cases: best_guess, comparison: best_guess, versions: measured}
+provenance: {model_card_url: "https://huggingface.co/nvidia/diar_streaming_sortformer_4spk-v2", card_version: 14, last_validated: "2026-10-19"}
