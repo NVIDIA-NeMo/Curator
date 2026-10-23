@@ -15,6 +15,7 @@
 # limitations under the License.
 
 import re
+from collections.abc import Callable
 from contextlib import suppress
 from pathlib import Path
 from typing import Literal
@@ -532,6 +533,39 @@ class TestKMeansReadFitWriteStage:
         decoded_embeddings = stored_embeddings.view(cp.float16) if stored_dtype == cp.uint16 else stored_embeddings
         cp.testing.assert_allclose(decoded_embeddings, embeddings, rtol=1e-3, atol=1e-3)
         cp.testing.assert_allclose(output["l2_dist_to_cent"].values, [0.0, (0.6**2 + 0.2**2) ** 0.5])
+
+    @pytest.mark.parametrize(
+        ("rows", "write_kwargs"),
+        [(128, {}), (128, {"max_file_size": "32 KiB"}), (12_000, {"row_group_size_rows": 5000})],
+    )
+    def test_partitioned_writer_rotates_nested_data_and_releases_files(
+        self, make_stage: Callable[..., "KMeansReadFitWriteStage"], rows: int, write_kwargs: dict[str, str | int]
+    ) -> None:
+        stage = make_stage(write_kwargs={"compression": None, **write_kwargs})
+        embeddings = cp.random.RandomState(42).random_sample((rows, 512)).astype(cp.float32)
+        frame = cudf.DataFrame({"id": cp.arange(rows), "centroid": cp.arange(rows) % 2})
+        stage._set_output_embeddings(frame, embeddings)
+
+        for batch in range(3):
+            frame["id"] = cp.arange(rows) + batch * rows
+            stage._write_partitioned_frame(frame, f"task_{batch}.parquet")
+            open_outputs = [
+                fd for fd in Path("/proc/self/fd").iterdir() if fd.resolve().is_relative_to(stage.output_path)
+            ]
+            assert not open_outputs, "Completed frames must release their Parquet file descriptors"
+
+        output = cudf.read_parquet(stage.output_path).sort_values("id", ignore_index=True)
+        cp.testing.assert_array_equal(output["id"].values, cp.arange(3 * rows))
+        cp.testing.assert_array_equal(output["centroid"].astype("int32").values, cp.arange(3 * rows) % 2)
+        cp.testing.assert_array_equal(get_array_from_df(output, "embeddings"), cp.tile(embeddings, (3, 1)))
+        output_files = list(Path(stage.output_path).glob("centroid=*/*.parquet"))
+        if "max_file_size" in write_kwargs:
+            assert len(output_files) > 6, "Nested embedding bytes must contribute to file rotation"
+        else:
+            assert len(output_files) == 6
+            assert {path.name for path in output_files} == {f"task_{batch}.parquet" for batch in range(3)}
+        if "row_group_size_rows" in write_kwargs:
+            assert cudf.io.parquet.read_parquet_metadata(str(output_files[0]))[1] == 2
 
     @pytest.mark.parametrize("bad_fraction", [0.0, -0.001, 1.001])
     def test_fit_data_fraction_validation(self, tmp_path: Path, bad_fraction: float) -> None:
