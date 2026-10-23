@@ -4,13 +4,13 @@ either candidate loses, invents, or substantially changes content relative to
 the other and to the raw source.
 
 <raw_text>
-{{ (raw_text or "")[:12000] }}
+{{ raw_text[:12000] if raw_text is string else "" }}
 </raw_text>
 
 <candidate_a>
-{{ (justext_text or "")[:8000] }}
+{{ justext_text[:8000] if justext_text is string else "" }}
 </candidate_a>
 
 <candidate_b>
-{{ (trafilatura_text or "")[:8000] }}
+{{ trafilatura_text[:8000] if trafilatura_text is string else "" }}
 </candidate_b>
