@@ -212,3 +212,19 @@ By making a contribution to this project, I certify that:
 
 (d) I understand and agree that this project and the contribution are public and that a record of the contribution (including all personal information I submit with it, including my sign-off) is maintained indefinitely and may be redistributed consistent with this project or the open source license(s) involved.
 ```
+
+## Pull-request reviews
+
+Comment `/review` on a pull request for the formal review service. Use
+`/review mode=strict` for deeper analysis, or add `model=claude` to select a
+Claude reviewer instead of the default Codex reviewer. `/review help` lists
+all options. The retired `/claude review` and `/claude strict-review` commands
+only reply with migration instructions; they do not run or automatically
+request a review.
+
+Curator's review profile in CI-Events selects its local copy of the
+[Ponytail review skill](https://github.com/NVIDIA-NeMo/CI-Events-Workflows/blob/main/skills/ponytail-review/SKILL.md).
+The review service loads an immutable plugin snapshot published from CI-Events'
+protected `main` branch. CI-Events owns profile registration and publication;
+the formal review service owns review output and submission. Before activating
+the profile, verify a Ready `ponytail-skills` snapshot containing `ponytail-review`.

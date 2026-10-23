@@ -19,7 +19,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 import ray
-from loguru import logger
 from ray.util.scheduling_strategies import NodeAffinitySchedulingStrategy
 
 if TYPE_CHECKING:
@@ -52,6 +51,19 @@ def get_head_node_id() -> str | None:
     return None
 
 
+def get_alive_ray_nodes(ignore_head_node: bool = False) -> list[dict[str, Any]]:
+    """Return alive Ray nodes, optionally excluding the cluster head."""
+    head_node_id = get_head_node_id() if ignore_head_node else None
+    return [
+        node for node in ray.nodes() if node.get("Alive") and (not ignore_head_node or node["NodeID"] != head_node_id)
+    ]
+
+
+def get_alive_ray_node_count(ignore_head_node: bool = False) -> int:
+    """Return the number of alive Ray nodes available for per-node work."""
+    return len(get_alive_ray_nodes(ignore_head_node=ignore_head_node))
+
+
 def submit_on_each_node(
     remote_fn: RemoteFunction,
     *args,
@@ -67,15 +79,9 @@ def submit_on_each_node(
     for awaiting the returned refs (typically via ``ray.get``); use this when batching
     multiple fan-outs into a single await preserves parallelism.
     """
-    head_node_id = get_head_node_id() if ignore_head_node else None
     refs = []
-    for node in ray.nodes():
-        if not node.get("Alive"):
-            continue
+    for node in get_alive_ray_nodes(ignore_head_node=ignore_head_node):
         node_id = node["NodeID"]
-        if ignore_head_node and node_id == head_node_id:
-            logger.info(f"Skipping head node {node_id}")
-            continue
         refs.append(
             remote_fn.options(
                 num_cpus=num_cpus,

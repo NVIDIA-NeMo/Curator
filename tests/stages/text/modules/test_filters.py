@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,7 +15,6 @@
 import os
 import re
 
-import numpy as np
 import pandas as pd
 import pytest
 
@@ -87,64 +86,17 @@ class DummyTokenizer:
         return text.split()
 
 
-class FakeQualityFilter(DocumentFilter):
-    """
-    Emulates FastTextQualityFilter without a model
-    """
-
-    def __init__(self, alpha: float = 3, seed: int = 42):
-        super().__init__()
-        self._alpha = alpha
-        self._seed = np.random.seed(seed)  # noqa: NPY002
+class FakeModelFilter(DocumentFilter):
+    """Minimal model-backed filter used to test actor-stage detection."""
 
     def load_model(self) -> None:
         pass
 
     def score_document(self, text: str) -> float:
-        if text == "a":
-            return 0.00
-        elif text == "b":
-            return 0.25
-        elif text == "c":
-            return 0.50
-        elif text == "d":
-            return 0.75
-        else:
-            msg = f"Unexpected text: {text}"
-            raise ValueError(msg)
+        return float(bool(text))
 
     def keep_document(self, score: float) -> bool:
-        return np.random.pareto(self._alpha) > 1 - score  # noqa: NPY002
-
-
-class FakeLangId(DocumentFilter):
-    """
-    Emulates FastTextLangId without a model
-    """
-
-    def __init__(self, min_langid_score: float = 0.3):
-        super().__init__()
-        self._cutoff = min_langid_score
-
-    def load_model(self) -> None:
-        pass
-
-    def score_document(self, text: str) -> str:
-        if text in ["a", "d"]:
-            return str([0.5, "EN"])
-        if text == "b":
-            return str([0.7, "HI"])
-        if text == "c":
-            return str([0.2, "PT"])
-        else:
-            msg = f"Unexpected text: {text}"
-            raise ValueError(msg)
-
-    def keep_document(self, score: float | str) -> bool:
-        if isinstance(score, str):
-            score = eval(score)  # noqa: S307
-
-        return score[0] >= self._cutoff
+        return bool(score)
 
 
 def all_equal(left_dataset: DocumentBatch, right_dataset: DocumentBatch) -> bool:
@@ -195,6 +147,17 @@ class TestFilterModule:
         )
 
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
+
+    def test_verbose_logs_batch_counts(
+        self, letter_count_data: DocumentBatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        with caplog.at_level("INFO"):
+            ScoreFilter(LetterCountFilter(), text_field="documents", verbose=True).process(letter_count_data)
+            Filter(lambda text: "Five" in text, filter_field="documents", verbose=True).process(letter_count_data)
+
+        assert "retained 2/4 rows" in caplog.text
+        assert "filter_fn batch" in caplog.text
+        assert "retained 1/4 rows" in caplog.text
 
     def test_score_document(self, letter_count_data: DocumentBatch) -> None:
         letter_filter = LetterCountFilter()
@@ -295,6 +258,52 @@ class TestFilterModule:
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
+
+    @pytest.mark.parametrize(("invert", "expected"), [([False], False), ([True], True)])
+    def test_one_element_invert_is_the_same_as_the_bare_value(
+        self, letter_count_data: DocumentBatch, invert: list[bool], expected: bool
+    ) -> None:
+        """A one-element list means "the same for every filter".
+
+        _format_field_list used to wrap the list rather than repeat its entry, so
+        each filter saw [False], which is truthy, and both were inverted whatever
+        the value was.
+        """
+        as_list = ScoreFilter(
+            [LetterCountFilter(letter="a"), LetterCountFilter(letter="e", min_count=2)],
+            text_field="documents",
+            score_field=["a_count", "e_count"],
+            invert=invert,
+        )
+        as_bare = ScoreFilter(
+            [LetterCountFilter(letter="a"), LetterCountFilter(letter="e", min_count=2)],
+            text_field="documents",
+            score_field=["a_count", "e_count"],
+            invert=expected,
+        )
+
+        assert as_list.invert == [expected, expected]
+        assert all_equal(as_bare.process(letter_count_data), as_list.process(letter_count_data))
+
+    def test_one_element_text_field_is_the_same_as_the_bare_value(self, letter_count_data: DocumentBatch) -> None:
+        """The same broadcast, on the field name rather than the flag.
+
+        Wrapped, each filter was handed ["documents"], and df[["documents"]] is
+        a DataFrame, so the filter ran against a Series instead of a string.
+        """
+        as_list = ScoreFilter(
+            [LetterCountFilter(letter="a"), LetterCountFilter(letter="e", min_count=2)],
+            text_field=["documents"],
+            score_field=["a_count", "e_count"],
+        )
+        as_bare = ScoreFilter(
+            [LetterCountFilter(letter="a"), LetterCountFilter(letter="e", min_count=2)],
+            text_field="documents",
+            score_field=["a_count", "e_count"],
+        )
+
+        assert as_list.text_field == ["documents", "documents"]
+        assert all_equal(as_bare.process(letter_count_data), as_list.process(letter_count_data))
 
     @pytest.mark.parametrize("score_field", [None, "a_count", ["a_count"], ["a_count", "e_count"]])
     def test_score_filter_chain(self, letter_count_data: DocumentBatch, score_field: list[str] | None) -> None:
@@ -417,7 +426,7 @@ class TestFilterModule:
         filtered_data = filters.process(intermediate_data)
 
         # Empty DataFrame
-        expected_df = pd.DataFrame(columns=["documents"], index=pd.Index([], dtype=object))
+        expected_df = pd.DataFrame({"documents": pd.Series(dtype="str")})
 
         expected_data = DocumentBatch(
             data=expected_df,
@@ -451,13 +460,9 @@ class TestFilterModule:
         assert test_filter.ray_stage_spec() == {"is_actor_stage": False}
 
         # Has load_model
-        test_filter = ScoreFilter(FakeQualityFilter(), text_field="documents")
+        test_filter = ScoreFilter(FakeModelFilter(), text_field="documents")
         assert test_filter.ray_stage_spec() == {"is_actor_stage": True}
-        test_filter = Score(FakeQualityFilter(), text_field="documents", score_field="score")
-        assert test_filter.ray_stage_spec() == {"is_actor_stage": True}
-        test_filter = ScoreFilter(FakeLangId(), text_field="documents")
-        assert test_filter.ray_stage_spec() == {"is_actor_stage": True}
-        test_filter = Score(FakeLangId(), text_field="documents", score_field="score")
+        test_filter = Score(FakeModelFilter(), text_field="documents", score_field="score")
         assert test_filter.ray_stage_spec() == {"is_actor_stage": True}
 
         # Has load_tokenizer
@@ -496,6 +501,18 @@ class TestHeuristicFilters:
 
         expected_data = DocumentBatch(
             data=pd.DataFrame({"text": ["full of words", "barely ok 3 4 5 6 7 8 9 #"]}),
+            dataset_name="test_1",
+        )
+        assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
+
+    def test_symbolswords_zh_with_spaces(self) -> None:
+        dataset = list_to_dataset(["我用 Python 写代码。", "... ... 标题"])
+        filters = ScoreFilter(SymbolsToWordsFilter(lang="zh"))
+
+        filtered_data = filters.process(dataset)
+
+        expected_data = DocumentBatch(
+            data=pd.DataFrame({"text": ["我用 Python 写代码。"]}),
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
@@ -631,6 +648,50 @@ class TestHeuristicFilters:
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
 
+    @pytest.mark.parametrize("text", ["", " ", "\n\n", "\xa0"])
+    @pytest.mark.parametrize(
+        ("filter_cls", "expected_score"),
+        [
+            (SymbolsToWordsFilter, 1.0),
+            (BulletsFilter, 1.0),
+            (LongWordFilter, 1001),
+            (MeanWordLengthFilter, 0.0),
+            (PunctuationFilter, 1.0),
+            (EllipsisFilter, 1.0),
+            (WordsWithoutAlphabetsFilter, 0.0),
+        ],
+    )
+    def test_empty_document(self, filter_cls: type[DocumentFilter], expected_score: float, text: str) -> None:
+        doc_filter = filter_cls()
+        score = doc_filter.score_document(text)
+        assert score == expected_score
+        assert doc_filter.keep_document(score) is False
+
+    @pytest.mark.parametrize(
+        "filter_cls",
+        [
+            SymbolsToWordsFilter,
+            BulletsFilter,
+            LongWordFilter,
+            MeanWordLengthFilter,
+            PunctuationFilter,
+            EllipsisFilter,
+            WordsWithoutAlphabetsFilter,
+        ],
+    )
+    def test_empty_document_score_filter(self, filter_cls: type[DocumentFilter]) -> None:
+        good = "This is a normal sentence with enough words to pass."
+        documents = ["", good, " ", "\n\n"]
+        filters = ScoreFilter(filter_cls())
+
+        filtered_data = filters.process(list_to_dataset(documents))
+
+        expected_data = DocumentBatch(
+            data=pd.DataFrame({"text": [good]}),
+            dataset_name="test_1",
+        )
+        assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
+
     def test_parentheses(self) -> None:
         dataset = list_to_dataset(["()", "(not good)", "this is completely absolutely fine", "123456789("])
         filters = ScoreFilter(ParenthesesFilter())
@@ -675,6 +736,19 @@ class TestHeuristicFilters:
 
         expected_data = DocumentBatch(
             data=pd.DataFrame({"text": ["你好。", "我喜欢学习中文。"]}),
+            dataset_name="test_1",
+        )
+        assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
+
+    def test_wordcount_zh_ignores_spaces(self) -> None:
+        # 5 words: 我用 / Python / 写 / 代码 / 。, the two spaces are not words
+        dataset = list_to_dataset(["我用 Python 写代码。"])
+        filters = ScoreFilter(WordCountFilter(min_words=2, max_words=5, lang="zh"))
+
+        filtered_data = filters.process(dataset)
+
+        expected_data = DocumentBatch(
+            data=pd.DataFrame({"text": ["我用 Python 写代码。"]}),
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
@@ -738,7 +812,7 @@ class TestHeuristicFilters:
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
 
     def test_repeatedlines(self) -> None:
-        dataset = list_to_dataset(["totally unique", "half.\nhalf."])
+        dataset = list_to_dataset(["", "   ", "\n\n", "totally unique", "half.\nhalf."])
         filters = ScoreFilter(RepeatedLinesFilter())
 
         filtered_data = filters.process(dataset)
@@ -750,7 +824,7 @@ class TestHeuristicFilters:
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
 
     def test_repeatedparagraphs(self) -> None:
-        dataset = list_to_dataset(["totally unique", "half.\n\nhalf."])
+        dataset = list_to_dataset(["", "   ", "\n\n", "totally unique", "half.\n\nhalf."])
         filters = ScoreFilter(RepeatedParagraphsFilter())
 
         filtered_data = filters.process(dataset)
@@ -764,6 +838,9 @@ class TestHeuristicFilters:
     def test_repeatedlineschar(self) -> None:
         dataset = list_to_dataset(
             [
+                "",
+                "   ",
+                "\n\n",
                 "totally unique",
                 "a.\na.\nvery very very short duplicate.",
                 "half.\nhalf.",
@@ -783,6 +860,9 @@ class TestHeuristicFilters:
     def test_repeatedparagraphschar(self) -> None:
         dataset = list_to_dataset(
             [
+                "",
+                "   ",
+                "\n\n",
                 "totally unique",
                 "a.\n\n  a.\n\n  very very very short duplicate.",
                 "half.\n\nhalf.",
@@ -798,6 +878,22 @@ class TestHeuristicFilters:
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
+
+    @pytest.mark.parametrize(
+        "filter_cls",
+        [
+            RepeatedLinesFilter,
+            RepeatedParagraphsFilter,
+            RepeatedLinesByCharFilter,
+            RepeatedParagraphsByCharFilter,
+        ],
+    )
+    @pytest.mark.parametrize("empty_input", ["", "   ", "\n", "\n\n", "\t \r\n"])
+    def test_repetition_filters_empty_text(self, filter_cls: type, empty_input: str) -> None:
+        filt = filter_cls()
+        score = filt.score_document(empty_input)
+        assert score == 0.0
+        assert filt.keep_document(score) is False
 
     def test_repeatingtopngrams(self) -> None:
         dataset = list_to_dataset(
@@ -1288,29 +1384,3 @@ class TestCodeFilters:
     ) -> None:
         line_statistics = per_extension_filter._line_statistics(content)
         assert line_statistics == expected, f"Expected {expected} but got {line_statistics}"
-
-
-class TestClassifierFilters:
-    def test_fake_quality_filter(self) -> None:
-        dataset = list_to_dataset(["a", "b", "c", "d"])
-        filters = ScoreFilter(FakeQualityFilter())
-
-        filtered_data = filters.process(dataset)
-
-        expected_data = DocumentBatch(
-            data=pd.DataFrame({"text": ["b", "c", "d"]}),
-            dataset_name="test_1",
-        )
-        assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
-
-    def test_fake_langid_filter(self) -> None:
-        dataset = list_to_dataset(["a", "b", "c", "d"])
-        filters = ScoreFilter(FakeLangId())
-
-        filtered_data = filters.process(dataset)
-
-        expected_data = DocumentBatch(
-            data=pd.DataFrame({"text": ["a", "b", "d"]}),
-            dataset_name="test_1",
-        )
-        assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"

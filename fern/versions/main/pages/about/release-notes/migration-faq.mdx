@@ -110,7 +110,7 @@ Each task is a data class. You can add whatever statistics you need (input or ou
 ## Fault Tolerance, Checkpointing, and Observability
 
 <Accordion title="What if a stage fails (for example, OOM or disk error)? Will the pipeline crash?">
-Ray will relaunch failed workers or actors, but robust error handling and resumption (for example, from last completed task) should be implemented in your stage logic as needed.
+Ray can relaunch failed workers or actors. For restart recovery, pass `checkpoint_path` to `Pipeline.run()` so completed source partitions are skipped on the next launch. A custom stage can return `FailedTask()` for a recoverable per-task failure that should remain pending. Refer to [Resumable Processing](/reference/infra/resumable-processing).
 </Accordion>
 
 <Accordion title="How is observability handled? Can I track pipeline performance, actor counts, and task durations?">
@@ -118,7 +118,7 @@ All Ray pipelines expose resource and processing metrics via a built-in Grafana 
 </Accordion>
 
 <Accordion title="Can I resume processing from mid-pipeline if interrupted?">
-For streaming pipelines, each completed task can be tracked (temporarily with final outputs), so resumption logic is "start from task N+1". If you rely on explicit intermediate checkpoints, you can extend the process logic to save and reload state as needed.
+Yes. Run the same pipeline with the same `checkpoint_path`. NeMo Curator records completed source partitions under `.nemo_curator_metadata` and skips them on a later launch. Incomplete sources restart from the source; stage payloads and in-memory state are not serialized. Refer to [Resumable Processing](/reference/infra/resumable-processing) for storage, replay, and multi-host constraints.
 </Accordion>
 
 ---
@@ -138,11 +138,11 @@ Contributions are strongly encouraged. Submit pull requests or join community di
 ## Deployment, Infrastructure, and Practicalities
 
 <Accordion title="How do I deploy NeMo Curator or Ray clusters?">
-Ray clusters can be deployed on any major cloud platform (AWS, GCP, Azure) using standard Ray tools (see [Ray documentation](https://docs.ray.io/en/latest/cluster/getting-started.html)). No custom infrastructure is needed. NVIDIA provides ready-to-use [Docker images ](/reference/infra/container-environments) and up-to-date quickstart guides. For complete deployment details, refer to [Production Deployment Requirements ](/admin/deployment/requirements).
+Deploy Ray clusters using standard [Ray tools](https://docs.ray.io/en/latest/cluster/getting-started.html). Install the Python package for general workflows when the required release is available; use a source checkout for development or an unpublished release. For audio and video workflows, build a local image from the maintained Dockerfile and add the required FFmpeg system packages using the [Container Environments guide](/reference/infra/container-environments#add-ffmpeg-for-audio-or-video). For hardware and cluster setup, refer to [Production Deployment Requirements](/admin/deployment/requirements).
 </Accordion>
 
 <Accordion title="Do I need to build custom Docker images?">
-Not for most standard uses. Use [provided images ](/reference/infra/container-environments) or extend as needed (for example, to add proprietary or additional filters). Check out the official Docker container releases on the [NGC Catalog](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/nemo-curator).
+No for general workflows; use the Python package when the needed release is available. Audio and video workflows, and deployments that require containers, can [build a container image](/reference/infra/container-environments#build-an-image) from the maintained repository Dockerfile. Add FFmpeg as described in [Add FFmpeg for Audio or Video](/reference/infra/container-environments#add-ffmpeg-for-audio-or-video). NVIDIA no longer publishes new Curator images on NGC starting with 26.09; earlier images remain downloadable. Refer to the [Distribution Change](/about/release-notes#distribution-change).
 </Accordion>
 
 <Accordion title="Is there integration with existing cluster or orchestration tools like Airflow or Slurm?">
@@ -186,7 +186,7 @@ Regular community calls and check-ins are also offered to connect with the team 
 <Note>
 - [Ray Documentation and Getting Started](https://docs.ray.io/)
 - [Migration Guide ](/about/release-notes/migration-guide) for step-by-step migration instructions
-- [NGC Container Catalog](https://catalog.ngc.nvidia.com/) for Docker images
+- [Install NeMo Curator](/get-started/installation) for setup instructions
 
 </Note>
 

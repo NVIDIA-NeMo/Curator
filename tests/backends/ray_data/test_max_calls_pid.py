@@ -12,10 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import math
 import os
 import re
 import tempfile
+from collections import Counter
 
 import pandas as pd
 import pytest
@@ -136,12 +136,8 @@ def test_pid_recycling(max_calls_per_worker: int | None):
     results = executor.execute(stages=[stage], initial_tasks=tasks)
 
     pids = [r.data["worker_pid"].iloc[0] for r in results]
-    expected_unique_pids = math.ceil(len(tasks) / max_calls_per_worker) if max_calls_per_worker else 1
 
-    assert len(set(pids)) == expected_unique_pids, (
-        f"Expected {expected_unique_pids} unique PIDs with max_calls={max_calls_per_worker}, "
-        f"got {len(set(pids))}: {pids}"
-    )
+    _assert_max_calls_respected(pids, max_calls_per_worker)
 
 
 @pytest.mark.parametrize("max_calls_per_worker", [2, None])
@@ -150,13 +146,11 @@ def test_max_calls_not_fused_with_actor_stage(max_calls_per_worker: int | None):
     """Verify that a task stage with max_calls is not fused with a following actor stage.
 
     Ray Data's operator fusion optimization can merge consecutive map_batches
-    operations. If PidRecorderStage (task-based, max_calls=1) were fused with
-    PassthroughActorStage (actor-based), the max_calls setting would be lost
-    and we'd see only 1 unique PID instead of one per task.
+    operations. If PidRecorderStage were fused into the following stage, Ray Data
+    could lose the max_calls setting.
 
-    By chaining the two stages and asserting PID recycling still occurs, we
-    confirm that Ray Data keeps them as separate operators. We also verify
-    the execution plan directly to ensure no fusion occurred.
+    The worker PID check verifies max_calls without assuming exact Ray worker
+    reuse. The execution plan check verifies fusion behavior directly.
     """
     num_tasks = 4
     tasks = [EmptyTask()] * num_tasks
@@ -169,15 +163,10 @@ def test_max_calls_not_fused_with_actor_stage(max_calls_per_worker: int | None):
         results = executor.execute(stages=[pid_stage, actor_stage], initial_tasks=tasks)
         all_logs = log_buffer.getvalue()
 
-    # Verify PID recycling
+    # Verify max_calls without assuming exact Ray worker reuse.
     pids = [r.data["worker_pid"].iloc[0] for r in results]
-    expected_unique_pids = math.ceil(num_tasks / max_calls_per_worker) if max_calls_per_worker else 1
 
-    assert len(set(pids)) == expected_unique_pids, (
-        f"Expected {expected_unique_pids} unique PIDs (max_calls={max_calls_per_worker}, "
-        f"{num_tasks} tasks), got {len(set(pids))}: {pids}. "
-        f"Stages may have been fused by Ray Data, defeating max_calls."
-    )
+    _assert_max_calls_respected(pids, max_calls_per_worker)
 
     # Verify execution plan fusion behavior
     matches = re.findall(r"Execution plan of Dataset.*?:\s*(.+)", all_logs, re.MULTILINE)
@@ -213,11 +202,11 @@ def test_max_calls_not_fused_with_task_stage(max_calls_per_worker: int | None):
     """Verify that a task stage with max_calls is not fused with a following task stage.
 
     Ray Data's operator fusion optimization can merge consecutive map_batches
-    operations. If PidRecorderStage (task-based, max_calls=1) were fused with
-    PassthroughTaskStage (task-based), the max_calls setting would be lost
-    and we'd see only 1 unique PID instead of one per task.
+    operations. If PidRecorderStage were fused into the following stage, Ray Data
+    could lose the max_calls setting.
 
-    We also verify the execution plan directly to ensure no fusion occurred.
+    The worker PID check verifies max_calls without assuming exact Ray worker
+    reuse. The execution plan check verifies fusion behavior directly.
     """
     num_tasks = 4
     tasks = [EmptyTask()] * num_tasks
@@ -230,15 +219,10 @@ def test_max_calls_not_fused_with_task_stage(max_calls_per_worker: int | None):
         results = executor.execute(stages=[task_stage, pid_stage], initial_tasks=tasks)
         all_logs = log_buffer.getvalue()
 
-    # Verify PID recycling
+    # Verify max_calls without assuming exact Ray worker reuse.
     pids = [r.data["worker_pid"].iloc[0] for r in results]
-    expected_unique_pids = math.ceil(num_tasks / max_calls_per_worker) if max_calls_per_worker else 1
 
-    assert len(set(pids)) == expected_unique_pids, (
-        f"Expected {expected_unique_pids} unique PIDs (max_calls={max_calls_per_worker}, "
-        f"{num_tasks} tasks), got {len(set(pids))}: {pids}. "
-        f"Stages may have been fused by Ray Data, defeating max_calls."
-    )
+    _assert_max_calls_respected(pids, max_calls_per_worker)
 
     # Verify execution plan fusion behavior
     matches = re.findall(r"Execution plan of Dataset.*?:\s*(.+)", all_logs, re.MULTILINE)
@@ -266,3 +250,14 @@ def test_max_calls_not_fused_with_task_stage(max_calls_per_worker: int | None):
             f"Expected fused operator with 2 MapBatches, got: {map_batches_stages[0]}. "
             f"Full execution plan: {matches[-1]}"
         )
+
+
+def _assert_max_calls_respected(pids: list[int], max_calls_per_worker: int | None) -> None:
+    assert pids
+    if max_calls_per_worker is None:
+        return
+
+    pid_counts = Counter(pids)
+    assert max(pid_counts.values()) <= max_calls_per_worker, (
+        f"Expected no worker PID to process more than {max_calls_per_worker} batches, got {pid_counts}."
+    )

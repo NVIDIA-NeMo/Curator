@@ -118,3 +118,4 @@ class DynamoServerConfig(BaseServerConfig):
     request_plane: str = DEFAULT_DYNAMO_REQUEST_PLANE
     event_plane: str = DEFAULT_DYNAMO_EVENT_PLANE
     router: DynamoRouterConfig = field(default_factory=DynamoRouterConfig)
+    subprocess_env: dict[str, str] = field(default_factory=dict)

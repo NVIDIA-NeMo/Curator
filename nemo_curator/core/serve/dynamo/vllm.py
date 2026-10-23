@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import importlib.metadata
 import json
 import tempfile
 from functools import reduce
@@ -24,6 +25,7 @@ from typing import TYPE_CHECKING, Any
 
 import ray
 from loguru import logger
+from packaging.requirements import InvalidRequirement, Requirement
 
 from nemo_curator.core.serve.base import BaseModelConfig
 from nemo_curator.core.serve.dynamo.infra import (
@@ -50,19 +52,58 @@ if TYPE_CHECKING:
     from nemo_curator.core.serve.placement import ReplicaBundleSpec
 
 
-# ai-dynamo[vllm]'s [vllm] extra carries a hard ray pin, but Ray refuses
-# actor venvs whose ray version differs from the cluster head's. uv has no
-# inline override syntax — only ``--override <file>`` — so we materialize a
-# tiny constraints file at a fixed path on every node via
-# ``ensure_actor_overrides_on_all_nodes``; the content is derived from the
-# driver's ``ray.__version__`` at fan-out time so a future Curator ray bump
-# doesn't need a code change here.
+# Ray creates the actor venv outside the project directory, so reapply the
+# driver Ray pin and CUDA-13 NIXL exclusion through an override file.
 _ACTOR_VENV_OVERRIDES_PATH = Path(tempfile.gettempdir()) / "nemo_curator_dynamo_actor_overrides.txt"
+_ACTOR_VENV_NIXL_CU13_EXCLUSION = "nixl-cu13 ; sys_platform == 'never'"
+_ACTOR_VENV_CUDA_TAG = "cu129"
+
+
+def _dynamo_runtime_packages() -> list[str]:
+    """Install Dynamo's vLLM extra without upgrading the base Dynamo release."""
+    try:
+        installed_version = importlib.metadata.version("ai-dynamo")
+    except importlib.metadata.PackageNotFoundError:
+        return ["ai-dynamo[vllm]"]
+    return [f"ai-dynamo[vllm]=={installed_version}"]
+
+
+def _vllm_cu129_index_url() -> str | None:
+    """Return the CUDA 12.9 wheel index for Dynamo's pinned vLLM version."""
+    try:
+        requirements = importlib.metadata.requires("ai-dynamo") or []
+    except importlib.metadata.PackageNotFoundError:
+        return None
+    for raw in requirements:
+        try:
+            req = Requirement(raw)
+        except InvalidRequirement:
+            continue
+        if req.name != "vllm" or (req.marker is not None and not req.marker.evaluate({"extra": "vllm"})):
+            continue
+        pinned = next((spec.version for spec in req.specifier if spec.operator in ("==", "===")), None)
+        if pinned:
+            return f"https://wheels.vllm.ai/{pinned}/{_ACTOR_VENV_CUDA_TAG}"
+    return None
+
+
+# The actor install must select CUDA 12.9 Torch and vLLM wheels even though
+# public PyPI also contains a wheel with the same base vLLM version.
+_ACTOR_VENV_UV_OPTIONS = [
+    "--override",
+    str(_ACTOR_VENV_OVERRIDES_PATH),
+    "--torch-backend",
+    _ACTOR_VENV_CUDA_TAG,
+    "--index-strategy",
+    "unsafe-best-match",
+]
+if _vllm_index_url := _vllm_cu129_index_url():
+    _ACTOR_VENV_UV_OPTIONS.extend(["--extra-index-url", _vllm_index_url])
 
 DYNAMO_VLLM_RUNTIME_ENV: dict[str, Any] = {
     "uv": {
-        "packages": ["ai-dynamo[vllm]"],
-        "uv_pip_install_options": ["--override", str(_ACTOR_VENV_OVERRIDES_PATH)],
+        "packages": _dynamo_runtime_packages(),
+        "uv_pip_install_options": _ACTOR_VENV_UV_OPTIONS,
     },
     "config": {"setup_timeout_seconds": 600},
 }
@@ -78,7 +119,8 @@ def ensure_actor_overrides_on_all_nodes(*, ignore_head_node: bool = False) -> No
 
     The file pins ``ray=={ray.__version__}`` (read from the driver) so the
     actor venv keeps the same ray patch as the cluster head — Ray rejects
-    any mismatch.
+    any mismatch — and drops ``nixl-cu13`` so the cu12 NIXL backend is used
+    (see module comment on :data:`_ACTOR_VENV_OVERRIDES_PATH`).
 
     Must run inside an active Ray context, before any worker spawned with
     :data:`DYNAMO_VLLM_RUNTIME_ENV` lands. The runtime_env_agent on each
@@ -91,7 +133,7 @@ def ensure_actor_overrides_on_all_nodes(*, ignore_head_node: bool = False) -> No
     run_on_each_node(
         _write_actor_overrides_file,
         str(_ACTOR_VENV_OVERRIDES_PATH),
-        f"ray=={ray.__version__}\n",
+        f"ray=={ray.__version__}\n{_ACTOR_VENV_NIXL_CU13_EXCLUSION}\n",
         ignore_head_node=ignore_head_node,
     )
 
@@ -181,6 +223,11 @@ def aggregated_model_uses_exact_kv_events(
     return router_kv_events
 
 
+def explicit_hybrid_kv_cache_manager_enabled(engine_kwargs: dict[str, Any]) -> bool:
+    """True when vLLM should receive ``--no-disable-hybrid-kv-cache-manager``."""
+    return engine_kwargs.get("disable_hybrid_kv_cache_manager") is False
+
+
 def build_worker_kv_events_config(
     model_config: DynamoVLLMModelConfig,
     *,
@@ -189,13 +236,7 @@ def build_worker_kv_events_config(
     port_seed: int,
     enabled: bool,
 ) -> str:
-    """JSON blob for ``--kv-events-config``.
-
-    Always passed explicitly. Without this, Dynamo's ``args.py`` auto-creates
-    a ``KVEventsConfig`` bound to ``tcp://*:20080`` when ``prefix_caching`` is
-    enabled (vLLM >=0.16 default), causing every worker on the same node to
-    fight over the same port.
-    """
+    """JSON blob for ``--kv-events-config`` when Curator chooses to pass one."""
     template = dict(model_config.kv_events_config)
 
     if not enabled:
@@ -321,13 +362,17 @@ def _launch_vllm_worker(  # noqa: PLR0913
     kv_events_enabled = is_rank_zero and aggregated_model_uses_exact_kv_events(
         model_config, router_mode=router_mode, router_kv_events=router_kv_events
     )
-    kv_events_config = build_worker_kv_events_config(
-        model_config,
-        pg=pg,
-        bundle_index=node_rank,
-        port_seed=20080 + replica_index + node_rank,
-        enabled=kv_events_enabled,
-    )
+    kv_events_config = None
+    # vLLM treats any non-None kv_events_config as incompatible with explicitly
+    # enabled hybrid KV cache manager.
+    if not explicit_hybrid_kv_cache_manager_enabled(model_config.engine_kwargs):
+        kv_events_config = build_worker_kv_events_config(
+            model_config,
+            pg=pg,
+            bundle_index=node_rank,
+            port_seed=20080 + replica_index + node_rank,
+            enabled=kv_events_enabled,
+        )
 
     python_args: list[str] = [
         "-m",
@@ -351,7 +396,8 @@ def _launch_vllm_worker(  # noqa: PLR0913
     else:
         python_args.append("--headless")
 
-    python_args += ["--kv-events-config", kv_events_config]
+    if kv_events_config is not None:
+        python_args += ["--kv-events-config", kv_events_config]
 
     if spec.is_multi_node:
         assert master_addr is not None, "master_addr must be set for multi-node replicas"  # noqa: S101
@@ -397,9 +443,10 @@ def launch_disagg_replicas(  # noqa: PLR0913
 
     Each role (prefill/decode) becomes its own pool of single-bundle PGs
     so roles can scale independently. Only the prefill pool publishes KV
-    events (decode reads them via Nixl). KV transfer defaults to
-    NixlConnector with ``kv_both`` unless the user overrides via
-    ``DynamoVLLMModelConfig.kv_transfer_config``.
+    events (decode reads them via Nixl), and no role receives a KV-events
+    config when vLLM's hybrid KV cache manager is explicitly enabled. KV
+    transfer defaults to NixlConnector with ``kv_both`` unless the user
+    overrides via ``DynamoVLLMModelConfig.kv_transfer_config``.
 
     ``worker_index_offset`` lets the caller thread a global counter across
     multiple disagg models so their port seeds don't overlap — without it,
@@ -492,18 +539,15 @@ def _launch_disagg_role(  # noqa: PLR0913
         # Global-enough seed so concurrent workers on one node don't collide.
         nixl_port = get_free_port_in_bundle(pg, 0, _DISAGG_NIXL_PORT_SEED + worker_index)
 
-        # Always pass an explicit ``--kv-events-config``. Decode workers set
-        # ``enable_kv_cache_events=False`` — without the flag, Dynamo's
-        # args.py auto-creates a KVEventsConfig bound to ``tcp://*:20080``
-        # when ``prefix_caching`` is enabled (vLLM >=0.16 default), causing
-        # every decode worker on the same node to fight over that port.
-        kv_events_config = build_worker_kv_events_config(
-            model_config,
-            pg=pg,
-            bundle_index=0,
-            port_seed=_DISAGG_KV_EVENTS_PORT_SEED + worker_index,
-            enabled=publishes_kv_events,
-        )
+        kv_events_config = None
+        if not explicit_hybrid_kv_cache_manager_enabled(engine_kwargs):
+            kv_events_config = build_worker_kv_events_config(
+                model_config,
+                pg=pg,
+                bundle_index=0,
+                port_seed=_DISAGG_KV_EVENTS_PORT_SEED + worker_index,
+                enabled=publishes_kv_events,
+            )
 
         python_args: list[str] = [
             "-m",
@@ -524,9 +568,9 @@ def _launch_disagg_role(  # noqa: PLR0913
             role,
             "--kv-transfer-config",
             kv_transfer_config,
-            "--kv-events-config",
-            kv_events_config,
         ]
+        if kv_events_config is not None:
+            python_args += ["--kv-events-config", kv_events_config]
         python_args += engine_kwargs_to_cli_flags(engine_kwargs)
         python_args += engine_kwargs_to_cli_flags(model_config.dynamo_kwargs)
 

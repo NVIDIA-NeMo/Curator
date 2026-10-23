@@ -1,0 +1,207 @@
+# Transcribe audio with Qwen3-Omni, then check and clean the generated text.
+# Run from the repository root; see README.md for the input contract.
+
+defaults:
+  - _self_
+  - override hydra/job_logging: none
+  - override hydra/hydra_logging: none
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+
+manifest_path: ???
+output_path: ./qwen_omni_asr_output.jsonl
+workspace_dir: /tmp/qwen_omni_asr_workspace
+transcript_key: text
+model_id: Qwen/Qwen3-Omni-30B-A3B-Instruct
+model_revision: 26291f793822fb6be9555850f06dfe95f2d7e695  # pragma: allowlist secret
+backend: xenna
+execution_mode: streaming
+
+stages:
+  - _target_: nemo_curator.stages.audio.common.ManifestReader
+    manifest_path: ${manifest_path}
+    files_per_partition: 1
+  - _target_: nemo_curator.stages.audio.tagging.ResampleAudioStage
+    resampled_audio_dir: ${workspace_dir}/audio_resampled
+    target_sample_rate: 16000
+    target_format: wav
+    target_nchannels: 1
+  - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
+    adapter_target: nemo_curator.models.asr.qwen_omni.QwenOmniASRAdapter
+    model_id: ${model_id}
+    default_language: en
+    supported_language_codes: [en, zh, ko, ja, de, ru, it, fr, es, pt, ms, nl, id, tr, vi, yue, ar, ur]
+    unsupported_language_marks_skip: false
+    pred_text_key: primary_model_prediction
+    batch_size: 32
+    max_audio_sec_per_actor: 960.0
+    max_inference_duration_s: 30.0
+    local_bucketing: false
+    resources:
+      _target_: nemo_curator.stages.resources.Resources
+      gpus: 2
+    adapter_kwargs:
+      revision: ${model_revision}
+      prompt_content_order: text_audio
+      max_output_tokens: 256
+      vllm_kwargs:
+        max_model_len: 4096
+        max_num_seqs: 16
+        gpu_memory_utilization: 0.9
+        dtype: auto
+        trust_remote_code: true
+        enable_prefix_caching: true
+        prefix_caching_hash_algo: xxhash
+        # Keep vision slots enabled to avoid vLLM meta DeepStack buffers at startup.
+        limit_mm_per_prompt:
+          image: 1
+          video: 1
+          audio: 2
+        seed: 1234
+      sampling_kwargs:
+        temperature: 0.0
+        top_k: 1
+        repetition_penalty: 1.0
+      prompt_text: |-
+        You receive an audio file.
+
+        Goal: To transcribe the audio, normalize numbers into words, and include any disfluencies that are present in the audio.
+
+        TRANSCRIPTION RULES:
+        1) Normalize numeric expressions into words exactly as they are SPOKEN in the audio.
+        - Mixed format is forbidden:
+            Bad: "5 percent", "2 zeros"
+            Good: "five percent", "two zeros"
+        - Normalize: percentages, currencies, units, ranges, decimals, dates/years — ONLY if they are spoken.
+        - If a unit (for example “percent”) is NOT spoken, do not add it.
+        2) Include any disfluencies present in the audio.
+        - Disfluencies as "um", "uh" that are present in the audio should be added to the text.
+        - If a word is repeated in the audio, include every repetition in the text.
+
+        ENTITIES (names, places, brands, titles, etc.):
+        - Keep every named entity as spoken. This includes names, places, brands, titles, acronyms, and other proper nouns.
+
+        OUTPUT FORMAT:
+        - Return only the final text.
+        - No explanations, no JSON, no lists.
+      en_prompt_text: |-
+        You receive English audio. The audio is the ground truth.
+
+        MAIN GOAL: Listen carefully to the audio and transcribe exactly what is spoken, including all disfluencies present in the audio.
+        - Do NOT invent words or content not spoken in the audio.
+        - Do NOT remove substantive content that is spoken in the audio.
+        - Do NOT paraphrase, polish grammar or rewrite sentences.
+
+        ENTITIES (names, places, brands, titles, etc.):
+        - Keep every named entity as spoken. This includes names, places, brands, titles, acronyms, and other proper nouns.
+        - Do not ever transliterate, translate, re-spell, normalize, or "correct" an entity into another script.
+        - If enetities are part code switched data it should stay the same.
+
+        KEEP DISFLUENCIES:
+        - Keep fillers, repetitions, false starts, colloquial reductions, and grammatical errors spoken in the audio.
+        - Add hesitation markers and fillers natural to English wherever they are spoken in the audio.
+        - Do NOT clean up, normalize, or remove disfluencies spoken in the audio.
+        - Add consecutive instances of the same word or short phrase when spoken unintentionally.
+          - Example: "I I think" if that is what is spoken.
+
+
+        BACKGROUND / QUIET / OVERLAPPING SPEECH:
+        - Keep all audible speech, including quieter, distant, or overlapping voices — not just the loudest speaker.
+        - Add background or secondary speech that is audible; do not drop words because they sound like background.
+
+        FALSE STARTS:
+        - Add incomplete words or phrases the speaker abandons, marked with a hyphen.
+          - Example: "I was go- going to the store."
+        - Do NOT remove false starts spoken in the audio.
+
+        COLLOQUIAL REDUCTIONS:
+        - If the speaker used reductions, use the spoken form: "want to" → "wanna", "going to" → "gonna", etc.
+        - Preserve forms such as "wanna", "gonna", "kinda", "lemme", "lotta", "outta", "Imma", "sorta", "ya", "m'kay", "finna", "tryna", etc. Do NOT expand them.
+
+        WRONG GRAMMAR:
+        - Keep grammatical errors as spoken. Do NOT correct subject-verb agreement, tense errors, or other grammar issues.
+
+        NUMERICALS:
+        - Keep numbers as spoken in words. Do NOT convert them to digits.
+          - Example: keep "oh eleven" or "zero eleven".
+
+        Output format:
+        - Return ONLY the transcription text.
+  - _target_: nemo_curator.stages.audio.text_filtering.WhisperHallucinationStage
+    name: WhisperHallucination_primary
+    common_hall_file: tutorials/audio/whisper_hallucination/phrases.txt
+    text_key: primary_model_prediction
+    language_key: source_lang
+    unique_words_threshold: 0.4
+    long_word_threshold: 25
+    long_word_rel_threshold: 3.0
+    max_char_rate: 40.0
+  - _target_: nemo_curator.stages.audio.text_filtering.SelectBestPredictionStage
+    primary_text_key: primary_model_prediction
+    reference_text_key: ${transcript_key}
+    use_reference_on_hallucination: true
+    use_ground_truth_for_short_audio: false
+    output_key: best_prediction
+  - _target_: nemo_curator.stages.audio.text_filtering.RegexSubstitutionStage
+    _convert_: all
+    text_key: best_prediction
+    output_text_key: cleaned_text
+    rules:
+    - {"pattern": "’", "repl": "'"}
+    - {"pattern": "‘", "repl": "'"}
+    - {"pattern": "——", "repl": "-"}
+    - {"pattern": "—", "repl": "-"}
+    - {"pattern": "–", "repl": "-"}
+    - {"pattern": "-", "repl": "-"}
+    - {"pattern": "_", "repl": " "}
+    - {"pattern": "Ё", "repl": "Е"}
+    - {"pattern": "ё", "repl": "е"}
+    - {"pattern": "“", "repl": ""}     # left double smart quote “
+    - {"pattern": "”", "repl": ""}     # right double smart quote ”
+    - {"pattern": "«", "repl": ""}     # left guillemet «
+    - {"pattern": "»", "repl": ""}     # right guillemet »
+    - {"pattern": "‎", "repl": ""}     # LTR mark (fa)
+    - {"pattern": "‏", "repl": ""}     # RTL mark
+    - {"pattern": "­", "repl": ""}     # soft hyphen (fil)
+    - {"pattern": "﻿", "repl": ""}     # BOM / zero-width no-break space
+    - {"pattern": "\u0964", "repl": "."}    # danda ।
+    - {"pattern": "\u0965", "repl": "."}    # double danda ॥
+    - {"pattern": "\u06D4", "repl": "."}    # Arabic full stop ۔
+    - {"pattern": "\u060C", "repl": ","}    # Arabic comma ،
+    - {"pattern": "\u061B", "repl": ","}    # Arabic semicolon ؛
+    - {"pattern": "\u061F", "repl": "?"}    # Arabic question mark ؟
+    - {"pattern": "\u0640", "repl": ""}     # Arabic tatweel ـ (decorative; remove)
+    - {"pattern": "\u3002", "repl": "."}    # ideographic full stop 。
+    - {"pattern": "\u3001", "repl": ","}    # ideographic comma 、
+    - {"pattern": "\uFF0C", "repl": ","}    # fullwidth comma ，
+    - {"pattern": "\uFF01", "repl": "!"}    # fullwidth exclamation ！
+    - {"pattern": "\uFF1F", "repl": "?"}    # fullwidth question ？
+    - {"pattern": "\uFF1A", "repl": ":"}    # fullwidth colon ：
+    - {"pattern": "\uFF1B", "repl": ","}    # fullwidth semicolon ；
+    - {"pattern": "♫", "repl": " "}
+    - {"pattern": "♪", "repl": " "}
+    - {"pattern": "♬", "repl": " "}
+    - {"pattern": "♩", "repl": " "}
+    - {"pattern": "♭", "repl": " "}
+    - {"pattern": '\|', "repl": " "}
+    - {"pattern": ";", "repl": ","}
+    - {"pattern": '\[[^\]]*\]', "repl": ""} # delete content inside []
+    - {"pattern": ' ?\([^\)]+\)', "repl": ""} # delete content inside ()
+    - {"pattern": ' ?{[^}]+}', "repl": ""} # delete content inside {}
+    - {"pattern": "[^ !$%',-.0123456789;?ABCDEFGHIJKLMNOPQRSßTUVWXYŸZabcdefghijklmnopqrsẞtuvwxyÿz¡£¿ÀÁÂÃÄÅÆÇÈÉÊÌÍÎÑÒÓÔÕÖØÙÚÜÝàáâãäåæçèéêëìíîïñòóôõöøùúûüýĀāĂăĄąĆćĊċČčĎďĐđĒēĖėĘęĚěĠġĢģĦħĪīĮįĶķĹĺĻļĽľŁłŃńŅņŇňŐőŒœŔŕŘřŚśŠšŤťŪūŮůŰűŲųŹźŻżŽžȘșȚțΆΈΉΌΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩάέήίαβγδεζηθικλμνξοπρστυφχψωϊόύώЁЄІЇАБВГДЕЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯабвгдежзийклмнопрстуфхцчшщъыьэюяёєіїҐґ€₴₽/:\u011E\u011F\u0130\u0131\u015E\u015F\u01A0-\u01B0\u0590-\u05FF\u0600-\u06FF\u0750-\u077F\u0900-\u097F\u0980-\u09FF\u0A00-\u0A7F\u0A80-\u0AFF\u0B00-\u0B7F\u0B80-\u0BFF\u0C00-\u0C7F\u0C80-\u0CFF\u0D00-\u0D7F\u0E00-\u0E7F\u1EA0-\u1EFF\u200C\u200D\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF\uAC00-\uD7AF]", "repl": " "}
+    - {"pattern": '\s+\.', "repl": "."}
+    - {"pattern": '\?+', "repl": "?"}
+    - {"pattern": '\.+', "repl": "."}
+    - {"pattern": ',+', "repl": ","}
+    - {"pattern": '!+', "repl": "!"}
+    - {"pattern": '\s+', "repl": " "}
+  - _target_: nemo_curator.stages.audio.text_filtering.AbbreviationConcatStage
+    text_key: cleaned_text
+    output_text_key: abbreviated_text
+    source_lang_key: source_lang
+    default_language: en
+  - _target_: nemo_curator.stages.audio.common.ManifestWriterStage
+    output_path: ${output_path}

@@ -93,7 +93,7 @@ class TestPromptFormatterQwen:
 
         formatter = PromptFormatter(prompt_variant="qwen2.5")
 
-        video_tensor = torch.randn(1, 3, 224, 224)
+        video_tensor = torch.randint(0, 255, (1, 3, 224, 224), dtype=torch.uint8)
 
         result = formatter.generate_inputs(prompt="Test prompt", video_inputs=video_tensor)
 
@@ -126,7 +126,7 @@ class TestPromptFormatterQwen:
         formatter = PromptFormatter(prompt_variant="qwen2.5")
         formatter.text_prompt = "cached_prompt"
 
-        video_tensor = torch.randn(1, 3, 224, 224)
+        video_tensor = torch.randint(0, 255, (1, 3, 224, 224), dtype=torch.uint8)
 
         result = formatter.generate_inputs(prompt="Test prompt", video_inputs=video_tensor)
 
@@ -146,7 +146,7 @@ class TestPromptFormatterQwen:
         formatter = PromptFormatter(prompt_variant="qwen2.5")
         formatter.text_prompt = "old_cached_prompt"
 
-        video_tensor = torch.randn(1, 3, 224, 224)
+        video_tensor = torch.randint(0, 255, (1, 3, 224, 224), dtype=torch.uint8)
 
         result = formatter.generate_inputs(prompt="Test prompt", video_inputs=video_tensor, override_text_prompt=True)
 
@@ -306,8 +306,8 @@ class TestPromptFormatterNemotron:
         assert "<video>\nDescribe this video" in messages[1]["content"][0]["text"]
 
 
-class TestPromptFormatterConvertToNumpy:
-    """Test cases for _convert_to_numpy method."""
+class TestPromptFormatterFormatRawVideoFrames:
+    """Test cases for _format_raw_video_frames method."""
 
     @patch("nemo_curator.models.prompt_formatter.AutoProcessor")
     def test_convert_tensor_to_numpy(self, mock_processor_class: Mock) -> None:
@@ -317,7 +317,7 @@ class TestPromptFormatterConvertToNumpy:
 
         # Tensor in (T, C, H, W) format
         tensor = torch.randint(0, 255, (10, 3, 224, 224), dtype=torch.uint8)
-        result = formatter._convert_to_numpy(tensor)
+        result = formatter._format_raw_video_frames(tensor)
 
         assert isinstance(result, np.ndarray)
         assert result.shape == (10, 224, 224, 3)  # Converted to (T, H, W, C)
@@ -325,16 +325,38 @@ class TestPromptFormatterConvertToNumpy:
 
     @patch("nemo_curator.models.prompt_formatter.AutoProcessor")
     def test_convert_float_tensor_to_uint8(self, mock_processor_class: Mock) -> None:
-        """Test converting float tensor (0-1 range) to uint8."""
+        """Test converting raw float tensor values to uint8 without rescaling."""
         mock_processor_class.from_pretrained.return_value = Mock()
         formatter = PromptFormatter(prompt_variant="nemotron")
 
-        # Float tensor in 0-1 range
-        tensor = torch.rand(10, 3, 224, 224, dtype=torch.float32)
-        result = formatter._convert_to_numpy(tensor)
+        tensor = torch.tensor(
+            [[[[0.0, 1.0]], [[2.0, 3.0]], [[254.0, 255.0]]]],
+            dtype=torch.float32,
+        )
+        result = formatter._format_raw_video_frames(tensor)
 
         assert result.dtype == np.uint8
-        assert result.max() <= 255
+        np.testing.assert_array_equal(
+            result,
+            np.array([[[[0, 2, 254], [1, 3, 255]]]], dtype=np.uint8),
+        )
+
+    @patch("nemo_curator.models.prompt_formatter.AutoProcessor")
+    def test_preserves_near_black_raw_float_frames(self, mock_processor_class: Mock) -> None:
+        """Test that raw dark float frames are not mistaken for normalized frames."""
+        mock_processor_class.from_pretrained.return_value = Mock()
+        formatter = PromptFormatter(prompt_variant="nemotron")
+
+        tensor = torch.tensor(
+            [[[[0.0, 1.0]], [[1.0, 0.0]], [[0.0, 1.0]]]],
+            dtype=torch.float32,
+        )
+        result = formatter._format_raw_video_frames(tensor)
+
+        np.testing.assert_array_equal(
+            result,
+            np.array([[[[0, 1, 0], [1, 0, 1]]]], dtype=np.uint8),
+        )
 
     @patch("nemo_curator.models.prompt_formatter.AutoProcessor")
     def test_passthrough_numpy_array(self, mock_processor_class: Mock) -> None:
@@ -344,10 +366,66 @@ class TestPromptFormatterConvertToNumpy:
 
         rng = np.random.default_rng(42)
         arr = rng.integers(0, 255, (10, 224, 224, 3), dtype=np.uint8)
-        result = formatter._convert_to_numpy(arr)
+        result = formatter._format_raw_video_frames(arr)
 
         assert isinstance(result, np.ndarray)
         assert result.dtype == np.uint8
+
+    @patch("nemo_curator.models.prompt_formatter.AutoProcessor")
+    def test_rejects_channel_first_numpy_array(self, mock_processor_class: Mock) -> None:
+        """Test rejecting NumPy arrays that are still in decoder TCHW format."""
+        mock_processor_class.from_pretrained.return_value = Mock()
+        formatter = PromptFormatter(prompt_variant="nemotron")
+
+        arr = np.zeros((10, 3, 224, 224), dtype=np.uint8)
+
+        with pytest.raises(ValueError, match="channel-last"):
+            formatter._format_raw_video_frames(arr)
+
+    @patch("nemo_curator.models.prompt_formatter.AutoProcessor")
+    def test_rejects_video_with_wrong_dimensions(self, mock_processor_class: Mock) -> None:
+        """Test rejecting raw video inputs without the expected 4D layout."""
+        mock_processor_class.from_pretrained.return_value = Mock()
+        formatter = PromptFormatter(prompt_variant="nemotron")
+
+        arr = np.zeros((10, 224, 224), dtype=np.uint8)
+
+        with pytest.raises(ValueError, match="4 dimensions"):
+            formatter._format_raw_video_frames(arr)
+
+    @patch("nemo_curator.models.prompt_formatter.AutoProcessor")
+    def test_rejects_normalized_tensor(self, mock_processor_class: Mock) -> None:
+        """Test rejecting normalized tensors with negative values."""
+        mock_processor_class.from_pretrained.return_value = Mock()
+        formatter = PromptFormatter(prompt_variant="nemotron")
+
+        tensor = torch.randn(10, 3, 224, 224, dtype=torch.float32) - 0.5
+
+        with pytest.raises(ValueError, match="expects raw video frames"):
+            formatter._format_raw_video_frames(tensor)
+
+    @patch("nemo_curator.models.prompt_formatter.AutoProcessor")
+    def test_rejects_raw_values_above_uint8_range(self, mock_processor_class: Mock) -> None:
+        """Test rejecting raw frame values outside the uint8 range."""
+        mock_processor_class.from_pretrained.return_value = Mock()
+        formatter = PromptFormatter(prompt_variant="nemotron")
+
+        arr = np.array([[[[256.0]]]], dtype=np.float32)
+
+        with pytest.raises(ValueError, match="exceed uint8 range"):
+            formatter._format_raw_video_frames(arr)
+
+    @patch("nemo_curator.models.prompt_formatter.AutoProcessor")
+    def test_format_bfloat16_tensor(self, mock_processor_class: Mock) -> None:
+        """Test formatting bfloat16 raw frames."""
+        mock_processor_class.from_pretrained.return_value = Mock()
+        formatter = PromptFormatter(prompt_variant="nemotron")
+
+        tensor = torch.randint(0, 255, (10, 3, 224, 224), dtype=torch.uint8).to(torch.bfloat16)
+        result = formatter._format_raw_video_frames(tensor)
+
+        assert result.dtype == np.uint8
+        assert result.shape == (10, 224, 224, 3)
 
 
 class TestPromptFormatterNemotron3NanoOmni:

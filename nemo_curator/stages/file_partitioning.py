@@ -17,7 +17,6 @@ from typing import Any
 
 from loguru import logger
 
-from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import EmptyTask, FileGroupTask
@@ -55,6 +54,8 @@ class FilePartitioningStage(ProcessingStage[EmptyTask, FileGroupTask]):
         Storage options to pass to the file system.
     limit: int | None = None
         Maximum number of partitions to create.
+    include_file_size: bool = False
+        Include each partition's total file size as ``task_weight`` metadata.
     """
 
     file_paths: str | list[str]
@@ -64,6 +65,7 @@ class FilePartitioningStage(ProcessingStage[EmptyTask, FileGroupTask]):
     storage_options: dict[str, Any] | None = None
     limit: int | None = None
     name: str = "file_partitioning"
+    include_file_size: bool = False
 
     def __post_init__(self):
         """Initialize default values."""
@@ -97,14 +99,8 @@ class FilePartitioningStage(ProcessingStage[EmptyTask, FileGroupTask]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], []
 
-    def ray_stage_spec(self) -> dict[str, Any]:
-        """Ray stage specification for this stage."""
-        return {
-            RayStageSpecKeys.IS_FANOUT_STAGE: True,
-        }
-
-    def xenna_stage_spec(self) -> dict[str, Any]:
-        return {"num_workers_per_node": 1}
+    def num_workers(self) -> int | None:
+        return 1
 
     def process(self, _: EmptyTask) -> list[FileGroupTask]:
         """Process the initial task to create file group tasks.
@@ -136,7 +132,8 @@ class FilePartitioningStage(ProcessingStage[EmptyTask, FileGroupTask]):
         path_to_size: dict[str, int] = dict(files_with_sizes)
 
         # Check that no files have size less than 0 (since -1 is used to indicate unknown size)
-        if any(size < 0 for size in path_to_size.values()):
+        has_unknown_sizes = any(size < 0 for size in path_to_size.values())
+        if has_unknown_sizes:
             msg = "Skipping storage limit check because some files have unknown size"
             logger.warning(msg)
         else:
@@ -174,14 +171,20 @@ class FilePartitioningStage(ProcessingStage[EmptyTask, FileGroupTask]):
                 # https://github.com/NVIDIA-NeMo/Curator/issues/948
                 logger.info(f"Reached limit of {self.limit} file groups")
                 break
+            partition_sizes = [path_to_size[path] for path in file_group]
+            task_weight = (
+                sum(partition_sizes) if self.include_file_size and all(size >= 0 for size in partition_sizes) else None
+            )
+            metadata = {
+                "partition_index": i,
+                "total_partitions": len(partitions),
+                "source_files": file_group,  # Add source files for deterministic naming during write stage
+                **({"task_weight": task_weight} if task_weight is not None else {}),
+            }
             file_task = FileGroupTask(
                 dataset_name=dataset_name,
                 data=file_group,
-                _metadata={
-                    "partition_index": i,
-                    "total_partitions": len(partitions),
-                    "source_files": file_group,  # Add source files for deterministic naming during write stage
-                },
+                _metadata=metadata,
                 reader_config={},  # Empty - will be populated by reader stage
             )
             tasks.append(file_task)

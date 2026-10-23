@@ -23,6 +23,7 @@ import pytest
 from nemo_curator.stages.text.io.writer import JsonlWriter
 from nemo_curator.stages.text.io.writer import base as writer_base
 from nemo_curator.tasks import DocumentBatch
+from tests.stages.text.io.utils import normalize_string_dtypes
 
 
 class TestJsonlWriter:
@@ -90,7 +91,10 @@ class TestJsonlWriter:
         # Verify file extension and content
         assert file_path.endswith(".jsonl"), "JSONL files should have .jsonl extension"
         df = pd.read_json(file_path, lines=True)
-        pd.testing.assert_frame_equal(df, document_batch.to_pandas())
+        pd.testing.assert_frame_equal(
+            normalize_string_dtypes(df),
+            normalize_string_dtypes(document_batch.to_pandas()),
+        )
 
     def test_jsonl_writer_with_columns_subset(self, pandas_document_batch: DocumentBatch, tmpdir: str):
         """Only selected columns should be written when columns are provided."""

@@ -19,7 +19,7 @@ import pyarrow as pa
 from loguru import logger
 
 from nemo_curator.stages.base import ProcessingStage
-from nemo_curator.stages.interleaved.utils.schema import align_table, reconcile_schema, resolve_schema
+from nemo_curator.stages.interleaved.utils.schema import align_interleaved_table, resolve_schema
 from nemo_curator.tasks import FileGroupTask, InterleavedBatch
 
 
@@ -61,9 +61,7 @@ class BaseInterleavedReader(ProcessingStage[FileGroupTask, InterleavedBatch]):
 
     def _align_output(self, table: pa.Table) -> pa.Table:
         """Reconcile or align *table* to the declared schema."""
-        if self.schema is not None:
-            return align_table(table, self.schema)
-        return table.cast(reconcile_schema(table.schema))
+        return align_interleaved_table(table, self.schema)
 
     @staticmethod
     def _source_files_for_split(

@@ -38,6 +38,7 @@ tests/stages/video/ @suiyoubi @abhinavg4
 
 # Benchmarking
 benchmarking/ @rlratzel @praateekmahajan @sarahyurick @ayushdg
-# Exclude scripts and nightly-benchmark.yaml from Rick's review
+# Exclude scripts and benchmark config YAMLs from Rick's review
 benchmarking/scripts/ @NVIDIA-NeMo/curator_reviewers
-benchmarking/nightly-benchmark.yaml @NVIDIA-NeMo/curator_reviewers
+benchmarking/benchmarks.yaml @NVIDIA-NeMo/curator_reviewers
+benchmarking/4xGB200-64CPU.yaml @NVIDIA-NeMo/curator_reviewers

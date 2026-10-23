@@ -66,6 +66,7 @@ class TestFilePartitioningStage:
         assert stage.file_extensions == [".jsonl", ".json", ".parquet"]
         assert stage.storage_options == {}
         assert stage.limit is None
+        assert stage.include_file_size is False
         assert stage.name == "file_partitioning"
 
     def test_initialization_custom_values_with_files_per_partition(self):
@@ -122,6 +123,13 @@ class TestFilePartitioningStage:
         spec = stage.ray_stage_spec()
         assert spec["is_fanout_stage"] is True
 
+    def test_worker_defaults(self):
+        """Test worker defaults for source partitioning."""
+        stage = FilePartitioningStage(file_paths="/test/path")
+
+        assert stage.num_workers() == 1
+        assert stage.xenna_stage_spec() == {}
+
     def test_process_with_file_list(self, empty_task: EmptyTask, tmp_path: Path):
         """Test processing with a list of files."""
         # Create these files in the tmp_path:
@@ -134,17 +142,19 @@ class TestFilePartitioningStage:
         assert isinstance(result[0], FileGroupTask)
         assert result[0].data == [test_files[0]]
         assert result[0].dataset_name == "path"
+        assert "task_weight" not in result[0]._metadata
 
     def test_process_with_files_per_partition(self, empty_task: EmptyTask, tmp_path: Path):
         """Test processing with files_per_partition setting."""
         test_files = _create_test_jsonl_files(tmp_path, num_files=4, subdir="path")
-        stage = FilePartitioningStage(file_paths=test_files, files_per_partition=2)
+        stage = FilePartitioningStage(file_paths=test_files, files_per_partition=2, include_file_size=True)
 
         result = stage.process(empty_task)
 
         assert len(result) == 2  # 4 files / 2 per partition
         assert result[0].data == test_files[:2]
         assert result[1].data == test_files[2:]
+        assert result[0]._metadata["task_weight"] == sum(Path(path).stat().st_size for path in test_files[:2])
 
     def test_process_with_limit(self, empty_task: EmptyTask, tmp_path: Path):
         """Test processing with limit parameter - this is the main test for the limit functionality."""

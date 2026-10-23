@@ -30,6 +30,13 @@ with suppress(ImportError):
 class TestClusterWiseFilePartitioningStage:
     """Test cases for ClusterWiseFilePartitioningStage."""
 
+    def test_worker_defaults(self):
+        stage = ClusterWiseFilePartitioningStage("/test/path")
+
+        assert stage.num_workers() == 1
+        assert stage.ray_stage_spec()["is_fanout_stage"] is True
+        assert stage.xenna_stage_spec() == {}
+
     def test_setup(self):
         # Test fs and path_normalizer are set correctly
         stage = ClusterWiseFilePartitioningStage("s3://test-bucket/test-path")
@@ -45,8 +52,8 @@ class TestClusterWiseFilePartitioningStage:
         assert stage.path_normalizer is not None
         assert stage.path_normalizer("/test/path") == "/test/path"
 
-    def test_process_finds_all_centroid_files(self, tmp_path: Path):
-        """Test that process method finds all files in centroid directories."""
+    def test_process_returns_centroid_directories(self, tmp_path: Path):
+        """File discovery is deferred to the parallel pairwise workers."""
 
         # Create centroid directories with parquet files
         centroid_0_dir = tmp_path / "centroid=0"
@@ -100,10 +107,10 @@ class TestClusterWiseFilePartitioningStage:
 
         # Check each task
         assert result[0]._metadata == {"centroid_id": 0, "filetype": "parquet"}
-        assert result[0].data == [str(centroid_0_dir / "file1.parquet"), str(centroid_0_dir / "file2.parquet")]
+        assert result[0].data == [str(centroid_0_dir)]
 
         assert result[1]._metadata == {"centroid_id": 1, "filetype": "parquet"}
-        assert result[1].data == [str(centroid_1_dir / "file3.parquet")]
+        assert result[1].data == [str(centroid_1_dir)]
 
         assert result[2]._metadata == {"centroid_id": 2, "filetype": "parquet"}
-        assert result[2].data == [str(centroid_2_dir / "file4.parquet"), str(centroid_2_dir / "file5.parquet")]
+        assert result[2].data == [str(centroid_2_dir)]

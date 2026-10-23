@@ -18,7 +18,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from nemo_curator.pipeline.pipeline import Pipeline, assign_root_task_ids
-from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.base import ProcessingStage, StageInputSpecs
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import EmptyTask, Task
 
@@ -95,6 +95,54 @@ def test_raises_when_ray_serve_active_with_xenna_and_gpu_stages() -> None:
 
         with pytest.raises(RuntimeError, match="Cannot run XennaExecutor"):
             pipeline.run(executor=mock_executor)
+
+
+class _DictInputStage(_NoopStage):
+    name = "dict-input"
+
+    def inputs(self) -> StageInputSpecs:
+        return {_SimpleTask: (["data"], ["values"])}
+
+
+class _TupleInputStage(_NoopStage):
+    name = "tuple-input"
+
+    def inputs(self) -> StageInputSpecs:
+        return (["data"], ["values"])
+
+
+class _EmptyDictInputStage(_NoopStage):
+    name = "empty-dict-input"
+
+    def inputs(self) -> StageInputSpecs:
+        return {_SimpleTask: ([], [])}
+
+
+def test_describe_renders_dict_input_specs() -> None:
+    description = Pipeline(name="test", stages=[_DictInputStage()]).describe()
+
+    assert "  Inputs:" in description
+    assert "    _SimpleTask:" in description
+    assert "      Required attributes: data" in description
+    assert "      Required columns: values" in description
+    assert "Error getting stage info" not in description
+
+
+def test_describe_renders_tuple_input_specs() -> None:
+    description = Pipeline(name="test", stages=[_TupleInputStage()]).describe()
+
+    assert "  Inputs:" in description
+    assert "    Required attributes: data" in description
+    assert "    Required columns: values" in description
+    assert "Error getting stage info" not in description
+
+
+def test_describe_skips_empty_dict_input_specs() -> None:
+    description = Pipeline(name="test", stages=[_EmptyDictInputStage()]).describe()
+
+    assert "  Inputs:" not in description
+    assert "    _SimpleTask:" not in description
+    assert "Error getting stage info" not in description
 
 
 class TestPipelineBuild:

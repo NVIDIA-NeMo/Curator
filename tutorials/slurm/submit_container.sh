@@ -1,8 +1,8 @@
 #!/bin/bash
 # =============================================================================
-# NeMo Curator — SLURM submit script (NGC container via Pyxis/enroot)
+# NeMo Curator — SLURM submit script (container via Pyxis/enroot)
 #
-# Runs the slurm demo pipeline inside the official NeMo Curator container
+# Runs the slurm demo pipeline inside a cluster-accessible container image
 # using the Pyxis SLURM plugin, with the local Curator virtualenv activated
 # so that the latest (unreleased) code is used.
 #
@@ -15,6 +15,7 @@
 #   - The shared filesystem mounted at the same path inside the container
 #
 # Usage:
+#   export CONTAINER_IMAGE=/shared/containers/nemo-curator.sqsh
 #   sbatch tutorials/slurm/submit_container.sh
 #
 # Override resources without editing this file:
@@ -35,14 +36,18 @@
 
 set -euo pipefail
 
-# ---------------------------------------------------------------------------
-# Paths — adjust to your environment
-# ---------------------------------------------------------------------------
+# Root of the NeMo Curator checkout — auto-detected from this script's location.
 CURATOR_DIR="${CURATOR_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
 
-# Official NeMo Curator container from NGC.
-# Browse available tags: https://catalog.ngc.nvidia.com/orgs/nvidia/containers/nemo-curator
-CONTAINER_IMAGE="${CONTAINER_IMAGE:-nvcr.io/nvidia/nemo-curator:26.02}"
+# Required: a registry image reference reachable from the cluster, or a
+# site-supported shared image path visible to every allocated node.
+if [[ -z "${CONTAINER_IMAGE:-}" ]]; then
+    echo "ERROR: CONTAINER_IMAGE is not set." >&2
+    echo "  Set it to a cluster-accessible registry image or shared image path:" >&2
+    echo "    export CONTAINER_IMAGE=/shared/containers/nemo-curator.sqsh" >&2
+    echo "    sbatch tutorials/slurm/submit_container.sh" >&2
+    exit 2
+fi
 
 # Mount the shared filesystem that contains your code and data.
 # Format: <host_path>:<container_path>[,<host_path2>:<container_path2>]

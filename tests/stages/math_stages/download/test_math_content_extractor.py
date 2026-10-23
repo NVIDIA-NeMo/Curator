@@ -44,6 +44,18 @@ class TestMathContentExtractor:
 
         assert result is None  # Empty content should return None
 
+    def test_extract_with_real_magic(self, test_records: dict, plain_text: str) -> None:
+        """Test extraction with the real python-magic and libmagic runtime."""
+        record = test_records["text"].copy()
+        record["binary_content"] = plain_text.encode("utf-8")
+
+        result = MathContentExtractor().extract(record)
+
+        assert result is not None
+        assert result["magic_mime_type"] == "text/plain"
+        assert result["text"] == plain_text
+        assert result["type"] == "text"
+
     @pytest.mark.parametrize(
         ("record_type", "expected_type"),
         [

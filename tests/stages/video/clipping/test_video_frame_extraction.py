@@ -189,6 +189,11 @@ class TestGetFramesFromFfmpeg:
 class TestVideoFrameExtractionStage:
     """Test suite for VideoFrameExtractionStage class."""
 
+    @pytest.fixture(autouse=True)
+    def _ffmpeg_available(self) -> Any:
+        with patch("shutil.which", return_value="/usr/bin/ffmpeg"):
+            yield
+
     def setup_method(self) -> None:
         """Set up test fixtures."""
         self.output_hw = (27, 48)
@@ -650,3 +655,28 @@ class TestVideoFrameExtractionStage:
 
         # Should not create PyNvcFrameExtractor for FFmpeg mode
         assert not hasattr(stage, "pynvc_frame_extractor") or stage.pynvc_frame_extractor is None
+
+
+class TestVideoFrameExtractionStageRayDataResources:
+    def test_ffmpeg_cpu_path_sets_ray_data_num_cpus_to_1(self):
+        stage = VideoFrameExtractionStage(decoder_mode="ffmpeg_cpu")
+        assert stage.ray_data_num_cpus == 1.0
+        assert stage.resources.cpus == 4.0
+
+    def test_ffmpeg_cpu_path_ray_stage_spec_includes_ray_num_cpus(self):
+        from nemo_curator.backends.utils import RayStageSpecKeys
+
+        stage = VideoFrameExtractionStage(decoder_mode="ffmpeg_cpu")
+        assert stage.ray_stage_spec() == {RayStageSpecKeys.RAY_NUM_CPUS: 1.0}
+
+    def test_pynvc_path_ray_data_num_cpus_is_none(self):
+        stage = VideoFrameExtractionStage(decoder_mode="pynvc")
+        assert stage.ray_data_num_cpus is None
+        assert stage.ray_stage_spec() == {}
+
+    def test_user_can_override_ray_data_num_cpus(self):
+        from nemo_curator.backends.utils import RayStageSpecKeys
+
+        stage = VideoFrameExtractionStage(decoder_mode="ffmpeg_cpu", ray_data_num_cpus=2.0)
+        assert stage.ray_data_num_cpus == 2.0
+        assert stage.ray_stage_spec()[RayStageSpecKeys.RAY_NUM_CPUS] == 2.0

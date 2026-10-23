@@ -11,8 +11,8 @@
 #   - NeMo Curator source checked out on a shared filesystem
 #   - Shared filesystem accessible from all nodes (e.g. Lustre, NFS)
 #
-# If your cluster has Pyxis/enroot, prefer submit_container.sh instead —
-# it uses the official NGC container and is the recommended approach.
+# If your cluster has Pyxis/enroot, submit_container.sh can run an image
+# available to every allocated node through a registry or shared image path.
 #
 # Usage:
 #   sbatch tutorials/slurm/submit.sh
@@ -35,9 +35,7 @@
 
 set -euo pipefail
 
-# ---------------------------------------------------------------------------
-# Paths — adjust to your environment
-# ---------------------------------------------------------------------------
+# Root of the NeMo Curator checkout — auto-detected from this script's location.
 CURATOR_DIR="${CURATOR_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
 
 # Shared directory for Ray port broadcast — must be visible to ALL nodes.

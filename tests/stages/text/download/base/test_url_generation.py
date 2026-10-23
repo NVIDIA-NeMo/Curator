@@ -101,6 +101,8 @@ class TestURLGenerationStage:
 
         # Test ray stage spec
         assert stage.ray_stage_spec() == {"is_fanout_stage": True}
+        assert stage.num_workers() == 1
+        assert stage.xenna_stage_spec() == {}
 
     def test_stage_properties_with_limit(self) -> None:
         """Test stage properties when limit is set."""

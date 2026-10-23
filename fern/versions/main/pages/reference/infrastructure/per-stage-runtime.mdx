@@ -52,6 +52,10 @@ Use `with_()` to change the runtime environment for a specific pipeline without 
 stage = MyStage().with_(runtime_env={"pip": ["transformers==4.45.0"]})
 ```
 
+`runtime_env=None` means no override and preserves the stage's current environment. Pass `runtime_env={}` to explicitly replace it with an empty environment dictionary.
+
+The same `with_()` call can configure resources, worker counts, and backend stage specs. See [Stage Worker Sizing](/reference/infra/stage-worker-sizing) for the full signature and shallow-merge semantics.
+
 ### Use `uv` as the package installer
 
 Ray also supports `uv` as the package installer inside worker virtualenvs. Use the `"uv"` key instead of `"pip"` for faster installs:
@@ -83,9 +87,9 @@ Per-stage runtime environments work with all three execution backends:
 
 ## Container Setup
 
-The NeMo Curator container image creates its virtualenv with `uv venv --seed`, which ensures that `pip` is available inside the venv. This is required because Ray's pip-based `runtime_env` plugin clones the current virtualenv and needs `pip` to install stage-specific packages in the clone.
+Images built by following [Build an Image](/reference/infra/container-environments#build-an-image) create their virtualenv with `uv venv --seed`, which makes `pip` available for Ray's pip-based runtime environments. Ray clones the current virtualenv and uses `pip` to install stage-specific packages in the clone.
 
-If you are running outside the official container, make sure your Python environment has `pip` available:
+For a source install or another image, create a seeded virtual environment before syncing dependencies:
 
 ```bash
 uv venv --seed
@@ -123,7 +127,6 @@ class RecordPackagingVersionStage(ProcessingStage[DocumentBatch, DocumentBatch])
         batch = task.to_pandas().copy()
         batch[f"{self.name}_version"] = packaging.__version__
         return DocumentBatch(
-            task_id=task.task_id,
             dataset_name=task.dataset_name,
             data=batch,
             _metadata=task._metadata,

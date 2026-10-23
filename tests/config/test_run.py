@@ -12,15 +12,29 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import importlib.abc
+import importlib.machinery
+import inspect
+import json
+import shutil
+import subprocess
+import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import hydra
 import pytest
+from hydra import compose, initialize, initialize_config_dir
 from omegaconf import OmegaConf
 
-from nemo_curator.config.run import create_pipeline_from_yaml
+from nemo_curator.config.run import create_executor_from_yaml, create_pipeline_from_yaml, main
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.io.reader import JsonlReader, ParquetReader
 from nemo_curator.stages.text.io.writer import JsonlWriter, ParquetWriter
+from nemo_curator.tasks import FileGroupTask
 
 
 def test_pipeline_with_jsonl_reader_stage():
@@ -334,3 +348,678 @@ def test_both_stages_and_workflow_raises_error():
 
     with pytest.raises(RuntimeError, match="Both stages and workflow"):
         create_pipeline_from_yaml(cfg)
+
+
+def test_executor_uses_pipeline_default_without_executor_config():
+    cfg = OmegaConf.create({"stages": []})
+
+    assert create_executor_from_yaml(cfg) is None
+
+
+@patch("hydra.utils.get_class")
+def test_executor_configures_xenna_execution_mode(mock_get_class: MagicMock):
+    executor_cls = MagicMock()
+    mock_get_class.return_value = executor_cls
+    cfg = OmegaConf.create({"backend": "xenna", "execution_mode": "batch"})
+
+    executor = create_executor_from_yaml(cfg)
+
+    mock_get_class.assert_called_once_with("nemo_curator.backends.xenna.XennaExecutor")
+    executor_cls.assert_called_once_with(config={"execution_mode": "batch"})
+    assert executor is executor_cls.return_value
+
+
+@patch("hydra.utils.get_class")
+def test_execution_mode_defaults_to_xenna_backend(mock_get_class: MagicMock):
+    executor_cls = MagicMock()
+    mock_get_class.return_value = executor_cls
+    cfg = OmegaConf.create({"execution_mode": "streaming"})
+
+    create_executor_from_yaml(cfg)
+
+    mock_get_class.assert_called_once_with("nemo_curator.backends.xenna.XennaExecutor")
+    executor_cls.assert_called_once_with(config={"execution_mode": "streaming"})
+
+
+@patch("hydra.utils.get_class")
+def test_ray_data_does_not_receive_xenna_execution_mode(mock_get_class: MagicMock):
+    executor_cls = MagicMock()
+    mock_get_class.return_value = executor_cls
+    cfg = OmegaConf.create({"backend": "ray_data", "execution_mode": "batch"})
+
+    create_executor_from_yaml(cfg)
+
+    mock_get_class.assert_called_once_with("nemo_curator.backends.ray_data.RayDataExecutor")
+    executor_cls.assert_called_once_with()
+
+
+def test_unknown_executor_backend_raises_error():
+    cfg = OmegaConf.create({"backend": "unknown"})
+
+    with pytest.raises(ValueError, match="Unknown backend 'unknown'"):
+        create_executor_from_yaml(cfg)
+
+
+def test_unknown_xenna_execution_mode_raises_error():
+    cfg = OmegaConf.create({"backend": "xenna", "execution_mode": "unknown"})
+
+    with pytest.raises(ValueError, match="Unknown Xenna execution mode 'unknown'"):
+        create_executor_from_yaml(cfg)
+
+
+@patch("nemo_curator.config.run.create_executor_from_yaml")
+@patch("nemo_curator.config.run.create_pipeline_from_yaml")
+@patch("nemo_curator.config.run.create_ray_client_from_yaml")
+def test_main_passes_configured_executor_to_pipeline(
+    mock_create_ray_client: MagicMock,
+    mock_create_pipeline: MagicMock,
+    mock_create_executor: MagicMock,
+):
+    cfg = OmegaConf.create({"stages": []})
+    executor = mock_create_executor.return_value
+
+    main.__wrapped__(cfg)
+
+    mock_create_ray_client.return_value.start.assert_called_once_with()
+    mock_create_pipeline.return_value.run.assert_called_once_with(executor=executor)
+    mock_create_ray_client.return_value.stop.assert_called_once_with()
+
+
+def test_qwen_tutorial_yaml_matches_reference_runner_config():
+    config_dir = Path(__file__).parents[2] / "tutorials" / "audio" / "qwen_omni_inprocess"
+    with initialize_config_dir(config_dir=str(config_dir), version_base=None):
+        cfg = compose(
+            config_name="pipeline",
+            overrides=[
+                "manifest_path=tests/fixtures/audio/tagging/sample_input.jsonl",
+                "pred_text_key=custom_prediction",
+                "model_revision=abc123",
+            ],
+        )
+
+    pipeline = create_pipeline_from_yaml(cfg, log_config=False)
+    resample_stage = pipeline.stages[1]
+    stage = pipeline.stages[2]
+    executor = create_executor_from_yaml(cfg)
+
+    assert resample_stage.__class__.__name__ == "ResampleAudioStage"
+    assert "sample_rate" not in cfg
+    assert Path(resample_stage.resampled_audio_dir).parts[-2:] == ("qwen_omni_workspace", "audio_resampled")
+    assert resample_stage.target_sample_rate == 16000
+    assert resample_stage.target_format == "wav"
+    assert resample_stage.target_nchannels == 1
+    assert stage.audio_filepath_key == "resampled_audio_filepath"
+    assert stage.inputs()[1] == ["resampled_audio_filepath"]
+    assert stage.pred_text_key == "custom_prediction"
+    assert stage.extras_key is None
+    assert stage.outputs() == ([], ["custom_prediction", "_skipme", "additional_notes"])
+    assert stage.default_language is None
+    assert stage.supported_language_codes == [
+        "en",
+        "zh",
+        "ko",
+        "ja",
+        "de",
+        "ru",
+        "it",
+        "fr",
+        "es",
+        "pt",
+        "ms",
+        "nl",
+        "id",
+        "tr",
+        "vi",
+        "yue",
+        "ar",
+        "ur",
+    ]
+    assert stage.batch_size == 32
+    assert stage.max_audio_sec_per_actor == 2400.0
+    assert stage.max_inference_duration_s == 2400.0
+    assert stage.local_bucketing is True
+    assert stage.resources.gpus == 2
+    assert dict(stage.adapter_kwargs) == {
+        "revision": "abc123",
+        "prompt_text": "Transcribe the audio.",
+        "prompt_file": None,
+        "en_prompt_text": None,
+        "en_prompt_file": None,
+        "system_prompt": None,
+        "system_prompt_file": None,
+        "prompt_content_order": "text_audio",
+        "max_output_tokens": 256,
+        "vllm_kwargs": {
+            "max_model_len": 32768,
+            "max_num_seqs": 16,
+            "gpu_memory_utilization": 0.95,
+            "dtype": "auto",
+            "trust_remote_code": True,
+            "enable_prefix_caching": True,
+            "prefix_caching_hash_algo": "xxhash",
+            "limit_mm_per_prompt": {
+                "image": 0,
+                "video": 0,
+                "audio": 2,
+            },
+            "seed": 1234,
+        },
+        "sampling_kwargs": {
+            "temperature": 0.0,
+            "top_k": 1,
+            "repetition_penalty": 1.0,
+        },
+    }
+    assert executor.__class__.__name__ == "RayDataExecutor"
+    assert executor.config == {}
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg is required for audio resampling")
+@pytest.mark.parametrize("transcript_key", ["text", "draft_text"])
+@pytest.mark.parametrize("language", ["en", "fr"])
+def test_qwen_omni_asr_yaml_uses_audio_only_prompts_and_recovers_hallucinations(
+    tmp_path: Path, transcript_key: str, language: str
+) -> None:
+    repo_root = Path(__file__).parents[2]
+    config_dir = repo_root / "tutorials/audio/granary_v2/qwen_omni_asr"
+    fixture = repo_root / "tests/fixtures/audio/qwen_omni/audio_1_5s_16khz_mono.wav"
+    labels = ["The original label.", "Another human label."]
+    rows = []
+    for index, label in enumerate(labels):
+        audio_path = tmp_path / f"sample_{index}.wav"
+        shutil.copyfile(fixture, audio_path)
+        rows.append({"audio_filepath": str(audio_path), transcript_key: label, "source_lang": language})
+    manifest = tmp_path / "input.jsonl"
+    manifest.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+    output_path = tmp_path / "output.jsonl"
+    with initialize_config_dir(config_dir=str(config_dir), version_base=None):
+        cfg = compose(
+            config_name="pipeline",
+            overrides=[
+                f"manifest_path={manifest}",
+                f"output_path={output_path}",
+                f"workspace_dir={tmp_path / 'workspace'}",
+                f"transcript_key={transcript_key}",
+            ],
+        )
+    pipeline = create_pipeline_from_yaml(cfg, log_config=False)
+    reader, resample, asr, *postprocessing = pipeline.stages
+    tasks = reader.decompose()[-1].process(FileGroupTask(dataset_name="test", data=[str(manifest)]))
+    resample.setup_on_node()
+    tasks = resample.process_batch(tasks)
+    adapter = asr._create_adapter()
+    adapter._processor = MagicMock()
+    adapter._processor.apply_chat_template.side_effect = lambda messages, **_: messages[-1]["content"][0]["text"]
+    adapter._sampling_params = object()
+    adapter._llm = MagicMock()
+    prediction = "I was go- going\u2014\u2014 twenty-five."
+    cleaned_prediction = "I was go- going- twenty-five."
+    adapter._llm.generate.return_value = [
+        SimpleNamespace(outputs=[SimpleNamespace(text=text)]) for text in [prediction, "hello hello hello hello"]
+    ]
+    asr._adapter = adapter
+    with patch("nemo_curator.models.asr.qwen_omni.process_mm_info", return_value=([object()], None, None)):
+        tasks = asr.process_batch(tasks)
+    prompts = adapter._llm.generate.call_args.args[0]
+    expected_prompt = cfg.stages[2].adapter_kwargs["en_prompt_text" if language == "en" else "prompt_text"]
+    assert len(prompts) == len(labels)
+    assert all(prompt["prompt"] == expected_prompt for prompt in prompts)
+    assert all(label not in prompt["prompt"] for prompt in prompts for label in labels)
+    assert "{transcript}" not in expected_prompt
+    assert "reference" not in expected_prompt.lower()
+    for stage in postprocessing:
+        stage.setup()
+        tasks = stage.process_batch(tasks)
+        stage.teardown()
+    output = [json.loads(line) for line in output_path.read_text(encoding="utf-8").splitlines()]
+    assert [row[transcript_key] for row in output] == labels
+    assert [row["best_prediction"] for row in output] == [prediction, labels[1]]
+    assert [row["best_prediction_source"] for row in output] == ["primary", "reference"]
+    assert [row["abbreviated_text"] for row in output] == [cleaned_prediction, labels[1]]
+    assert all(row["_skipme"] == "" for row in output)
+    assert all("waveform" not in row for row in output)
+    assert [json.loads(line) for line in manifest.read_text(encoding="utf-8").splitlines()] == rows
+
+
+def test_qwen_asr_tutorial_yaml_uses_generic_adapter_contract():
+    config_dir = Path(__file__).parents[2] / "tutorials" / "audio" / "qwen_asr"
+    with initialize_config_dir(config_dir=str(config_dir), version_base=None):
+        cfg = compose(
+            config_name="pipeline",
+            overrides=[
+                "manifest_path=tests/fixtures/audio/tagging/sample_input.jsonl",
+                "pred_text_key=custom_prediction",
+                "model_revision=abc123",
+            ],
+        )
+
+    pipeline = create_pipeline_from_yaml(cfg, log_config=False)
+    resample_stage = pipeline.stages[1]
+    stage = pipeline.stages[2]
+    executor = create_executor_from_yaml(cfg)
+
+    assert resample_stage.__class__.__name__ == "ResampleAudioStage"
+    assert "sample_rate" not in cfg
+    assert Path(resample_stage.resampled_audio_dir).parts[-2:] == ("qwen_asr_workspace", "audio_resampled")
+    assert resample_stage.target_sample_rate == 16000
+    assert resample_stage.target_format == "wav"
+    assert resample_stage.target_nchannels == 1
+    assert stage.audio_filepath_key == "resampled_audio_filepath"
+    assert stage.inputs()[1] == ["resampled_audio_filepath"]
+    assert stage.pred_text_key == "custom_prediction"
+    assert stage.extras_key == "asr_extras"
+    assert stage.outputs() == (
+        [],
+        ["custom_prediction", "_skipme", "additional_notes", "asr_extras"],
+    )
+    assert stage.default_language is None
+    assert stage.supported_language_codes == [
+        "zh",
+        "en",
+        "yue",
+        "ar",
+        "de",
+        "fr",
+        "es",
+        "pt",
+        "id",
+        "it",
+        "ko",
+        "ru",
+        "th",
+        "vi",
+        "ja",
+        "tr",
+        "hi",
+        "ms",
+        "nl",
+        "sv",
+        "da",
+        "fi",
+        "pl",
+        "cs",
+        "fil",
+        "fa",
+        "el",
+        "hu",
+        "mk",
+        "ro",
+    ]
+    assert stage.batch_size == 128
+    assert stage.max_audio_sec_per_actor == 240.0
+    assert stage.max_inference_duration_s == 120.0
+    assert stage.local_bucketing is True
+    assert stage.resources.gpus == 1
+    assert dict(stage.adapter_kwargs) == {
+        "revision": "abc123",
+        "gpu_memory_utilization": 0.7,
+        "max_new_tokens": 4096,
+        "max_inference_batch_size": 128,
+        "vllm_kwargs": {"max_model_len": 8192},
+    }
+
+    assert executor.__class__.__name__ == "RayDataExecutor"
+    assert executor.config == {}
+
+
+def test_faster_whisper_tutorial_yaml_matches_reference_contract():
+    config_dir = Path(__file__).parents[2] / "tutorials" / "audio" / "faster_whisper"
+    with initialize_config_dir(config_dir=str(config_dir), version_base=None):
+        cfg = compose(
+            config_name="pipeline",
+            overrides=[
+                "manifest_path=tests/fixtures/audio/tagging/sample_input.jsonl",
+                "pred_text_key=custom_prediction",
+                "model_revision=abc123",
+                "default_language=en",
+            ],
+        )
+
+    pipeline = create_pipeline_from_yaml(cfg, log_config=False)
+    reader, resample_stage, stage, writer = pipeline.stages
+    executor = create_executor_from_yaml(cfg)
+
+    assert reader.__class__.__name__ == "ManifestReader"
+    assert resample_stage.__class__.__name__ == "ResampleAudioStage"
+    assert Path(resample_stage.resampled_audio_dir).parts[-2:] == (
+        "faster_whisper_workspace",
+        "audio_resampled",
+    )
+    assert resample_stage.target_sample_rate == 16000
+    assert resample_stage.target_format == "wav"
+    assert resample_stage.target_nchannels == 1
+
+    assert stage.__class__.__name__ == "ASRStage"
+    assert stage.name == "FasterWhisper_inference"
+    assert stage.adapter_target == "nemo_curator.models.asr.faster_whisper.FasterWhisperASR"
+    assert stage.model_id == "large-v3"
+    assert stage.audio_filepath_key == "resampled_audio_filepath"
+    assert stage.inputs()[1] == ["resampled_audio_filepath"]
+    assert stage.target_sample_rate == 16000
+    assert stage.default_language == "en"
+    expected_language_codes = [
+        "en",
+        "zh",
+        "de",
+        "es",
+        "ru",
+        "ko",
+        "fr",
+        "ja",
+        "pt",
+        "tr",
+        "pl",
+        "ca",
+        "nl",
+        "ar",
+        "sv",
+        "it",
+        "id",
+        "hi",
+        "fi",
+        "vi",
+        "he",
+        "uk",
+        "el",
+        "ms",
+        "cs",
+        "ro",
+        "da",
+        "hu",
+        "ta",
+        "no",
+        "th",
+        "ur",
+        "hr",
+        "bg",
+        "lt",
+        "la",
+        "mi",
+        "ml",
+        "cy",
+        "sk",
+        "te",
+        "fa",
+        "lv",
+        "bn",
+        "sr",
+        "az",
+        "sl",
+        "kn",
+        "et",
+        "mk",
+        "br",
+        "eu",
+        "is",
+        "hy",
+        "ne",
+        "mn",
+        "bs",
+        "kk",
+        "sq",
+        "sw",
+        "gl",
+        "mr",
+        "pa",
+        "si",
+        "km",
+        "sn",
+        "yo",
+        "so",
+        "af",
+        "oc",
+        "ka",
+        "be",
+        "tg",
+        "sd",
+        "gu",
+        "am",
+        "yi",
+        "lo",
+        "uz",
+        "fo",
+        "ht",
+        "ps",
+        "tk",
+        "nn",
+        "mt",
+        "sa",
+        "lb",
+        "my",
+        "bo",
+        "tl",
+        "mg",
+        "as",
+        "tt",
+        "haw",
+        "ln",
+        "ha",
+        "ba",
+        "jw",
+        "su",
+        "yue",
+        "fil",
+        "in",
+        "iw",
+        "ji",
+        "jv",
+        "nb",
+    ]
+    assert stage.supported_language_codes == expected_language_codes
+    assert len(stage.supported_language_codes) == 106
+    assert stage.pred_text_key == "custom_prediction"
+    assert stage.extras_key == "asr_extras"
+    assert stage.outputs() == (
+        [],
+        ["custom_prediction", "_skipme", "additional_notes", "asr_extras"],
+    )
+    assert stage.batch_size == 128
+    assert stage.max_audio_sec_per_actor == 2400.0
+    assert stage.max_inference_duration_s == 2400.0
+    assert stage.local_bucketing is True
+    assert stage.resources.gpus == 1
+    assert dict(stage.adapter_kwargs) == {
+        "revision": "abc123",
+        "compute_type": "float16",
+        "cpu_compute_type": "int8",
+        "beam_size": 5,
+        "vad_filter": True,
+        "without_timestamps": True,
+    }
+
+    assert writer.__class__.__name__ == "ManifestWriterStage"
+    assert writer.output_path == "./faster_whisper_output.jsonl"
+    assert executor.__class__.__name__ == "RayDataExecutor"
+    assert executor.config == {}
+
+
+def test_nemo_fastconformer_tutorial_yaml_uses_shared_adapter_contract():
+    config_dir = Path(__file__).parents[2] / "tutorials" / "audio" / "nemo_fastconformer"
+    with initialize_config_dir(config_dir=str(config_dir), version_base=None):
+        cfg = compose(
+            config_name="pipeline",
+            overrides=[
+                "manifest_path=tests/fixtures/audio/tagging/sample_input.jsonl",
+                "pred_text_key=custom_prediction",
+            ],
+        )
+
+    pipeline = create_pipeline_from_yaml(cfg, log_config=False)
+    reader, resample_stage, stage, writer = pipeline.stages
+    executor = create_executor_from_yaml(cfg)
+
+    assert reader.__class__.__name__ == "ManifestReader"
+    assert resample_stage.__class__.__name__ == "ResampleAudioStage"
+    assert resample_stage.target_sample_rate == 16000
+    assert resample_stage.target_format == "wav"
+    assert resample_stage.target_nchannels == 1
+    assert Path(resample_stage.resampled_audio_dir).parts[-2:] == (
+        "nemo_fastconformer_workspace",
+        "audio_resampled",
+    )
+    assert stage.__class__.__name__ == "ASRStage"
+    assert stage.adapter_target == "nemo_curator.models.asr.nemo_asr.NeMoASRAdapter"
+    assert stage.model_id == "nvidia/stt_en_fastconformer_ctc_large"
+    assert stage.audio_filepath_key == "resampled_audio_filepath"
+    assert stage.target_sample_rate == 16000
+    assert stage.pred_text_key == "custom_prediction"
+    assert stage.batch_size == 16
+    assert stage.max_audio_sec_per_actor == 240.0
+    assert stage.max_inference_duration_s == 120.0
+    assert stage.local_bucketing is True
+    assert stage.resources.gpus == 1
+    assert dict(stage.adapter_kwargs) == {
+        "num_workers": 0,
+        "verbose": False,
+        "enable_local_attention": False,
+    }
+    assert writer.__class__.__name__ == "ManifestWriterStage"
+    assert executor.__class__.__name__ == "RayDataExecutor"
+    assert executor.config == {}
+
+
+def test_nemo_fastconformer_tutorial_accepts_local_bucketing_config() -> None:
+    with initialize(config_path="../../tutorials/audio/nemo_fastconformer", version_base=None):
+        cfg = compose(
+            config_name="pipeline",
+            overrides=[
+                "manifest_path=tests/fixtures/audio/tagging/sample_input.jsonl",
+                "max_audio_sec_per_actor=360.0",
+                "max_inference_duration_s=90.0",
+                "local_bucketing=false",
+            ],
+        )
+
+    _, _, stage, _ = create_pipeline_from_yaml(cfg, log_config=False).stages
+
+    assert stage.max_audio_sec_per_actor == 360.0
+    assert stage.max_inference_duration_s == 90.0
+    assert stage.local_bucketing is False
+
+
+def test_run_cli_defaults_to_pipeline_config_for_fastconformer() -> None:
+    repo_root = Path(__file__).parents[2]
+    result = subprocess.run(  # noqa: S603
+        [
+            sys.executable,
+            str(repo_root / "nemo_curator/config/run.py"),
+            "--config-path",
+            "../../tutorials/audio/nemo_fastconformer",
+            "--cfg",
+            "job",
+            "manifest_path=tests/fixtures/audio/tagging/sample_input.jsonl",
+        ],
+        cwd=repo_root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert "adapter_target: nemo_curator.models.asr.nemo_asr.NeMoASRAdapter" in result.stdout
+
+
+SHIPPED_TEXT_CONFIG_DIR = Path(__file__).parents[2] / "nemo_curator" / "config" / "text"
+SHIPPED_TEXT_CONFIGS = sorted(p.name for p in SHIPPED_TEXT_CONFIG_DIR.glob("*.yaml"))
+
+
+# Packages the CPU test job does not install: the `deduplication_cuda12` extra with
+# what it pulls in (rmm, pylibcudf, cupy), and pynvml from `cuda12`. A target whose
+# module imports one of them is imported with them replaced by mocks, which is
+# enough to read its signature and keeps the check running on CPU runners.
+_GPU_ONLY_PACKAGES = frozenset(
+    {
+        "cudf",
+        "cudf_streaming",
+        "cuml",
+        "cupy",
+        "pylibcudf",
+        "pylibcugraph",
+        "pylibraft",
+        "pynvml",
+        "raft_dask",
+        "rapidsmpf",
+        "rmm",
+    }
+)
+
+
+class _MockMissingGpuPackages(importlib.abc.MetaPathFinder, importlib.abc.Loader):
+    """Hand out a mock for a GPU-only package only when it is not installed.
+
+    Appended to ``sys.meta_path``, so it is asked after the real finders and an
+    installed package always wins.
+    """
+
+    def __init__(self) -> None:
+        self.created: list[str] = []
+
+    def find_spec(self, fullname: str, path: object, target: object = None) -> importlib.machinery.ModuleSpec | None:
+        if fullname.split(".")[0] not in _GPU_ONLY_PACKAGES:
+            return None
+        return importlib.machinery.ModuleSpec(fullname, self, is_package=True)
+
+    def create_module(self, spec: importlib.machinery.ModuleSpec) -> MagicMock:
+        self.created.append(spec.name)
+        return MagicMock(name=spec.name)
+
+    def exec_module(self, module: object) -> None:
+        pass
+
+
+@contextmanager
+def _missing_gpu_packages_mocked() -> Iterator[None]:
+    finder = _MockMissingGpuPackages()
+    sys.meta_path.append(finder)
+    try:
+        yield
+    finally:
+        sys.meta_path.remove(finder)
+        for name in finder.created:
+            sys.modules.pop(name, None)
+
+
+def _target_nodes(node: object) -> Iterator[dict]:
+    """Every mapping under ``node`` that names a Hydra ``_target_``."""
+    if isinstance(node, dict):
+        if "_target_" in node:
+            yield node
+        for value in node.values():
+            yield from _target_nodes(value)
+    elif isinstance(node, list):
+        for item in node:
+            yield from _target_nodes(item)
+
+
+@pytest.mark.parametrize("config_name", SHIPPED_TEXT_CONFIGS)
+def test_shipped_config_passes_only_arguments_its_targets_accept(config_name: str) -> None:
+    """A shipped config has to survive instantiation, and nothing cheap told us it does.
+
+    ``main`` starts the Ray client before it builds the pipeline, so a key a
+    target stopped declaring costs a cluster start and then raises
+    ``InstantiationException`` wrapping a ``TypeError``. Binding each node's keys
+    against its target's signature catches that drift with no GPU, no model
+    download and no cluster.
+
+    A target whose module needs the GPU extras is imported with those packages
+    mocked, so the semantic deduplication workflow is checked on CPU runners too.
+    """
+    with initialize_config_dir(config_dir=str(SHIPPED_TEXT_CONFIG_DIR), version_base=None):
+        cfg = compose(config_name=config_name)
+
+    unaccepted: list[str] = []
+    with _missing_gpu_packages_mocked():
+        for node in _target_nodes(OmegaConf.to_container(cfg, resolve=False)):
+            target = node["_target_"]
+            kwargs = {
+                key: value
+                for key, value in node.items()
+                # `_` keys are Hydra's own, and `_instantiate_stage` applies
+                # `resources` through `.with_()` rather than the constructor.
+                if not key.startswith("_") and key != "resources"
+            }
+            try:
+                inspect.signature(hydra.utils.get_class(target)).bind_partial(**kwargs)
+            except TypeError as error:
+                unaccepted.append(f"{target}: {error}")
+
+    assert not unaccepted, f"{config_name} passes arguments nothing accepts: " + "; ".join(unaccepted)

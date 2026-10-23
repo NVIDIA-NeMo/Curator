@@ -1,0 +1,424 @@
+---
+description: "Commands, inputs, outputs, tuning controls, and restart checks for every stage of the Nemotron-CLIMB recipe"
+categories: ["tutorials"]
+tags: ["nemotron-climb", "embedding", "clustering", "megatron-lm", "lightgbm"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "advanced"
+content_type: "reference"
+modality: "text-only"
+---
+
+# Nemotron-CLIMB Stage Reference
+
+This page documents the command-line contract for every script in the [Nemotron-CLIMB recipe](/curate-text/tutorials/nemotron-climb). Run commands from `tutorials/text/nemotron-climb-data-curation`, or replace each script name with its absolute path.
+
+The examples use this directory layout:
+
+```text
+/data/climb/
+├── source/
+├── source_split/  # if split_large_files was needed
+├── computed_embeddings/
+├── centroids/
+├── clusters/
+├── pruned_clusters/
+├── domains/
+├── mixtures_1/
+├── lm_eval_results_1/
+├── mixtures_2/
+├── lm_eval_results_2/
+├── mixtures_3/
+├── lm_eval_results_3/
+└── optimal_mixture/
+```
+
+Stages 1–4 accept Ray client controls such as `--num-cpus`, `--num-gpus`, `--ray-temp-dir`, and `--enable-object-spilling`. When omitted, the scripts use the resources visible to Ray.
+
+## Artifact Map
+
+| Stage | Script | Primary input | Durable output | Safe restart boundary |
+| ---: | --- | --- | --- | --- |
+| 1 | `1_embed.py` | JSONL or Parquet documents | Parquet or JSONL with ID, text, embedding | Completed `computed_embeddings/` |
+| 2 | `2_cluster.py` | Stage 1 files | `centroid=<id>/` partitions and `kmeans_centroids.npy` | Completed `clusters/` plus `centroids/` |
+| 3 | `3_prune.py` | Cluster partitions, centroids, FastText models | Scored JSONL in retained or merged `centroid=<id>/` domains | Completed `pruned_clusters/` |
+| 4 | `4_tokenize.py` | Pruned domain directories | One merged `domain_<id>.bin`/`.idx` pair per domain | Completed `domains/` with paired files |
+| 5 | `5_mixture.py` | Domain `.bin` files | `n1.sh` through `nN.sh` | Completed mixture directory |
+| 6 | `6_train.sh` | One mixture and tokenizer model | One proxy model work directory | A valid checkpoint under `checkpoint/` |
+| 7 | `7_evaluate.sh` | A directory of proxy work directories | Harness result JSON grouped by model | A result file for every expected model |
+| 8 | `8_predict.py` | Paired evaluation and mixture directories | Training table and next-round mixture scripts | Completed output directory |
+
+## 1. Embed Documents
+
+`1_embed.py` reads every source file, adds a unique identifier, computes one embedding per document, and writes only the ID, text, and embedding fields.
+
+```bash
+python 1_embed.py \
+    --input-path /data/climb/source \
+    --input-filetype jsonl \
+    --output-path /data/climb/computed_embeddings \
+    --text-field text \
+    --id-field _curator_climb_id \
+    --use-sentence-transformer
+```
+
+**Inputs**
+
+- `--input-path`: File or directory accepted by the selected reader.
+- `--input-filetype`: Required; `jsonl` or `parquet`.
+- `--text-field`: Source text column, default `text`.
+- `--id-field`: Required output ID column. The script's `AddId` stage populates it.
+
+**Outputs**
+
+The default `--output-filetype parquet` produces partitioned files in `computed_embeddings/` with `_curator_climb_id`, `text`, and `embeddings`. Set `--output-filetype jsonl` only when downstream storage and parsing costs are acceptable.
+
+**Key configuration**
+
+- The default model is `NovaSearch/stella_en_400M_v5`; the script automatically selects a 512-token maximum and `{"trust_remote_code": true}` for this model.
+- `--use-sentence-transformer` loads Stella through the Sentence Transformers implementation instead of the raw Hugging Face `AutoModel` pooling path. In this mode, `--embedding-pooling` is ignored.
+- `--model-inference-batch-size 1024` controls forward-pass batching. Reduce it after a GPU out-of-memory error.
+- `--max-chars` and `--max-seq-length` cap long documents; `--disable-sort-by-length` trades simpler scheduling for less efficient batches.
+- Use `--cache-dir` for a shared model cache and `--hf-token` when an alternative model is gated.
+- See [text embedding](/curate-text/process-data/embeddings) for backend concepts and other embedding options.
+
+**Completion and restart check**
+
+Confirm output files are readable and contain all three selected fields. The tutorial scripts call `pipeline.run()` without a checkpoint directory. To make embedding resumable after an interruption, pass a durable checkpoint path when invoking the pipeline, for example `pipeline.run(checkpoint_path="/data/climb/checkpoints/stage1")`. See [Resumable Processing](/reference/infra/resumable-processing) for checkpoint behavior and recovery. If a run leaves an incomplete output directory and you are not using checkpoints, move or remove that directory and rerun stage 1. Generated IDs include each batch task ID and can change on a new run, so rerun all dependent stages rather than combining old and new stage 1 outputs.
+
+## 2. Cluster Embeddings
+
+`2_cluster.py` fits GPU K-means and writes documents under `centroid=<id>/` directories. It also caches fitted centroids for stage 3.
+
+```bash
+python 2_cluster.py \
+    --input-path /data/climb/computed_embeddings \
+    --output-path /data/climb/clusters \
+    --text-field text \
+    --id-field _curator_climb_id \
+    --embedding-field embeddings \
+    --embedding-dim 3072 \
+    --centroids-path /data/climb/centroids
+```
+
+**Inputs**
+
+- Stage 1 files, Parquet by default.
+- The exact `--id-field`, `--text-field`, and `--embedding-field` names written by stage 1. Both scripts default `--embedding-field` to `embeddings`.
+
+**Outputs**
+
+- Cluster partitions beneath `clusters/centroid=<integer>/`.
+- `centroids/kmeans_centroids.npy`, required for pruning and agglomerative merging.
+
+**Key configuration**
+
+- `--n-clusters 1000` is the full recipe default. Use fewer clusters for a small smoke-test corpus.
+- Stella produces 1024-dimensional embeddings by default, but the recipe deliberately passes the 3× estimate `--embedding-dim 3072`. K-means uses this value only to estimate safe Parquet subgroup sizes around cuDF limits; it does not reshape or validate the embeddings. A larger estimate creates smaller groups and can reduce memory pressure. Lower it toward the actual width only when the available GPU memory can safely hold larger groups.
+- `--fit-data-fraction` fits centroids on a sample while assigning all documents. Use this when the embedding data cannot fit into GPU memory.
+- Tune `--max-samples-per-batch`, `--max-iter`, and `--tol` for memory, runtime, and convergence.
+- `--init`, `--n-init`, and `--random-state` control initialization and repeatability.
+
+**Completion and restart check**
+
+Require both the cluster partitions and `kmeans_centroids.npy`. Stage 3 assumes centroid directory numbers index rows in that array. If either side is missing or comes from another run, discard both stage 2 outputs and rerun.
+
+## 3. Score, Prune, and Merge Clusters
+
+`3_prune.py` scores every document with one or more seven-label FastText classifiers, removes a cluster when any configured mean score is below its threshold, and merges nearby retained centroids with Ward agglomerative clustering.
+
+```bash
+FASTTEXT_MODEL_PATHS=(
+    /models/climb/best_model_advertisement.bin
+    /models/climb/best_model_cultural_value.bin
+    /models/climb/best_model_educational_value.bin
+    /models/climb/best_model_informational_value.bin
+    /models/climb/best_model_quality.bin
+)
+FASTTEXT_SCORE_FIELDS=(
+    advertisement_score
+    cultural_value_score
+    educational_value_score
+    informational_value_score
+    quality_score
+)
+FASTTEXT_PRUNING_THRESHOLDS=(2.0 1.0 1.0 1.0 1.0)
+
+python 3_prune.py \
+    --input-path /data/climb/clusters \
+    --output-path /data/climb/pruned_clusters \
+    --fasttext-model-paths "${FASTTEXT_MODEL_PATHS[@]}" \
+    --score-fields "${FASTTEXT_SCORE_FIELDS[@]}" \
+    --text-field text \
+    --pruning-thresholds "${FASTTEXT_PRUNING_THRESHOLDS[@]}" \
+    --centroids-path /data/climb/centroids \
+    --merge-threshold 1.5 \
+    --num-cpus 8
+```
+
+**Inputs**
+
+- Stage 2 cluster partitions and their matching centroid array.
+- One local classifier file per score field and pruning threshold. Array lengths must match.
+- Classifiers must expose labels `__label__-1` through `__label__5`. Download the published models from [nvidia/nemotron-climb-fasttext-classifiers](https://huggingface.co/nvidia/nemotron-climb-fasttext-classifiers).
+
+**Outputs**
+
+The stage always writes JSONL. Each retained `centroid=<id>/` contains the text plus requested score fields. When retained centroids are closer than `--merge-threshold`, their files move into the lowest-numbered centroid directory and the other directories are deleted.
+
+**Key configuration**
+
+- A cluster survives only when its average score meets or exceeds every corresponding `--pruning-threshold`.
+- Use a subset of classifiers by passing matching subsets to all three array arguments.
+- `--merge-threshold 1.5` is the recipe value. This is Euclidean distance between centroids under Ward linkage, not the cosine `eps` used by semantic duplicate removal.
+- Each worker loads every FastText model in sequence. Reduce `--num-cpus` when worker replication exhausts host memory.
+
+**Completion and restart check**
+
+Check that at least one valid `centroid=<id>/` remains and that its JSONL files parse. The stage mutates its output while pruning and merging, so do not reuse a partially processed directory. Preserve stage 2 and rerun stage 3 into an empty output path.
+
+## 4. Tokenize and Merge Domains
+
+`4_tokenize.py` runs `MegatronTokenizerWriter` separately for each retained domain, merges the writer's partition files, and removes the temporary shards.
+
+```bash
+python 4_tokenize.py \
+    --input-path /data/climb/pruned_clusters \
+    --output-path /data/climb/domains \
+    --tokenizer-model meta-llama/Llama-2-7b \
+    --hf-token "$HF_TOKEN" \
+    --text-field text \
+    --append-eod
+```
+
+**Inputs**
+
+- Stage 3 `centroid=<id>/` directories containing JSONL by default.
+- A Hugging Face tokenizer identifier or local path. The default Llama 2 model is gated. Use the same tokenizer in stages 4, 6, and 7. If you fine-tune the published [62M or 350M Nemotron-CLIMB proxy checkpoints](https://huggingface.co/nvidia/nemotron-climb-proxy-models), use the Llama 2 tokenizer to match those base models. For training from scratch with a different architecture, choose any compatible tokenizer and keep it consistent through stages 4, 6, and 7.
+
+**Outputs and merge behavior**
+
+For each centroid, `MegatronTokenizerWriter` first creates partition-level `.bin` and `.idx` files beneath `domains/cache/domain_<id>/`. `merge_file_prefixes` combines those partitions into exactly:
+
+```text
+domains/
+├── domain_3.bin
+├── domain_3.idx
+├── domain_18.bin
+└── domain_18.idx
+```
+
+The stage deletes each partition directory after its merged pair succeeds, then deletes `domains/cache/`. Each extensionless path, such as `/data/climb/domains/domain_3`, is a Megatron-LM data prefix. Stage 5 writes weighted prefixes to mixture scripts; stage 6 expands those pairs into Megatron's `--train-data-path` arguments. See [Save and Export Text Data](/curate-text/save-export) for the binary and index formats.
+
+**Key configuration**
+
+- `--tokenization-batch-size 1000` bounds in-memory tokenization work; lower it for memory pressure.
+- `--append-eod` adds a document boundary token when the tokenizer defines one.
+- Pass `--transformers-init-kwargs` as JSON for tokenizer-specific options.
+- The tokenizer must match the local `tokenizer.model` and Megatron tokenizer settings used in stages 6 and 7.
+
+**Completion and restart check**
+
+Every expected domain must have both a nonempty `.bin` and a matching `.idx`. An interrupted run can leave some merged domains and a `cache/` directory; because `e2e.sh` skips when `domains/` exists, inspect it manually. The safest recovery is to remove the incomplete stage 4 output and retokenize from stage 3.
+
+## 5. Sample Initial Mixtures
+
+`5_mixture.py` estimates each domain's prior weight from `.bin` byte size, samples bounded Dirichlet weights, removes near-identical samples, and writes one shell-readable file per mixture.
+
+```bash
+python 5_mixture.py \
+    --input-path /data/climb/domains \
+    --output-path /data/climb/mixtures_1 \
+    --num-mixtures 64
+```
+
+**Inputs**
+
+Stage 4 domain pairs. At least two `.bin` files must exist; a single domain pair would not require mixture weighting.
+
+**Outputs**
+
+`mixtures_1/n1.sh` through `n64.sh`. Running one prints weight-prefix pairs:
+
+```bash
+bash /data/climb/mixtures_1/n1.sh
+```
+
+```text
+0.1732 /data/climb/domains/domain_3
+0.8268 /data/climb/domains/domain_18
+```
+
+**Key configuration**
+
+- `--temp 0.5` smooths a skewed token prior.
+- `--min-strength 0.1` and `--max-strength 5.0` vary Dirichlet concentration.
+- `--maximum-usage 15` caps a domain's sampled weight relative to its available-token prior.
+- `--minimum 2e-4` zeros tiny weights before renormalization.
+- `--sample-multiplier 100` controls rejection-sampling effort. Increase it or loosen bounds if the script cannot produce the requested number of unique mixtures.
+
+**Completion and restart check**
+
+Require exactly `--num-mixtures` files, and execute several to confirm that every printed extensionless prefix has a `.bin` and `.idx` partner. Mixture generation is deterministic with seed 42; rerunning against unchanged domains recreates the same candidates.
+
+## 6. Train Proxy Models
+
+`6_train.sh` trains or resumes one proxy model. Invoke it once per stage 5 mixture, preferably as a scheduler array.
+
+```bash
+bash 6_train.sh \
+    /opt/Megatron-LM/pretrain_gpt.py \
+    /data/climb/mixtures_1/n1.sh \
+    /checkpoints/climb/megatron_exp_1/n1 \
+    /models/Llama-2-7b/tokenizer.model
+```
+
+To fine-tune a compatible proxy checkpoint, add the optional fifth positional argument. Use a checkpoint from [Nemotron-CLIMB proxy models](https://huggingface.co/nvidia/nemotron-climb-proxy-models) and update the Megatron-LM width, depth, and related architecture flags in a local copy of `6_train.sh` to match the chosen 62M or 350M model. The model card on Hugging Face lists the appropriate values.
+
+```bash
+bash 6_train.sh \
+    /opt/Megatron-LM/pretrain_gpt.py \
+    /data/climb/mixtures_1/n1.sh \
+    /checkpoints/climb/megatron_exp_1/n1 \
+    /models/Llama-2-7b/tokenizer.model \
+    /models/nemotron_climb_proxy_model_350m
+```
+
+**Inputs**
+
+1. Path to Megatron-LM `pretrain_gpt.py`.
+2. One mixture script from stage 5 or 8.
+3. A unique work path whose basename matches the mixture basename (`n1`, `n2`, and so on).
+4. The local tokenizer model used by Megatron.
+5. Optional compatible Megatron checkpoint directory.
+
+**Outputs**
+
+The work path contains `checkpoint/`, `tensorboard/`, and `data_cache/`. Keep the work path name aligned with the mixture name because stages 7 and 8 join results back to mixture files by that name.
+
+**Key configuration**
+
+The supplied script configures a 12-layer, hidden-size 1,344, 12-head model with sequence length 1,024, BF16, micro batch 64, global batch 4,096, and tensor/pipeline parallel sizes of 1. It uses all visible GPUs and trains up to 10,000 iterations or approximately 110 minutes, whichever comes first. In practice, the timeout usually stops training well before 10,000 iterations. Edit a local script copy to change these values.
+
+Ensure:
+
+- `global_batch_size = micro_batch_size × data_parallel_size × gradient_accumulation_steps`.
+- Architecture, tokenizer, and parallelism settings match a supplied pretrained checkpoint.
+- `--lr-decay-iters` and save cadence remain sensible after shortening a smoke test.
+- Every concurrent model has separate work and data-cache paths.
+
+**Completion and restart check**
+
+Without a pretrained path, `--load` points to the work path's own `checkpoint/`, so rerunning the same command resumes a saved run. With a pretrained path, the script uses `--finetune`; manage subsequent continuation according to the checkpoint policy you choose. `e2e.sh` skips any model whose work directory exists, even if training was interrupted, so resume that model by calling `6_train.sh` directly.
+
+## 7. Evaluate Proxy Models
+
+`7_evaluate.sh` discovers all `n<integer>` work directories under one training-round directory and evaluates their checkpoints on ARC-Easy, HellaSwag, and PIQA. You can override the benchmark list in a local copy of the script, but stage 8 expects those three task names in the harness JSON unless you also update `8_predict.py`, which hardcodes `arc_easy`, `hellaswag`, and `piqa`.
+
+```bash
+bash 7_evaluate.sh \
+    /opt/lm-evaluation-harness \
+    /opt/Megatron-LM \
+    /checkpoints/climb/megatron_exp_1 \
+    /data/climb/lm_eval_results_1 \
+    /models/Llama-2-7b/tokenizer.model
+```
+
+**Inputs**
+
+1. LM Evaluation Harness checkout.
+2. Megatron-LM checkout.
+3. Round-specific directory containing `n1/checkpoint`, `n2/checkpoint`, and so on.
+4. New result directory.
+5. The same tokenizer model used for proxy training.
+
+**Outputs**
+
+The harness creates a directory beneath each `lm_eval_results_1/n<integer>/`; stage 8 selects the latest `results_*.json` within its single child directory. That JSON must contain `arc_easy`, `hellaswag`, and `piqa` results.
+
+**Key configuration**
+
+- All visible GPUs are passed to `torchrun` and the harness's Megatron adapter.
+- The script fixes `tokenizer_type=Llama2Tokenizer` and `seq_length=1024`. Change them if stage 6 changed.
+- `--batch_size auto` lets the harness find an evaluation batch size.
+- A missing checkpoint directory is skipped; an empty base directory is an error.
+
+**Completion and restart check**
+
+Count expected mixture files, trained model directories, and result JSON files; all counts must agree before stage 8. If evaluation stopped partway, retain completed model result directories and relaunch missing models separately or move the incomplete result directory before rerunning the supplied all-model script.
+
+## 8. Fit the Predictor and Propose Mixtures
+
+`8_predict.py` joins mixture weights to benchmark results, fits a regularized LightGBM regressor, scores new Dirichlet samples, and writes the best or a diverse top-ranked set.
+
+For the first refinement round:
+
+```bash
+python 8_predict.py \
+    --input-paths /data/climb/lm_eval_results_1 \
+    --domains-path /data/climb/domains \
+    --mixtures-paths /data/climb/mixtures_1 \
+    --output-path /data/climb/mixtures_2 \
+    --metric valid_avg \
+    --num-mixtures 32
+```
+
+For a later round, pair inputs by position:
+
+```bash
+python 8_predict.py \
+    --input-paths \
+        /data/climb/lm_eval_results_1 \
+        /data/climb/lm_eval_results_2 \
+    --domains-path /data/climb/domains \
+    --mixtures-paths \
+        /data/climb/mixtures_1 \
+        /data/climb/mixtures_2 \
+    --output-path /data/climb/mixtures_3 \
+    --metric valid_avg \
+    --num-mixtures 16
+```
+
+**Inputs**
+
+- One or more evaluation directories and the same number of mixture directories. Entries at each position must come from the same round.
+- The unchanged stage 4 domains directory.
+- Alternatively, pass `--lm-harness-results-csv-path` instead of both path lists to refit from an existing combined table.
+
+**Outputs**
+
+- `lm_harness_results.csv`, containing domain weights, individual benchmark metrics, and `valid_avg` when raw evaluation directories are supplied.
+- `n1.sh` through `nN.sh`. With `--num-mixtures 1`, `n1.sh` is the highest-predicted candidate. With more than one, candidates are sampled without replacement from a diverse top-scoring pool.
+
+**Key configuration**
+
+- The default `--metric valid_avg` averages ARC-Easy accuracy, PIQA normalized accuracy, and HellaSwag normalized accuracy.
+- `--num-samples 100000` sets the Dirichlet candidate pool and must be at least `--num-mixtures`.
+- At least two evaluation rows are required for nonempty 90/10 train and validation partitions. Many more observations are required for a meaningful predictor.
+- Domain names come from `.bin` stems and must exactly match names in mixture files.
+- The script uses seed 42, LightGBM L1/L2 regularization, maximum depth 4, and early stopping.
+
+**Completion and restart check**
+
+Inspect `lm_harness_results.csv` for the expected row count and nonzero domain weights. Execute every generated mixture and verify its prefixes. If joining or fitting fails, keep the immutable domains, mixtures, and harness results, remove only the stage 8 output directory, correct the mismatch, and rerun.
+
+## Finish the Search
+
+Repeat stages 6–8 for 64, 32, and 16 candidates, accumulating every prior round in the paired stage 8 inputs. Then request one final mixture:
+
+```bash
+python 8_predict.py \
+    --input-paths \
+        /data/climb/lm_eval_results_1 \
+        /data/climb/lm_eval_results_2 \
+        /data/climb/lm_eval_results_3 \
+    --domains-path /data/climb/domains \
+    --mixtures-paths \
+        /data/climb/mixtures_1 \
+        /data/climb/mixtures_2 \
+        /data/climb/mixtures_3 \
+    --output-path /data/climb/optimal_mixture \
+    --metric valid_avg \
+    --num-mixtures 1
+```
+
+`optimal_mixture/n1.sh` prints the weighted, extensionless domain prefixes for full-scale Megatron-LM `--train-data-path`. Preserve the paired `.bin` and `.idx` files, record the exact tokenizer and source-data version, and validate the selected mixture with another proxy seed before full training.

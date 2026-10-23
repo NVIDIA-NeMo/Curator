@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass, field, fields
 from pathlib import Path
@@ -27,8 +28,50 @@ if TYPE_CHECKING:
     from runner.datasets import DatasetResolver
     from runner.path_resolver import PathResolver
 
-_curator_repo_path = Path(__file__).parent.parent.parent
-_entry_script_base_path = _curator_repo_path / "benchmarking/scripts"
+_benchmark_source_repo_path = Path(__file__).parent.parent.parent
+_entry_script_base_path = _benchmark_source_repo_path / "benchmarking/scripts"
+
+
+def _curator_repo_dir_for_subprocess() -> Path:
+    """Return the Curator-under-test source checkout for legacy {curator_repo_dir} placeholders."""
+    configured_path = os.environ.get("CURATOR_BENCHMARK_CURATOR_REPO_DIR")
+    if configured_path:
+        return Path(configured_path)
+
+    msg = "CURATOR_BENCHMARK_CURATOR_REPO_DIR must be set for {curator_repo_dir} substitution."
+    raise RuntimeError(msg)
+
+
+def normalize_environment(environment: dict[str, Any] | None, context: str) -> dict[str, str]:
+    """Validate an environment config block and return values suitable for subprocess."""
+    if environment is None:
+        return {}
+    if not isinstance(environment, dict):
+        msg = f"Invalid environment for {context}: expected dict, got {type(environment).__name__}"
+        raise TypeError(msg)
+
+    normalized = {}
+    for key, value in environment.items():
+        if not isinstance(key, str) or not key:
+            msg = f"Invalid environment variable name for {context}: {key!r}; must be a non-empty string."
+            raise ValueError(msg)
+        if "=" in key:
+            msg = f"Invalid environment variable name for {context}: {key!r}; cannot contain '='."
+            raise ValueError(msg)
+        if "\0" in key:
+            msg = f"Invalid environment variable name for {context}: {key!r}; cannot contain NUL."
+            raise ValueError(msg)
+        if not isinstance(value, str):
+            msg = (
+                f"Invalid environment variable value for {context}.{key}: "
+                f"{value!r}; must be a string. Quote YAML values that should be strings."
+            )
+            raise TypeError(msg)
+        if "\0" in value:
+            msg = f"Invalid environment variable value for {context}.{key}: cannot contain NUL."
+            raise ValueError(msg)
+        normalized[key] = value
+    return normalized
 
 
 @dataclass
@@ -47,11 +90,20 @@ class Entry:
     object_store_size: int | float | str | None = None
     # If set, overrides the session-level delete_scratch setting for this entry
     delete_scratch: bool | None = None
+    save_tasks: bool | None = None
     # If set, overrides the session-level gpu_mem_use_warning_threshold for this entry
     gpu_mem_use_warning_threshold: float | None = None
+    # Environment variables to add to this benchmark subprocess. Session-level
+    # values are applied before entry-level values, so entries override by name.
+    environment: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:  # noqa: C901, PLR0912
         """Post-initialization checks and updates for dataclass."""
+        self.environment = normalize_environment(self.environment, f"entry '{self.name}'")
+        if self.save_tasks is not None and not isinstance(self.save_tasks, bool):
+            msg = f"Invalid save_tasks for entry '{self.name}': expected a boolean"
+            raise TypeError(msg)
+
         # Process object_store_size by converting values representing fractions of system memory to bytes.
         if isinstance(self.object_store_size, float):
             self.object_store_size = int(get_total_memory_bytes() * self.object_store_size)
@@ -69,8 +121,6 @@ class Entry:
         # sink_data:
         #   - name: slack
         #     additional_metrics: ["num_documents_processed", "throughput_docs_per_sec"]
-        #   - name: gdrive
-        #     ...
         sink_data = {}
         # Will be a list of dicts if reading from YAML, in which case make it a dict of dicts with key
         # from "name" for easy lookup based on sink name.
@@ -159,6 +209,8 @@ class Entry:
 
             cmd = self.substitute_reserved_placeholders(cmd, session_entry_path, dataset_resolver)
             cmd = self.substitute_container_or_host_paths(cmd, path_resolver)
+            if self.save_tasks is not None:
+                cmd += " --save-tasks" if self.save_tasks else " --no-save-tasks"
         else:
             msg = f"Entry {self.name} must specify a script to run"
             raise ValueError(msg)
@@ -202,7 +254,7 @@ class Entry:
         curator_repo_dir_pattern = re.compile(r"\{curator_repo_dir\}")
 
         def _replace_curator_repo_dir(match: re.Match[str]) -> str:  # noqa: ARG001
-            return str(_curator_repo_path)
+            return str(_curator_repo_dir_for_subprocess())
 
         dataset_pattern = re.compile(r"\{dataset:([^,}]+),([^}]+)\}")
 

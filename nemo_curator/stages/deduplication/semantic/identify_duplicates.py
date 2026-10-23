@@ -118,12 +118,19 @@ class IdentifyDuplicatesStage(ProcessingStage[FileGroupTask, FileGroupTask]):
             **self.write_kwargs,
         )
 
+        # Pairwise is the immediate upstream stage and processes one cluster per
+        # adapter call. Retain its final performance record from every input in
+        # this 10-to-1 fan-in; the rest of the shared history is already on the
+        # first task. Core support for this is tracked by NMCUR-457.
+        stage_perf = list(tasks[0]._stage_perf)
+        stage_perf.extend(task._stage_perf[-1] for task in tasks[1:] if task._stage_perf)
+
         # Create output task
         return [
             FileGroupTask(
                 dataset_name=tasks[0].dataset_name,
                 data=[output_file],
                 _metadata={**tasks[0]._metadata, "num_removed": len(df)},
-                _stage_perf=tasks[0]._stage_perf,
+                _stage_perf=stage_perf,
             )
         ]

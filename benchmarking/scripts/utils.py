@@ -18,7 +18,7 @@ import pickle
 import tarfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import pandas as pd
 import pyarrow as pa
@@ -30,9 +30,19 @@ from nemo_curator.backends.ray_data import RayDataExecutor
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask
-from nemo_curator.utils.file_utils import get_all_file_paths_and_size_under
+from nemo_curator.tasks.utils import TaskPerfUtils
+from nemo_curator.utils.file_utils import get_all_file_paths_and_size_under, parse_bytes_string_to_int
 
 _executor_map = {"ray_data": RayDataExecutor, "xenna": XennaExecutor, "ray_actors": RayActorPoolExecutor}
+
+
+def parse_memory_size(value: str) -> int | Literal["auto"] | None:
+    """Parse a byte-size string while preserving benchmark memory sentinels."""
+    if value.lower() == "auto":
+        return "auto"
+    if value.lower() == "none":
+        return None
+    return parse_bytes_string_to_int(value)
 
 
 def setup_executor(
@@ -87,17 +97,21 @@ def load_dataset_files(
     return subset_files
 
 
-def write_benchmark_results(results: dict, output_path: str | Path) -> None:
+def write_benchmark_results(results: dict, output_path: str | Path, *, save_tasks: bool = True) -> None:
     """Write benchmark results (params, metrics, tasks) to the appropriate files in the output directory.
 
     - Writes 'params.json' and 'metrics.json' (merging with existing file contents if present and updating values).
-    - Writes 'tasks.pkl' as a pickle file if present in results.
+    - Aggregates task statistics into metrics.json when tasks are provided.
+    - Writes 'tasks.pkl' when save_tasks is true (the default).
     - The output directory is created if it does not exist.
 
     Typically used by benchmark scripts to persist results in the format expected by the benchmarking framework.
     """
     output_path = Path(output_path)
     output_path.mkdir(parents=True, exist_ok=True)
+    metrics = dict(results.get("metrics", {}))
+    if "tasks" in results:
+        metrics.update(TaskPerfUtils.aggregate_task_metrics(results["tasks"], prefix="task"))
     if "params" in results:
         params_path = output_path / "params.json"
         params_data = {}
@@ -105,15 +119,19 @@ def write_benchmark_results(results: dict, output_path: str | Path) -> None:
             params_data = json.loads(params_path.read_text())
         params_data.update(results["params"])
         params_path.write_text(json.dumps(params_data, default=convert_paths_to_strings, indent=2))
-    if "metrics" in results:
+    if "metrics" in results or "tasks" in results:
         metrics_path = output_path / "metrics.json"
         metrics_data = {}
         if metrics_path.exists():
             metrics_data = json.loads(metrics_path.read_text())
-        metrics_data.update(results["metrics"])
+        metrics_data.update(metrics)
         metrics_path.write_text(json.dumps(metrics_data, default=convert_paths_to_strings, indent=2))
-    if "tasks" in results:
-        (output_path / "tasks.pkl").write_bytes(pickle.dumps(results["tasks"]))
+    tasks_path = output_path / "tasks.pkl"
+    if "tasks" in results and save_tasks:
+        tasks_path.write_bytes(pickle.dumps(results["tasks"]))
+    else:
+        # A reused output directory must not expose tasks from an earlier run.
+        tasks_path.unlink(missing_ok=True)
 
 
 def _collect_file_size_metrics(output_path: Path, extensions: list[str]) -> tuple[list[str], int, int]:
@@ -128,8 +146,12 @@ def _collect_file_size_metrics(output_path: Path, extensions: list[str]) -> tupl
     return file_paths, len(file_paths), total_size_bytes
 
 
-def _resolve_paths(path: Path, extension: str) -> tuple[list[str], int, int]:
-    """Return (file_paths, num_files, total_size_bytes) for a single file or a directory."""
+def _resolve_paths(path: Path | str | list[str], extension: str) -> tuple[list[str], int, int]:
+    """Return file paths and size metrics for a file, directory, or file list."""
+    if isinstance(path, list):
+        return path, len(path), sum(Path(file_path).stat().st_size for file_path in path)
+
+    path = Path(path)
     if path.is_file():
         return [str(path)], 1, path.stat().st_size
     return _collect_file_size_metrics(path, [extension])
@@ -142,9 +164,9 @@ def _accumulate_modality_counts(column: pa.ChunkedArray, into: dict[str, int]) -
         into[key] = into.get(key, 0) + int(row["counts"])
 
 
-def collect_interleaved_parquet_metrics(path: Path | str) -> dict[str, Any]:
+def collect_interleaved_parquet_metrics(path: Path | str | list[str]) -> dict[str, Any]:
     """Collect metrics for interleaved parquet files — neutral keys, caller adds input_/output_ prefix."""
-    parquet_files, num_files, total_size_bytes = _resolve_paths(Path(path), ".parquet")
+    parquet_files, num_files, total_size_bytes = _resolve_paths(path, ".parquet")
     num_rows = 0
     num_samples = 0
     modality_counts: dict[str, int] = {}
@@ -205,9 +227,9 @@ def _collect_wds_modality_counts(tar_paths: list[str]) -> tuple[int, dict[str, i
     return counts.get("metadata", 0), counts
 
 
-def collect_interleaved_wds_metrics(path: Path | str) -> dict[str, Any]:
+def collect_interleaved_wds_metrics(path: Path | str | list[str]) -> dict[str, Any]:
     """Collect metrics for interleaved WebDataset tar archives — neutral keys, caller adds input_/output_ prefix."""
-    tar_paths, num_files, total_size_bytes = _resolve_paths(Path(path), ".tar")
+    tar_paths, num_files, total_size_bytes = _resolve_paths(path, ".tar")
     num_samples, modality_counts = _collect_wds_modality_counts(tar_paths)
     total_rows = sum(modality_counts.values())
     return {
@@ -399,19 +421,37 @@ class RepeatEntriesStage(ProcessingStage[AudioTask, AudioTask]):
     """Multiply each AudioTask N times for scale testing.
 
     Duplicates entries in-memory after reading so the file is only read once.
+    When ``unique_id_key`` is set, every copy receives a deterministic identifier
+    so downstream writers do not overwrite repeated inputs.
     """
 
     name = "repeat_entries"
 
-    def __init__(self, repeat_factor: int = 1) -> None:
+    def __init__(self, repeat_factor: int = 1, unique_id_key: str | None = None) -> None:
+        if repeat_factor < 1:
+            msg = "repeat_factor must be at least 1"
+            raise ValueError(msg)
         self._repeat_factor = repeat_factor
+        self._unique_id_key = unique_id_key
 
     def process(self, task: AudioTask) -> list[AudioTask]:
-        return [
-            AudioTask(
-                data=task.data.copy(),
-                _metadata=task._metadata,
-                _stage_perf=list(task._stage_perf),
+        results = []
+        for repeat_index in range(self._repeat_factor):
+            data = task.data.copy()
+            if self._unique_id_key is not None:
+                source_id = data.get(self._unique_id_key)
+                if source_id is None or source_id == "":
+                    msg = f"Cannot repeat entry without '{self._unique_id_key}'"
+                    raise ValueError(msg)
+                data[self._unique_id_key] = f"{source_id}_repeat_{repeat_index}"
+
+            results.append(
+                AudioTask(
+                    dataset_name=task.dataset_name,
+                    data=data,
+                    filepath_key=task.filepath_key,
+                    _metadata=task._metadata,
+                    _stage_perf=list(task._stage_perf),
+                )
             )
-            for _ in range(self._repeat_factor)
-        ]
+        return results

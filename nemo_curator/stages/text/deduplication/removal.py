@@ -43,6 +43,7 @@ class TextDuplicatesRemovalStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         id_field: Field to use for deduplication within the input dataframe. Defaults to CURATOR_DEDUP_ID_STR.
         duplicate_id_field: Field to use for deduplication within the removal dataframe. Defaults to "id".
         read_kwargs: Additional arguments for reading parquet files
+        drop_id_field: Whether to drop the deduplication ID field from the output batch.
     """
 
     ids_to_remove_path: str
@@ -51,6 +52,7 @@ class TextDuplicatesRemovalStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     # Optional parameters
     read_kwargs: dict[str, Any] | None = None
+    drop_id_field: bool = False
 
     def __post_init__(self):
         """Initialize parent class after dataclass initialization."""
@@ -84,6 +86,8 @@ class TextDuplicatesRemovalStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         time_to_remove_t0 = time.perf_counter()
         removal_ids = set(removal_df[self.duplicate_id_field].tolist())
         df = df[~df[self.id_field].isin(removal_ids)]
+        if self.drop_id_field:
+            df = df.drop(columns=[self.id_field])
         removal_ids_time = time.perf_counter() - time_to_remove_t0
         self._log_metrics(
             {

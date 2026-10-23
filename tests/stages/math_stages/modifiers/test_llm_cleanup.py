@@ -18,9 +18,11 @@ from unittest.mock import Mock, patch
 import pandas as pd
 import pytest
 
-# Import after setting up patches to ensure mocks are in place
+from nemo_curator.models.vllm_model import VLLMModel
 from nemo_curator.stages.math.modifiers.llm_cleanup import LLMCleanupStage
 from nemo_curator.tasks import DocumentBatch
+
+INTEGRATION_TEST_MODEL = "HuggingFaceTB/SmolLM2-135M-Instruct"  # pragma: allowlist secret
 
 
 class MockLLMOutput:
@@ -152,8 +154,12 @@ class MockVLLMModel:
 
 
 @pytest.fixture(autouse=True)
-def setup_mocks():
-    """Automatically setup mocks for VLLMModel."""
+def setup_mocks(request: pytest.FixtureRequest):
+    """Use the lightweight model doubles for CPU tests only."""
+    if request.node.get_closest_marker("gpu") is not None:
+        yield
+        return
+
     # Patch VLLMModel where it's imported in llm_cleanup module
     # Also patch vLLM classes to prevent any real initialization attempts
     with (
@@ -384,3 +390,40 @@ class TestLLMCleanupStage:
 
         assert len(result.data) == 1
         assert result.data["cleaned_text"].iloc[0] == ""
+
+    @pytest.mark.gpu
+    def test_cleanup_math_document(self) -> None:
+        """Clean a math document with a real vLLM model on the GPU."""
+        model = VLLMModel(
+            model=INTEGRATION_TEST_MODEL,
+            max_model_len=512,
+            tensor_parallel_size=1,
+            max_num_batched_tokens=512,
+            temperature=0.0,
+            max_tokens=32,
+        )
+        stage = LLMCleanupStage(
+            model=model,
+            system_prompt="Rewrite this mathematical text clearly: {text}",
+        )
+        batch = DocumentBatch(
+            data=pd.DataFrame(
+                {
+                    "text": ["if x+x=4 then x=2"],
+                    "url": ["https://example.com/math"],
+                }
+            ),
+            dataset_name="math_cleanup_test",
+        )
+
+        try:
+            stage.setup_on_node()
+            stage.setup()
+            result = stage.process(batch)
+        finally:
+            stage.teardown()
+
+        assert result.data["text"].tolist() == batch.data["text"].tolist()
+        assert result.data["url"].tolist() == batch.data["url"].tolist()
+        assert isinstance(result.data["cleaned_text"].iloc[0], str)
+        assert result.data["cleaned_text"].iloc[0].strip()

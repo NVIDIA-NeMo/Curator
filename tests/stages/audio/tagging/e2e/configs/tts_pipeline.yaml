@@ -54,7 +54,7 @@ stages:
     decoder_type: ctc
     batch_size: 1
     transcribe_batch_size: 4
-    num_workers: 1
+    dataloader_num_workers: 1
     resources:
       gpus: 0.45
 

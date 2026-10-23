@@ -15,11 +15,11 @@ This page details the comprehensive system, hardware, and software requirements 
 ## System Requirements
 
 - **Operating System**: Ubuntu 22.04/20.04 (recommended)
-- **Python**: Python 3.10, 3.11, or 3.12
+- **Python**: Python 3.11, 3.12, or 3.13
   - packaging &gt;= 22.0
 
 <Warning>
-**Python 3.10 support will be removed in NeMo Curator 26.06.** 26.04 is the last release to support Python 3.10. Standardize production environments on a newer supported Python version (3.11+) before upgrading to 26.06. See the [26.04 release notes](/about/release-notes) for details.
+**Python 3.10 support was removed in NeMo Curator 26.07.** 26.04 was the last release to support Python 3.10. Standardize production environments on Python 3.11, 3.12, or 3.13 before upgrading. See the [26.07 migration checklist](/about/release-notes/26-07-migration#1-upgrade-python) for details.
 </Warning>
 
 ## Hardware Requirements
@@ -41,19 +41,23 @@ This page details the comprehensive system, hardware, and software requirements 
 ## Software Dependencies
 
 ### Core Dependencies
-- Python 3.10+ with required packages for distributed computing
+- Python 3.11+ with required packages for distributed computing
 - RAPIDS libraries (cuDF) for GPU-accelerated deduplication operations
 
 ### Container Support (Recommended)
+
 - **Docker** or **Podman** for containerized deployment
-- Access to NVIDIA NGC registry for official containers
+- A registry, shared image file, or other container distribution method accessible to every compute node when running containerized jobs
+- For GPU workloads, a compatible NVIDIA driver on each node; the container supplies the CUDA user-space stack selected by its Dockerfile
 
 ## Network Requirements
+
 - Reliable network connectivity between nodes
 - High-bandwidth network for large dataset transfers
 - InfiniBand recommended for multi-node GPU clusters
 
 ## Storage Requirements
+
 - **Capacity**: Storage capacity should be 3-5x the size of input datasets
   - Input data storage
   - Intermediate processing files

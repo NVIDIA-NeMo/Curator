@@ -25,7 +25,6 @@ import importlib
 from typing import Any
 
 _LAZY_IMPORTS = {
-    # --- Manifest I/O (now in common.py) ---
     "ManifestReader": "nemo_curator.stages.audio.common",
     "ManifestReaderStage": "nemo_curator.stages.audio.common",
     "ManifestWriterStage": "nemo_curator.stages.audio.common",

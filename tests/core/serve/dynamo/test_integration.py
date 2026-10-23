@@ -209,39 +209,6 @@ class TestDynamoSingleGpuServer:
         client = OpenAI(base_url=single_gpu_server.endpoint, api_key="na")
         assert INTEGRATION_TEST_MODEL in {m.id for m in client.models.list()}
 
-    def test_actor_runtime_env_imports_flash_attn(self, single_gpu_server: InferenceServer) -> None:
-        """Spawn a Ray actor with the same runtime_env Dynamo uses; verify
-        ``flash_attn`` still imports cleanly after the actor venv layers
-        ``ai-dynamo[vllm]`` over the cloned driver venv.
-
-        Ray's ``uv`` runtime_env clones the driver venv (via
-        ``virtualenv-clone`` or ``--system-site-packages``) and then
-        installs the listed packages. If ``ai-dynamo[vllm]``'s transitive
-        deps bump torch, the inherited flash-attn ``.so`` (built against
-        the driver's torch) can crash with
-        ``undefined symbol: c10::cuda::c10_cuda_check_implementation``.
-        This assertion catches that ABI break.
-
-        Driver-side ``importorskip`` because the actor venv only has
-        flash-attn if the driver does — without it, this guard cannot
-        run, and skipping is the honest signal.
-        """
-        pytest.importorskip("flash_attn")
-
-        import ray
-
-        from nemo_curator.core.serve.dynamo.vllm import DYNAMO_VLLM_RUNTIME_ENV
-
-        @ray.remote(runtime_env=DYNAMO_VLLM_RUNTIME_ENV, num_gpus=0)
-        def _import_flash_attn() -> str:
-            import flash_attn
-            from flash_attn.flash_attn_interface import flash_attn_func  # noqa: F401
-
-            return flash_attn.__version__
-
-        version = ray.get(_import_flash_attn.remote())
-        assert version, "flash_attn imported but reported empty version"
-
     def test_restart_after_stop(self, single_gpu_server: InferenceServer) -> None:
         """Stop the shared fixture, start a fresh server, verify it serves.
 

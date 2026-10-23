@@ -22,14 +22,14 @@ class VideoTask(Task[Video]):
     """Task containing a single video for processing.
 
     Attributes:
-        task_id: Unique identifier for this task.
+        task_id: Framework-managed deterministic lineage identifier.
         dataset_name: Name of the source dataset.
         data: Video object with path and metadata.
     """
 
-    task_id: str
     dataset_name: str
     data: Video
+    # task_id is inherited from Task with init=False.
 ```
 
 ## Video Class
@@ -88,11 +88,12 @@ video = Video(
 
 # Create task
 task = VideoTask(
-    task_id="video_001",
     dataset_name="video_dataset",
     data=video,
 )
 ```
+
+Do not pass `task_id` to the constructor. The framework assigns it after the task crosses a stage boundary.
 
 ## Usage in Stages
 
@@ -123,7 +124,6 @@ class VideoFilterStage(ProcessingStage[VideoTask, VideoTask]):
             return None
 
         return VideoTask(
-            task_id=f"{task.task_id}_filtered",
             dataset_name=task.dataset_name,
             data=video,
             _metadata=task._metadata,
@@ -150,7 +150,6 @@ def process(self, task: VideoTask) -> list[VideoTask]:
             metadata=video.metadata.copy(),
         )
         clips.append(VideoTask(
-            task_id=f"{task.task_id}_clip_{i}",
             dataset_name=task.dataset_name,
             data=clip_video,
             _metadata=task._metadata,
@@ -168,7 +167,6 @@ def process(self, task: VideoTask) -> VideoTask:
     video.embeddings = self.encoder.encode(video.path)
 
     return VideoTask(
-        task_id=f"{task.task_id}_{self.name}",
         dataset_name=task.dataset_name,
         data=video,
         _metadata=task._metadata,

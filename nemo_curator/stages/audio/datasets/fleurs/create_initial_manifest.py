@@ -14,13 +14,13 @@
 
 import os
 import shutil
-from dataclasses import dataclass
-from typing import Any
+from dataclasses import dataclass, field
+from typing import ClassVar
 
 from huggingface_hub import hf_hub_download
 from loguru import logger
 
-from nemo_curator.backends.utils import RayStageSpecKeys
+from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract, StaticHints
 from nemo_curator.stages.audio.datasets.file_utils import extract_archive
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask, EmptyTask
@@ -42,7 +42,7 @@ def get_fleurs_filenames(lang: str, split: str) -> tuple[str, str]:
 
 
 @dataclass
-class CreateInitialManifestFleursStage(ProcessingStage[EmptyTask, AudioTask]):
+class CreateInitialManifestFleursStage(AgentReady, ProcessingStage[EmptyTask, AudioTask]):
     """Create initial manifest for the FLEURS dataset.
 
     Dataset link: https://huggingface.co/datasets/google/fleurs
@@ -72,10 +72,19 @@ class CreateInitialManifestFleursStage(ProcessingStage[EmptyTask, AudioTask]):
             ``benchmarking/data_prep/prepare_fleurs_data.py``).
     """
 
+    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
+        gates=Gates(
+            writes_to_disk=True,
+            output_path_params=["raw_data_dir", "cache_dir"],
+            requires_internet_first_run=True,
+            per_row_independent=True,
+        )
+    )
+
     name: str = "CreateInitialManifestFleurs"
-    lang: str = ""
-    split: str = ""
-    raw_data_dir: str = ""
+    lang: str = field(default="", metadata={"agent_required": True})
+    split: str = field(default="", metadata={"agent_required": True})
+    raw_data_dir: str = field(default="", metadata={"agent_required": True})
     filepath_key: str = "audio_filepath"
     text_key: str = "text"
     batch_size: int = 1
@@ -87,12 +96,41 @@ class CreateInitialManifestFleursStage(ProcessingStage[EmptyTask, AudioTask]):
             if not getattr(self, attr):
                 msg = f"{attr} is required for CreateInitialManifestFleursStage"
                 raise ValueError(msg)
+        output_key_fields = {
+            "filepath_key": self.filepath_key,
+            "text_key": self.text_key,
+        }
+        for field_name, key in output_key_fields.items():
+            if not isinstance(key, str) or not key.strip():
+                msg = f"{field_name} must be a non-empty string"
+                raise ValueError(msg)
+        if self.filepath_key == self.text_key:
+            msg = f"filepath_key={self.filepath_key!r} conflicts with text_key"
+            raise ValueError(msg)
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], []
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.filepath_key, self.text_key]
+
+    def describe(self) -> StageContract:
+        return StageContract(
+            writes=IOSpec(
+                data_keys=[self.filepath_key, self.text_key],
+                produces=["disk"] if self.auto_download else [],
+            ),
+            cardinality="1:N fan-out",
+            # The download stages the split once; after that every valid transcript line
+            # emits its own path and text in input order. Malformed lines with fewer than
+            # three tab-separated columns are skipped.
+            gates=Gates(
+                writes_to_disk=self.auto_download,
+                output_path_params=["raw_data_dir", "cache_dir"] if self.auto_download else [],
+                requires_internet_first_run=self.auto_download,
+                per_row_independent=True,
+            ),
+        )
 
     def language_data_dir(self) -> str:
         """Return the per-language download directory under ``raw_data_dir``.
@@ -205,9 +243,6 @@ class CreateInitialManifestFleursStage(ProcessingStage[EmptyTask, AudioTask]):
             )
             raise FileNotFoundError(msg)
         return tsv_path, audio_root
-
-    def ray_stage_spec(self) -> dict[str, Any]:
-        return {RayStageSpecKeys.IS_FANOUT_STAGE: True}
 
     def process(self, _: EmptyTask) -> list[AudioTask]:
         data_dir = self.language_data_dir()

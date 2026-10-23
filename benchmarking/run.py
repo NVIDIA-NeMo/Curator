@@ -27,6 +27,12 @@ from pathlib import Path
 from typing import Any
 
 from loguru import logger
+from nemo_curator_benchmarking.config import (
+    assert_valid_config_dict,
+    merge_config_files,
+    remove_disabled_blocks,
+    resolve_env_vars,
+)
 
 from nemo_curator.pipeline.workflow import WorkflowRunResult
 from nemo_curator.tasks.utils import TaskPerfUtils
@@ -43,6 +49,7 @@ sys.path.insert(0, _this_script_dir)
 from runner.datasets import DatasetResolver
 from runner.entry import Entry
 from runner.env_capture import dump_env
+from runner.environment import merge_subprocess_environment
 from runner.gpu_stats_recorder import GPUStatsRecorder
 from runner.path_resolver import PathResolver
 from runner.process import run_command_with_timeout
@@ -52,16 +59,9 @@ from runner.ray_cluster import (
     teardown_ray_cluster_and_env,
 )
 from runner.session import Session
-from runner.utils import (
-    assert_valid_config_dict,
-    find_result,
-    get_gpu_stats,
-    get_obj_for_json,
-    log_gpu_stats,
-    merge_config_files,
-    remove_disabled_blocks,
-    resolve_env_vars,
-)
+from runner.sinks.sink import call_sink_hook, initialize_sinks
+from runner.utils import find_result, get_gpu_stats, get_obj_for_json, log_gpu_stats
+from runner.viewer_url import resolve_viewer_url
 
 
 def ensure_dir(dir_path: Path) -> None:
@@ -89,7 +89,6 @@ def get_entry_script_persisted_data(session_entry_path: Path) -> dict[str, Any]:
 
     tasks_pkl = session_entry_path / "tasks.pkl"
     if not tasks_pkl.exists():
-        logger.warning(f"Tasks pickle file not found at {tasks_pkl}")
         script_tasks = []
     else:
         with open(tasks_pkl, "rb") as f:
@@ -150,6 +149,109 @@ def check_requirements_update_results(result_data: dict[str, Any], requirements:
     return meets_requirements
 
 
+def build_subprocess_environment(
+    entry: Entry,
+    session_entry_path: Path,
+    path_resolver: PathResolver,
+    dataset_resolver: DatasetResolver,
+) -> tuple[dict[str, str], set[str]]:
+    """Return the full subprocess environment and the configured names safe to consider for value logging."""
+    entry_environment = {}
+    for name, value in entry.environment.items():
+        resolved_value = entry.substitute_reserved_placeholders(value, session_entry_path, dataset_resolver)
+        resolved_value = entry.substitute_container_or_host_paths(resolved_value, path_resolver)
+        entry_environment[name] = resolved_value
+    return merge_subprocess_environment(entry_environment), set(entry_environment)
+
+
+def run_data_setup_entry(
+    setup_entry: Entry,
+    path_resolver: PathResolver,
+    dataset_resolver: DatasetResolver,
+    setup_root_path: Path,
+) -> bool:
+    """Run one data-prep command before benchmark entries."""
+    setup_path = (setup_root_path / setup_entry.name).absolute()
+    logs_path = setup_path / "logs"
+    stdouterr_path = logs_path / "stdouterr.log"
+    create_or_overwrite_dir(setup_path)
+    ensure_dir(logs_path)
+
+    cmd = setup_entry.get_command_to_run(setup_path, path_resolver, dataset_resolver)
+    logger.info(f"🔧 Running data setup {setup_entry.name}")
+    logger.info(f"\tRunning command {' '.join(cmd) if isinstance(cmd, list) else cmd}")
+    started_exec = time.time()
+    result_data: dict[str, Any] = {
+        "name": setup_entry.name,
+        "success": False,
+        "cmd": cmd,
+        "exec_started_at": started_exec,
+        "logs_dir": logs_path,
+    }
+    try:
+        subprocess_env, configured_env_names = build_subprocess_environment(
+            setup_entry, setup_path, path_resolver, dataset_resolver
+        )
+        run_data = run_command_with_timeout(
+            command=cmd,
+            timeout=setup_entry.timeout_s,
+            stdouterr_path=stdouterr_path,
+            env=subprocess_env,
+            env_value_allowlist=configured_env_names,
+            run_id=f"data_setup-{setup_entry.name}-{int(started_exec)}",
+            fancy=os.environ.get("CURATOR_BENCHMARKING_DEBUG", "0") == "0",
+        )
+        duration = time.time() - started_exec
+        success = run_data["returncode"] == 0 and not run_data["timed_out"]
+        result_data.update(
+            {
+                "exec_time_s": duration,
+                "exit_code": run_data["returncode"],
+                "timed_out": run_data["timed_out"],
+                "success": success,
+            }
+        )
+        if success:
+            logger.info(f"\tData setup {setup_entry.name} completed in {duration:.1f}s")
+        else:
+            logger.error(f"\tData setup {setup_entry.name} failed in {duration:.1f}s")
+            if run_data["timed_out"]:
+                logger.warning(f"\t⏰ Timed out after {setup_entry.timeout_s}s")
+            logger.error(f"\t➡️  Full output here: {stdouterr_path}")
+        return success
+    finally:
+        (setup_path / "results.json").write_text(json.dumps(get_obj_for_json(result_data)))
+
+
+def run_data_setups(
+    setup_entries: list[Entry],
+    path_resolver: PathResolver,
+    dataset_resolver: DatasetResolver,
+    session_path: Path,
+) -> bool:
+    """Run all configured data setup entries before benchmark execution."""
+    if not setup_entries:
+        return True
+
+    setup_root_path = session_path / "data_setup"
+    create_or_overwrite_dir(setup_root_path)
+    logger.info("Data setup entries to be run before benchmarks:")
+    for idx, setup_entry in enumerate(setup_entries, start=1):
+        logger.info(f"\t{idx}. {setup_entry.name}")
+
+    overall_success = True
+    for setup_entry in setup_entries:
+        overall_success &= run_data_setup_entry(
+            setup_entry=setup_entry,
+            path_resolver=path_resolver,
+            dataset_resolver=dataset_resolver,
+            setup_root_path=setup_root_path,
+        )
+        if not overall_success:
+            break
+    return overall_success
+
+
 def run_entry(  # noqa: PLR0913
     entry: Entry,
     path_resolver: PathResolver,
@@ -180,12 +282,14 @@ def run_entry(  # noqa: PLR0913
             create_or_overwrite_dir(directory)
         ensure_dir(logs_path)
 
+        startup_env, _ = build_subprocess_environment(entry, session_entry_path, path_resolver, dataset_resolver)
         ray_client, ray_temp_dir = setup_ray_cluster_and_env(
             num_cpus=ray_num_cpus,
             num_gpus=ray_num_gpus,
             enable_object_spilling=ray_enable_object_spilling,
             ray_log_path=logs_path / "ray.log",
             object_store_size=None if entry.object_store_size == "default" else entry.object_store_size,
+            ray_data_log_level=startup_env.get("RAY_DATA_LOG_LEVEL"),
         )
 
         # Prepopulate <session_entry_path>/params.json with entry params.
@@ -226,11 +330,17 @@ def run_entry(  # noqa: PLR0913
             else nullcontext()
         )
         started_exec = time.time()
+        # Resolve again after cluster startup so the subprocess inherits its RAY_ADDRESS.
+        subprocess_env, configured_env_names = build_subprocess_environment(
+            entry, session_entry_path, path_resolver, dataset_resolver
+        )
         with gpu_stats_recorder_ctx:
             run_data = run_command_with_timeout(
                 command=cmd,
                 timeout=entry.timeout_s,
                 stdouterr_path=stdouterr_path,
+                env=subprocess_env,
+                env_value_allowlist=configured_env_names,
                 run_id=run_id,
                 fancy=os.environ.get("CURATOR_BENCHMARKING_DEBUG", "0") == "0",
             )
@@ -295,7 +405,7 @@ def run_entry(  # noqa: PLR0913
             shutil.rmtree(scratch_path, ignore_errors=True)
 
 
-def main() -> int:  # noqa: C901, PLR0912, PLR0915
+def main() -> int:  # noqa: C901, PLR0911, PLR0912, PLR0915
     parser = argparse.ArgumentParser(description="Runs the benchmarking application")
     parser.add_argument(
         "--config",
@@ -303,7 +413,7 @@ def main() -> int:  # noqa: C901, PLR0912, PLR0915
         action="append",
         required=True,
         help=(
-            "Path to YAML config for the benchmark entries, machine paths, etc. Can be "
+            "Path to YAML config for benchmark entries, data setups, machine paths, etc. Can be "
             "specified multiple times to merge configs."
         ),
     )
@@ -349,16 +459,23 @@ def main() -> int:  # noqa: C901, PLR0912, PLR0915
             "replaced with an empty string and a warning is logged."
         ),
     )
-    parser.add_argument(
+    viewer_url_group = parser.add_mutually_exclusive_group()
+    viewer_url_group.add_argument(
         "--viewer-url",
         default=None,
+        help=("Resolved run-viewer URL to surface in sinks. Overrides viewer_url_template from YAML config when set."),
+    )
+    viewer_url_group.add_argument(
+        "--viewer-url-template",
+        default=None,
         help=(
-            "Run-viewer URL to surface in sinks (e.g. Slack parent message footer). "
-            "When set, the Slack sink renders a 'Results viewer' section linking to this URL."
+            "Run-viewer URL template to render after the session path is known. Supports "
+            "{results_path}, {results_path_url}, {session_name}, {session_name_url}, "
+            "{session_path}, and {session_path_url}. Mutually exclusive with --viewer-url."
         ),
     )
     parser.add_argument(
-        "--run-reason",
+        "--reason",
         default=None,
         help=(
             "Free-text reason for this run, recorded in env.json and surfaced in the Slack "
@@ -397,7 +514,7 @@ def main() -> int:  # noqa: C901, PLR0912, PLR0915
             entry_filter_expr=args.entries,
             entries_exact=entries_exact_list,
         )
-    except ValueError as e:
+    except (TypeError, ValueError) as e:
         logger.error(str(e))
         return 1
 
@@ -415,24 +532,43 @@ def main() -> int:  # noqa: C901, PLR0912, PLR0915
     session_path = (session.results_path / session_name).absolute()
     ensure_dir(session_path)
 
+    if args.reason:
+        session.run_reason = args.reason
+    if args.viewer_url:
+        session.viewer_url = args.viewer_url
+        session.viewer_url_template = None
+    elif args.viewer_url_template:
+        session.viewer_url = None
+        session.viewer_url_template = args.viewer_url_template
+    try:
+        # viewer_url must have paths that are visible outside of a
+        # container, meaning host paths that are mapped to container
+        # mounts (if any) will be "unmapped".
+        session.viewer_url = resolve_viewer_url(
+            viewer_url=session.viewer_url,
+            viewer_url_template=session.viewer_url_template,
+            results_path=session.path_resolver.unmap_container_path(session.results_path),
+            session_name=session_name,
+            session_path=session.path_resolver.unmap_container_path(session_path),
+        )
+    except ValueError as e:
+        logger.error(str(e))
+        return 1
+
     session_overall_success = True
     logger.info(f"Started session {session_name}...")
     env_dict = dump_env(session_obj=session, output_path=session_path)
 
-    # Record an optional free-text reason for the run (e.g. "regression check after MR !2442").
-    # Appears in env.json and the Slack environment block. No-op when unset.
-    if args.run_reason:
-        env_dict["run_reason"] = args.run_reason
+    if not run_data_setups(
+        setup_entries=session.data_setups,
+        path_resolver=session.path_resolver,
+        dataset_resolver=session.dataset_resolver,
+        session_path=session_path,
+    ):
+        logger.error("Data setup failed; benchmark entries will not be run.")
+        return 1
 
-    # Surface an optional run-viewer URL in the Slack sink. Patch sink_config in-process
-    # so we don't have to teach the YAML config loader about a per-launch viewer URL.
-    if args.viewer_url:
-        for sink in session.sinks:
-            if getattr(sink, "name", None) == "slack":
-                sink.sink_config["viewer_url"] = args.viewer_url
-
-    for sink in session.sinks:
-        sink.initialize(session_name=session_name, session=session, env_dict=env_dict)
+    active_sinks = initialize_sinks(session.sinks, session_name=session_name, session=session, env_dict=env_dict)
 
     # Print a summary of the entries that will be run in the for loop below
     # Disabled entries will not be printed
@@ -457,8 +593,14 @@ def main() -> int:  # noqa: C901, PLR0912, PLR0915
         entry_log_id = logger.add(entry_stdouterr_path, mode="a", colorize=False)
         logger.info(f"🚀 Running {entry.name} (run ID: {run_id})")
 
-        for sink in session.sinks:
-            sink.register_benchmark_entry_starting(result_dict=result_data, benchmark_entry=entry)
+        for sink in active_sinks:
+            call_sink_hook(
+                sink,
+                "register_benchmark_entry_starting",
+                context=f"registering {entry.name} as starting",
+                result_dict=result_data,
+                benchmark_entry=entry,
+            )
 
         try:
             run_success = run_entry(
@@ -484,13 +626,19 @@ def main() -> int:  # noqa: C901, PLR0912, PLR0915
             )
 
         finally:
-            logger.remove(entry_log_id)
             session_overall_success &= run_success
-            for sink in session.sinks:
-                sink.register_benchmark_entry_finished(result_dict=result_data, benchmark_entry=entry)
+            for sink in active_sinks:
+                call_sink_hook(
+                    sink,
+                    "register_benchmark_entry_finished",
+                    context=f"registering {entry.name} as finished",
+                    result_dict=result_data,
+                    benchmark_entry=entry,
+                )
+            logger.remove(entry_log_id)
 
-    for sink in session.sinks:
-        sink.finalize()
+    for sink in active_sinks:
+        call_sink_hook(sink, "finalize", context="finalizing benchmark reporting sinks")
     logger.info(f"Session {session_name} completed with overall success: {session_overall_success}")
     return 0 if session_overall_success else 1
 

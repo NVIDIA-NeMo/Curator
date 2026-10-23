@@ -14,6 +14,8 @@
 
 from __future__ import annotations
 
+import os
+import re
 import shlex
 import subprocess
 import sys
@@ -23,7 +25,7 @@ import traceback
 import unicodedata
 from collections import deque
 from pathlib import Path
-from typing import Any
+from typing import Any, TextIO
 
 from loguru import logger
 from rich.live import Live
@@ -34,12 +36,47 @@ from rich.text import Text
 # This includes characters in the Unicode category 'Cc' (Control).
 _control_chars = {c: None for c in range(sys.maxunicode) if unicodedata.category(chr(c)) == "Cc"}
 
+_SENSITIVE_ENV_NAME_PATTERN = re.compile(
+    r"(^|[_-])"
+    r"(AUTH|AUTHORIZATION|BEARER|COOKIE|CREDENTIAL|CREDENTIALS|KEY|PASSWORD|PASSWD|PAT|PRIVATE_KEY|"
+    r"SECRET|SESSION|TOKEN|WEBHOOK)"
+    r"([_-]|$)"
+)
+
+
+def _get_subprocess_env(env: dict[str, str] | None) -> dict[str, str]:
+    """Return the exact environment mapping passed to subprocess.Popen."""
+    if env is None:
+        return dict(os.environ)
+    return dict(env)
+
+
+def _redact_environment_value(name: str, value: str, env_value_allowlist: set[str]) -> str:
+    if name not in env_value_allowlist or _SENSITIVE_ENV_NAME_PATTERN.search(name.upper()):
+        return "<redacted>"
+    return value
+
+
+def _write_subprocess_environment(
+    outfile: TextIO,
+    env: dict[str, str],
+    env_value_allowlist: set[str] | None = None,
+) -> None:
+    env_value_allowlist = env_value_allowlist or set()
+    outfile.write("--- Subprocess environment ---\n")
+    outfile.writelines(
+        f"{name}={_redact_environment_value(name, env[name], env_value_allowlist)}\n" for name in sorted(env)
+    )
+    outfile.write("--- End subprocess environment ---\n")
+    outfile.flush()
+
 
 def run_command_with_timeout(  # noqa: PLR0913
     command: str,
     timeout: int,
     stdouterr_path: Path = Path("stdouterr.log"),
     env: dict[str, str] | None = None,
+    env_value_allowlist: set[str] | None = None,
     run_id: str | None = None,
     fancy: bool = True,
     collapse_on_success: bool = True,
@@ -54,6 +91,7 @@ def run_command_with_timeout(  # noqa: PLR0913
         timeout: Timeout (in seconds) to terminate the command.
         stdouterr_path: Path to the file for writing combined stdout and stderr.
         env: Optional dictionary of environment variables.
+        env_value_allowlist: Environment variable names whose values may be written to the log if not secret-like.
         run_id: Optional run ID to identify the run.
         fancy: If True, displays subprocess output in a live, scrolling window.
         collapse_on_success: If True and command succeeds, collapses live window output (only for fancy=True and interactive mode).
@@ -69,21 +107,28 @@ def run_command_with_timeout(  # noqa: PLR0913
             timeout=timeout,
             stdouterr_path=stdouterr_path,
             env=env,
+            env_value_allowlist=env_value_allowlist,
             window_height=6,
             collapse_on_success=collapse_on_success,
             run_id=run_id,
         )
     else:
         return display_simple_subprocess(
-            cmd_list, timeout=timeout, stdouterr_path=stdouterr_path, env=env, run_id=run_id
+            cmd_list,
+            timeout=timeout,
+            stdouterr_path=stdouterr_path,
+            env=env,
+            env_value_allowlist=env_value_allowlist,
+            run_id=run_id,
         )
 
 
-def display_simple_subprocess(
+def display_simple_subprocess(  # noqa: PLR0913
     cmd_list: list[str],
     timeout: int,
     stdouterr_path: Path = Path("stdouterr.log"),
     env: dict[str, str] | None = None,
+    env_value_allowlist: set[str] | None = None,
     run_id: str | None = None,
 ) -> dict[str, Any]:
     """Run a shell command with an optional timeout, streaming both stdout and stderr to a log file.
@@ -98,6 +143,7 @@ def display_simple_subprocess(
         timeout: Maximum allowed time in seconds before the process is terminated.
         stdouterr_path: Destination file to save all subprocess output.
         env: Optional dictionary of environment variables to use.
+        env_value_allowlist: Environment variable names whose values may be written to the log if not secret-like.
         run_id: Optional run ID to identify the run.
 
     Returns:
@@ -107,9 +153,11 @@ def display_simple_subprocess(
     timed_out = False
     msg = ""
     run_id_msg = f" for run ID: {run_id}" if run_id else ""
+    subprocess_env = _get_subprocess_env(env)
 
     with open(stdouterr_path, "a") as outfile:
         start_time = time.time()
+        _write_subprocess_environment(outfile, subprocess_env, env_value_allowlist)
         logger.info(
             f"\tRunning command (output to stdout/err): {' '.join(cmd_list) if isinstance(cmd_list, list) else cmd_list}"
         )
@@ -118,7 +166,7 @@ def display_simple_subprocess(
                 cmd_list,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
-                env=env,
+                env=subprocess_env,
                 text=True,
                 bufsize=1,
                 universal_newlines=True,
@@ -181,6 +229,7 @@ def display_scrolling_subprocess(  # noqa: PLR0913,PLR0915
     timeout: int,
     stdouterr_path: Path = Path("stdouterr.log"),
     env: dict[str, str] | None = None,
+    env_value_allowlist: set[str] | None = None,
     window_height: int = 6,
     run_id: str | None = None,
     collapse_on_success: bool = True,
@@ -198,6 +247,7 @@ def display_scrolling_subprocess(  # noqa: PLR0913,PLR0915
         timeout (int): Timeout in seconds.
         stdouterr_path (Path): Log file path to write stdout/stderr.
         env (dict[str, str] | None): Environment variables for the subprocess.
+        env_value_allowlist (set[str] | None): Environment variable names whose values may be written to the log if not secret-like.
         window_height (int): Number of output lines to display in the live panel.
         run_id (str | None): Optional run ID to identify the run.
         collapse_on_success (bool): If True, collapse panel after successful completion.
@@ -213,6 +263,7 @@ def display_scrolling_subprocess(  # noqa: PLR0913,PLR0915
     timed_out = False
     msg = ""
     run_id_msg = f" for run ID: {run_id}" if run_id else ""
+    subprocess_env = _get_subprocess_env(env)
 
     with (
         Live(auto_refresh=False, vertical_overflow="visible") as live,
@@ -220,6 +271,7 @@ def display_scrolling_subprocess(  # noqa: PLR0913,PLR0915
     ):
         start_time = time.time()
         final_panel = None
+        _write_subprocess_environment(outfile, subprocess_env, env_value_allowlist)
         logger.info(
             f"\tRunning command in subprocess (output to scrolling window): {' '.join(cmd_list) if isinstance(cmd_list, list) else cmd_list}"
         )
@@ -228,7 +280,7 @@ def display_scrolling_subprocess(  # noqa: PLR0913,PLR0915
                 cmd_list,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
-                env=env,
+                env=subprocess_env,
                 text=True,
                 bufsize=1,
                 universal_newlines=True,

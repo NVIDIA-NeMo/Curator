@@ -17,12 +17,11 @@ from typing import TYPE_CHECKING, Any
 from loguru import logger
 
 from nemo_curator.backends.base import WorkerMetadata
-from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import EmptyTask, FileGroupTask
 from nemo_curator.utils.client_utils import is_remote_url
-from nemo_curator.utils.file_utils import get_all_file_paths_under, get_fs, infer_dataset_name_from_path
+from nemo_curator.utils.file_utils import get_fs, infer_dataset_name_from_path
 
 if TYPE_CHECKING:
     from fsspec import AbstractFileSystem
@@ -65,16 +64,8 @@ class ClusterWiseFilePartitioningStage(ProcessingStage[EmptyTask, FileGroupTask]
         self.fs = get_fs(self.input_path, storage_options=self.storage_options)
         self.path_normalizer = self.fs.unstrip_protocol if is_remote_url(self.input_path) else (lambda x: x)
 
-    def ray_stage_spec(self) -> dict[str, Any]:
-        """Ray stage specification for this stage."""
-        return {
-            RayStageSpecKeys.IS_FANOUT_STAGE: True,
-        }
-
-    def xenna_stage_spec(self) -> dict[str, Any]:
-        return {
-            "num_workers_per_node": 1,
-        }
+    def num_workers(self) -> int | None:
+        return 1
 
     def process(self, _: EmptyTask) -> list[FileGroupTask]:
         """Process the EmptyTask to create PairwiseFileGroupTasks.
@@ -105,15 +96,9 @@ class ClusterWiseFilePartitioningStage(ProcessingStage[EmptyTask, FileGroupTask]
         dataset_name = infer_dataset_name_from_path(self.input_path)
 
         for centroid_id, centroid_dir in centroid_dirs.items():
-            partition_files = get_all_file_paths_under(
-                centroid_dir,
-                recurse_subdirectories=True,
-                keep_extensions=[".parquet"],
-                fs=self.fs,
-            )
             pairwise_task = FileGroupTask(
                 dataset_name=dataset_name,
-                data=partition_files,
+                data=[centroid_dir],
                 _metadata={
                     "centroid_id": centroid_id,
                     "filetype": "parquet",

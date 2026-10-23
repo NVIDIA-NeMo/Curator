@@ -31,11 +31,18 @@ from nemo_curator.utils.file_utils import get_all_file_paths_under, tar_safe_ext
 
 
 class ArxivIterator(DocumentIterator):
-    """Processes downloaded Arxiv files and extracts article content."""
+    """Processes downloaded Arxiv files and extracts article content.
 
-    def __init__(self, log_frequency: int = 1000):
+    Args:
+        log_frequency: How often to log progress.
+        extract_tmp_dir: Directory in which temporary extraction directories are
+            created. If None, the system default temporary directory is used.
+    """
+
+    def __init__(self, log_frequency: int = 1000, extract_tmp_dir: str | None = None):
         super().__init__()
         self._log_frequency = log_frequency
+        self._extract_tmp_dir = extract_tmp_dir
         self._counter = 0
 
     def _tex_proj_loader(self, file_or_dir_path: str) -> list[str] | None:
@@ -121,10 +128,10 @@ class ArxivIterator(DocumentIterator):
 
     def iterate(self, file_path: str) -> Iterator[dict[str, Any]]:
         self._counter = 0
-        download_dir = os.path.split(file_path)[0]
         bname = os.path.split(file_path)[-1]
 
-        with tempfile.TemporaryDirectory(dir=download_dir) as tmpdir, tarfile.open(file_path) as tf:
+        tmpdir_kwargs = {"dir": self._extract_tmp_dir} if self._extract_tmp_dir is not None else {}
+        with tempfile.TemporaryDirectory(**tmpdir_kwargs) as tmpdir, tarfile.open(file_path) as tf:
             # Use safe extraction instead of extractall to prevent path traversal attacks
             tar_safe_extract(tf, tmpdir)
             for _i, item in enumerate(get_all_file_paths_under(tmpdir, recurse_subdirectories=True)):

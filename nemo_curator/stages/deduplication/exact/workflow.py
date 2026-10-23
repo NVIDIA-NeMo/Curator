@@ -30,6 +30,7 @@ from nemo_curator.stages.deduplication.id_generator import (
 )
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
 from nemo_curator.tasks import FileGroupTask
+from nemo_curator.utils.file_utils import get_default_file_extensions
 
 ID_GENERATOR_OUTPUT_FILENAME = "exact_id_generator.json"
 
@@ -61,11 +62,13 @@ class ExactDeduplicationWorkflow(WorkflowBase):
         assign_id: bool = True,
         id_field: str | None = None,
         text_field: str = "text",
+        normalize_text: bool = False,
         perform_removal: bool = False,
         total_nparts: int | None = None,
         rmm_pool_size: int | Literal["auto"] | None = "auto",
         spill_memory_limit: int | Literal["auto"] | None = "auto",
         env_vars: dict[str, Any] | None = None,
+        use_async_memory: bool = True,
     ):
         """
         Configuration for exact duplicates detection.
@@ -102,6 +105,9 @@ class ExactDeduplicationWorkflow(WorkflowBase):
             Existing id field name if not automatically assigning a new id.
         text_field: str
             Field containing the text to deduplicate.
+        normalize_text: bool
+            Whether to normalize text before hashing. Normalization lowercases text,
+            collapses whitespace runs, and trims leading and trailing whitespace.
         perform_removal: bool
             Whether to remove the duplicates from the original dataset.
         total_nparts: int | None = None
@@ -110,6 +116,8 @@ class ExactDeduplicationWorkflow(WorkflowBase):
             Size of the RMM GPU memory pool in bytes.
             If "auto", the memory pool is set to 90% of the free GPU memory.
             If None, the memory pool is set to 50% of the free GPU memory that can expand if needed.
+        use_async_memory: bool = True
+            Whether to use a CUDA asynchronous memory resource for the shuffle.
         spill_memory_limit: int | Literal["auto"] | None = "auto"
             Device memory limit in bytes for spilling to host.
             If "auto", the limit is set to 80% of the RMM pool size.
@@ -127,11 +135,13 @@ class ExactDeduplicationWorkflow(WorkflowBase):
         self.write_kwargs = write_kwargs
 
         self.text_field = text_field
+        self.normalize_text = normalize_text
         self.assign_id = assign_id
         self.id_field = id_field
         self.perform_removal = perform_removal
         self.total_nparts = total_nparts
         self.rmm_pool_size = rmm_pool_size
+        self.use_async_memory = use_async_memory
         self.spill_memory_limit = spill_memory_limit
 
         self.env_vars = env_vars
@@ -151,7 +161,7 @@ class ExactDeduplicationWorkflow(WorkflowBase):
             stages=[
                 FilePartitioningStage(
                     file_paths=self.input_path,
-                    file_extensions=self.input_file_extensions,
+                    file_extensions=(self.input_file_extensions or get_default_file_extensions(self.input_filetype)),
                     blocksize=self.input_blocksize,
                     storage_options=self.read_kwargs.get("storage_options") if self.read_kwargs is not None else None,
                 ),
@@ -170,11 +180,13 @@ class ExactDeduplicationWorkflow(WorkflowBase):
                     write_kwargs=self.write_kwargs,
                     assign_id=self.assign_id,
                     id_field=self.id_field,
+                    normalize_text=self.normalize_text,
                     # Matches previous implementation to write out to 1/3 the number of input tasks
                     total_nparts=max(1, num_input_tasks // 3)
                     if self.total_nparts is None
                     else max(1, self.total_nparts),
                     rmm_pool_size=self.rmm_pool_size,
+                    use_async_memory=self.use_async_memory,
                     spill_memory_limit=self.spill_memory_limit,
                 ).with_(batch_size=int(self.identification_batchsize)),
             ],

@@ -177,7 +177,7 @@ class TestDecodeForMotion:
         """Test that VideoResolutionTooSmallError is raised for small resolution."""
         mock_video = io.BytesIO(b"mock_video_data")
 
-        with patch("av.open") as mock_open, patch("av.codec.context.Flags2.EXPORT_MVS", create=True):
+        with patch("av.open") as mock_open:
             # Mock frame with small resolution
             mock_frame = Mock()
             mock_frame.height = 100  # Less than 256
@@ -211,7 +211,7 @@ class TestDecodeForMotion:
         """Test successful decode operation."""
         mock_video = io.BytesIO(b"mock_video_data")
 
-        with patch("av.open") as mock_open, patch("av.codec.context.Flags2.EXPORT_MVS", create=True):
+        with patch("av.logging.restore_default_callback") as mock_restore_default_callback, patch("av.open") as mock_open:
             # Mock motion vector side data
             mock_side_data = Mock()
             mock_side_data.type = Mock()
@@ -260,18 +260,20 @@ class TestDecodeForMotion:
 
             mock_open.return_value = mock_container
 
-            with patch("av.sidedata.sidedata.Type.MOTION_VECTORS", create=True):
-                result = decode_for_motion(mock_video)
+            # PyAV >= 15 ships av.sidedata.sidedata.Type.MOTION_VECTORS as a real enum
+            # member, so we no longer need (and cannot) patch it in.
+            result = decode_for_motion(mock_video)
 
-                assert isinstance(result, DecodedData)
-                assert len(result.frames) == 1
-                assert result.frame_size == torch.Size([480, 640, 3])
+            assert isinstance(result, DecodedData)
+            assert len(result.frames) == 1
+            assert result.frame_size == torch.Size([480, 640, 3])
+            mock_restore_default_callback.assert_called_once_with()
 
     def test_no_motion_vectors(self):
         """Test decode with no motion vectors."""
         mock_video = io.BytesIO(b"mock_video_data")
 
-        with patch("av.open") as mock_open, patch("av.codec.context.Flags2.EXPORT_MVS", create=True):
+        with patch("av.open") as mock_open:
             # Mock frame with no motion vector side data
             mock_frame = Mock()
             mock_frame.height = 480
@@ -307,7 +309,7 @@ class TestDecodeForMotion:
         """Test decode with custom parameters."""
         mock_video = io.BytesIO(b"mock_video_data")
 
-        with patch("av.open") as mock_open, patch("av.codec.context.Flags2.EXPORT_MVS", create=True):
+        with patch("av.open") as mock_open:
             # Mock motion vector side data
             mock_side_data = Mock()
             mock_side_data.type = Mock()
@@ -356,11 +358,12 @@ class TestDecodeForMotion:
 
             mock_open.return_value = mock_container
 
-            with patch("av.sidedata.sidedata.Type.MOTION_VECTORS", create=True):
-                result = decode_for_motion(mock_video, thread_count=8, target_fps=5.0, target_duration_ratio=0.3)
+            # PyAV >= 15 ships av.sidedata.sidedata.Type.MOTION_VECTORS as a real enum
+            # member, so we no longer need (and cannot) patch it in.
+            result = decode_for_motion(mock_video, thread_count=8, target_fps=5.0, target_duration_ratio=0.3)
 
-                assert isinstance(result, DecodedData)
-                assert result.frame_size == torch.Size([480, 640, 3])
+            assert isinstance(result, DecodedData)
+            assert result.frame_size == torch.Size([480, 640, 3])
 
 
 class TestCheckIfSmallMotion:
