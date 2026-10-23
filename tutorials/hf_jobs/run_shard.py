@@ -15,7 +15,7 @@
 # /// script
 # requires-python = ">=3.11,<3.12"
 # dependencies = [
-#   "nemo-curator==1.3.0",
+#   "nemo-curator==1.4.0",
 # ]
 #
 # [[tool.uv.index]]
@@ -54,7 +54,7 @@ import urllib.request
 from pathlib import Path
 
 # Keep in sync with the nemo-curator version pinned in the header above.
-UPSTREAM_REF = "v1.3.0"
+UPSTREAM_REF = "v1.4.0"
 ARRAY_PIPELINE_SHA256 = "80870f20a0a617a8e0ead74be0fca0eff7deaf5478b197a41c0a64834c16af12"  # pragma: allowlist secret
 ARRAY_PIPELINE_URL = (
     f"https://raw.githubusercontent.com/NVIDIA-NeMo/Curator/{UPSTREAM_REF}/tutorials/slurm/array_pipeline.py"

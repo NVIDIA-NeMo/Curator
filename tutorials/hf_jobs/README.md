@@ -69,7 +69,7 @@ Each Job prints its id on launch; follow logs with `hf jobs logs <JOB_ID>`. Expe
 
 ```text
 [shim] shard 0/3 share=/mnt/tutorial
-[shim] fetched array_pipeline.py @ v1.3.0 sha256-verified
+[shim] fetched array_pipeline.py @ v1.4.0 sha256-verified
 ...
 [shim] published manifest completed_slurm_array_3800bd4ecff9e7f6.json
 [shim] published manifest run.json
@@ -97,12 +97,12 @@ tutorial/
 
 ```bash
 hf jobs uv run --flavor cpu-basic -s HF_TOKEN \
-    --with "nemo-curator==1.3.0" \
+    --with "nemo-curator==1.4.0" \
     -v hf://buckets/<user>/<bucket>:/mnt \
     tutorials/slurm/retry_array.py --checkpoint-path /mnt/tutorial/ckpt --format fields
 ```
 
-(On a Linux machine you can instead run the planner locally, exactly as in the Slurm tutorial: `hf buckets sync hf://buckets/<user>/<bucket>/tutorial/ckpt ./ckpt-mirror`, then `uv run --no-project --with "nemo-curator==1.3.0" python tutorials/slurm/retry_array.py --checkpoint-path ./ckpt-mirror --format fields`. NeMo Curator itself supports Linux only, so on macOS/Windows use the Job form above.)
+(On a Linux machine you can instead run the planner locally, exactly as in the Slurm tutorial: `hf buckets sync hf://buckets/<user>/<bucket>/tutorial/ckpt ./ckpt-mirror`, then `uv run --no-project --with "nemo-curator==1.4.0" python tutorials/slurm/retry_array.py --checkpoint-path ./ckpt-mirror --format fields`. NeMo Curator itself supports Linux only, so on macOS/Windows use the Job form above.)
 
 The first field is the missing-shard expression (e.g. `2` or `0,2`). Relaunch only those shards, keeping the original total shard count — and, as in the Slurm tutorial, you can change resources on the retry:
 
