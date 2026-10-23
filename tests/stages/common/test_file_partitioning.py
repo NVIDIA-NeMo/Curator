@@ -233,13 +233,24 @@ class TestFilePartitioningStage:
                 blocksize="128MB",
             )
 
-    def test_process_empty_file_list(self, empty_task: EmptyTask):
-        """Test processing with empty file list."""
-        stage = FilePartitioningStage(file_paths=[])
+    def test_process_errors_when_no_files_are_discovered(self, empty_task: EmptyTask, tmp_path: Path):
+        stage = FilePartitioningStage(file_paths=str(tmp_path / "missing"), file_extensions=[".parquet"])
 
-        result = stage.process(empty_task)
+        with pytest.raises(ValueError, match=r"No files matching \['\.parquet'\] found under"):
+            stage.process(empty_task)
 
-        assert len(result) == 0
+    def test_process_warns_when_extension_filter_skips_files(
+        self, empty_task: EmptyTask, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        (tmp_path / "input.jsonl").write_text("{}\n")
+        (tmp_path / "input.parquet").touch()
+        stage = FilePartitioningStage(file_paths=str(tmp_path), file_extensions=[".parquet"])
+
+        with caplog.at_level("WARNING"):
+            result = stage.process(empty_task)
+
+        assert result[0].data == [str(tmp_path / "input.parquet")]
+        assert "Skipped 1 file(s)" in caplog.text
 
     def test_get_dataset_name(self, tmp_path: Path):
         """Test dataset name extraction."""
