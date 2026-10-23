@@ -65,3 +65,24 @@ def test_ray_serve_server_uses_driver_attention_backend(monkeypatch: pytest.Monk
 def test_rejects_non_positive_replica_count(num_replicas: int) -> None:
     with pytest.raises(ValueError, match="num_replicas must be at least 1"):
         create_nemotron_parse_inference_server(num_replicas=num_replicas)
+
+
+@pytest.mark.parametrize("backend", ["dynamo", "ray-serve"])
+@pytest.mark.parametrize("preinstalled", [False, True])
+def test_runtime_env_selects_preinstalled_or_extends_model_dependencies(backend: str, preinstalled: bool) -> None:
+    runtime_env = {"env_vars": {"HF_HOME": "/cache/huggingface"}}
+    if preinstalled:
+        runtime_env["py_executable"] = "/opt/dynamo/bin/python"
+    else:
+        runtime_env["uv"] = {"packages": ["model-loader"]}
+
+    server = create_nemotron_parse_inference_server(backend=backend, runtime_env=runtime_env)
+    actual = server.models[0].runtime_env
+    if preinstalled:
+        assert actual == runtime_env
+    else:
+        assert actual == {
+            "uv": {"packages": ["albumentations==2.0.8", "model-loader"]},
+            "env_vars": runtime_env["env_vars"],
+        }
+        assert runtime_env["uv"]["packages"] == ["model-loader"]
