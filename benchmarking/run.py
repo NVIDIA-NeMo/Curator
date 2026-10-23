@@ -27,6 +27,12 @@ from pathlib import Path
 from typing import Any
 
 from loguru import logger
+from nemo_curator_benchmarking.config import (
+    assert_valid_config_dict,
+    merge_config_files,
+    remove_disabled_blocks,
+    resolve_env_vars,
+)
 
 from nemo_curator.pipeline.workflow import WorkflowRunResult
 from nemo_curator.tasks.utils import TaskPerfUtils
@@ -54,16 +60,7 @@ from runner.ray_cluster import (
 )
 from runner.session import Session
 from runner.sinks.sink import call_sink_hook, initialize_sinks
-from runner.utils import (
-    assert_valid_config_dict,
-    find_result,
-    get_gpu_stats,
-    get_obj_for_json,
-    log_gpu_stats,
-    merge_config_files,
-    remove_disabled_blocks,
-    resolve_env_vars,
-)
+from runner.utils import find_result, get_gpu_stats, get_obj_for_json, log_gpu_stats
 from runner.viewer_url import resolve_viewer_url
 
 
@@ -92,7 +89,6 @@ def get_entry_script_persisted_data(session_entry_path: Path) -> dict[str, Any]:
 
     tasks_pkl = session_entry_path / "tasks.pkl"
     if not tasks_pkl.exists():
-        logger.warning(f"Tasks pickle file not found at {tasks_pkl}")
         script_tasks = []
     else:
         with open(tasks_pkl, "rb") as f:
@@ -286,12 +282,14 @@ def run_entry(  # noqa: PLR0913
             create_or_overwrite_dir(directory)
         ensure_dir(logs_path)
 
+        startup_env, _ = build_subprocess_environment(entry, session_entry_path, path_resolver, dataset_resolver)
         ray_client, ray_temp_dir = setup_ray_cluster_and_env(
             num_cpus=ray_num_cpus,
             num_gpus=ray_num_gpus,
             enable_object_spilling=ray_enable_object_spilling,
             ray_log_path=logs_path / "ray.log",
             object_store_size=None if entry.object_store_size == "default" else entry.object_store_size,
+            ray_data_log_level=startup_env.get("RAY_DATA_LOG_LEVEL"),
         )
 
         # Prepopulate <session_entry_path>/params.json with entry params.
@@ -332,6 +330,7 @@ def run_entry(  # noqa: PLR0913
             else nullcontext()
         )
         started_exec = time.time()
+        # Resolve again after cluster startup so the subprocess inherits its RAY_ADDRESS.
         subprocess_env, configured_env_names = build_subprocess_environment(
             entry, session_entry_path, path_resolver, dataset_resolver
         )

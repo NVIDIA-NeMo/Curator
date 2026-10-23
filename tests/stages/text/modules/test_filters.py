@@ -259,6 +259,52 @@ class TestFilterModule:
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
 
+    @pytest.mark.parametrize(("invert", "expected"), [([False], False), ([True], True)])
+    def test_one_element_invert_is_the_same_as_the_bare_value(
+        self, letter_count_data: DocumentBatch, invert: list[bool], expected: bool
+    ) -> None:
+        """A one-element list means "the same for every filter".
+
+        _format_field_list used to wrap the list rather than repeat its entry, so
+        each filter saw [False], which is truthy, and both were inverted whatever
+        the value was.
+        """
+        as_list = ScoreFilter(
+            [LetterCountFilter(letter="a"), LetterCountFilter(letter="e", min_count=2)],
+            text_field="documents",
+            score_field=["a_count", "e_count"],
+            invert=invert,
+        )
+        as_bare = ScoreFilter(
+            [LetterCountFilter(letter="a"), LetterCountFilter(letter="e", min_count=2)],
+            text_field="documents",
+            score_field=["a_count", "e_count"],
+            invert=expected,
+        )
+
+        assert as_list.invert == [expected, expected]
+        assert all_equal(as_bare.process(letter_count_data), as_list.process(letter_count_data))
+
+    def test_one_element_text_field_is_the_same_as_the_bare_value(self, letter_count_data: DocumentBatch) -> None:
+        """The same broadcast, on the field name rather than the flag.
+
+        Wrapped, each filter was handed ["documents"], and df[["documents"]] is
+        a DataFrame, so the filter ran against a Series instead of a string.
+        """
+        as_list = ScoreFilter(
+            [LetterCountFilter(letter="a"), LetterCountFilter(letter="e", min_count=2)],
+            text_field=["documents"],
+            score_field=["a_count", "e_count"],
+        )
+        as_bare = ScoreFilter(
+            [LetterCountFilter(letter="a"), LetterCountFilter(letter="e", min_count=2)],
+            text_field="documents",
+            score_field=["a_count", "e_count"],
+        )
+
+        assert as_list.text_field == ["documents", "documents"]
+        assert all_equal(as_bare.process(letter_count_data), as_list.process(letter_count_data))
+
     @pytest.mark.parametrize("score_field", [None, "a_count", ["a_count"], ["a_count", "e_count"]])
     def test_score_filter_chain(self, letter_count_data: DocumentBatch, score_field: list[str] | None) -> None:
         if score_field in ["a_count", ["a_count"]]:
@@ -459,6 +505,18 @@ class TestHeuristicFilters:
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
 
+    def test_symbolswords_zh_with_spaces(self) -> None:
+        dataset = list_to_dataset(["我用 Python 写代码。", "... ... 标题"])
+        filters = ScoreFilter(SymbolsToWordsFilter(lang="zh"))
+
+        filtered_data = filters.process(dataset)
+
+        expected_data = DocumentBatch(
+            data=pd.DataFrame({"text": ["我用 Python 写代码。"]}),
+            dataset_name="test_1",
+        )
+        assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
+
     def test_numbers(self) -> None:
         dataset = list_to_dataset(["purely letters", "34134543", "$!@$@!$!@", "abcdefghi1"])
         filters = ScoreFilter(NumbersFilter(max_number_to_text_ratio=0.1))
@@ -590,6 +648,50 @@ class TestHeuristicFilters:
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
 
+    @pytest.mark.parametrize("text", ["", " ", "\n\n", "\xa0"])
+    @pytest.mark.parametrize(
+        ("filter_cls", "expected_score"),
+        [
+            (SymbolsToWordsFilter, 1.0),
+            (BulletsFilter, 1.0),
+            (LongWordFilter, 1001),
+            (MeanWordLengthFilter, 0.0),
+            (PunctuationFilter, 1.0),
+            (EllipsisFilter, 1.0),
+            (WordsWithoutAlphabetsFilter, 0.0),
+        ],
+    )
+    def test_empty_document(self, filter_cls: type[DocumentFilter], expected_score: float, text: str) -> None:
+        doc_filter = filter_cls()
+        score = doc_filter.score_document(text)
+        assert score == expected_score
+        assert doc_filter.keep_document(score) is False
+
+    @pytest.mark.parametrize(
+        "filter_cls",
+        [
+            SymbolsToWordsFilter,
+            BulletsFilter,
+            LongWordFilter,
+            MeanWordLengthFilter,
+            PunctuationFilter,
+            EllipsisFilter,
+            WordsWithoutAlphabetsFilter,
+        ],
+    )
+    def test_empty_document_score_filter(self, filter_cls: type[DocumentFilter]) -> None:
+        good = "This is a normal sentence with enough words to pass."
+        documents = ["", good, " ", "\n\n"]
+        filters = ScoreFilter(filter_cls())
+
+        filtered_data = filters.process(list_to_dataset(documents))
+
+        expected_data = DocumentBatch(
+            data=pd.DataFrame({"text": [good]}),
+            dataset_name="test_1",
+        )
+        assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
+
     def test_parentheses(self) -> None:
         dataset = list_to_dataset(["()", "(not good)", "this is completely absolutely fine", "123456789("])
         filters = ScoreFilter(ParenthesesFilter())
@@ -634,6 +736,19 @@ class TestHeuristicFilters:
 
         expected_data = DocumentBatch(
             data=pd.DataFrame({"text": ["你好。", "我喜欢学习中文。"]}),
+            dataset_name="test_1",
+        )
+        assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
+
+    def test_wordcount_zh_ignores_spaces(self) -> None:
+        # 5 words: 我用 / Python / 写 / 代码 / 。, the two spaces are not words
+        dataset = list_to_dataset(["我用 Python 写代码。"])
+        filters = ScoreFilter(WordCountFilter(min_words=2, max_words=5, lang="zh"))
+
+        filtered_data = filters.process(dataset)
+
+        expected_data = DocumentBatch(
+            data=pd.DataFrame({"text": ["我用 Python 写代码。"]}),
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
@@ -697,7 +812,7 @@ class TestHeuristicFilters:
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
 
     def test_repeatedlines(self) -> None:
-        dataset = list_to_dataset(["totally unique", "half.\nhalf."])
+        dataset = list_to_dataset(["", "   ", "\n\n", "totally unique", "half.\nhalf."])
         filters = ScoreFilter(RepeatedLinesFilter())
 
         filtered_data = filters.process(dataset)
@@ -709,7 +824,7 @@ class TestHeuristicFilters:
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
 
     def test_repeatedparagraphs(self) -> None:
-        dataset = list_to_dataset(["totally unique", "half.\n\nhalf."])
+        dataset = list_to_dataset(["", "   ", "\n\n", "totally unique", "half.\n\nhalf."])
         filters = ScoreFilter(RepeatedParagraphsFilter())
 
         filtered_data = filters.process(dataset)
@@ -723,6 +838,9 @@ class TestHeuristicFilters:
     def test_repeatedlineschar(self) -> None:
         dataset = list_to_dataset(
             [
+                "",
+                "   ",
+                "\n\n",
                 "totally unique",
                 "a.\na.\nvery very very short duplicate.",
                 "half.\nhalf.",
@@ -742,6 +860,9 @@ class TestHeuristicFilters:
     def test_repeatedparagraphschar(self) -> None:
         dataset = list_to_dataset(
             [
+                "",
+                "   ",
+                "\n\n",
                 "totally unique",
                 "a.\n\n  a.\n\n  very very very short duplicate.",
                 "half.\n\nhalf.",
@@ -757,6 +878,22 @@ class TestHeuristicFilters:
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
+
+    @pytest.mark.parametrize(
+        "filter_cls",
+        [
+            RepeatedLinesFilter,
+            RepeatedParagraphsFilter,
+            RepeatedLinesByCharFilter,
+            RepeatedParagraphsByCharFilter,
+        ],
+    )
+    @pytest.mark.parametrize("empty_input", ["", "   ", "\n", "\n\n", "\t \r\n"])
+    def test_repetition_filters_empty_text(self, filter_cls: type, empty_input: str) -> None:
+        filt = filter_cls()
+        score = filt.score_document(empty_input)
+        assert score == 0.0
+        assert filt.keep_document(score) is False
 
     def test_repeatingtopngrams(self) -> None:
         dataset = list_to_dataset(

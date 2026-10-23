@@ -1,12 +1,94 @@
 # Audio Stages Developer Guide
 
-All audio processing stages subclass `ProcessingStage[AudioTask, AudioTask]`
-directly — the same base class used by video, text, and image modalities.
-There is no audio-specific intermediate base class.
+Audio processing stages ultimately use `ProcessingStage`, the same base class
+used by video, text, and image modalities. CPU transforms normally subclass it
+directly. Model-backed audio inference stages can instead subclass
+`AdapterInferenceStage`, which adds the shared node-prefetch, worker-local
+load, and teardown lifecycle used by ASR, SED, Sortformer diarization, and
+Silero VAD.
 
 Each `AudioTask` wraps a single manifest entry as a plain `dict` (backed by
 `_AttrDict` for attribute-style access).  Stages read keys from that dict,
 mutate it in-place, and return the same task object.
+
+## Model-backed stages and adapters
+
+Keep Curator orchestration separate from provider inference code:
+
+| Layer | Owns |
+|---|---|
+| **Stage** | `AudioTask` validation, file or waveform selection, in-memory downmixing/resampling, fan-out or result assembly, output keys, sidecar paths, resume semantics, and executor settings |
+| **Model adapter** | Model download/cache, worker-local model or engine state, provider-specific preprocessing and inference, direct-path decoding or bounded streaming where supported, precision/runtime options, and ordered model results |
+| **`AdapterInferenceStage`** | Resolving `adapter_target`, one prefetch per node, one adapter instance per worker, GPU-count handoff, and teardown |
+
+The split keeps the task contract stable while a pipeline selects a provider
+with `adapter_target` and passes provider-only settings through
+`adapter_kwargs`. For example, the default Sortformer stage uses
+`nemo_curator.models.audio.speaker_diarization.sortformer.NeMoSortformerAdapter`,
+and the default VAD stage uses
+`nemo_curator.models.audio.vad.silero.SileroVADAdapter`.
+
+```python
+from nemo_curator.stages.audio.inference.speaker_diarization.stage import (
+    InferenceSortformerStage,
+)
+from nemo_curator.stages.resources import Resources
+
+diarize = InferenceSortformerStage(
+    model_id="nvidia/diar_streaming_sortformer_4spk-v2.1",
+    adapter_kwargs={"precision": "fp32"},
+).with_(
+    resources=Resources(gpus=1),
+    batch_size=4,
+    num_workers=1,
+)
+```
+
+The same stage can select
+`nemo_curator.models.audio.speaker_diarization.sortformer_tensorrt.TensorRTSortformerAdapter`
+and pass its explicit engine, runtime-config, and trusted runtime-module paths
+through `adapter_kwargs`; task outputs and RTTM semantics do not change.
+
+Use `.with_(resources=..., batch_size=..., num_workers=...)` for executor
+controls. Put task and output fields in the stage constructor, and put model
+runtime fields such as Sortformer streaming parameters or the Silero backend
+in `adapter_kwargs`. Do not hide executor worker counts in adapter settings.
+
+Whole-recording semantics remain stage-specific. Sortformer may reorder
+independent recordings within the current batch, but it must not split one
+recording into arbitrary chunks: speaker clustering and speaker identity span
+the recording. Silero VAD may fan out detected speech intervals because that
+is its declared task contract.
+
+Silero runtime selection does not change that stage contract:
+
+```python
+from nemo_curator.stages.audio.segmentation.vad_segmentation import (
+    VADSegmentationStage,
+)
+from nemo_curator.stages.resources import Resources
+
+# Official CPU ONNX runtime.
+onnx_vad = VADSegmentationStage(adapter_kwargs={"backend": "onnx"})
+
+# Caller-supplied TensorRT engine.
+tensorrt_vad = VADSegmentationStage(
+    adapter_target=(
+        "nemo_curator.models.audio.vad.silero_tensorrt."
+        "TensorRTSileroVADAdapter"
+    ),
+    adapter_kwargs={"engine_path": "/models/silero_vad.plan"},
+).with_(resources=Resources(gpus=1))
+```
+
+The VAD stage retains the existing `duration` output key for every adapter.
+Keep `batch_size=1` for its default `nested=False` fan-out so child task IDs
+stay deterministic. A larger batch is a valid tuning option for
+`nested=True`, which retains one parent task per input. Fan-out mode drops
+empty and failed recordings by default, matching the current-main contract;
+set `emit_audit_placeholders=True` when the downstream writer should retain
+`vad_empty` or `read_error` rows, and whenever zero-output sources must be
+marked complete by resumability.
 
 ## Writing a CPU stage
 
@@ -129,7 +211,7 @@ Key differences from a CPU stage:
   dicts into a single multi-row `pd.DataFrame` in one `DocumentBatch`,
   avoiding N single-row DataFrame allocations.  Not a GPU stage, but
   benefits from batched processing.
-- `ManifestWriterStage` (`common.py`) — writes
+- `ManifestWriterStage` (`common/manifest_writer.py`) — writes
   entries to JSONL, returns `AudioTask`.
 
 ### Setting `batch_size` for GPU inference
@@ -236,7 +318,7 @@ To drop an entry from the pipeline:
   entries that pass the filter (omit entries that should be dropped).
   This avoids `None` reaching the backend adapter, which calls
   `task.add_stage_perf()` on every element.  See `PreserveByValueStage`
-  in `common.py` for the canonical pattern — its `process()` raises
+  in `common/value_filters.py` for the canonical pattern — its `process()` raises
   `NotImplementedError` and all logic lives in `process_batch`.
 - **GPU / IO stage**: omit the entry from the returned list in `process_batch`.
 
@@ -285,6 +367,13 @@ process_batch(list[AudioTask]) -> list[AudioTask]
    `process_batch` in `ASRStage` and
    `AudioToDocumentStage`.
 
+3. **Adapter inference lifecycle** — `AdapterInferenceStage` resolves the
+   configured adapter lazily, prefetches weights in `setup_on_node()`, loads
+   one model or engine in each worker's `setup()`, and releases it in
+   `teardown()`. ASR, SED, Sortformer, and Silero VAD reuse this lifecycle;
+   their task preparation and result assembly remain in their task-facing
+   stages.
+
 ## How backends parallelise your stage
 
 Both Xenna and Ray follow the same high-level pattern: they create
@@ -306,6 +395,25 @@ scheduling and resource management.
 
 4.  teardown()        — called once when the worker shuts down.
 ```
+
+Treat `teardown()` as best-effort cleanup, not as a durability boundary. Some
+executor shutdown paths terminate actors without invoking it. A writer that
+must survive interruption should persist each task atomically from
+`process()`/`process_batch()` and use an explicit driver-side finalizer after
+`pipeline.run()` for cross-worker aggregation. `NeMoSpeechWriterStage` follows
+this pattern: workers write atomic Opus files and row receipts, then
+`finalize_nemo_speech_output()` validates the complete shard before publishing
+its manifest and `.done` marker. The reader registers each shard's expected
+input count before downstream fan-out, and the writer records hash-sharded
+audio-path ownership claims, so even a shard whose every child disappears is
+detectably incomplete. The writer is a terminal sink and returns no
+waveform-bearing tasks to the driver. Fan-out children retain their source-row
+identity; a stage that intentionally produces no child for an input must emit
+a terminal placeholder so finalization can distinguish filtering from loss.
+A physical NeMo speech manifest/tar pair is also the reader memory unit: the
+reader materializes that shard's rows and decoded outputs before emission.
+Production inputs should therefore use bounded physical shards sized to fit
+one reader worker's RAM.
 
 ### CPU stage parallelism
 
@@ -490,7 +598,7 @@ pipeline.run(executor)
 │     → backends/base.py                             stage.setup_on_node(node_info, worker_metadata)
 │   backends/xenna/adapter.py                      XennaStageAdapter.setup()
 │     → backends/base.py                             stage.setup(worker_metadata)
-│       → stages/audio/common.py                       GetAudioDurationStage.setup() imports soundfile
+│       → stages/audio/common/duration.py                       GetAudioDurationStage.setup() imports soundfile
 │
 ├─ Per batch (batch_size=1, so 1 AudioTask per call):
 │   backends/xenna/adapter.py                      XennaStageAdapter.process_data(tasks)
@@ -508,7 +616,7 @@ pipeline.run(executor)
 │   │        │
 │   │    ┌───┘
 │   │    │  GetAudioDurationStage.process(task)
-│   │    │    stages/audio/common.py
+│   │    │    stages/audio/common/duration.py
 │   │    │    audio_filepath = task.data[self.audio_filepath_key]
 │   │    │    raw, samplerate = soundfile.read(audio_filepath)
 │   │    │    task.data[self.duration_key] = raw.shape[0] / samplerate
@@ -1022,20 +1130,28 @@ Appends the entry as a single JSON line to
 
 ## Quick checklist for adding a new audio stage
 
-1. Subclass `ProcessingStage[AudioTask, AudioTask]`
-2. Order dataclass fields: `name` first, stage-specific params, then `resources`, then `batch_size`
+1. Subclass `ProcessingStage[AudioTask, AudioTask]` for a normal transform,
+   or `AdapterInferenceStage[YourAdapter]` for model-backed inference
+2. Follow dataclass inheritance/default ordering; keep task-contract fields
+   together and execution fields such as `resources` and `batch_size` together
 3. Implement `inputs()` and `outputs()` to declare required/produced keys
 4. For CPU stages: override `process(task: AudioTask) -> AudioTask | None`
    — mutate `task.data` in-place and return `task` (or `None` to filter)
 5. For filtering stages: override `process_batch` to return only passing
-   entries (see `PreserveByValueStage` in `common.py`); `process()` should
+   entries (see `PreserveByValueStage` in `common/value_filters.py`); `process()` should
    raise `NotImplementedError`
 6. For GPU / IO stages: override `process_batch(tasks) -> list[AudioTask]`,
    call `self.validate_input(task)` per task at the top, guard with
    `if len(tasks) == 0: return []`.  `process()` should raise
    `NotImplementedError` (matching the dedup-stage convention).
-7. Declare GPU resources via `.with_(resources=Resources(gpus=1.0))`
-8. Add tests in `tests/stages/audio/` using `AudioTask` for fixtures
+7. For an adapter-backed stage, keep task I/O, resampling, output assembly,
+   side effects, and resume behavior in the stage; keep weights, runtime
+   state, and provider inference in `nemo_curator/models/`
+8. Declare execution policy with `.with_(resources=..., batch_size=...,
+   num_workers=...)`; expose provider selection as `adapter_target` and
+   provider settings as `adapter_kwargs`
+9. Add stage-contract tests in `tests/stages/audio/` and adapter-contract
+   tests in `tests/models/`; neither suite should require real model weights
 
 ---
 
