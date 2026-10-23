@@ -1,0 +1,18 @@
+# @package _global_
+defaults:
+  - /train/dicow_v3
+experiment: dicow_v3_compound_synthetic
+
+data:
+  train_cutsets:
+  - ${oc.env:SIM_MANIFEST_DIR}/nsf/callhome_boosted/manifests/synth-notsofar1_ihm-train-cuts_30s.jsonl.gz
+  - ${oc.env:SIM_MANIFEST_DIR}/ami/callhome_boosted/manifests/synth-ami-ihm-train-cuts_30s.jsonl.gz
+  - ${oc.env:SIM_MANIFEST_DIR}/librispeech/callhome_boosted/manifests/synth-librispeech-train-cuts_30s.jsonl.gz
+  - ${oc.env:SIM_MANIFEST_DIR}/oto_speech/callhome_boosted/manifests/synth-oto-train-cuts_30s.jsonl.gz
+  - ${oc.env:SIM_MANIFEST_DIR}/voxpopuli/callhome_boosted/manifests/synth-voxpopuli-asr-en-train-cuts_30s.jsonl.gz
+  dataset_weights:
+    - 3
+    - 3
+    - 1
+    - 1
+    - 1

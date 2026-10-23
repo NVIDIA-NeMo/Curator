@@ -1,0 +1,72 @@
+---
+description: "Generate multi-speaker ASR and diarization training mixtures with the bundled original FastMSS."
+categories: ["audio-curation"]
+tags: ["tutorial", "simulation", "speaker-diarization", "asr"]
+personas: ["mle-focused"]
+difficulty: "intermediate"
+content_type: "tutorial"
+modality: "audio-only"
+---
+
+# Multi-Speaker Simulation with FastMSS
+
+`FastMSS` runs the bundled original [FastMSS toolkit](https://github.com/popcornell/FastMSS)
+from a Curator pipeline. It generates simulated meetings from prepared,
+word-aligned single-speaker speech and emits one `AudioTask` per complete meeting.
+Reference text, generated audio and RTTM support multi-speaker ASR and speaker
+diarization training workflows.
+
+## Requirements
+
+Use an existing Linux Curator environment and install the optional simulation
+dependencies listed in the tutorial (including Lhotse and pyroomacoustics).
+The original FastMSS source is bundled inside Curator; no separate checkout is
+required. Source audio, configs and output paths must be shared across nodes.
+The bundled snapshot is [FastMSS `81fc2c3`](https://github.com/popcornell/FastMSS/tree/81fc2c3e4b938cf73343f58df9e013bc106cb77a),
+released under Apache-2.0. Original `LICENSE`, `NOTICE`, `CITATION.cff` and per-file
+checksums are retained with the source. Local FastMSS extensions are not included.
+
+## Compose a pipeline
+
+```python
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.audio.simulation import FastMSS
+
+pipeline = Pipeline(name="multi_speaker_training_data")
+pipeline.add_stage(
+    FastMSS(
+        config_paths=["/shared/configs/two-speaker.yaml"],
+        output_dir="/shared/generated-meetings",
+        jobs_per_config=2,
+        overrides=["n_meetings=20", "duration=60"],
+    )
+)
+```
+
+Run the pipeline with your configured Curator executor. Each YAML is a scheduling
+unit; multiple configs can run concurrently. The adapter reserves
+`jobs_per_config` CPUs per invocation and passes that count to FastMSS.
+
+The composite reuses `FilePartitioningStage` to distribute YAMLs, executes
+`FastMSSSimulationStage`, then uses `ManifestReaderStage` to ingest the generated
+recording-level NeMo manifest. Additional manifest fields remain intact.
+
+`audio_filepath` and `duration` refer to the mixture, not one speaker.
+`rttm_filepath` points to diarization reference annotations. Overlapping turns
+remain in the waveform; a meeting-level transcript should not be interpreted as
+speaker-separated ASR labels.
+
+## Outputs and retries
+
+Each config writes to a fresh `fastmss-*` directory, including audio, RTTM,
+`nemo_manifest.json` and `fastmss.log`. On failure, partial outputs remain for
+diagnosis; no manifest is emitted for a failed config. Retrying creates a new
+run, and checkpoint resumption is disabled for generation.
+
+The adapter manages `output_dir`, `n_jobs`, `stage`, manifest/RTTM generation and
+Hydra's working directory. All other options belong to the FastMSS configuration.
+The default entry point is `recipes/sim.py`; a customized checkout can provide
+another relative `script_path` implementing the same CLI and output protocol.
+
+See the [runnable example and detailed configuration guide](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials/audio/fastmss)
+for source manifest naming, environment variables, parallel shards and limitations.
