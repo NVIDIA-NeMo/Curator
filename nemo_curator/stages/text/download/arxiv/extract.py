@@ -19,7 +19,7 @@ from nemo_curator.stages.text.download import DocumentExtractor
 
 # The iterator and extractor code are in large part taken
 # from the Red-Pajama repo
-# https://github.com/togethercomputer/RedPajama-Data/tree/main/data_prep/arxiv
+# https://github.com/togethercomputer/RedPajama-Data/tree/rp_v1/data_prep/arxiv
 
 
 class ArxivExtractor(DocumentExtractor):

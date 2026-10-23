@@ -27,7 +27,7 @@ from nemo_curator.utils.file_utils import get_all_file_paths_under, tar_safe_ext
 
 # The iterator and extractor code are in large part taken
 # from the Red-Pajama repo
-# https://github.com/togethercomputer/RedPajama-Data/tree/main/data_prep/arxiv
+# https://github.com/togethercomputer/RedPajama-Data/tree/rp_v1/data_prep/arxiv
 
 
 class ArxivIterator(DocumentIterator):
