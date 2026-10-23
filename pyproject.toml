@@ -63,6 +63,7 @@ dependencies = [
     "jieba==0.42.1",
     "lmdb>=1.4",
     "loguru",
+    "markdown-it-py>=4.0.0",
     "mecab-python3",
     "omegaconf",
     "openai>=1.0.0",

@@ -15,15 +15,24 @@
 from __future__ import annotations
 
 import io
+import mimetypes
+import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from html.parser import HTMLParser
 from typing import TYPE_CHECKING
+from urllib.parse import urljoin, urlsplit
 
 import pandas as pd
+import pyarrow as pa
+from markdown_it import MarkdownIt
 
 from nemo_curator.stages.base import ProcessingStage
-from nemo_curator.stages.interleaved.utils import materialize_task_binary_content
-from nemo_curator.tasks import InterleavedBatch
+from nemo_curator.stages.interleaved.utils import materialize_task_binary_content, validate_and_project_source_fields
+from nemo_curator.stages.interleaved.utils.constants import DEFAULT_WEBDATASET_EXTENSIONS
+from nemo_curator.stages.interleaved.utils.schema import align_interleaved_table
+from nemo_curator.tasks import DocumentBatch, InterleavedBatch
+from nemo_curator.tasks.interleaved import INTERLEAVED_SCHEMA, RESERVED_COLUMNS
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -32,6 +41,154 @@ try:
     from PIL import Image
 except ImportError:
     Image = None
+
+
+_MARKDOWN = MarkdownIt("commonmark")
+_BLOCK_TAGS = {"blockquote", "div", "h1", "h2", "h3", "h4", "h5", "h6", "li", "ol", "p", "pre", "table", "tr", "ul"}
+_ESCAPED_TABLE = re.compile(r"\\<table\b.*?\\</table\s*>", re.IGNORECASE | re.DOTALL)
+_ESCAPED_IMAGE = re.compile(r"!\[\]\(\[([a-z][a-z0-9+.-]*://[^)\s]+)\)", re.IGNORECASE)
+
+
+class _HTMLContentParser(HTMLParser):
+    def __init__(self) -> None:
+        """Initialize a parser that collects text and image parts."""
+        super().__init__()
+        self.parts: list[tuple[str, str]] = []
+        self._literal_depth = 0
+
+    def _append(self, modality: str, content: str) -> None:
+        if modality == "text" and self.parts and self.parts[-1][0] == "text":
+            self.parts[-1] = ("text", self.parts[-1][1] + content)
+        else:
+            self.parts.append((modality, content))
+
+    def _append_text(self, data: str) -> None:
+        start = 0
+        for match in _ESCAPED_IMAGE.finditer(data):
+            if text := data[start : match.start()]:
+                self._append("text", text)
+            self._append("image", match.group(1))
+            start = match.end()
+        if text := data[start:]:
+            self._append("text", text)
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag in {"code", "pre"}:
+            self._literal_depth += 1
+        elif tag == "img" and (source := dict(attrs).get("src")):
+            self._append("image", source)
+        elif tag == "br":
+            self._append("text", "\n")
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in {"code", "pre"} and self._literal_depth:
+            self._literal_depth -= 1
+        if tag in {"td", "th"}:
+            self._append("text", "\n")
+        elif tag in _BLOCK_TAGS:
+            self._append("text", "\n\n")
+
+    def handle_data(self, data: str) -> None:
+        if self._literal_depth:
+            self._append("text", data)
+        else:
+            self._append_text(data)
+
+
+@dataclass
+class MarkdownToInterleavedStage(ProcessingStage[DocumentBatch, InterleavedBatch]):
+    """Convert markdown documents into text and lazily referenced image rows.
+
+    Relative image references are resolved against ``image_source_uri``. Tar sources
+    store them as archive members.
+
+    Example:
+        ``Text ![chart](chart.png)`` becomes a text row followed by an image row.
+    """
+
+    markdown_field: str = "md"
+    sample_id_field: str = "id"
+    image_source_uri: str | None = None
+    name: str = "markdown_to_interleaved"
+
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return ["data"], [self.sample_id_field, self.markdown_field]
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return ["data"], ["sample_id", "position", "modality"]
+
+    @staticmethod
+    def _content(markdown: str) -> Iterator[tuple[str, str]]:
+        markdown = _ESCAPED_TABLE.sub(lambda match: match.group().replace(r"\<", "<"), markdown)
+        parser = _HTMLContentParser()
+        parser.feed(_MARKDOWN.render(markdown))
+        for modality, content in parser.parts:
+            if content := content.strip():
+                yield modality, content
+
+    def _build_image_source_ref(self, source: str) -> str:
+        if not self.image_source_uri or urlsplit(source).scheme:
+            return InterleavedBatch.build_source_ref(path=source, member=None)
+
+        base = self.image_source_uri
+        base_parts = urlsplit(base)
+        if base_parts.path.lower().endswith(DEFAULT_WEBDATASET_EXTENSIONS) and not source.startswith("/"):
+            return InterleavedBatch.build_source_ref(path=base, member=source)
+        if base_parts.scheme in {"http", "https"}:
+            source = urljoin(f"{base.rstrip('/')}/", source)
+        elif not source.startswith("/"):
+            source = f"{base.rstrip('/')}/{source}"
+        return InterleavedBatch.build_source_ref(path=source, member=None)
+
+    def process(self, task: DocumentBatch) -> InterleavedBatch:
+        rows: list[dict[str, object]] = []
+        empty_row = dict.fromkeys(INTERLEAVED_SCHEMA.names)
+        excluded = RESERVED_COLUMNS | {self.sample_id_field, self.markdown_field}
+
+        for document in task.to_pyarrow().to_pylist():
+            sample_id = document.get(self.sample_id_field)
+            markdown = document.get(self.markdown_field)
+            if sample_id is None:
+                msg = f"{self.sample_id_field!r} cannot be null"
+                raise ValueError(msg)
+            if not isinstance(markdown, str):
+                msg = f"{self.markdown_field!r} must contain strings, got {type(markdown).__name__}"
+                raise TypeError(msg)
+
+            passthrough = validate_and_project_source_fields(document, fields=None, excluded_fields=excluded)
+            rows.append(
+                {
+                    **empty_row,
+                    "sample_id": sample_id,
+                    "position": -1,
+                    "modality": "metadata",
+                    "content_type": "application/json",
+                    **passthrough,
+                }
+            )
+            for position, (modality, content) in enumerate(self._content(markdown)):
+                row = {**empty_row, "sample_id": sample_id, "position": position, "modality": modality}
+                if modality == "text":
+                    row.update(content_type="text/plain", text_content=content)
+                else:
+                    content_type = mimetypes.guess_type(urlsplit(content).path)[0]
+                    row.update(
+                        content_type=content_type or "application/octet-stream",
+                        source_ref=self._build_image_source_ref(content),
+                    )
+                rows.append(row)
+
+        table = (
+            align_interleaved_table(pa.Table.from_pylist(rows))
+            if rows
+            else pa.Table.from_pylist([], INTERLEAVED_SCHEMA)
+        )
+        return InterleavedBatch(
+            dataset_name=task.dataset_name,
+            data=table,
+            _metadata=task._metadata,
+            _stage_perf=task._stage_perf,
+        )
 
 
 @dataclass
