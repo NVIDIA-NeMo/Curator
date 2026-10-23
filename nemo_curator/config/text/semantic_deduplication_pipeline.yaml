@@ -50,10 +50,7 @@ workflow:
     # Embedding generation parameters
     text_field: ${text_field}
     model_identifier: "sentence-transformers/all-MiniLM-L6-v2"
-    embedding_max_seq_length: 512
     embedding_max_chars: null
-    embedding_pooling: "mean_pooling"
-    embedding_model_inference_batch_size: 256
     # Semantic deduplication parameters
     n_clusters: 100  # this number can be much higher when the data is large
     # For large scale data removal we should use CURATOR_DEDUP_ID_STR
