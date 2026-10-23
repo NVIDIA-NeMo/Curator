@@ -12,10 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Exercise the external CLI boundary with real child processes and manifest I/O."""
+"""Exercise the bundled FastMSS, child processes and manifest I/O."""
 
+import hashlib
 import json
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -94,7 +94,10 @@ def test_subprocess_to_audio_tasks_preserves_annotations_and_lineage(checkout: P
     config = _config(tmp_path)
     task = FileGroupTask(dataset_name="simulation", data=[str(config)], _metadata={"source": "reference"})
     stage = FastMSSSimulationStage(
-        str(checkout), str(tmp_path / "generated meetings"), jobs_per_config=2, overrides=["duration=0.1"]
+        fastmss_root=str(checkout),
+        output_dir=str(tmp_path / "generated meetings"),
+        jobs_per_config=2,
+        overrides=["duration=0.1"],
     )
     groups = stage.process(task)
     rows = ManifestReaderStage().process(groups[0])
@@ -122,7 +125,7 @@ def test_same_named_configs_and_retries_use_separate_output_directories(checkout
     other = tmp_path / "other" / "meetings.yaml"
     other.parent.mkdir()
     other.write_text(first.read_text())
-    stage = FastMSSSimulationStage(str(checkout), str(tmp_path / "output"))
+    stage = FastMSSSimulationStage(fastmss_root=str(checkout), output_dir=str(tmp_path / "output"))
     groups = stage.process(FileGroupTask(dataset_name="simulation", data=[str(first), str(other)]))
     repeated = stage.process(FileGroupTask(dataset_name="simulation", data=[str(first)]))
     paths = [group.data[0] for group in [*groups, *repeated]]
@@ -132,13 +135,15 @@ def test_same_named_configs_and_retries_use_separate_output_directories(checkout
 
 def test_custom_entry_point(checkout: Path, tmp_path: Path) -> None:
     (checkout / "sim_im_masr.py").write_text(_ENTRY_POINT)
-    stage = FastMSSSimulationStage(str(checkout), str(tmp_path / "output"), script_path="sim_im_masr.py")
+    stage = FastMSSSimulationStage(
+        fastmss_root=str(checkout), output_dir=str(tmp_path / "output"), script_path="sim_im_masr.py"
+    )
     groups = stage.process(FileGroupTask(dataset_name="simulation", data=[str(_config(tmp_path))]))
     assert Path(groups[0].data[0]).is_file()
 
 
 def test_child_failure_keeps_diagnostic_log_and_emits_no_manifest(checkout: Path, tmp_path: Path) -> None:
-    stage = FastMSSSimulationStage(str(checkout), str(tmp_path / "output"))
+    stage = FastMSSSimulationStage(fastmss_root=str(checkout), output_dir=str(tmp_path / "output"))
     with pytest.raises(RuntimeError, match="exit code 9"):
         stage.process(FileGroupTask(dataset_name="simulation", data=[str(_config(tmp_path, "failure"))]))
     logs = list((tmp_path / "output").glob("*/fastmss.log"))
@@ -149,13 +154,15 @@ def test_child_failure_keeps_diagnostic_log_and_emits_no_manifest(checkout: Path
 
 @pytest.mark.parametrize("name", ["missing", "empty"])
 def test_successful_exit_requires_nonempty_manifest(checkout: Path, tmp_path: Path, name: str) -> None:
-    stage = FastMSSSimulationStage(str(checkout), str(tmp_path / "output"))
+    stage = FastMSSSimulationStage(fastmss_root=str(checkout), output_dir=str(tmp_path / "output"))
     with pytest.raises(RuntimeError, match="nonempty recording manifest"):
         stage.process(FileGroupTask(dataset_name="simulation", data=[str(_config(tmp_path, name))]))
 
 
 def test_timeout_stops_child(checkout: Path, tmp_path: Path) -> None:
-    stage = FastMSSSimulationStage(str(checkout), str(tmp_path / "output"), timeout_seconds=0.2)
+    stage = FastMSSSimulationStage(
+        fastmss_root=str(checkout), output_dir=str(tmp_path / "output"), timeout_seconds=0.2
+    )
     with pytest.raises(subprocess.TimeoutExpired):
         stage.process(FileGroupTask(dataset_name="simulation", data=[str(_config(tmp_path, "timeout"))]))
     assert not list((tmp_path / "output").glob("*/nemo_manifest.json"))
@@ -166,11 +173,11 @@ def test_rejects_overrides_that_break_output_or_resource_contract(
     checkout: Path, tmp_path: Path, override: str
 ) -> None:
     with pytest.raises(ValueError, match="override"):
-        FastMSSSimulationStage(str(checkout), str(tmp_path / "output"), overrides=[override])
+        FastMSSSimulationStage(fastmss_root=str(checkout), output_dir=str(tmp_path / "output"), overrides=[override])
 
 
 def test_rejects_missing_script_and_config(checkout: Path, tmp_path: Path) -> None:
-    stage = FastMSSSimulationStage(str(checkout), str(tmp_path / "output"))
+    stage = FastMSSSimulationStage(fastmss_root=str(checkout), output_dir=str(tmp_path / "output"))
     with pytest.raises(ValueError, match="YAML config"):
         stage.process(FileGroupTask(dataset_name="simulation", data=[str(tmp_path / "missing.yaml")]))
     stage.script_path = "missing.py"
@@ -181,12 +188,17 @@ def test_rejects_missing_script_and_config(checkout: Path, tmp_path: Path) -> No
 @pytest.mark.parametrize("kwargs", [{"jobs_per_config": 0}, {"timeout_seconds": 0}, {"script_path": "../sim.py"}])
 def test_rejects_invalid_configuration(checkout: Path, tmp_path: Path, kwargs: dict) -> None:
     with pytest.raises(ValueError, match=r"jobs_per_config|timeout_seconds|script_path"):
-        FastMSSSimulationStage(str(checkout), str(tmp_path / "output"), **kwargs)
+        FastMSSSimulationStage(fastmss_root=str(checkout), output_dir=str(tmp_path / "output"), **kwargs)
 
 
 def test_composite_discovers_yaml_and_runs_each_shard(checkout: Path, tmp_path: Path) -> None:
     config = _config(tmp_path)
-    composite = FastMSS(str(config), str(checkout), str(tmp_path / "output"), python_executable=sys.executable)
+    composite = FastMSS(
+        config_paths=str(config),
+        fastmss_root=str(checkout),
+        output_dir=str(tmp_path / "output"),
+        python_executable=sys.executable,
+    )
     partition, simulate, reader = composite.decompose_and_apply_with()
     groups = partition.process(EmptyTask())
     rows = [row for group in groups for output in simulate.process(group) for row in reader.process(output)]
@@ -196,7 +208,7 @@ def test_composite_discovers_yaml_and_runs_each_shard(checkout: Path, tmp_path: 
 
 
 def test_simulation_contract_matches_real_process_boundary(checkout: Path, tmp_path: Path) -> None:
-    stage = FastMSSSimulationStage(str(checkout), str(tmp_path / "output"))
+    stage = FastMSSSimulationStage(fastmss_root=str(checkout), output_dir=str(tmp_path / "output"))
     config = _config(tmp_path)
     assert_agent_ready(
         stage,
@@ -208,7 +220,13 @@ def test_simulation_contract_matches_real_process_boundary(checkout: Path, tmp_p
 def test_pipeline_executes_composite_on_actor_pool(checkout: Path, tmp_path: Path) -> None:
     pipeline = Pipeline(
         name="fastmss_cli_boundary",
-        stages=[FastMSS(str(_config(tmp_path)), str(checkout), str(tmp_path / "pipeline-output"))],
+        stages=[
+            FastMSS(
+                config_paths=str(_config(tmp_path)),
+                fastmss_root=str(checkout),
+                output_dir=str(tmp_path / "pipeline-output"),
+            )
+        ],
     )
     results = pipeline.run(RayActorPoolExecutor(show_progress=False))
     assert len(results) == 1
@@ -232,16 +250,26 @@ def test_documented_yaml_resolves_external_defaults(
     assert config.n_jobs == 1
 
 
-@pytest.mark.skipif(not os.environ.get("FASTMSS_TEST_ROOT"), reason="Set FASTMSS_TEST_ROOT to a real FastMSS checkout")
+def test_bundled_upstream_files_are_unmodified(tmp_path: Path) -> None:
+    root = Path(FastMSSSimulationStage(output_dir=str(tmp_path / "output")).fastmss_root)
+    provenance = json.loads((root / "UPSTREAM.json").read_text())
+    assert provenance["revision"] == "81fc2c3e4b938cf73343f58df9e013bc106cb77a"
+    assert provenance["license"] == "Apache-2.0"
+    for name, checksum in provenance["files_sha256"].items():
+        assert hashlib.sha256((root / name).read_bytes()).hexdigest() == checksum, name
+    assert not (root / "fastmss" / "simulator_masr.py").exists()
+
+
 def test_real_upstream_generates_audio_and_diarization_reference(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    pytest.importorskip("lhotse")
+    pytest.importorskip("pyroomacoustics")
     import numpy as np
     import soundfile as sf
     from lhotse import CutSet, MonoCut, Recording
     from lhotse.supervision import AlignmentItem, SupervisionSegment
 
-    upstream = Path(os.environ["FASTMSS_TEST_ROOT"]).resolve()
     sources = tmp_path / "sources"
     sources.mkdir()
     cuts = []
@@ -273,12 +301,10 @@ def test_real_upstream_generates_audio_and_diarization_reference(
             )
         )
     CutSet.from_cuts(cuts).to_file(sources / "source_train.jsonl.gz")
-    monkeypatch.setenv("FASTMSS_ROOT", str(upstream))
     monkeypatch.setenv("FASTMSS_MANIFEST_DIR", str(sources))
     config = Path(__file__).resolve().parents[4] / "tutorials" / "audio" / "fastmss" / "meetings.yaml"
     stage = FastMSSSimulationStage(
-        str(upstream),
-        str(tmp_path / "generated"),
+        output_dir=str(tmp_path / "generated"),
         overrides=["n_meetings=1", "duration=2", "hmm_params.p_ind=[0,1,0,0]"],
         timeout_seconds=60,
     )

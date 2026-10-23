@@ -1,123 +1,92 @@
 # FastMSS meeting simulation
 
-Generate multi-speaker training mixtures with an external
-[FastMSS checkout](https://github.com/popcornell/FastMSS) and ingest one Curator
-`AudioTask` per meeting. Use the resulting audio, reference text and RTTM for
-multi-speaker ASR and speaker diarization training workflows.
+Generate multi-speaker ASR and diarization training mixtures with the original
+[FastMSS](https://github.com/popcornell/FastMSS), included inside Curator.
+No separate FastMSS checkout or installation is required.
 
-## Prerequisites
+## Installation and attribution
 
-- An existing NeMo Curator audio environment on Linux.
-- A separately installed FastMSS checkout and its dependencies on every worker.
-- Aligned single-speaker source audio in a Lhotse CutSet. The example expects
-  `$FASTMSS_MANIFEST_DIR/source_train.jsonl.gz`, with at least two speakers.
-- Shared filesystem paths for configs, source audio, the checkout and outputs.
-
-FastMSS is not vendored or installed by Curator. The compatibility baseline is
-[upstream commit `81fc2c3e4b938cf73343f58df9e013bc106cb77a`](https://github.com/popcornell/FastMSS/tree/81fc2c3e4b938cf73343f58df9e013bc106cb77a),
-which includes the Apache-2.0 license. For a clean, reproducible checkout:
+Install the optional dependencies in an existing Linux Curator environment:
 
 ```bash
-git clone https://github.com/popcornell/FastMSS.git /absolute/path/to/FastMSS
-git -C /absolute/path/to/FastMSS checkout --detach 81fc2c3e4b938cf73343f58df9e013bc106cb77a
+pip install lhotse pyroomacoustics numpy scipy soundfile torchaudio tqdm urllib3
 ```
 
-Keep the upstream `LICENSE` and `NOTICE` with that checkout and use its
-`CITATION.cff` for attribution and research citation. Install the dependencies
-described upstream in the existing worker environment. The Curator adapter
-calls upstream's Hydra CLI and reads its recording-level NeMo manifest.
+The bundled implementation is an unmodified source snapshot of upstream commit
+[`81fc2c3e4b938cf73343f58df9e013bc106cb77a`](https://github.com/popcornell/FastMSS/tree/81fc2c3e4b938cf73343f58df9e013bc106cb77a),
+released under Apache-2.0. It includes the original simulator, turn-taking HMM,
+RIR generation, utilities, recipe, defaults, paper configurations and preprocessing
+scripts. Its `LICENSE`, `NOTICE`, `CITATION.cff` and original README are retained in
+`nemo_curator/_vendor/fastmss/`. `UPSTREAM.json` records the
+revision, omitted files and SHA-256 of every copied upstream file.
+
+Source code is copied without local FastMSS modifications. Demo media, the
+upstream Git ignore file and the two corpus annotation archives are omitted;
+provide any data needed by a selected recipe separately. Maintainer scripts and
+paper recipes are retained as upstream references, with their original paths.
+The runnable Curator example below uses prepared source speech and upstream defaults.
 
 ## Run a small simulation
 
-The example loads `recipes/default.yaml` from the external FastMSS checkout, so
-the paths and defaults remain owned by FastMSS. Activate your existing Curator
-environment, with FastMSS dependencies available in the worker Python, then run:
+Provide a Lhotse CutSet containing word-aligned single-speaker speech from at least
+two speakers at `$FASTMSS_MANIFEST_DIR/source_train.jsonl.gz`. Source audio,
+configs and output paths must be visible to all workers.
 
 ```bash
-export FASTMSS_ROOT=/absolute/path/to/FastMSS
 export FASTMSS_MANIFEST_DIR=/absolute/path/to/source/manifests
-
 python tutorials/audio/fastmss/main.py \
-  --fastmss-root "$FASTMSS_ROOT" \
   --config tutorials/audio/fastmss/meetings.yaml \
   --output-dir /shared/simulated-meetings/run-001 \
   --jobs-per-config 2
 ```
 
-The output directory must be new. The example requests two approximately
-10-second, two-speaker mixtures without noise or reverberation. FastMSS determines
-actual recording lengths from the sampled utterances, so durations need not be
-exactly 10 seconds. Source data must already be prepared; this example does not
-download a speech corpus or run forced alignment.
+Use a new output directory. The example requests two approximately 10-second,
+two-speaker mixtures without noise or reverberation. Actual lengths depend on
+sampled utterances. This example does not download speech or run alignment.
+The stage sets `FASTMSS_ROOT` for Hydra to find the bundled original defaults.
 
-Every invocation gets its own `fastmss-*` subdirectory containing generated
-audio, `rttm/`, `nemo_manifest.json` and `fastmss.log`. After the pipeline succeeds,
-the example writes `meetings.jsonl`, preserving FastMSS's manifest columns.
-`audio_filepath`, `duration`, `text` and `rttm_filepath` describe the entire
-meeting and its reference annotation. They do not describe isolated utterances:
-overlapping turns remain in the mixture, and meeting text alone does not retain
-speaker assignment. Use RTTM and aligned source annotations for that purpose.
+```python
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.audio.simulation import FastMSS
 
-## Configure and scale
-
-Repeat `--config` to schedule independent simulation shards. Each config uses
-`--jobs-per-config` Curator CPUs and the same number of FastMSS workers. Choose
-separate source/preprocessing directories for shards when changing FastMSS's
-`data_dir` or `rir_dir`; sharing writable caches between concurrent shards is
-not supported by this adapter. Heavy preprocessing, RIR generation and audio
-simulation remain inside FastMSS.
-
-Additional Hydra overrides can enable FastMSS features:
-
-```bash
-python tutorials/audio/fastmss/main.py \
-  --fastmss-root "$FASTMSS_ROOT" \
-  --config tutorials/audio/fastmss/meetings.yaml \
-  --output-dir /shared/simulated-meetings/run-002 \
-  --override n_meetings=20 \
-  --override reverberate=true \
-  --override n_rirs=10 \
-  --override save_spk=true \
-  --override save_anechoic=true
+pipeline = Pipeline(name="multi_speaker_training_data", stages=[
+    FastMSS(
+        config_paths=["/shared/configs/two-speaker.yaml"],
+        output_dir="/shared/simulated-meetings",
+        jobs_per_config=2,
+    )
+])
 ```
 
-The adapter owns `output_dir`, `n_jobs`, `stage`, `save_rttm`,
-`save_nemo_manifest`, `hydra.run.dir` and `hydra.job.chdir`. It always starts
-the recipe at stage 0 in a fresh output directory and requests recording-level
-NeMo manifests plus RTTM. It never appends worker results to a shared manifest.
-The example consolidates completed manifests on the driver.
+Repeat `--config` to distribute independent shards. Additional `--override`
+arguments configure original FastMSS options, such as `n_meetings=20`,
+`reverberate=true` and `save_spk=true`. Keep writable preprocessing/RIR caches
+separate between concurrent configs. An optional `--fastmss-root` can override
+the bundled source for advanced use; the default always uses this original snapshot.
 
-For a customized checkout, use `--script-path sim_im_masr.py` and provide its
-matching YAML configs. That script must honor the managed parameters, write
-`<output_dir>/nemo_manifest.json` with one row per full recording, and return a
-nonzero exit code on failure. Its dependencies must be installed separately;
-use `--python-executable /absolute/path/to/python` if necessary. Customized
-sampling, noise metadata and other extensions are not implemented by Curator.
+## Outputs and failure handling
 
-The recipe and YAML configs are executable, trusted inputs. Run only code and
-configs you control. No network downloads are added by the adapter; any external
-downloads or FFmpeg requirements depend on the chosen FastMSS recipe and inputs.
+Each invocation owns a fresh `fastmss-*` directory with audio, RTTM,
+`nemo_manifest.json` and `fastmss.log`. The pipeline emits one `AudioTask` per
+complete meeting. The example consolidates these rows into `meetings.jsonl`.
+`audio_filepath`, `duration`, `text` and `rttm_filepath` refer to the whole mixture.
+Overlapping speech stays in the waveform; meeting text alone does not encode
+speaker assignment. Additional upstream manifest columns are preserved.
 
-Failures retain partial output and logs and fail the task. A timeout terminates
-the child process group on Linux. Retrying starts a new directory, and Curator
-checkpoint resumption is disabled for the simulation stage. There is no promise
-of byte-identical regeneration or stable audio filenames across retries.
+The adapter manages `output_dir`, `n_jobs`, `stage`, `save_rttm`,
+`save_nemo_manifest`, `hydra.run.dir` and `hydra.job.chdir`. It runs the original
+recipe in a child process with a matching CPU reservation. Failures retain logs
+and partial outputs; Linux timeouts terminate the child process group. A retry
+starts a new directory. Generation does not support Curator checkpoint resumption.
 
-## Tests
+## Verification
 
 ```bash
 python -m pytest tests/stages/audio/simulation/test_fastmss.py -m 'not gpu' -q
 ```
 
-The default tests exercise the subprocess, filesystem, manifest reader and agent
-contracts using a small protocol fixture. To also run the real upstream engine:
-
-```bash
-FASTMSS_TEST_ROOT="$FASTMSS_ROOT" python -m pytest \
-  tests/stages/audio/simulation/test_fastmss.py -m 'not gpu' -q
-```
-
-The opt-in test uses the documented YAML, generates two aligned tone sources,
-runs FastMSS, then checks the resulting waveform, recording duration and both
-speakers in the RTTM. Tones are test inputs, not a training dataset; this verifies
-the integration and does not measure perceptual quality or model accuracy.
+Tests verify copied upstream file checksums and the adapter's process/manifest
+contract. With the simulation extra installed, a real bundled-engine test generates
+aligned tone sources and checks nonzero finite audio, sample rate, duration and
+both RTTM speakers. Tones test the integration; they are not training data or an
+acoustic-quality benchmark.

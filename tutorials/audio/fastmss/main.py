@@ -28,7 +28,7 @@ from nemo_curator.stages.audio.simulation import FastMSS
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--fastmss-root", required=True, help="External FastMSS checkout on every worker")
+    parser.add_argument("--fastmss-root", default=None, help="Optional override for the bundled original FastMSS")
     parser.add_argument("--config", required=True, action="append", help="FastMSS YAML; repeat for parallel shards")
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--script-path", default="recipes/sim.py")
@@ -43,7 +43,7 @@ def main() -> None:
     kwargs = {} if args.python_executable is None else {"python_executable": args.python_executable}
     stage = FastMSS(
         config_paths=[str(Path(config).expanduser().resolve()) for config in args.config],
-        fastmss_root=str(Path(args.fastmss_root).expanduser().resolve()),
+        fastmss_root=None if args.fastmss_root is None else str(Path(args.fastmss_root).expanduser().resolve()),
         output_dir=str(output_dir),
         script_path=args.script_path,
         jobs_per_config=args.jobs_per_config,

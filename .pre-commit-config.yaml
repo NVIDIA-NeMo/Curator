@@ -32,17 +32,21 @@ repos:
       - id: check-yaml
       - id: detect-private-key
       - id: end-of-file-fixer
-        exclude: docs/
+        exclude: 'docs/|^nemo_curator/_vendor/fastmss/'
       - id: requirements-txt-fixer
+        exclude: ^nemo_curator/_vendor/fastmss/
       - id: trailing-whitespace
+        exclude: ^nemo_curator/_vendor/fastmss/
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.14.10
     hooks:
       # Run the linter
       - id: ruff
+        exclude: ^nemo_curator/_vendor/fastmss/
         args: [--fix]  # Enables auto-fixing lint errors
       # Run the formatter
       - id: ruff-format
+        exclude: ^nemo_curator/_vendor/fastmss/
 
   - repo: https://github.com/astral-sh/uv-pre-commit
     # Use the latest version

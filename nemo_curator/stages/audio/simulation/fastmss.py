@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Run an external FastMSS checkout and ingest its recording-level manifests."""
+"""Run the bundled original FastMSS and ingest recording-level manifests."""
 
 import contextlib
 import json
@@ -52,14 +52,14 @@ class FastMSSSimulationStage(AgentReady, ProcessingStage[FileGroupTask, FileGrou
     RTTM, waveforms and optional per-speaker references stay in that run's
     directory. It does not emit one task per utterance or flatten overlaps.
 
-    FastMSS is an external dependency, installed separately in ``python_executable``.
-    No FastMSS implementation or datasets are bundled with this stage.
+    The original Apache-2.0 FastMSS implementation is bundled with Curator.
+    Install its optional simulation dependencies in ``python_executable`` as
+    described in the tutorial. Source speech and noise datasets are provided by users.
 
     Args:
-        fastmss_root: Local FastMSS checkout visible at the same path on every worker.
+        fastmss_root: Optional checkout override; defaults to Curator's bundled upstream snapshot.
         output_dir: Shared local filesystem directory for generated artifacts.
-        script_path: Python entry point relative to ``fastmss_root``. A customized
-            checkout may use ``sim_im_masr.py`` with the same Hydra/manifest protocol.
+        script_path: Python entry point relative to the selected FastMSS source root.
         python_executable: Worker Python with FastMSS and its dependencies installed.
         jobs_per_config: FastMSS child workers and reserved Curator CPUs per config.
         overrides: Additional Hydra overrides, for example ``duration=60``.
@@ -68,8 +68,8 @@ class FastMSSSimulationStage(AgentReady, ProcessingStage[FileGroupTask, FileGrou
         timeout_seconds: Maximum wall time for one config, including preprocessing.
     """
 
-    fastmss_root: str
     output_dir: str
+    fastmss_root: str | None = None
     script_path: str = "recipes/sim.py"
     python_executable: str = field(default_factory=lambda: sys.executable)
     jobs_per_config: int = 1
@@ -94,7 +94,12 @@ class FastMSSSimulationStage(AgentReady, ProcessingStage[FileGroupTask, FileGrou
             if not separator or key.startswith(("-", "~")) or key.lstrip("+") in _MANAGED_OVERRIDES:
                 msg = f"Unsupported or stage-managed FastMSS override: {override!r}"
                 raise ValueError(msg)
-        self.fastmss_root = str(Path(self.fastmss_root).expanduser().resolve())
+        root = (
+            Path(self.fastmss_root)
+            if self.fastmss_root is not None
+            else Path(__file__).parents[3] / "_vendor" / "fastmss"
+        )
+        self.fastmss_root = str(root.expanduser().resolve())
         self.output_dir = str(Path(self.output_dir).expanduser().resolve())
         root = Path(self.fastmss_root)
         if not (root / self.script_path).resolve().is_relative_to(root):
@@ -127,6 +132,7 @@ class FastMSSSimulationStage(AgentReady, ProcessingStage[FileGroupTask, FileGrou
             "hydra.job.chdir=false",
         ]
         env = os.environ.copy()
+        env["FASTMSS_ROOT"] = self.fastmss_root
         env["PYTHONPATH"] = os.pathsep.join(filter(None, (self.fastmss_root, env.get("PYTHONPATH"))))
         env["OMP_NUM_THREADS"] = "1"
         env["MKL_NUM_THREADS"] = "1"
@@ -202,13 +208,13 @@ class FastMSS(AgentReady, CompositeStage[EmptyTask, AudioTask]):
     and ``rttm_filepath`` points to generated diarization reference annotations.
     Additional manifest fields are preserved verbatim by ManifestReaderStage.
 
-    All paths, input speech and the external FastMSS environment must be visible
+    All paths, input speech and the Python environment must be visible
     on every executor node. Failed runs retain artifacts and logs for diagnosis;
     reruns create fresh output directories rather than resuming partial meetings.
 
     Args:
         config_paths: Local YAML files, directories or globs for independent shards.
-        fastmss_root: External FastMSS checkout on every worker.
+        fastmss_root: Optional checkout override; defaults to the bundled original FastMSS.
         output_dir: Shared output directory for mixtures, RTTM and manifests.
         script_path: Hydra Python entry point relative to the checkout.
         python_executable: Python with FastMSS dependencies installed on workers.
@@ -218,8 +224,8 @@ class FastMSS(AgentReady, CompositeStage[EmptyTask, AudioTask]):
     """
 
     config_paths: str | list[str]
-    fastmss_root: str
     output_dir: str
+    fastmss_root: str | None = None
     script_path: str = "recipes/sim.py"
     python_executable: str = field(default_factory=lambda: sys.executable)
     jobs_per_config: int = 1

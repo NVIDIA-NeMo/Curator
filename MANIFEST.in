@@ -1,2 +1,4 @@
 include LICENSE
+graft nemo_curator/_vendor/fastmss
+global-exclude *.py[cod]
 recursive-include nemo_curator *.csv *.json *.yaml *.yml *.txt *.md py.typed

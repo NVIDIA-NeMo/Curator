@@ -1,7 +1,7 @@
 # Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-# Resolve upstream's defaults from the external checkout rather than bundling them.
+# The stage sets FASTMSS_ROOT to the bundled original FastMSS source directory.
 defaults:
   - default
   - _self_

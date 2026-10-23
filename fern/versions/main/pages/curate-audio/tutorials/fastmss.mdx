@@ -1,5 +1,5 @@
 ---
-description: "Generate multi-speaker ASR and diarization training mixtures with an external FastMSS checkout."
+description: "Generate multi-speaker ASR and diarization training mixtures with the bundled original FastMSS."
 categories: ["audio-curation"]
 tags: ["tutorial", "simulation", "speaker-diarization", "asr"]
 personas: ["mle-focused"]
@@ -10,7 +10,7 @@ modality: "audio-only"
 
 # Multi-Speaker Simulation with FastMSS
 
-`FastMSS` runs the external [FastMSS toolkit](https://github.com/popcornell/FastMSS)
+`FastMSS` runs the bundled original [FastMSS toolkit](https://github.com/popcornell/FastMSS)
 from a Curator pipeline. It generates simulated meetings from prepared,
 word-aligned single-speaker speech and emits one `AudioTask` per complete meeting.
 Reference text, generated audio and RTTM support multi-speaker ASR and speaker
@@ -18,13 +18,13 @@ diarization training workflows.
 
 ## Requirements
 
-Use an existing Linux Curator audio environment and separately install the
-dependencies required by the FastMSS checkout on every executor node. Configs,
-source audio, checkout and output paths must be shared across nodes. Curator
-does not bundle or install FastMSS. The compatibility baseline is
-[FastMSS `81fc2c3`](https://github.com/popcornell/FastMSS/tree/81fc2c3e4b938cf73343f58df9e013bc106cb77a),
-released under Apache 2.0. Use that exact revision to reproduce the example and
-keep its upstream `LICENSE`, `NOTICE` and `CITATION.cff` with the checkout.
+Use an existing Linux Curator environment and install the optional simulation
+dependencies listed in the tutorial (including Lhotse and pyroomacoustics).
+The original FastMSS source is bundled inside Curator; no separate checkout is
+required. Source audio, configs and output paths must be shared across nodes.
+The bundled snapshot is [FastMSS `81fc2c3`](https://github.com/popcornell/FastMSS/tree/81fc2c3e4b938cf73343f58df9e013bc106cb77a),
+released under Apache-2.0. Original `LICENSE`, `NOTICE`, `CITATION.cff` and per-file
+checksums are retained with the source. Local FastMSS extensions are not included.
 
 ## Compose a pipeline
 
@@ -36,7 +36,6 @@ pipeline = Pipeline(name="multi_speaker_training_data")
 pipeline.add_stage(
     FastMSS(
         config_paths=["/shared/configs/two-speaker.yaml"],
-        fastmss_root="/shared/FastMSS",
         output_dir="/shared/generated-meetings",
         jobs_per_config=2,
         overrides=["n_meetings=20", "duration=60"],
