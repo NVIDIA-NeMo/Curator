@@ -96,6 +96,7 @@ Configure fuzzy deduplication using these key parameters:
 | `num_bands` | int | 20 | Number of LSH bands (affects similarity threshold) |
 | `minhashes_per_band` | int | 13 | Number of hashes per LSH band |
 | `bands_per_iteration` | int | 5 | Bands processed per iteration (memory tuning) |
+| `minhash_output_format` | str | "banded" | Cache one projected Parquet column per band. Set to `"raw"` to preserve the original list-valued MinHash signatures. |
 | `use_64_bit_hash` | bool | False | Use 64-bit hash (more memory, fewer collisions) |
 | `seed` | int | 42 | Random seed for MinHash permutations |
 | `input_filetype` | str | "parquet" | Input file format ("parquet" or "jsonl") |
@@ -214,7 +215,7 @@ The fuzzy deduplication process produces the following directory structure:
 
 ```s
 cache_path/
-├── MinHashStage/                    # MinHash signatures
+├── MinHashStage/                    # Banded or raw MinHash cache
 │   └── *.parquet
 ├── LSHStage/                        # LSH buckets
 │   └── *.parquet
