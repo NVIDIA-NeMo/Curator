@@ -108,6 +108,31 @@ def test_global_aggregation(tmp_path: Path, groupby: list[str]) -> None:
         assert all(metadata.row_group(i).num_rows <= 1 for i in range(metadata.num_row_groups))
 
 
+@pytest.mark.usefixtures("shared_ray_client")
+def test_idle_worker_metadata_and_projected_filter(tmp_path: Path) -> None:
+    from nemo_curator.backends.ray_actor_pool import RayActorPoolExecutor
+    from nemo_curator.pipeline import Pipeline
+    from nemo_curator.stages.deduplication.shuffle_utils.aggregation import GroupByAggregation
+
+    path = tmp_path / "input.parquet"
+    pq.write_table(pa.table({"key": ["a", "a", "b", "b"], "keep": [True, False, True, True]}), path)
+    stage = GroupByAggregation(
+        groupby=["key"],
+        aggregations={"rows": ("key", "size")},
+        output_path=str(tmp_path / "output"),
+        total_nparts=4,
+        read_kwargs={"filters": [("keep", "==", True)]},
+    ).with_(num_workers=2)
+    results = Pipeline(name="groupby", stages=[stage]).run(
+        RayActorPoolExecutor(), initial_tasks=[FileGroupTask(dataset_name="records", data=[str(path)])]
+    )
+    assert len(results) == 4
+    assert {task.dataset_name for task in results} == {"records_GroupByAggregation"}
+    table = pq.read_table([path for task in results for path in task.data])
+    assert table.column_names == ["key", "rows"]
+    assert sorted(table.to_pylist(), key=lambda row: row["key"]) == [{"key": "a", "rows": 1}, {"key": "b", "rows": 2}]
+
+
 def test_empty_and_null_records(tmp_path: Path) -> None:
     import cudf
 
