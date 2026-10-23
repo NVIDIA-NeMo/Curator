@@ -42,7 +42,10 @@ Container quirks handled here (and only here):
       streaming floor needs ~3.5 -> logical overcommit via RayClient(num_cpus=...)
   [3] the mount lacks POSIX rename; Curator writes completion manifests
       atomically (write + rename) -> checkpoint locally, then publish the
-      manifest JSONs to the shared mount with plain writes
+      manifest JSONs to the shared mount with plain writes. The shared
+      run.json is copied in first, so the pipeline's own shard-range check
+      still sees earlier runs, and is published even if the shard fails, so
+      retry_array.py can plan a retry when every shard fails.
 """
 
 import hashlib
@@ -117,13 +120,31 @@ def main() -> None:
         "--checkpoint-path",
         str(ckpt_local),
     ]
-    runpy.run_path(str(pipeline_file), run_name="__main__")
-
-    # [3 cont.] publish completion manifests to the shared mount (plain writes)
     src = ckpt_local / ".nemo_curator_metadata" / ".slurm_array_completion"
     dst = SHARE / "ckpt" / ".nemo_curator_metadata" / ".slurm_array_completion"
+
+    # [3 cont.] seed the local checkpoint with the shared run.json, so the pipeline
+    # rejects a shard range that differs from an earlier run on this bucket prefix
+    if (dst / "run.json").is_file():
+        src.mkdir(parents=True, exist_ok=True)
+        (src / "run.json").write_bytes((dst / "run.json").read_bytes())
+        print("[shim] seeded run.json from the shared checkpoint", flush=True)
+
+    try:
+        runpy.run_path(str(pipeline_file), run_name="__main__")
+    finally:
+        # [3 cont.] publish run.json even if the pipeline failed, so retry_array.py
+        # can plan a retry; never overwrite the shared copy
+        if (src / "run.json").is_file() and not (dst / "run.json").exists():
+            dst.mkdir(parents=True, exist_ok=True)
+            (dst / "run.json").write_bytes((src / "run.json").read_bytes())
+            print("[shim] published manifest run.json", flush=True)
+
+    # [3 cont.] publish completion manifests to the shared mount (plain writes)
     dst.mkdir(parents=True, exist_ok=True)
     for f in sorted(src.glob("*.json")):
+        if f.name == "run.json":
+            continue
         (dst / f.name).write_bytes(f.read_bytes())
         print(f"[shim] published manifest {f.name}", flush=True)
     print(f"SHIM_OK {shard}", flush=True)

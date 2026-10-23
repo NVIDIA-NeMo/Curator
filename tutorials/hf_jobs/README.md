@@ -71,8 +71,8 @@ Each Job prints its id on launch; follow logs with `hf jobs logs <JOB_ID>`. Expe
 [shim] shard 0/3 share=/mnt/tutorial
 [shim] fetched array_pipeline.py @ v1.4.0 sha256-verified
 ...
-[shim] published manifest completed_slurm_array_3800bd4ecff9e7f6.json
 [shim] published manifest run.json
+[shim] published manifest completed_slurm_array_3800bd4ecff9e7f6.json
 SHIM_OK 0
 ```
 
@@ -99,8 +99,10 @@ tutorial/
 hf jobs uv run --flavor cpu-basic -s HF_TOKEN \
     --with "nemo-curator==1.4.0" \
     -v hf://buckets/<user>/<bucket>:/mnt \
-    tutorials/slurm/retry_array.py --checkpoint-path /mnt/tutorial/ckpt --format fields
+    -- tutorials/slurm/retry_array.py --checkpoint-path /mnt/tutorial/ckpt --format fields
 ```
+
+(The `--` stops `hf` from reading the planner's `--format` flag as its own.)
 
 (On a Linux machine you can instead run the planner locally, exactly as in the Slurm tutorial: `hf buckets sync hf://buckets/<user>/<bucket>/tutorial/ckpt ./ckpt-mirror`, then `uv run --no-project --with "nemo-curator==1.4.0" python tutorials/slurm/retry_array.py --checkpoint-path ./ckpt-mirror --format fields`. NeMo Curator itself supports Linux only, so on macOS/Windows use the Job form above.)
 
@@ -121,7 +123,7 @@ Just as `submit_array.sh` absorbs Slurm quirks (task-ID arithmetic, `SHARD_INDEX
 
 1. **Work from local disk, not the mount.** The container starts with its working directory on the FUSE bucket mount; Ray's runtime-env packaging hashes the cwd and hangs there. The shim does `os.chdir` to a `/tmp` workdir before starting Ray.
 2. **CPU autodetection.** Ray detects the cgroup limit (1 CPU on `cpu-basic`), below the Xenna executor's streaming floor. The shim passes `RayClient(num_cpus=8)` as a logical overcommit (override with `HF_JOBS_RAY_NUM_CPUS`). Only needed on `cpu-basic` — on larger flavors (verified on `cpu-upgrade`) Ray's autodetected CPU count already clears the floor.
-3. **No POSIX rename on the mount.** Curator writes completion manifests atomically (write + rename), which bucket mounts reject. The shim checkpoints to local disk and publishes the manifest JSONs to the bucket with plain writes after the run.
+3. **No POSIX rename on the mount.** Curator writes completion manifests atomically (write + rename), which bucket mounts reject. The shim checkpoints to local disk and publishes the manifest JSONs to the bucket with plain writes after the run. Before the run it copies any existing `run.json` from the bucket into the local checkpoint, so the pipeline still rejects a shard count that differs from an earlier run on the same prefix. It publishes `run.json` even when the shard fails, so `retry_array.py` can plan a retry when every shard fails.
 
 ---
 
