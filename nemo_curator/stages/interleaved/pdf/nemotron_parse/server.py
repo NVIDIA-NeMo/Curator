@@ -79,7 +79,14 @@ def create_nemotron_parse_inference_server(  # noqa: PLR0913
         )
         server_config = DynamoServerConfig(
             request_plane="tcp",
-            router=DynamoRouterConfig(router_kwargs={"trust_remote_code": True}),
+            router=DynamoRouterConfig(
+                router_kwargs={
+                    "dyn_chat_processor": "vllm",
+                    "model_name": model_name or model_path,
+                    "model_path": model_path,
+                    "trust_remote_code": True,
+                }
+            ),
             subprocess_env={"DYN_TCP_REQUEST_TIMEOUT": str(int(request_timeout_s))},
         )
         return InferenceServer(

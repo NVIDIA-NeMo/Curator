@@ -69,6 +69,13 @@ def create_nemotron_parse_pdf_argparser() -> argparse.ArgumentParser:
         "utilization enforcement.",
     )
 
+    parser.add_argument("--parse-mode", choices=["single", "double", "triple"], default=None)
+    parser.add_argument("--triple-regions", choices=["union", "detector"], default="union")
+    parser.add_argument("--inference-server-endpoint", default=None, help="Use an existing OpenAI-compatible endpoint")
+    parser.add_argument("--inference-server-model-name", default=None, help="Model name exposed by that endpoint")
+    parser.add_argument("--client-num-workers", type=int, default=None, help="Number of HTTP client workers")
+    parser.add_argument("--executor", choices=["ray-data", "xenna"], default="ray-data")
+
     parser.add_argument("--file-name-field", default="file_name", help="JSONL field for single PDF filename")
     parser.add_argument(
         "--file-names-field", default="cc_pdf_file_names", help="JSONL field for list of PDF filenames"
@@ -113,6 +120,8 @@ def create_nemotron_parse_pdf_pipeline(
             max_tokens=args.max_tokens,
             text_in_pic=args.text_in_pic,
             enforce_eager=args.enforce_eager,
+            parse_mode=args.parse_mode,
+            triple_regions=args.triple_regions,
             min_crop_px=args.min_crop_size,
             dataset_name=args.dataset_name,
             file_name_field=args.file_name_field,
@@ -129,6 +138,7 @@ def create_nemotron_parse_pdf_pipeline(
         InterleavedParquetWriterStage(
             path=args.output_dir,
             materialize_on_write=False,
+            on_materialize_error="warn",
         )
     )
     return pipeline

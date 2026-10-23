@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import importlib.metadata
 import json
+import os
 import tempfile
 from functools import reduce
 from pathlib import Path
@@ -53,10 +54,13 @@ if TYPE_CHECKING:
 
 
 # Ray creates the actor venv outside the project directory, so reapply the
-# driver Ray pin and CUDA-13 NIXL exclusion through an override file.
+# driver Ray pin and CUDA-backend-specific constraints through an override file.
 _ACTOR_VENV_OVERRIDES_PATH = Path(tempfile.gettempdir()) / "nemo_curator_dynamo_actor_overrides.txt"
 _ACTOR_VENV_NIXL_CU13_EXCLUSION = "nixl-cu13 ; sys_platform == 'never'"
-_ACTOR_VENV_CUDA_TAG = "cu129"
+_ACTOR_VENV_CUDA_TAG = os.environ.get("NEMO_CURATOR_DYNAMO_CUDA_TAG", "cu129")
+if _ACTOR_VENV_CUDA_TAG not in {"cu129", "cu130"}:
+    msg = "NEMO_CURATOR_DYNAMO_CUDA_TAG must be 'cu129' or 'cu130'"
+    raise ValueError(msg)
 
 
 def _dynamo_runtime_packages() -> list[str]:
@@ -68,8 +72,8 @@ def _dynamo_runtime_packages() -> list[str]:
     return [f"ai-dynamo[vllm]=={installed_version}"]
 
 
-def _vllm_cu129_index_url() -> str | None:
-    """Return the CUDA 12.9 wheel index for Dynamo's pinned vLLM version."""
+def _vllm_index_url() -> str | None:
+    """Return the selected CUDA wheel index for Dynamo's pinned vLLM version."""
     try:
         requirements = importlib.metadata.requires("ai-dynamo") or []
     except importlib.metadata.PackageNotFoundError:
@@ -87,8 +91,8 @@ def _vllm_cu129_index_url() -> str | None:
     return None
 
 
-# The actor install must select CUDA 12.9 Torch and vLLM wheels even though
-# public PyPI also contains a wheel with the same base vLLM version.
+# The actor install must select the configured CUDA Torch and vLLM wheels even
+# though public PyPI also contains a wheel with the same base vLLM version.
 _ACTOR_VENV_UV_OPTIONS = [
     "--override",
     str(_ACTOR_VENV_OVERRIDES_PATH),
@@ -97,8 +101,8 @@ _ACTOR_VENV_UV_OPTIONS = [
     "--index-strategy",
     "unsafe-best-match",
 ]
-if _vllm_index_url := _vllm_cu129_index_url():
-    _ACTOR_VENV_UV_OPTIONS.extend(["--extra-index-url", _vllm_index_url])
+if _resolved_vllm_index_url := _vllm_index_url():
+    _ACTOR_VENV_UV_OPTIONS.extend(["--extra-index-url", _resolved_vllm_index_url])
 
 DYNAMO_VLLM_RUNTIME_ENV: dict[str, Any] = {
     "uv": {
@@ -118,9 +122,8 @@ def ensure_actor_overrides_on_all_nodes(*, ignore_head_node: bool = False) -> No
     """Write the actor-venv ``--override`` file at a fixed path on every alive node.
 
     The file pins ``ray=={ray.__version__}`` (read from the driver) so the
-    actor venv keeps the same ray patch as the cluster head — Ray rejects
-    any mismatch — and drops ``nixl-cu13`` so the cu12 NIXL backend is used
-    (see module comment on :data:`_ACTOR_VENV_OVERRIDES_PATH`).
+    actor venv keeps the same ray patch as the cluster head — Ray rejects any
+    mismatch. For the default cu129 backend it also drops ``nixl-cu13``; the cu130 backend retains that package.
 
     Must run inside an active Ray context, before any worker spawned with
     :data:`DYNAMO_VLLM_RUNTIME_ENV` lands. The runtime_env_agent on each
@@ -130,10 +133,13 @@ def ensure_actor_overrides_on_all_nodes(*, ignore_head_node: bool = False) -> No
     Re-call after cluster topology changes (autoscale, node restart) — this
     is one-shot and not auto-triggered.
     """
+    overrides = [f"ray=={ray.__version__}"]
+    if _ACTOR_VENV_CUDA_TAG != "cu130":
+        overrides.append(_ACTOR_VENV_NIXL_CU13_EXCLUSION)
     run_on_each_node(
         _write_actor_overrides_file,
         str(_ACTOR_VENV_OVERRIDES_PATH),
-        f"ray=={ray.__version__}\n{_ACTOR_VENV_NIXL_CU13_EXCLUSION}\n",
+        "\n".join(overrides) + "\n",
         ignore_head_node=ignore_head_node,
     )
 
