@@ -114,8 +114,11 @@ class HistogramFilter(DocumentFilter):
         Returns:
             float: Ratio of tokens included in the histogram.
         """
-        cnt = len([c for c in text.strip() if c in self._histogram])
-        return 1 if cnt / len(text) > self._threshold else 0
+        stripped = text.strip()
+        if not stripped:
+            return 0
+        cnt = len([c for c in stripped if c in self._histogram])
+        return 1 if cnt / len(stripped) > self._threshold else 0
 
     def keep_document(self, score: float) -> bool:
         return score == 1
