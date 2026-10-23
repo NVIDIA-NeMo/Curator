@@ -61,7 +61,9 @@ DEFINITION = re.compile(r"^[ \t]{0,3}\[([^\]\n]+)\]:[ \t]*", re.MULTILINE)
 SPACE = re.compile(r"\s*")
 BBCODE_IMAGE = re.compile(r"\[img\]([^\[\]]*)\[/img\]", re.IGNORECASE)
 TAG = re.compile(r"<(img|source)\b(?:[^\"'<>]|\"[^\"]*\"|'[^']*')*>", re.IGNORECASE)
-ATTR = re.compile(r"""([^\s=<>/]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([“”][^“”]*[“”]|[‘’][^‘’]*[‘’])|([^\s>]+))""")  # noqa: RUF001 - recognize typographic quotes without repairing URLs
+ATTR = re.compile(
+    r"""([^\s=<>/]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([\u201c\u201d][^\u201c\u201d]*[\u201c\u201d]|[\u2018\u2019][^\u2018\u2019]*[\u2018\u2019])|([^\s>]+))"""
+)
 SINGLE = {
     "src",
     "data-src",
@@ -122,69 +124,62 @@ def srcset_candidates(value: str) -> Iterator[tuple[str, str]]:
         i += 1
 
 
-def extract_image_references(text: str | None, page_url: str | None) -> tuple[list[dict[str, Any]], dict[str, Any]]:  # noqa: C901, PLR0912, PLR0915
-    """Extract supported image mentions, including code/escaped syntax, without I/O.
+def _normalize_label(value: str) -> str:
+    return " ".join(unescapeAll(value).split()).casefold()
 
-    Returns ordered occurrences and uncovered-syntax diagnostics. Offsets are
-    half-open Unicode codepoints into text. HTML offsets cover attributes;
-    srcset alternatives share that span and retain source_attribute_raw.
-    Ambiguous/unsupported destinations retain raw values with null URLs.
-    This is not exhaustive discovery of CSS, JavaScript or arbitrary bare URLs.
-    """
-    text = text or ""
-    rows, covered = [], set()
 
-    def add(  # noqa: PLR0913
-        raw: str,
-        kind: str,
-        start: int,
-        end: int,
-        *,
-        descriptor: str | None = None,
-        review_status: str | None = None,
-        decoded: str | None = None,
-        source_attribute_raw: str | None = None,
-    ) -> None:
-        if decoded is None:
-            decoded = unescapeAll(raw) if kind.startswith("markdown") else html.unescape(raw)
-        url, status = _resolve_url(decoded, page_url)
-        candidate_url = None
-        if review_status:
-            if review_status == "ambiguous_typographic_quotes":
-                candidate_url, _ = _resolve_url(html.unescape(raw[1:-1]), page_url)
-            elif review_status == "ambiguous_media_source":
-                candidate_url = url
-            url, status = None, review_status
-        elif "<" in decoded or ">" in decoded:
-            url, status = None, "invalid_destination_markup"
-        rows.append(
-            {
-                "raw": raw,
-                "url": url,
-                "status": status,
-                "kind": kind,
-                "start": start,
-                "end": end,
-                "descriptor": descriptor,
-                "candidate_url": candidate_url,
-            }
-        )
-        if source_attribute_raw is not None:
-            rows[-1]["source_attribute_raw"] = source_attribute_raw
+def _reference(raw: str, kind: str, span: tuple[int, int]) -> dict[str, Any]:
+    return {"raw": raw, "kind": kind, "start": span[0], "end": span[1]}
 
+
+def _resolve_reference(row: dict[str, Any], page_url: str | None) -> None:
+    raw, kind = row["raw"], row["kind"]
+    decoded = row.pop("decoded", None)
+    if decoded is None:
+        decoded = unescapeAll(raw) if kind.startswith("markdown") else html.unescape(raw)
+    url, status = _resolve_url(decoded, page_url)
+    candidate_url = None
+    review_status = row.pop("review_status", None)
+    if review_status:
+        if review_status == "ambiguous_typographic_quotes":
+            candidate_url, _ = _resolve_url(html.unescape(raw[1:-1]), page_url)
+        elif review_status == "ambiguous_media_source":
+            candidate_url = url
+        url, status = None, review_status
+    elif "<" in decoded or ">" in decoded:
+        url, status = None, "invalid_destination_markup"
+    row.update(url=url, status=status, candidate_url=candidate_url)
+    row.setdefault("descriptor", None)
+
+
+def _inline_destination(text: str, pos: int) -> tuple[str, int] | None:
+    dest_start = SPACE.match(text, pos + 1).end()
+    dest = parseLinkDestination(text, dest_start, len(text))
+    if not dest.ok and text[dest_start : dest_start + 1] != ")":
+        return None
+    dest_end = dest.pos if dest.ok else dest_start
+    end = SPACE.match(text, dest_end).end()
+    if end > dest_end and text[end : end + 1] != ")":
+        title = parseLinkTitle(text, end, len(text))
+        if not title.ok:
+            return None
+        end = SPACE.match(text, title.pos).end()
+    if text[end : end + 1] != ")":
+        return None
+    raw = text[dest_start:dest_end]
+    return (raw[1:-1] if raw.startswith("<") else raw), end + 1
+
+
+def _markdown_references(text: str) -> tuple[list[dict[str, Any]], dict[str, int]]:
     definitions = {}
-
-    def normalize(value: str) -> str:
-        return " ".join(unescapeAll(value).split()).casefold()
-
     for match in DEFINITION.finditer(text):
         dest = parseLinkDestination(text, match.end(), len(text))
         if dest.ok:
             raw = text[match.end() : dest.pos]
-            definitions.setdefault(normalize(match[1]), raw[1:-1] if raw.startswith("<") else raw)
-
+            definitions.setdefault(_normalize_label(match[1]), raw[1:-1] if raw.startswith("<") else raw)
     state = StateInline(text, LABEL_PARSER, {}, [])
     marker_starts = {m.start() for m in re.finditer(r"!\[", text)}
+    rows = []
     unresolved = 0
     for start in sorted(marker_starts):
         label_end = parseLinkLabel(state, start + 1)
@@ -192,40 +187,29 @@ def extract_image_references(text: str | None, page_url: str | None) -> tuple[li
             continue
         pos = label_end + 1
         if text[pos : pos + 1] == "(":
-            dest_start = SPACE.match(text, pos + 1).end()
-            dest = parseLinkDestination(text, dest_start, len(text))
-            if not dest.ok and text[dest_start : dest_start + 1] != ")":
-                continue
-            dest_end = dest.pos if dest.ok else dest_start
-            end = SPACE.match(text, dest_end).end()
-            if end > dest_end and text[end : end + 1] != ")":
-                title = parseLinkTitle(text, end, len(text))
-                if not title.ok:
-                    continue
-                end = SPACE.match(text, title.pos).end()
-            if text[end : end + 1] != ")":
-                continue
-            raw = text[dest_start:dest_end]
-            add(raw[1:-1] if raw.startswith("<") else raw, "markdown_inline", start, end + 1)
-        else:
-            label = text[start + 2 : label_end]
-            if text[pos : pos + 1] == "[":
-                ref_end = parseLinkLabel(state, pos)
-                if ref_end >= 0:
-                    label = text[pos + 1 : ref_end] or label
-                    pos = ref_end + 1
-            label = normalize(label)
-            if label not in definitions:
-                unresolved += 1
-                continue
-            add(definitions[label], "markdown_reference", start, pos)
-        covered.add(start)
-    attribute_counts = Counter()
-    bbcode_starts = set()
-    for match in BBCODE_IMAGE.finditer(text):
-        # BBCode destinations are literal: do not apply Markdown/HTML unescaping.
-        add(match[1], "bbcode_img", *match.span(), decoded=match[1])
-        bbcode_starts.add(match.start())
+            destination = _inline_destination(text, pos)
+            if destination is not None:
+                raw, end = destination
+                rows.append(_reference(raw, "markdown_inline", (start, end)))
+            continue
+        label = text[start + 2 : label_end]
+        if text[pos : pos + 1] == "[":
+            ref_end = parseLinkLabel(state, pos)
+            if ref_end >= 0:
+                label = text[pos + 1 : ref_end] or label
+                pos = ref_end + 1
+        label = _normalize_label(label)
+        if label not in definitions:
+            unresolved += 1
+            continue
+        rows.append(_reference(definitions[label], "markdown_reference", (start, pos)))
+    return rows, {
+        "uncovered_markers": len(marker_starts) - len(rows),
+        "unresolved_reference_usages": unresolved,
+    }
+
+
+def _html_tags(text: str) -> tuple[list[tuple[str, str, int]], set[int], dict[str, int]]:
     tags = [(m[1].lower(), m[0], m.start()) for m in TAG.finditer(text)]
     matched_starts = {start for _, _, start in tags}
     tag_starts = {m.start() for m in re.finditer(r"<(?:img|source)\b", text, re.IGNORECASE)}
@@ -237,13 +221,37 @@ def extract_image_references(text: str | None, page_url: str | None) -> tuple[li
             parser.feed(text)
             parser.close()
         except (AssertionError, ValueError):
-            # Preserve successful mentions and flag the source row for retry.
+            # Preserve successful mentions and count fallback failures.
             fallback_errors = 1
         for tag in parser.tags:
             if tag[2] not in matched_starts:
                 tags.append(tag)
                 fallback_starts.add(tag[2])
                 matched_starts.add(tag[2])
+    return (
+        tags,
+        fallback_starts,
+        {
+            "uncovered_html_tags": len(tag_starts - matched_starts),
+            "html_fallback_errors": fallback_errors,
+        },
+    )
+
+
+def _html_review_status(tag_name: str, declared_type: str, attr: re.Match) -> str | None:
+    if tag_name == "source" and declared_type.startswith(("video/", "audio/")):
+        return "excluded_non_image_media"
+    if attr[4] is not None:
+        return "ambiguous_typographic_quotes"
+    if tag_name == "source" and attr[1].lower() in SINGLE and not declared_type.startswith("image/"):
+        return "ambiguous_media_source"
+    return None
+
+
+def _html_references(text: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    tags, fallback_starts, diagnostics = _html_tags(text)
+    rows = []
+    attribute_counts = Counter()
     for tag_name, markup, tag_start in tags:
         first_row = len(rows)
         attributes = list(ATTR.finditer(markup))
@@ -260,46 +268,56 @@ def extract_image_references(text: str | None, page_url: str | None) -> tuple[li
             value = next(v for v in attr.groups()[1:] if v is not None)
             attribute_counts[name] += 1
             kind = "html_" + tag_name + "." + name
-            review_status = None
-            if tag_name == "source" and declared_type.startswith(("video/", "audio/")):
-                review_status = "excluded_non_image_media"
-            elif attr[4] is not None:
-                review_status = "ambiguous_typographic_quotes"
-            elif tag_name == "source" and name in SINGLE and not declared_type.startswith("image/"):
-                review_status = "ambiguous_media_source"
-            if name in SINGLE:
-                add(value, kind, tag_start + attr.start(), tag_start + attr.end(), review_status=review_status)
+            review_status = _html_review_status(tag_name, declared_type, attr)
+            span = (tag_start + attr.start(), tag_start + attr.end())
+            if name in SINGLE or (name in SETS and review_status):
+                rows.append({**_reference(value, kind, span), "review_status": review_status})
             elif name in SETS:
-                if review_status:
-                    add(value, kind, tag_start + attr.start(), tag_start + attr.end(), review_status=review_status)
-                    continue
                 for url, descriptor in srcset_candidates(html.unescape(value)):
-                    # Tokenization follows one HTML decode; retain the original
-                    # attribute and apply the same URL checks as other sources.
-                    add(
-                        url,
-                        kind,
-                        tag_start + attr.start(),
-                        tag_start + attr.end(),
-                        descriptor=descriptor,
-                        decoded=url,
-                        source_attribute_raw=value,
+                    # Decode once; each alternative retains the original attribute.
+                    rows.append(
+                        {
+                            **_reference(url, kind, span),
+                            "descriptor": descriptor,
+                            "decoded": url,
+                            "source_attribute_raw": value,
+                        }
                     )
         if tag_start in fallback_starts:
             for row in rows[first_row:]:
                 row["extraction_method"] = "html_parser_fallback"
                 row["source_tag_start"] = tag_start
+    return rows, {**diagnostics, "html_attribute_counts": attribute_counts}
+
+
+def extract_image_references(text: str | None, page_url: str | None) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Extract supported image mentions, including code/escaped syntax, without I/O.
+
+    Returns ordered occurrences and uncovered-syntax diagnostics. Offsets are
+    half-open Unicode codepoints into text. HTML offsets cover attributes;
+    srcset alternatives share that span and retain source_attribute_raw.
+    Ambiguous/unsupported destinations retain raw values with null URLs.
+    This is not exhaustive discovery of CSS, JavaScript or arbitrary bare URLs.
+    """
+    text = text or ""
+    rows, diagnostics = _markdown_references(text)
+    bbcode_starts = set()
+    for match in BBCODE_IMAGE.finditer(text):
+        # BBCode destinations are literal: do not apply Markdown/HTML unescaping.
+        rows.append({**_reference(match[1], "bbcode_img", match.span()), "decoded": match[1]})
+        bbcode_starts.add(match.start())
+    html_rows, html_diagnostics = _html_references(text)
+    rows.extend(html_rows)
+    for row in rows:
+        _resolve_reference(row, page_url)
     rows.sort(key=lambda row: (row["start"], row["end"]))
     return rows, {
-        "uncovered_markers": len(marker_starts - covered),
-        "unresolved_reference_usages": unresolved,
-        "uncovered_html_tags": len(tag_starts - matched_starts),
-        "html_fallback_errors": fallback_errors,
+        **diagnostics,
+        **html_diagnostics,
         "uncovered_bbcode_images": sum(
             m.start() not in bbcode_starts for m in re.finditer(r"\[img\]", text, re.IGNORECASE)
         ),
         "review_candidates": sum(r["status"].startswith(("ambiguous_", "invalid_destination_")) for r in rows),
-        "html_attribute_counts": attribute_counts,
     }
 
 
@@ -323,30 +341,16 @@ _REFERENCE_TYPE = pa.list_(
         ]
     )
 )
-_DIAGNOSTICS_TYPE = pa.struct(
-    [
-        *(
-            (name, pa.int64())
-            for name in (
-                "uncovered_markers",
-                "unresolved_reference_usages",
-                "uncovered_html_tags",
-                "html_fallback_errors",
-                "uncovered_bbcode_images",
-                "review_candidates",
-            )
-        ),
-        ("html_attribute_counts", pa.map_(pa.string(), pa.int64())),
-    ]
-)
 
 
 @dataclass
 class ImageReferenceExtractor(ProcessingStage[DocumentBatch, DocumentBatch]):
     """Prepare image references from Markdown/HTML for interleaved ingestion.
 
-    Adds ``image_references`` (list of structs) and
-    ``image_reference_diagnostics`` (struct), compatible with ParquetWriter.
+    Adds ``image_references`` (list of structs), compatible with ParquetWriter.
+    Batch diagnostic totals are stored in
+    ``_metadata["image_reference_diagnostics"]``, not in the output table.
+    Collect task metadata separately to persist a coverage report.
     All input columns are retained, including caller-supplied source file/row
     IDs. The stage does not infer physical Parquet offsets or deduplicate URLs.
     Input and output remain DocumentBatch; this stage does not construct
@@ -371,21 +375,29 @@ class ImageReferenceExtractor(ProcessingStage[DocumentBatch, DocumentBatch]):
         return ["data"], [self.text_field, self.url_field]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], ["image_references", "image_reference_diagnostics"]
+        return ["data"], ["image_references"]
 
     def process(self, batch: DocumentBatch) -> DocumentBatch:
         table = batch.to_pyarrow()
         if set(self.outputs()[1]) & set(table.column_names):
             msg = "Image reference output columns already exist; refusing to overwrite them"
             raise ValueError(msg)
-        references, diagnostics = [], []
+        references = []
+        diagnostics, attribute_counts = Counter(), Counter()
         for text, url in zip(table[self.text_field].to_pylist(), table[self.url_field].to_pylist(), strict=True):
             if (text is not None and not isinstance(text, str)) or (url is not None and not isinstance(url, str)):
                 msg = "ImageReferenceExtractor expects string or null text and page URLs"
                 raise TypeError(msg)
             rows, flags = extract_image_references(text, url)
             references.append(rows)
-            diagnostics.append(flags)
+            attribute_counts.update(flags.pop("html_attribute_counts"))
+            diagnostics.update(flags)
         table = table.append_column("image_references", pa.array(references, type=_REFERENCE_TYPE))
-        table = table.append_column("image_reference_diagnostics", pa.array(diagnostics, type=_DIAGNOSTICS_TYPE))
-        return replace(batch, data=table)
+        return replace(
+            batch,
+            data=table,
+            _metadata={
+                **batch._metadata,
+                "image_reference_diagnostics": {**diagnostics, "html_attribute_counts": dict(attribute_counts)},
+            },
+        )

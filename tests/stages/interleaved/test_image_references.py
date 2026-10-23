@@ -151,7 +151,9 @@ def test_stage_parquet_roundtrip(tmp_path: Path, as_arrow: bool):
     assert result.data.select(before.column_names).equals(before)
     assert batch.get_columns() == before.column_names
     assert result.dataset_name == batch.dataset_name
-    assert result._metadata == batch._metadata
+    assert "image_reference_diagnostics" not in batch._metadata
+    assert {k: result._metadata[k] for k in batch._metadata} == batch._metadata
+    assert result.data.column_names == [*before.column_names, "image_references"]
     refs = result.data["image_references"].to_pylist()
     assert [len(r) for r in refs] == [2, 0, 0]
     assert refs[0][0]["url"] == refs[0][1]["url"] == "https://example.test/a.jpg"
@@ -159,9 +161,9 @@ def test_stage_parquet_roundtrip(tmp_path: Path, as_arrow: bool):
     assert refs[0][0]["start"] != refs[0][1]["start"]
     writer = ParquetWriter(path=str(tmp_path / "out"))
     writer.setup()
-    output = tmp_path / "out.parquet"
-    writer.write_data(result, str(output))
-    assert pq.read_table(output).equals(result.data)
+    written = writer.process(result)
+    assert written._metadata["image_reference_diagnostics"] == result._metadata["image_reference_diagnostics"]
+    assert pq.read_table(written.data[0]).equals(result.data)
 
 
 @pytest.mark.parametrize("texts", [[], [None], ["no images"]])
@@ -184,3 +186,25 @@ def test_custom_fields_and_invalid_input():
         stage.process(output)
     with pytest.raises(TypeError, match="expects string or null"):
         stage.process(DocumentBatch(dataset_name="test", data=pa.table({"markdown": [123], "page_url": [None]})))
+
+
+def test_batch_diagnostics():
+    batch = DocumentBatch(
+        dataset_name="test",
+        data=pa.table(
+            {
+                "text": ['![x][missing] <img src="a.jpg">', '![y][missing] <img src="b.jpg">'],
+                "url": ["https://example.test/page"] * 2,
+            }
+        ),
+        _metadata={"source_files": ["input.parquet"]},
+    )
+    stage = ImageReferenceExtractor()
+    result = stage.process(batch)
+    diagnostics = result._metadata["image_reference_diagnostics"]
+    assert diagnostics["uncovered_markers"] == 2
+    assert diagnostics["unresolved_reference_usages"] == 2
+    assert diagnostics["html_attribute_counts"] == {"src": 2}
+    assert batch._metadata == {"source_files": ["input.parquet"]}
+    empty = DocumentBatch(dataset_name="test", data=batch.data.slice(0, 0))
+    assert stage.process(empty)._metadata["image_reference_diagnostics"] == {"html_attribute_counts": {}}
