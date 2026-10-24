@@ -268,23 +268,18 @@ class NvVideoDecoder:
         for packet in self.nvDemux:
             list_frames = self.nvDec.Decode(packet)
             for decoded_frame in list_frames:
-                # TODO: Remove the use of nvcv_image. It's deprecated
-                cvcuda_tensor = cvcuda.as_tensor(cvcuda.as_image(decoded_frame.nvcv_image(), cvcuda.Format.U8))
-                if cvcuda_tensor.layout == "NCHW":
-                    nchw_shape = cvcuda_tensor.shape
-                    nhwc_shape = (nchw_shape[0], nchw_shape[2], nchw_shape[3], nchw_shape[1])
-                    torch_nhwc = torch.empty(
-                        nhwc_shape,
-                        dtype=torch.uint8,
-                        device=f"cuda:{self.device_id}",
-                    )
-                    cvcuda_nhwc = cvcuda.as_tensor(torch_nhwc.cuda(self.device_id), "NHWC")
-                    cvcuda.reformat_into(cvcuda_nhwc, cvcuda_tensor, stream=self.cvcuda_stream)
-                    # Push the decoded frame with the reformatted frame to keep it alive.
-                    self.input_frame_list.put(torch_nhwc)
-                else:
-                    error_msg = "Unexpected tensor layout, NCHW expected."
-                    raise ValueError(error_msg)
+                cvcuda_tensor = cvcuda.as_tensor(decoded_frame, "NCHW")
+                nchw_shape = cvcuda_tensor.shape
+                nhwc_shape = (nchw_shape[0], nchw_shape[2], nchw_shape[3], nchw_shape[1])
+                torch_nhwc = torch.empty(
+                    nhwc_shape,
+                    dtype=torch.uint8,
+                    device=f"cuda:{self.device_id}",
+                )
+                cvcuda_nhwc = cvcuda.as_tensor(torch_nhwc.cuda(self.device_id), "NHWC")
+                cvcuda.reformat_into(cvcuda_nhwc, cvcuda_tensor, stream=self.cvcuda_stream)
+                # Push the decoded frame with the reformatted frame to keep it alive.
+                self.input_frame_list.put(torch_nhwc)
 
                 self.local_frame_index = self.local_frame_index + 1
                 self.decoded_frame_cnt = self.decoded_frame_cnt + 1

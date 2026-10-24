@@ -667,16 +667,11 @@ class TestNvVideoDecoder:
         # Mock packet and decoded frame
         mock_packet = Mock()
         mock_decoded_frame = Mock()
-        mock_decoded_frame.nvcv_image.return_value = Mock()
-
         # Mock tensor operations
         mock_cvcuda_tensor = Mock()
         mock_cvcuda_tensor.layout = "NCHW"
         mock_cvcuda_tensor.shape = (1, 3, 480, 640)  # NCHW format
         mock_cvcuda.as_tensor.return_value = mock_cvcuda_tensor
-        mock_cvcuda.as_image.return_value = Mock()
-        mock_cvcuda.Format.U8 = Mock()
-
         # Mock torch tensor
         mock_torch_nhwc = Mock()
         mock_torch.empty.return_value = mock_torch_nhwc
@@ -686,6 +681,8 @@ class TestNvVideoDecoder:
 
         # Setup side effect for as_tensor to return different mocks
         def as_tensor_side_effect(*args: Any, **_kwargs: Any) -> Any:
+            if args[0] is mock_decoded_frame:
+                return mock_cvcuda_tensor
             if len(args) == 2 and isinstance(args[1], str):
                 return mock_cvcuda_nhwc
             return mock_cvcuda_tensor
@@ -717,51 +714,6 @@ class TestNvVideoDecoder:
     @patch("nemo_curator.utils.nvcodec_utils.Nvc")
     @patch("nemo_curator.utils.nvcodec_utils.torch")
     @patch("nemo_curator.utils.nvcodec_utils.cvcuda")
-    def test_generate_decoded_frames_unexpected_layout(
-        self, mock_cvcuda: Any, _mock_torch: Any, mock_nvc: Any
-    ) -> None:
-        """Test generate_decoded_frames with unexpected tensor layout."""
-        # Setup mocks
-        mock_demux = Mock()
-        mock_demux.Width.return_value = 640
-        mock_demux.Height.return_value = 480
-        mock_demux.GetNvCodecId.return_value = "H264"
-        mock_nvc.PyNvDemuxer.return_value = mock_demux
-
-        mock_decoder = Mock()
-        mock_decoder.GetPixelFormat.return_value = "NV12"
-        mock_nvc.CreateDecoder.return_value = mock_decoder
-
-        # Mock packet and decoded frame
-        mock_packet = Mock()
-        mock_decoded_frame = Mock()
-        mock_decoded_frame.nvcv_image.return_value = Mock()
-
-        # Mock tensor with unexpected layout
-        mock_cvcuda_tensor = Mock()
-        mock_cvcuda_tensor.layout = "NHWC"  # Unexpected layout - should be NCHW
-        mock_cvcuda.as_tensor.return_value = mock_cvcuda_tensor
-        mock_cvcuda.as_image.return_value = Mock()
-        mock_cvcuda.Format.U8 = Mock()
-
-        # Mock demux iteration
-        mock_demux.__iter__ = Mock(return_value=iter([mock_packet]))
-        mock_decoder.Decode.return_value = [mock_decoded_frame]
-
-        decoder = NvVideoDecoder(
-            enc_file="test_video.mp4",
-            device_id=self.device_id,
-            batch_size=self.batch_size,
-            cuda_ctx=self.mock_cuda_ctx,
-            cvcuda_stream=self.mock_cvcuda_stream,
-        )
-
-        with pytest.raises(ValueError, match="Unexpected tensor layout, NCHW expected"):
-            decoder.generate_decoded_frames()
-
-    @patch("nemo_curator.utils.nvcodec_utils.Nvc")
-    @patch("nemo_curator.utils.nvcodec_utils.torch")
-    @patch("nemo_curator.utils.nvcodec_utils.cvcuda")
     def test_generate_decoded_frames_partial_batch(self, mock_cvcuda: Any, mock_torch: Any, mock_nvc: Any) -> None:
         """Test generate_decoded_frames with partial batch (less frames than batch_size)."""
         # Setup mocks
@@ -780,7 +732,6 @@ class TestNvVideoDecoder:
         mock_frames = []
         for _ in range(2):  # Only 2 frames, less than batch_size of 4
             frame = Mock()
-            frame.nvcv_image.return_value = Mock()
             mock_frames.append(frame)
 
         # Mock tensor operations
@@ -788,15 +739,14 @@ class TestNvVideoDecoder:
         mock_cvcuda_tensor.layout = "NCHW"
         mock_cvcuda_tensor.shape = (1, 3, 480, 640)
         mock_cvcuda.as_tensor.return_value = mock_cvcuda_tensor
-        mock_cvcuda.as_image.return_value = Mock()
-        mock_cvcuda.Format.U8 = Mock()
-
         mock_torch_nhwc = Mock()
         mock_torch.empty.return_value = mock_torch_nhwc
         mock_cvcuda_nhwc = Mock()
 
         # Setup side effect for as_tensor to return different mocks
         def as_tensor_side_effect(*args: Any, **_kwargs: Any) -> Any:
+            if any(args[0] is frame for frame in mock_frames):
+                return mock_cvcuda_tensor
             if len(args) == 2 and isinstance(args[1], str):
                 return mock_cvcuda_nhwc
             return mock_cvcuda_tensor
