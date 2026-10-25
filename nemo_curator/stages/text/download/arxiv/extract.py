@@ -86,7 +86,7 @@ class ArxivExtractor(DocumentExtractor):
 
         @return: cleaned tex file as a string
         """
-        # find the first occurence of a \section-like header and replace everything
+        # find the first occurrence of a \section-like header and replace everything
         # before it with an empty string. This matches the following pattern:
         #   \<section-type>[optional-args]{name}
         pattern = r"^(.*?)("
@@ -120,7 +120,7 @@ class ArxivExtractor(DocumentExtractor):
             flags=re.MULTILINE,
         )
 
-        # remove all in comments within a line
+        # remove all inline comments within a line
         file_content = re.sub(
             # pattern matches a "%" that is not preceded by a backslash (=comment)
             pattern=r"[^\\]%.+$",
@@ -129,7 +129,7 @@ class ArxivExtractor(DocumentExtractor):
             flags=re.MULTILINE,
         )
 
-        # find the first occurence of either \appendix or \bibliography and
+        # find the first occurrence of either \appendix or \bibliography and
         # replace everything after it with an empty string
         pattern = r"("
         pattern += r"\\appendix|"
