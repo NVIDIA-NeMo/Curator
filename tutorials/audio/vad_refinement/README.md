@@ -251,31 +251,108 @@ Each segment audit records:
 
 Generated audits contain local filesystem paths. Review or redact them before publication.
 
-## Filter by frame agreement
+## Optional annotation diagnostics and filtering
 
-`python -m tutorials.audio.vad_refinement.filter_segments_by_vad_agreement` compares the refined TextGrid with raw or processed Silero and Sortformer
-states at fixed-width frame centers:
+Refinement, diagnostics and filtering are separate steps. The main launcher
+performs refinement and optional SegLST generation; it does not run the agreement
+tool or exclude rows based on agreement scores.
 
-- good frame: at least one detector agrees with the refined TextGrid;
-- bad frame: both detectors disagree with the refined TextGrid;
-- `bad_ratio = bad_frames / total_frames`.
+| Mode | How to request it | Result |
+| --- | --- | --- |
+| Refinement only | Run the refinement launcher/module | Refined annotations and audit files; no agreement-based selection. |
+| Diagnostics without filtering | Run the agreement module without `--max-bad-ratio` | Reports for inspection; no filtered manifest is written. |
+| Optional filtering | Explicitly supply `--max-bad-ratio` | The same diagnostic reports plus a separate selected manifest. |
 
-Example:
+### Inspect annotation problems without excluding data
+
+Start with a diagnostic-only run. This reads the existing TextGrids and detector
+intervals from the audit; it does not rerun neural inference or require a cluster.
 
 ```bash
 python -m tutorials.audio.vad_refinement.filter_segments_by_vad_agreement \
-  --manifest /path/to/output/meeting-001/manifest_vad_refined.jsonl \
-  --output-dir /path/to/agreement-report \
-  --frame-duration 0.01 \
-  --reference-source refined \
-  --vad-variant raw \
+  --manifest /data/refined/meeting-001/manifest_vad_refined.jsonl \
+  --output-dir /data/annotation-diagnostics \
+  --frame-duration 0.01 --reference-source refined --vad-variant raw
+```
+
+No threshold is set by default. This command leaves the source manifest, audio
+and TextGrids intact and does not create `filtered_manifests/`. It writes:
+
+- `segment_frame_agreement.jsonl`: per-segment scores, file paths, session/speaker
+  IDs, segment IDs, offsets, durations and available transcript text;
+- `frame_agreement_summary.json`: scored/skipped counts, pooled statistics,
+  per-language statistics and the source-manifest/audit paths; and
+- `bad_ratio_distribution.csv`: a histogram of the per-segment disagreement
+  ratios, with quantiles also recorded in the summary.
+
+The tool compares speech/silence states at frame centers. A frame is bad only
+when **both** Silero and Sortformer disagree with the selected TextGrid.
+`bad_ratio = bad_frames / total_frames`; agreement with either detector makes
+the frame good under this definition.
+
+### What the diagnostics can highlight
+
+These signals help prioritize potentially incorrect annotations and problematic
+files for review. They indicate disagreement, not a confirmed annotation error.
+
+| Signal | Potential annotation or file problem | Other explanations to check |
+| --- | --- | --- |
+| High `both_miss_speech_frames` | TextGrid marks speech where the audio may contain silence; word spans may extend too far, or the alignment may be shifted. | Quiet/degraded speech or speech missed by both detectors. |
+| High `both_false_alarm_frames` | Both detectors find speech outside the annotated speech spans; words or speech regions may be missing or truncated. | Background speakers, vocalizations, noise or shared detector false alarms. |
+| Many high-`bad_ratio` segments in one `audio_filepath` | A file may have the wrong annotation/audio pairing, channel, segment offset or broadly misaligned boundaries. | Recording-specific acoustic difficulty, language/domain mismatch or detector calibration. |
+| `skipped_reference_unavailable` with a reason | A TextGrid/audit may be missing, unreadable or incompatible with the row's speaker/reference fields. | An incomplete run or an incorrect file path/configuration. |
+
+Use `--reference-source mfa` to inspect the original MFA annotation and
+`--reference-source refined` to inspect the refinement output. Keep the detector
+variant and frame duration fixed when comparing them. Original MFA words remain
+protected during refinement, so diagnostics can still highlight problems inside
+those original words even though refinement does not remove or contract them.
+
+### Find problematic files and segments
+
+1. Inspect skipped counts/reasons first. Rows with no usable text are counted as
+   `skipped_no_text`; they do not receive normal scored report rows. An unscored
+   row or file must not be interpreted as clean.
+2. Sort report rows with `status="scored"` by decreasing `bad_ratio`. Inspect
+   `bad_frames` and segment duration as well, so short outliers do not obscure
+   long problematic spans.
+3. Group those rows by `audio_filepath` to identify files with repeated problems.
+   For a pooled file score over its evaluated segments, use
+   `sum(bad_frames) / sum(total_frames)`, rather than an unweighted mean of ratios.
+   This describes only the evaluated segments; overlapping rows can count the
+   same audio time more than once. The recipe writes segment-level results;
+   grouping those results is the file-level triage step.
+4. Use the reported `offset` and `duration` to locate the suspect region in the
+   source recording, and open its MFA/refined TextGrid and `audit.json` alongside
+   the audio. Check the transcript, word boundaries, speaker channel and timing
+   origin before deciding whether to correct or exclude the segment.
+
+The score does not directly verify word spelling, transcript completeness or
+speaker identity. A low ratio can coexist with incorrect text, and a high ratio
+can come from detector mistakes. The same detectors also guide refinement, so
+post-refinement agreement is not an independent accuracy or DER measurement.
+For `raw_event_excluded`, also inspect `event_excluded_frames`: event regions are
+forced to silence in all compared streams and affect score interpretation.
+
+### Enable filtering only when a selected subset is wanted
+
+After inspecting the reports, explicitly provide a threshold to write a selected
+manifest under the new output directory:
+
+```bash
+python -m tutorials.audio.vad_refinement.filter_segments_by_vad_agreement \
+  --manifest /data/refined/meeting-001/manifest_vad_refined.jsonl \
+  --output-dir /data/selected-subset \
+  --frame-duration 0.01 --reference-source refined --vad-variant raw \
   --max-bad-ratio 0.10
 ```
 
-Outputs include per-row metrics, pooled statistics, quantiles, a histogram CSV, and filtered
-manifests.
-
-This is a post-refinement consistency measure, not an independent transcript-quality score.
+`0.10` is an illustrative threshold, not a recommended universal cutoff. Choose
+it using reviewed examples from the relevant corpus, language and recording
+conditions. Scored rows with `bad_ratio <= threshold` enter
+`filtered_manifests/`; unscored rows are not selected. All scored diagnostic rows,
+including those above the threshold, remain in the report for review. The
+original inputs are never edited or deleted by this selection step.
 
 ## Agent execution guide
 
@@ -291,7 +368,7 @@ An automation agent should follow this sequence:
 6. Treat the original word count, labels, order, and extents as hard invariants.
 7. Check `audit.json` and fail the run if a word contracts, disappears, changes label, or
    overlaps its neighbor.
-8. Run `python -m tutorials.audio.vad_refinement.filter_segments_by_vad_agreement` only after refinement when a quality subset is requested.
+8. Optionally run agreement diagnostics after refinement to identify suspicious annotations/files. Omit `--max-bad-ratio` for reports only; set a threshold explicitly only when a selected subset is requested.
 9. Preserve source files and write all results under a new output root.
 
 For reproducible reruns, record:

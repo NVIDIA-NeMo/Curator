@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -24,6 +25,9 @@ from tutorials.audio.vad_refinement.filter_segments_by_vad_agreement import (
     reference_speech_intervals,
     score_manifest,
     score_segment_frames,
+)
+from tutorials.audio.vad_refinement.filter_segments_by_vad_agreement import (
+    main as filter_main,
 )
 
 
@@ -214,3 +218,79 @@ def test_manifest_scoring_reads_legacy_audit_and_filters_by_bad_ratio(tmp_path: 
     assert event_score.report_rows[0]["event_excluded_frames"] == 1
     assert event_score.report_rows[0]["bad_frames"] == 1
     assert event_score.report_rows[0]["event_interval_source"] == "sound_expert_event_intervals"
+
+
+@pytest.mark.parametrize("max_bad_ratio", [None, 0.25])
+def test_cli_reports_problem_files_and_filters_only_with_explicit_threshold(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    max_bad_ratio: float | None,
+) -> None:
+    grid = tmp_path / "words.TextGrid"
+    _write_textgrid(grid, [(0.0, 0.5, "hello")])
+    rows = [
+        {
+            "session_id": "meeting-001",
+            "speaker_id": speaker,
+            "segment_id": speaker,
+            "language": "en",
+            "audio_filepath": f"{speaker}.wav",
+            "offset": 0.0,
+            "duration": 1.0,
+            "text": "hello",
+            "mfa_textgrid": str(grid),
+            "vad_refined_textgrid": str(grid),
+        }
+        for speaker in ("clean", "review")
+    ]
+    manifest = tmp_path / "segments.jsonl"
+    manifest.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+    audit = tmp_path / "audit.json"
+    audit.write_text(
+        json.dumps(
+            {
+                "speakers": {
+                    "clean": {"silero_raw_intervals": [[0, 0.5]], "sortformer_raw_intervals": [[0, 0.5]]},
+                    "review": {"silero_raw_intervals": [[0.5, 1]], "sortformer_raw_intervals": [[0.5, 1]]},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    original = {path: path.read_bytes() for path in (manifest, grid, audit)}
+    output = tmp_path / "diagnostics"
+    arguments = [
+        "vad-filter-segments",
+        "--manifest",
+        str(manifest),
+        "--output-dir",
+        str(output),
+        "--frame-duration",
+        "0.25",
+        "--missing-reference-policy",
+        "error",
+    ]
+    if max_bad_ratio is not None:
+        arguments.extend(["--max-bad-ratio", str(max_bad_ratio)])
+    monkeypatch.setattr(sys, "argv", arguments)
+    assert filter_main() == 0
+    report = [json.loads(line) for line in (output / "segment_frame_agreement.jsonl").read_text().splitlines()]
+    assert len(report) == 2
+    assert report[0]["audio_filepath"] == "clean.wav"
+    assert report[0]["bad_ratio"] == 0
+    assert report[1]["audio_filepath"] == "review.wav"
+    assert report[1]["bad_ratio"] == 1
+    assert report[1]["both_miss_speech_frames"] == 2
+    assert report[1]["both_false_alarm_frames"] == 2
+    summary = json.loads((output / "frame_agreement_summary.json").read_text())
+    assert summary["max_bad_ratio"] == max_bad_ratio
+    if max_bad_ratio is None:
+        assert not (output / "filtered_manifests").exists()
+        assert summary["manifests"][0]["filtered_manifest"] is None
+    else:
+        selected = Path(summary["manifests"][0]["filtered_manifest"])
+        selected_rows = [json.loads(line) for line in selected.read_text().splitlines()]
+        assert [row["audio_filepath"] for row in selected_rows] == ["clean.wav"]
+        assert selected_rows[0]["vad_frame_agreement"]["bad_ratio"] == 0
+    assert (output / "bad_ratio_distribution.csv").is_file()
+    assert {path: path.read_bytes() for path in original} == original
