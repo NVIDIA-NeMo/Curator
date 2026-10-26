@@ -32,6 +32,7 @@ from nemo_curator.stages.interleaved.pdf.nemotron_parse import create_nemotron_p
 def main() -> None:
     parser = create_nemotron_parse_pdf_argparser()
     parser.set_defaults(inference_batch_size=32)
+    parser.add_argument("--executor", choices=["ray-data", "xenna"], default="ray-data")
     parser.add_argument(
         "--nemotron-parse-path",
         default=None,
