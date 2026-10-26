@@ -310,8 +310,17 @@ The tests do not download neural models:
 ```bash
 ruff format --check tutorials/audio/vad_refinement tests/tutorials/audio/vad_refinement
 ruff check tutorials/audio/vad_refinement tests/tutorials/audio/vad_refinement
-pytest tests/tutorials/audio/vad_refinement -m "not gpu" -q
+python -m pytest -o addopts= \
+  --confcutdir=tests/tutorials/audio/vad_refinement \
+  tests/tutorials/audio/vad_refinement -q
 ```
+
+This CPU-only suite requires `pytest` and `TextGrid`; it does not load Ray,
+PyTorch, NeMo, Silero models or GPU resources. `--confcutdir` keeps Curator's
+repository-wide autouse Ray fixture outside this test run, and `-o addopts=`
+omits the global test options. Detector outputs are synthetic, so these checks
+validate refinement and file generation rather than neural-inference accuracy.
+
 
 Tests verify:
 

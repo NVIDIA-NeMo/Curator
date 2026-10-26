@@ -132,8 +132,17 @@ no model downloads. They check word preservation, both-detector agreement in
 gaps, projection without overlap and non-destructive output generation:
 
 ```bash
-pytest tests/tutorials/audio/vad_refinement -m "not gpu" -q
+python -m pytest -o addopts= \
+  --confcutdir=tests/tutorials/audio/vad_refinement \
+  tests/tutorials/audio/vad_refinement -q
 ```
+
+This CPU-only suite requires `pytest` and `TextGrid`; it does not load Ray,
+PyTorch, NeMo, Silero models or GPU resources. `--confcutdir` keeps Curator's
+repository-wide autouse Ray fixture outside this test run, and `-o addopts=`
+omits the global test options. Detector outputs are synthetic, so these checks
+validate refinement and file generation rather than neural-inference accuracy.
+
 
 The recipe preserves errors already present inside MFA words. Evaluate boundary
 accuracy or DER against independent references before claiming a quality gain.
