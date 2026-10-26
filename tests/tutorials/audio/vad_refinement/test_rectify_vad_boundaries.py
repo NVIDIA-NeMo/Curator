@@ -623,3 +623,42 @@ def test_word_projection_splits_only_shared_continuous_components_at_mfa_midpoin
     for left, right in pairwise(projected):
         assert left[1] <= right[0]
     assert changes[0]["refined_start"] == pytest.approx(7.0)
+
+
+@pytest.mark.parametrize("bounds", [(0.1000068, 0.9000032), (0.100001, 0.100002)])
+def test_precise_mfa_words_survive_textgrid_and_rttm_round_trips(tmp_path: Path, bounds: tuple[float, float]) -> None:
+    audio = tmp_path / "audio.wav"
+    audio.touch()
+    grid = tmp_path / "precise.TextGrid"
+    _write_textgrid(grid, [(*bounds, "protected")], 1.0)
+    manifest = tmp_path / "input.jsonl"
+    offset = 3.123456789
+    row = {
+        "session_id": "session",
+        "speaker_id": "speaker",
+        "audio_filepath": str(audio),
+        "mfa_textgrid": str(grid),
+        "offset": offset,
+        "duration": 1.0,
+    }
+    manifest.write_text(json.dumps(row) + "\n", encoding="utf-8")
+    summary = process_manifest(
+        manifest,
+        tmp_path / "output",
+        FakeDetector({audio.name: VADPredictions(silero=(), secondary=(), secondary_name="sortformer")}),
+    )
+    output_row = json.loads(Path(summary["output_manifest"]).read_text())
+    for path, time_offset in (
+        (Path(output_row["vad_refined_textgrid"]), 0.0),
+        (tmp_path / "output/session/textgrids/session_vad_refined.TextGrid", offset),
+    ):
+        parsed = TextGrid()
+        parsed.read(str(path), round_digits=324)
+        words = [interval for tier in parsed.tiers for interval in tier.intervals if interval.mark]
+        assert len(words) == 1
+        assert words[0].mark == "protected"
+        assert words[0].minTime == pytest.approx(bounds[0] + time_offset, abs=1e-12, rel=0)
+        assert words[0].maxTime == pytest.approx(bounds[1] + time_offset, abs=1e-12, rel=0)
+    _, rttm = read_rttm(Path(summary["session_rttm"]))
+    assert len(rttm["speaker"]) == 1
+    assert rttm["speaker"][0] == pytest.approx((bounds[0] + offset, bounds[1] + offset), abs=1e-12, rel=0)

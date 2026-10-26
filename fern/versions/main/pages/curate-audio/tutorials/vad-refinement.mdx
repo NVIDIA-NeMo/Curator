@@ -47,6 +47,12 @@ Sortformer is used as a binary speech detector by taking the maximum posterior
 across speaker channels. Optional Sound Expert event intervals are subtracted
 from both detector streams before voting; original MFA words remain protected.
 
+TextGrid reads preserve the input floating-point timestamps instead of the
+TextGrid library's default five-decimal rounding. RTTM output retains 17
+significant digits so serialization does not shrink protected MFA intervals or
+round short speech intervals to zero. SegLST's explicit `--precision` option
+still controls the decimal precision of that transcript-segment export.
+
 ## Prepare inputs
 
 Use x86_64 Linux with a compatible NeMo ASR environment. From a Curator source

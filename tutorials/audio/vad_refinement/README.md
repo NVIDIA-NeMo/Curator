@@ -180,6 +180,12 @@ assume a fixed 10 ms output spacing. The selected checkpoint emits 10 ms frames.
 The normal regression suite loads no models. The optional smoke test below
 checks real inference and file generation; it does not measure boundary accuracy.
 
+TextGrid reads preserve the input floating-point timestamps instead of the
+TextGrid library's default five-decimal rounding. RTTM output retains 17
+significant digits so serialization does not shrink protected MFA intervals or
+round short speech intervals to zero. SegLST's explicit `--precision` option
+still controls the decimal precision of that transcript-segment export.
+
 ## Input manifest
 
 The input is JSON Lines. Every file represents one logical session, and every row represents

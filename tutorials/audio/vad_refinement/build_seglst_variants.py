@@ -25,10 +25,8 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
-from textgrid import TextGrid
-
 from tutorials.audio.vad_refinement.rectify_vad_boundaries import Interval, load_manifest, read_rttm
-from tutorials.audio.vad_refinement.textgrid_rttm import SILENCE_MARKS, speech_intervals_from_rows
+from tutorials.audio.vad_refinement.textgrid_rttm import SILENCE_MARKS, read_textgrid, speech_intervals_from_rows
 
 MAX_ALIAS_TIMING_ERROR = 0.25
 MAX_TIME_PRECISION = 9
@@ -118,7 +116,7 @@ def _aligned_words(
     if not path.is_file():
         return []
     offset = float(row["offset"])
-    textgrid = TextGrid.fromFile(str(path))
+    textgrid = read_textgrid(path)
     return [
         (
             offset + float(interval.minTime),

@@ -28,9 +28,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from textgrid import TextGrid
-
-from tutorials.audio.vad_refinement.textgrid_rttm import SILENCE_MARKS
+from tutorials.audio.vad_refinement.textgrid_rttm import SILENCE_MARKS, read_textgrid
 
 Interval = tuple[float, float]
 DEFAULT_FRAME_DURATION = 0.01
@@ -203,7 +201,7 @@ def reference_speech_intervals(row: dict[str, Any], source: str = "refined") -> 
         path = Path(str(path_value))
         if path.is_file():
             duration = float(row["duration"])
-            textgrid = TextGrid.fromFile(str(path))
+            textgrid = read_textgrid(path)
             intervals = [
                 (
                     max(0.0, float(interval.minTime)),

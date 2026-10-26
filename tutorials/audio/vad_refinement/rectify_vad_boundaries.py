@@ -38,6 +38,7 @@ from tutorials.audio.vad_refinement.sound_expert_intervals import (
 )
 from tutorials.audio.vad_refinement.textgrid_rttm import (
     SILENCE_MARKS,
+    read_textgrid,
     speech_intervals_from_rows,
     write_refined_textgrids,
 )
@@ -479,7 +480,7 @@ def project_consensus_to_words(
 
 
 def _marked_words(path: Path) -> list[list[float | str]]:
-    textgrid = TextGrid.fromFile(str(path))
+    textgrid = read_textgrid(path)
     return [
         [float(interval.minTime), float(interval.maxTime), interval.mark]
         for interval in textgrid.getFirst("words").intervals
@@ -553,7 +554,7 @@ def refine_textgrid_boundaries(
 
 
 def _rttm_line(recording_id: str, speaker_id: str, start: float, end: float) -> str:
-    return f"SPEAKER {recording_id} 1 {start:.6f} {end - start:.6f} <NA> <NA> {speaker_id} <NA> <NA>"
+    return f"SPEAKER {recording_id} 1 {start:.17g} {end - start:.17g} <NA> <NA> {speaker_id} <NA> <NA>"
 
 
 def _write_rttm(path: Path, recording_id: str, intervals: dict[str, tuple[Interval, ...]]) -> None:

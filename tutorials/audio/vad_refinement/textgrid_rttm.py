@@ -25,6 +25,14 @@ from textgrid import IntervalTier, TextGrid
 SILENCE_MARKS = {"", "sil", "sp", "spn", "<eps>"}
 
 
+def read_textgrid(path: Path) -> TextGrid:
+    """Read without the library's default five-decimal timestamp rounding."""
+    textgrid = TextGrid()
+    # 324 decimal places retain all finite binary64 values, including subnormals.
+    textgrid.read(str(path), round_digits=324)
+    return textgrid
+
+
 def _safe_filename_token(value: str) -> str:
     token = "".join(
         character if character.isalnum() or character in {"-", "_", "."} else "_" for character in value
@@ -62,7 +70,7 @@ def speech_intervals_from_rows(
             path = Path(str(row["fallback_textgrid"]))
         else:
             path = Path(str(row["mfa_textgrid"]))
-        textgrid = TextGrid.fromFile(str(path))
+        textgrid = read_textgrid(path)
         words = textgrid.getFirst("words")
         offset = float(row["offset"])
         duration = float(row["duration"])
@@ -82,7 +90,7 @@ def speech_intervals_from_rows(
 
 
 def _rttm_line(recording_id: str, speaker_id: str, start: float, end: float) -> str:
-    return f"SPEAKER {recording_id} 1 {start:.6f} {end - start:.6f} <NA> <NA> {speaker_id} <NA> <NA>"
+    return f"SPEAKER {recording_id} 1 {start:.17g} {end - start:.17g} <NA> <NA> {speaker_id} <NA> <NA>"
 
 
 def write_rttms(
@@ -114,7 +122,7 @@ def write_rttms(
 
 
 def _words(path: Path, offset: float) -> list[tuple[float, float, str]]:
-    textgrid = TextGrid.fromFile(str(path))
+    textgrid = read_textgrid(path)
     return [
         (
             offset + float(interval.minTime),
