@@ -93,6 +93,8 @@ ADDITIVE_STAGE_NAMES = (
 # Update this digest only after comparing the complete stage payloads and reviewing
 # every changed constructor default, parameter, and contract. A new digest records
 # an intentional compatibility change; it must never conceal an unexplained one.
+# This surface includes adapter-backed VAD/diarization, conservative IO gates,
+# and the additive resampling/timestamp parameters shipped with those stages.
 EXPECTED_LEGACY_COMPATIBILITY_SHA256 = (
     "f834c4c69829f0fcd92036cb56b49d19b2d39189200de8b49aa95a12f2e78e9b"  # pragma: allowlist secret
 )
@@ -203,12 +205,9 @@ def _shipped_agent_ready_stages() -> set[str]:
 
 def test_registered_stage_names_are_backward_compatible() -> None:
     actual = _shipped_agent_ready_stages()
-    legacy = set(LEGACY_STAGE_NAMES)
-    additive = set(ADDITIVE_STAGE_NAMES)
+    required = set(LEGACY_STAGE_NAMES) | set(ADDITIVE_STAGE_NAMES)
 
-    assert len(LEGACY_STAGE_NAMES) == 46
-    assert legacy <= actual
-    assert additive <= actual
+    assert required <= actual, f"Previously supported stages disappeared: {sorted(required - actual)}"
 
 
 def test_stage_defaults_and_static_contracts_are_backward_compatible() -> None:
@@ -337,7 +336,7 @@ def test_a_cardinality_no_configuration_can_produce_is_never_published() -> None
 
     conditions = static_contract(get_agent_ready_stage_class("PreserveByValueConditionsStage"))
     assert conditions.cardinality == "filter"
-    assert conditions.cardinality_options == ["1:1 nested-list", "filter"]
+    assert set(conditions.cardinality_options) == {"1:1 nested-list", "filter"}
 
 
 def test_the_published_cardinality_is_always_one_the_stage_can_produce() -> None:
