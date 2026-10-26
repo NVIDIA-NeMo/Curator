@@ -12,14 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import importlib.abc
+import importlib.machinery
+import inspect
 import json
 import shutil
 import subprocess
 import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import hydra
 import pytest
 from hydra import compose, initialize, initialize_config_dir
 from omegaconf import OmegaConf
@@ -910,3 +916,110 @@ def test_run_cli_defaults_to_pipeline_config_for_fastconformer() -> None:
     )
 
     assert "adapter_target: nemo_curator.models.asr.nemo_asr.NeMoASRAdapter" in result.stdout
+
+
+SHIPPED_TEXT_CONFIG_DIR = Path(__file__).parents[2] / "nemo_curator" / "config" / "text"
+SHIPPED_TEXT_CONFIGS = sorted(p.name for p in SHIPPED_TEXT_CONFIG_DIR.glob("*.yaml"))
+
+
+# Packages the CPU test job does not install: the `deduplication_cuda12` extra with
+# what it pulls in (rmm, pylibcudf, cupy), and pynvml from `cuda12`. A target whose
+# module imports one of them is imported with them replaced by mocks, which is
+# enough to read its signature and keeps the check running on CPU runners.
+_GPU_ONLY_PACKAGES = frozenset(
+    {
+        "cudf",
+        "cudf_streaming",
+        "cuml",
+        "cupy",
+        "pylibcudf",
+        "pylibcugraph",
+        "pylibraft",
+        "pynvml",
+        "raft_dask",
+        "rapidsmpf",
+        "rmm",
+    }
+)
+
+
+class _MockMissingGpuPackages(importlib.abc.MetaPathFinder, importlib.abc.Loader):
+    """Hand out a mock for a GPU-only package only when it is not installed.
+
+    Appended to ``sys.meta_path``, so it is asked after the real finders and an
+    installed package always wins.
+    """
+
+    def __init__(self) -> None:
+        self.created: list[str] = []
+
+    def find_spec(self, fullname: str, path: object, target: object = None) -> importlib.machinery.ModuleSpec | None:
+        if fullname.split(".")[0] not in _GPU_ONLY_PACKAGES:
+            return None
+        return importlib.machinery.ModuleSpec(fullname, self, is_package=True)
+
+    def create_module(self, spec: importlib.machinery.ModuleSpec) -> MagicMock:
+        self.created.append(spec.name)
+        return MagicMock(name=spec.name)
+
+    def exec_module(self, module: object) -> None:
+        pass
+
+
+@contextmanager
+def _missing_gpu_packages_mocked() -> Iterator[None]:
+    finder = _MockMissingGpuPackages()
+    sys.meta_path.append(finder)
+    try:
+        yield
+    finally:
+        sys.meta_path.remove(finder)
+        for name in finder.created:
+            sys.modules.pop(name, None)
+
+
+def _target_nodes(node: object) -> Iterator[dict]:
+    """Every mapping under ``node`` that names a Hydra ``_target_``."""
+    if isinstance(node, dict):
+        if "_target_" in node:
+            yield node
+        for value in node.values():
+            yield from _target_nodes(value)
+    elif isinstance(node, list):
+        for item in node:
+            yield from _target_nodes(item)
+
+
+@pytest.mark.parametrize("config_name", SHIPPED_TEXT_CONFIGS)
+def test_shipped_config_passes_only_arguments_its_targets_accept(config_name: str) -> None:
+    """A shipped config has to survive instantiation, and nothing cheap told us it does.
+
+    ``main`` starts the Ray client before it builds the pipeline, so a key a
+    target stopped declaring costs a cluster start and then raises
+    ``InstantiationException`` wrapping a ``TypeError``. Binding each node's keys
+    against its target's signature catches that drift with no GPU, no model
+    download and no cluster.
+
+    A target whose module needs the GPU extras is imported with those packages
+    mocked, so the semantic deduplication workflow is checked on CPU runners too.
+    """
+    with initialize_config_dir(config_dir=str(SHIPPED_TEXT_CONFIG_DIR), version_base=None):
+        cfg = compose(config_name=config_name)
+
+    unaccepted: list[str] = []
+    with _missing_gpu_packages_mocked():
+        for node in _target_nodes(OmegaConf.to_container(cfg, resolve=False)):
+            target = node["_target_"]
+            kwargs = {
+                key: value
+                for key, value in node.items()
+                # `_` keys are Hydra's own, and `_instantiate_stage` applies
+                # `resources` through `.with_()` rather than the constructor.
+                if not key.startswith("_") and key != "resources"
+            }
+            try:
+                inspect.signature(hydra.utils.get_class(target)).bind_partial(**kwargs)
+            except TypeError as error:
+                unaccepted.append(f"{target}: {error}")
+
+    assert not unaccepted, f"{config_name} passes arguments nothing accepts: " + "; ".join(unaccepted)

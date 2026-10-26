@@ -48,7 +48,7 @@ Default builds use the `all` Curator extra, Python 3.13, CUDA 12.9.1, and Ubuntu
 
 ## Add FFmpeg for Audio or Video
 
-Build the base image first as described in [Build an Image](#build-an-image), then create one of these Dockerfiles in the repository root. The audio image uses Ubuntu's FFmpeg package for audio resampling and PCM/WAV operations. The video image runs Curator's maintained FFmpeg builder and adds software H.264/HEVC/AV1 decoders while retaining NVENC and `libvpx-vp9` support; it omits audio codecs and WAV filters, so use it for video-only workflows.
+Build the base image first as described in [Build an Image](#build-an-image), then create one of these Dockerfiles in the repository root. The audio image uses Ubuntu's FFmpeg package for audio resampling and PCM/WAV operations. The video image runs Curator's maintained FFmpeg builder and includes software H.264/HEVC/AV1 decoders, NVENC and `libvpx-vp9` support, FLAC decoding, PCM/WAV support, and audio resampling. This image supports both audio and video workflows; you do not need a separate audio image when using it.
 
 For audio, save this as `Dockerfile.audio`:
 
@@ -87,7 +87,7 @@ For video, save this as `Dockerfile.video`:
 
 ```dockerfile
 FROM nemo-curator:local
-RUN bash /opt/Curator/docker/common/install_h264_support.sh
+RUN bash /opt/Curator/docker/common/install_ffmpeg.sh
 ```
 
 Build the image and start a shell inside it:

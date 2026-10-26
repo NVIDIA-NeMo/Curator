@@ -1,0 +1,174 @@
+---
+description: "Beginner tutorial for audio processing using the FLEURS dataset"
+categories: ["tutorials"]
+tags: ["beginner", "fleurs-dataset", "asr-inference", "quality-filtering"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "beginner"
+content_type: "tutorial"
+modality: "audio-only"
+---
+
+# Beginner Audio Processing Tutorial
+
+Run the maintained FLEURS tutorial to download multilingual speech, transcribe it with a NeMo ASR model, calculate Word Error Rate (WER) and duration, filter samples, and write a JSONL manifest.
+
+## What You Will Do
+
+The checked-in tutorial builds this pipeline:
+
+1. `CreateInitialManifestFleursStage` downloads and prepares a FLEURS split.
+2. `ASRStage` and `NeMoASRAdapter` generate `pred_text`.
+3. `GetPairwiseWerStage` writes `wer_pct`.
+4. `GetAudioDurationStage` writes `duration`.
+5. `PreserveByValueStage` filters by the configured WER threshold.
+6. `AudioToDocumentStage` and `JsonlWriter` write the filtered JSONL output.
+
+## Maintained Example Files
+
+The working tutorial is maintained in one place:
+
+```text
+tutorials/audio/fleurs/
+├── README.md
+├── main.py
+├── pipeline.yaml
+└── fleurs_tutorial.ipynb
+```
+
+`main.py` loads `pipeline.yaml` through Hydra and manages the Ray client and selected executor. Use this entrypoint instead of copying the pipeline into a second script.
+
+## Prerequisites
+
+- Python 3.11, 3.12, or 3.13
+- NeMo Curator installed with `audio_cuda12` for GPU inference or `audio_cpu` for CPU inference
+- Internet access for the FLEURS split and ASR checkpoint
+- Sufficient disk space for the selected language and split
+- An NVIDIA GPU with approximately 4 GB or more VRAM is recommended; CPU fallback is supported but substantially slower
+
+From the repository root, install one audio extra and activate the environment:
+
+```bash
+# GPU (recommended)
+uv sync --extra audio_cuda12
+source .venv/bin/activate
+
+# For CPU-only inference, use this instead:
+# uv sync --extra audio_cpu
+```
+
+## Run the Default Pipeline
+
+Run the maintained entrypoint from the repository root:
+
+```bash
+python tutorials/audio/fleurs/main.py \
+  --config-path . \
+  --config-name pipeline \
+  raw_data_dir="${PWD}/example_audio/fleurs"
+```
+
+The defaults process the Armenian (`hy_am`) development split with `nvidia/stt_hy_fastconformer_hybrid_large_pc`, keep samples with `wer_pct <= 5.5`, use the Xenna backend, and write results under `${raw_data_dir}/result/${lang}/`.
+
+### CPU fallback
+
+Set the ASR stage's GPU requirement to zero:
+
+```bash
+python tutorials/audio/fleurs/main.py \
+  --config-path . \
+  --config-name pipeline \
+  raw_data_dir="${PWD}/example_audio/fleurs-cpu" \
+  stages.1.resources.gpus=0
+```
+
+CPU inference is intended for functional testing and is typically 10–50 times slower than GPU inference.
+
+## Understand the ASR Capacity Contract
+
+The supplied `pipeline.yaml` keeps the required ASR capacity settings together:
+
+| Setting | Maintained default | Purpose |
+| --- | --- | --- |
+| `max_audio_sec_per_actor` | `240.0` | Maximum padded audio seconds sent to the adapter in one call |
+| `max_inference_duration_s` | `120.0` | Per-segment model-input ceiling; longer audio is split and stitched |
+| `local_bucketing` | `true` | Orders segments in the current process batch by duration to reduce padding |
+| `stages.1.adapter_kwargs.use_cuda_graph_decoder` | `false` | Avoids RNNT label-loop CUDA graphs that are unsupported by some driver/runtime combinations |
+| `stages.1.resources.gpus` | `1.0` | Requests one GPU per ASR worker; set to `0` for CPU fallback |
+
+`max_inference_duration_s` must be less than or equal to `max_audio_sec_per_actor`. If you reduce the actor budget to address memory pressure, reduce the inference-duration ceiling as needed to preserve that invariant.
+
+## Customize the Run
+
+Use Hydra overrides without editing `pipeline.yaml`:
+
+```bash
+python tutorials/audio/fleurs/main.py \
+  --config-path . \
+  --config-name pipeline \
+  raw_data_dir="${PWD}/example_audio/fleurs-en" \
+  lang=en_us \
+  data_split=dev \
+  stages.1.model_id=nvidia/parakeet-tdt-0.6b-v2 \
+  wer_threshold=25.0 \
+  backend=ray_data
+```
+
+Common overrides:
+
+| Override | Description |
+| --- | --- |
+| `raw_data_dir` | Required workspace directory for downloads and results |
+| `lang` | FLEURS language code such as `hy_am`, `en_us`, or `fr_fr` |
+| `data_split` | `train`, `dev`, or `test` |
+| `stages.1.model_id` | NeMo ASR model compatible with the selected language |
+| `wer_threshold` | Maximum `wer_pct` retained by the filter |
+| `backend` | `xenna` or `ray_data` |
+
+Refer to `tutorials/audio/fleurs/pipeline.yaml` for the complete configuration contract and `tutorials/audio/fleurs/README.md` for model, backend, and performance guidance.
+
+## Inspect the Results
+
+For the default language, output is written under:
+
+```text
+example_audio/fleurs/
+├── hy_am/                 # Downloaded FLEURS data and source manifest
+└── result/
+    └── hy_am/             # Filtered JSONL output shards
+```
+
+Each output row contains the top-level fields produced by the maintained pipeline:
+
+```json
+{
+  "audio_filepath": "/absolute/path/to/audio.wav",
+  "text": "ground truth transcription",
+  "pred_text": "ASR model prediction",
+  "wer_pct": 2.5,
+  "duration": 4.2
+}
+```
+
+Inspect the output from the repository root:
+
+```bash
+find "${PWD}/example_audio/fleurs/result" -name '*.jsonl' -print
+find "${PWD}/example_audio/fleurs/result/hy_am" -name '*.jsonl' -exec jq -c . {} + | head -n 5
+```
+
+## Troubleshooting
+
+| Symptom | Action |
+| --- | --- |
+| CUDA out of memory | Reduce `max_audio_sec_per_actor` and keep `max_inference_duration_s` no larger than that value. |
+| RNNT decoder reports a CUDA error | Keep `stages.1.adapter_kwargs.use_cuda_graph_decoder=false`, as supplied by the maintained config. |
+| CPU inference is unexpectedly slow | Use `stages.1.resources.gpus=1` on a GPU host; CPU mode is primarily a fallback. |
+| Output is empty | Increase `wer_threshold` or choose an ASR model that matches `lang`. |
+| Dataset or model download fails | Check network access and Hugging Face/NGC credentials. |
+
+## Next Steps
+
+- [Custom Audio Manifests](/curate-audio/load-data/custom-manifests)
+- [ASR Inference](/curate-audio/process-data/asr-inference)
+- [Quality Assessment](/curate-audio/process-data/quality-assessment)
+- [Text Integration](/curate-audio/process-data/text-integration)

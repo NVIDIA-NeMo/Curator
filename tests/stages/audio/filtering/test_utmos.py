@@ -23,6 +23,7 @@ import numpy as np
 import pytest
 import soundfile as sf
 import torch
+from loguru import logger
 
 from nemo_curator.stages.audio._agent._agent_registry import static_contract
 from nemo_curator.stages.audio._agent._conformance import assert_agent_ready, assert_residency_consumption
@@ -72,6 +73,45 @@ def _stage(*, mode: str = "task", scorable: bool = True, input_residency: str = 
 
 
 class TestUTMOSFilterStage:
+    def test_failed_github_load_uses_local_hub_cache(self, tmp_path: Path) -> None:
+        cached_repo = tmp_path / "tarepan_SpeechMOS_v1.2.0"
+        cached_repo.mkdir()
+        (cached_repo / "hubconf.py").write_text(
+            "import torch\n"
+            "class Predictor(torch.nn.Module):\n"
+            "    def forward(self, waveform, sample_rate):\n"
+            "        return waveform.mean(dim=-1)\n"
+            "def utmos22_strong():\n"
+            "    return Predictor()\n"
+        )
+        load = torch.hub.load
+
+        def load_with_failed_github(repo: str, *args: object, **kwargs: object) -> object:
+            if kwargs.get("source") != "local":
+                msg = "original checkpoint load failure"
+                raise RuntimeError(msg)
+            return load(repo, *args, **kwargs)
+
+        messages = []
+        sink = logger.add(messages.append)
+        try:
+            with (
+                patch("torch.hub.get_dir", return_value=str(tmp_path)),
+                patch("torch.cuda.is_available", return_value=False),
+                patch("torch.hub.load", side_effect=load_with_failed_github) as load_model,
+            ):
+                stage = UTMOSFilterStage()
+                stage.setup()
+                stage._ensure_model()
+
+            assert stage._model is not None
+            assert not stage._model_failed
+            assert load_model.call_count == 2
+            assert load_model.call_args.args[0] == str(cached_repo)
+            assert "original checkpoint load failure" in "".join(messages)
+        finally:
+            logger.remove(sink)
+
     def test_legacy_positional_constructor_order_is_preserved(self) -> None:
         resources = Resources(cpus=2)
 
