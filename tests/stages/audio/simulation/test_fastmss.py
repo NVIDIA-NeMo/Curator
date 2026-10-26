@@ -14,6 +14,7 @@
 
 """Exercise the bundled FastMSS, child processes and manifest I/O."""
 
+import gzip
 import hashlib
 import json
 import subprocess
@@ -320,3 +321,45 @@ def test_real_upstream_generates_audio_and_diarization_reference(
     annotations = Path(row["rttm_filepath"]).read_text().splitlines()
     assert {line.split()[7] for line in annotations} == {"speaker-0", "speaker-1"}
     assert row["num_speakers"] == 2
+    with gzip.open(
+        next((Path(output[0].data[0]).parent / "manifests").glob("*-supervisions.jsonl.gz")), "rt"
+    ) as source:
+        supervisions = sorted(
+            (json.loads(line) for line in source), key=lambda segment: (segment["start"], segment["id"])
+        )
+    assert row["text"] == " ".join(segment["text"].strip() for segment in supervisions)
+    assert "hello world" in row["text"]
+
+
+@pytest.mark.parametrize(
+    ("settings", "message"),
+    [
+        ("min_max_spk: [1, 1]\n", "single-speaker recipes are unsupported"),
+        ("save_spk: true\nsave_anechoic: true\nreverberate: true\nreverb_prob: 0.5\n", "reverb_prob=1"),
+    ],
+)
+def test_resolved_config_is_rejected_before_engine_starts(
+    checkout: Path, tmp_path: Path, settings: str, message: str
+) -> None:
+    config = _config(tmp_path)
+    with config.open("a") as output:
+        output.write(settings)
+    stage = FastMSSSimulationStage(fastmss_root=str(checkout), output_dir=str(tmp_path / "output"))
+    with pytest.raises(RuntimeError, match="exit code"):
+        stage.process(FileGroupTask(dataset_name="simulation", data=[str(config)]))
+    assert message in next((tmp_path / "output").glob("*/fastmss.log")).read_text()
+    assert not list((tmp_path / "output").glob("*/arguments.json"))
+    assert not list((tmp_path / "output").glob("*/nemo_manifest.json"))
+
+
+def test_preflight_uses_cli_overrides_over_yaml_settings(checkout: Path, tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    with config.open("a") as output:
+        output.write("min_max_spk: [1, 1]\nsave_anechoic: true\nreverberate: true\nreverb_prob: 0.5\n")
+    stage = FastMSSSimulationStage(
+        fastmss_root=str(checkout),
+        output_dir=str(tmp_path / "output"),
+        overrides=["min_max_spk=[2,2]", "reverb_prob=1"],
+    )
+    groups = stage.process(FileGroupTask(dataset_name="simulation", data=[str(config)]))
+    assert ManifestReaderStage().process(groups[0])[0].data["text"] == "hello"

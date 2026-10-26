@@ -73,6 +73,18 @@ complete meeting. The example consolidates these rows into `meetings.jsonl`.
 Overlapping speech stays in the waveform; meeting text alone does not encode
 speaker assignment. Additional upstream manifest columns are preserved.
 
+Curator builds `text` from generated supervision transcripts in ascending start
+time, using supervision ID to break ties. It includes overlapping utterances;
+this ordering does not imply that the speakers take turns without overlap.
+Missing supervision transcripts fail the shard rather than emit unlabelled rows.
+
+The original engine cannot reliably generate single-speaker meetings or save
+anechoic references for dry meetings. Curator validates the resolved YAML and
+CLI overrides before preprocessing: `min_max_spk` must have a minimum of at least
+2 and a maximum no smaller than that minimum. `save_anechoic=true` requires
+`reverberate=true` and `reverb_prob=1`. Retained upstream one-speaker paper recipes
+are reference files and are unsupported by this adapter.
+
 The adapter manages `output_dir`, `n_jobs`, `stage`, `save_rttm`,
 `save_nemo_manifest`, `hydra.run.dir` and `hydra.job.chdir`. It runs the original
 recipe in a child process with a matching CPU reservation. Failures retain logs

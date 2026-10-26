@@ -56,6 +56,14 @@ recording-level NeMo manifest. Additional manifest fields remain intact.
 remain in the waveform; a meeting-level transcript should not be interpreted as
 speaker-separated ASR labels.
 
+Curator joins generated supervision text by ascending start time, breaking ties
+by supervision ID and retaining overlapping utterances. Missing transcripts fail
+the shard. The unmodified engine requires at least two speakers: configure
+`min_max_spk` with `2 <= minimum <= maximum`. To save anechoic references, set
+`reverberate=true` and `reverb_prob=1` with `save_anechoic=true`. Unsupported
+combinations are rejected before preprocessing, after YAML defaults and CLI
+overrides have been resolved.
+
 ## Outputs and retries
 
 Each config writes to a fresh `fastmss-*` directory, including audio, RTTM,

@@ -119,6 +119,7 @@ class FastMSSSimulationStage(AgentReady, ProcessingStage[FileGroupTask, FileGrou
         script = Path(self.fastmss_root) / self.script_path
         command = [
             self.python_executable,
+            str(Path(__file__).with_name("_runner.py")),
             str(script),
             f"--config-path={config.parent}",
             f"--config-name={config.stem}",
@@ -204,7 +205,8 @@ class FastMSS(AgentReady, CompositeStage[EmptyTask, AudioTask]):
     Each YAML is one scheduling unit, containing its own ``n_meetings``.
     Multiple YAMLs can run in parallel; one config uses ``jobs_per_config`` CPUs.
     Generated paths and durations refer to entire mixtures, including overlaps,
-    not isolated speaker turns. ``text`` is FastMSS's meeting-level reference,
+    not isolated speaker turns. ``text`` joins generated supervision transcripts
+    in start-time order (supervision ID breaks ties), including overlapping turns,
     and ``rttm_filepath`` points to generated diarization reference annotations.
     Additional manifest fields are preserved verbatim by ManifestReaderStage.
 
