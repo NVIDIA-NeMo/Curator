@@ -26,11 +26,12 @@ from nemo_curator.tasks import AudioTask
 
 @dataclass
 class RegexSubstitutionStage(ProcessingStage[AudioTask, AudioTask]):
-    """Apply an ordered YAML list of regex substitutions to one transcript field.
+    """Apply an ordered list of regex substitutions to one transcript field.
 
-    The YAML document must be a list. Each rule must define string
+    Provide exactly one of ``regex_params_yaml`` or inline ``rules``. Each must
+    contain a list of rules. Each rule must define string
     ``pattern`` and ``repl`` values and may define a non-negative integer
-    ``count`` limit. Rules run in file order before whitespace is collapsed.
+    ``count`` limit. Rules run in list order before whitespace is collapsed.
     Rows carrying an existing skip reason are not normalized. The empty-result
     skip is set only when cleaning removes non-whitespace input; already-empty
     input remains unskipped.
@@ -42,19 +43,22 @@ class RegexSubstitutionStage(ProcessingStage[AudioTask, AudioTask]):
     skip_me_key: str = "_skipme"
     name: str = "RegexSubstitution"
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
+    rules: list[dict[str, Any]] | None = None
 
     _rules: list[dict[str, Any]] = field(default_factory=list, init=False, repr=False)
 
     def __post_init__(self) -> None:
-        if not self.regex_params_yaml:
-            msg = "regex_params_yaml is required for RegexSubstitutionStage"
+        if bool(self.regex_params_yaml) == (self.rules is not None):
+            msg = "Provide exactly one of regex_params_yaml or rules for RegexSubstitutionStage"
             raise ValueError(msg)
 
     def setup(self, _worker_metadata: object | None = None) -> None:
-        with Path(self.regex_params_yaml).open(encoding="utf-8") as stream:
-            raw_rules = yaml.safe_load(stream)
+        raw_rules = self.rules
+        if raw_rules is None:
+            with Path(self.regex_params_yaml).open(encoding="utf-8") as stream:
+                raw_rules = yaml.safe_load(stream)
         if not isinstance(raw_rules, list):
-            msg = "Regex substitution YAML must contain a list of rules"
+            msg = "Regex substitutions must contain a list of rules"
             raise TypeError(msg)
         for index, rule in enumerate(raw_rules):
             if not isinstance(rule, dict):

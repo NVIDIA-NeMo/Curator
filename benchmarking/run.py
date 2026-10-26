@@ -27,6 +27,12 @@ from pathlib import Path
 from typing import Any
 
 from loguru import logger
+from nemo_curator_benchmarking.config import (
+    assert_valid_config_dict,
+    merge_config_files,
+    remove_disabled_blocks,
+    resolve_env_vars,
+)
 
 from nemo_curator.pipeline.workflow import WorkflowRunResult
 from nemo_curator.tasks.utils import TaskPerfUtils
@@ -54,16 +60,7 @@ from runner.ray_cluster import (
 )
 from runner.session import Session
 from runner.sinks.sink import call_sink_hook, initialize_sinks
-from runner.utils import (
-    assert_valid_config_dict,
-    find_result,
-    get_gpu_stats,
-    get_obj_for_json,
-    log_gpu_stats,
-    merge_config_files,
-    remove_disabled_blocks,
-    resolve_env_vars,
-)
+from runner.utils import find_result, get_gpu_stats, get_obj_for_json, log_gpu_stats
 from runner.viewer_url import resolve_viewer_url
 
 

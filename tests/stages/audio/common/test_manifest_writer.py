@@ -554,3 +554,75 @@ def test_prepared_manifest_batch_rejects_replaced_output(tmp_path: Path) -> None
         writer.write_jsonl_batch('{"id":3}\n')
     assert output.read_text() == '{"id":"other-owner"}\n'
     writer.abort_on_driver()
+
+
+@pytest.mark.parametrize("written_bytes", [0, 5, 12, None])
+def test_local_prepared_writer_recovers_interrupted_append(tmp_path: Path, written_bytes: int | None) -> None:
+    output = tmp_path / "manifest.jsonl"
+    driver = ManifestWriterStage(str(output))
+    driver.prepare_on_driver()
+    serialized = pickle.dumps(driver)
+    worker = pickle.loads(serialized)  # noqa: S301 - local stage fixture
+    worker.setup()
+    worker.write_jsonl_batch('{"first":1}\n')
+    records = '{"text":"héllo"}\n'
+    worker._publish_run_owner({"token": worker._run_token, "artifact": worker._output_identity(), "append": records})
+    data = records.encode("utf-8")
+    with output.open("ab") as stream:
+        stream.write(data if written_bytes is None else data[:written_bytes])
+    replacement = pickle.loads(serialized)  # noqa: S301 - local stage fixture
+    replacement.setup()
+    assert [json.loads(line) for line in output.read_text().splitlines()] == [{"first": 1}]
+    replacement.write_jsonl_batch(records)
+    driver.finalize()
+    assert [json.loads(line) for line in output.read_text().splitlines()] == [{"first": 1}, {"text": "héllo"}]
+
+
+def test_local_append_recovery_rejects_unexpected_bytes(tmp_path: Path) -> None:
+    output = tmp_path / "manifest.jsonl"
+    stage = ManifestWriterStage(str(output))
+    stage.prepare_on_driver()
+    stage._publish_run_owner({"token": stage._run_token, "artifact": stage._output_identity(), "append": '{"id":1}\n'})
+    output.write_bytes(b"other")
+    try:
+        with pytest.raises(RuntimeError, match="driver-prepared"):
+            stage.setup()
+        assert output.read_bytes() == b"other"
+    finally:
+        stage.abort_on_driver()
+
+
+@pytest.mark.parametrize("document_batch", [False, True])
+def test_retry_after_append_open_failure_does_not_duplicate_rows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, document_batch: bool
+) -> None:
+    from nemo_curator.stages.audio.io.convert import AudioToDocumentStage, DocumentBatchJsonlWriterStage
+
+    output = tmp_path / "manifest.jsonl"
+    driver = DocumentBatchJsonlWriterStage(str(output)) if document_batch else ManifestWriterStage(str(output))
+    driver.prepare_on_driver()
+    serialized = pickle.dumps(driver)
+    worker = pickle.loads(serialized)  # noqa: S301 - local stage fixture
+    worker.setup()
+    lifecycle = worker._writer_lifecycle if document_batch else worker
+    original_open = lifecycle._fs.open
+    message = "append open failed"
+
+    def interrupted_open(path: str, mode: str = "rb", *args, **kwargs):  # noqa: ANN202
+        if path == lifecycle._path and mode == "a":
+            raise OSError(message)
+        return original_open(path, mode, *args, **kwargs)
+
+    task = AudioTask(task_id="source-a", data={"text": "hello"})
+    if document_batch:
+        task = AudioToDocumentStage().process_batch([task])[0]
+    with monkeypatch.context() as local_patch:
+        local_patch.setattr(lifecycle._fs, "open", interrupted_open)
+        with pytest.raises(OSError, match=message):
+            worker.process(task)
+    replacement = pickle.loads(serialized)  # noqa: S301 - local stage fixture
+    replacement.setup()
+    assert output.read_bytes() == b""
+    replacement.process(task)
+    driver.finalize()
+    assert [json.loads(line) for line in output.read_text().splitlines()] == [{"text": "hello"}]

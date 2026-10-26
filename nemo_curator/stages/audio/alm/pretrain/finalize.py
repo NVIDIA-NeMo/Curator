@@ -42,9 +42,7 @@ from nemo_curator.stages.audio.alm.pretrain.utils import (
 )
 
 
-def prepare_audio_pretrain_outputs(
-    output_manifest_path: str, metrics_path: str, output_audio_tar_path: str
-) -> None:
+def prepare_audio_pretrain_outputs(output_manifest_path: str, metrics_path: str, output_audio_tar_path: str) -> None:
     """Delete any pre-existing shards from prior runs.
 
     Call this once on the driver, BEFORE ``pipeline.run()``.  Multi-worker
@@ -62,11 +60,14 @@ def prepare_audio_pretrain_outputs(
         )
 
 
-def finalize_audio_pretrain_outputs(
+def finalize_audio_pretrain_outputs(  # noqa: PLR0913
     output_manifest_path: str,
     metrics_path: str,
     output_audio_tar_path: str,
     audio_filepath_key: str = "audio_filepath",
+    id_key: str = "id",
+    segments_key: str = "segments",
+    duration_key: str = "duration",
 ) -> None:
     """Merge per-worker shards into the final manifest, metrics JSON, and audio tar.
 
@@ -103,7 +104,13 @@ def finalize_audio_pretrain_outputs(
         output_manifest_path, output_audio_tar_path, audio_filepath_key
     )
     _patch_metrics_post_reconcile(
-        metrics_path, output_manifest_path, dropped_missing, dropped_unreadable
+        metrics_path,
+        output_manifest_path,
+        dropped_missing,
+        dropped_unreadable,
+        id_key=id_key,
+        segments_key=segments_key,
+        duration_key=duration_key,
     )
 
 
@@ -268,8 +275,7 @@ def _merge_tar_shards(output_path: str) -> None:  # noqa: C901, PLR0912, PLR0915
                     ti = in_tar.next()
                 except tarfile.TarError as e:
                     logger.warning(
-                        f"tar shard {s} truncated after {kept_in_shard} member(s): {e}; "
-                        f"keeping the recovered members"
+                        f"tar shard {s} truncated after {kept_in_shard} member(s): {e}; keeping the recovered members"
                     )
                     break
                 if ti is None:
@@ -282,9 +288,7 @@ def _merge_tar_shards(output_path: str) -> None:  # noqa: C901, PLR0912, PLR0915
             in_tar.close()
     index.sort(key=lambda e: e[0])
     if not index:
-        logger.info(
-            f"no readable tar members found in {len(shards)} tar shard(s) for {output_path}; skipping merge"
-        )
+        logger.info(f"no readable tar members found in {len(shards)} tar shard(s) for {output_path}; skipping merge")
         return
 
     # Pass 2: keep one open TarFile per source shard so we don't pay
@@ -300,9 +304,7 @@ def _merge_tar_shards(output_path: str) -> None:  # noqa: C901, PLR0912, PLR0915
                     try:
                         in_tar = tarfile.open(s, "r")  # noqa: SIM115  -- cached in open_shards and closed in finally below
                     except tarfile.TarError as e:
-                        logger.warning(
-                            f"cannot reopen tar shard {s} for streaming: {e}; skipping member {name!r}"
-                        )
+                        logger.warning(f"cannot reopen tar shard {s} for streaming: {e}; skipping member {name!r}")
                         continue
                     open_shards[s] = in_tar
                 try:
@@ -361,9 +363,7 @@ def _reconcile_manifest_with_tar(  # noqa: C901, PLR0915
         return (0, 0)
 
     try:
-        members: dict[str, tarfile.TarInfo] = {
-            ti.name: ti for ti in tar.getmembers() if ti.isreg()
-        }
+        members: dict[str, tarfile.TarInfo] = {ti.name: ti for ti in tar.getmembers() if ti.isreg()}
         # Header-validity is sticky per member name.  A name only ever
         # appears with one payload in the merged tar, but we cache anyway
         # in case a manifest row points at the same audio twice.
@@ -381,16 +381,12 @@ def _reconcile_manifest_with_tar(  # noqa: C901, PLR0915
             try:
                 stream = tar.extractfile(ti)
                 if stream is None:
-                    logger.warning(
-                        f"audio header unreadable for {name!r} in {tar_path}: extractfile returned None"
-                    )
+                    logger.warning(f"audio header unreadable for {name!r} in {tar_path}: extractfile returned None")
                 else:
                     info = sf.info(stream)
                     ok = info.frames > 0 and info.samplerate > 0
             except Exception as exc:  # noqa: BLE001
-                logger.warning(
-                    f"audio header unreadable for {name!r} in {tar_path}: {exc}"
-                )
+                logger.warning(f"audio header unreadable for {name!r} in {tar_path}: {exc}")
             header_ok[name] = ok
             return ok
 
@@ -435,6 +431,10 @@ def _reconcile_manifest_with_tar(  # noqa: C901, PLR0915
 
 def _collect_reconciled_output_stats(
     manifest_path: str,
+    *,
+    id_key: str,
+    segments_key: str,
+    duration_key: str,
 ) -> tuple[dict[str, dict[str, Any]], list[float]]:
     out_per_id: dict[str, dict[str, Any]] = {}
     durations: list[float] = []
@@ -453,11 +453,11 @@ def _collect_reconciled_output_stats(
                 # stray line slips through, skip rather than crash the
                 # finalize step.
                 continue
-            pid = str(row.get("id") or "")
-            if not pid:
+            if id_key not in row or row[id_key] is None:
                 continue
-            dur = float(row.get("duration", 0.0))
-            seg_count = len(row.get("segments") or [])
+            pid = str(row[id_key])
+            dur = float(row.get(duration_key, 0.0))
+            seg_count = len(row.get(segments_key) or [])
             entry = out_per_id.setdefault(
                 pid,
                 {"out_snippets": 0, "out_segments": 0, "out_duration_sec": 0.0},
@@ -469,11 +469,15 @@ def _collect_reconciled_output_stats(
     return out_per_id, durations
 
 
-def _patch_metrics_post_reconcile(
+def _patch_metrics_post_reconcile(  # noqa: PLR0913
     metrics_path: str,
     manifest_path: str,
     dropped_missing: int,
     dropped_unreadable: int,
+    *,
+    id_key: str,
+    segments_key: str,
+    duration_key: str,
 ) -> None:
     """Reconcile the merged metrics summary against the post-reconcile manifest.
 
@@ -506,26 +510,25 @@ def _patch_metrics_post_reconcile(
         with open(metrics_path, encoding="utf-8") as f:
             summary = json.load(f)
     except (OSError, json.JSONDecodeError) as exc:
-        logger.warning(
-            f"cannot patch reconcile drops into metrics {metrics_path}: {exc}"
-        )
+        logger.warning(f"cannot patch reconcile drops into metrics {metrics_path}: {exc}")
         return
 
     dropped = summary.setdefault("dropped", {})
     if dropped_missing:
-        dropped["missing_audio"] = (
-            int(dropped.get("missing_audio", 0)) + dropped_missing
-        )
+        dropped["missing_audio"] = int(dropped.get("missing_audio", 0)) + dropped_missing
     if dropped_unreadable:
-        dropped["corrupted_audio"] = (
-            int(dropped.get("corrupted_audio", 0)) + dropped_unreadable
-        )
+        dropped["corrupted_audio"] = int(dropped.get("corrupted_audio", 0)) + dropped_unreadable
 
     # Rebuild output-side counters from the reconciled manifest.  After
     # _reconcile_manifest_with_tar drops a row the worker-emitted shard
     # record for that snippet is still summed into the pre-reconcile
     # totals, so we recompute against what survived.
-    out_per_id, durations = _collect_reconciled_output_stats(manifest_path)
+    out_per_id, durations = _collect_reconciled_output_stats(
+        manifest_path,
+        id_key=id_key,
+        segments_key=segments_key,
+        duration_key=duration_key,
+    )
 
     total_snippets = sum(v["out_snippets"] for v in out_per_id.values())
     total_segments = sum(v["out_segments"] for v in out_per_id.values())

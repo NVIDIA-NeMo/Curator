@@ -15,6 +15,7 @@
 import hashlib
 import json
 import os
+import tempfile
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -189,16 +190,60 @@ class ManifestWriterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             return {"token": text}
         return value if isinstance(value, dict) else {}
 
+    def _publish_run_owner(self, payload: dict[str, Any]) -> None:
+        if "inode" not in payload["artifact"]:
+            with self._fs.open(f"{self._path}._RUN", "w", encoding="utf-8") as owner:
+                json.dump(payload, owner)
+            return
+        # Local ownership must survive interruption while its JSON is replaced.
+        fd, temporary = tempfile.mkstemp(prefix=".manifest-owner-", dir=os.path.dirname(self._path) or ".")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as owner:
+                json.dump(payload, owner)
+                owner.flush()
+                os.fsync(owner.fileno())
+            os.replace(temporary, f"{self._path}._RUN")
+        finally:
+            if os.path.exists(temporary):
+                os.unlink(temporary)
+
     def _write_run_owner(self) -> None:
-        payload = {"token": self._run_token, "artifact": self._output_identity()}
-        with self._fs.open(f"{self._path}._RUN", "w", encoding="utf-8") as owner:
-            json.dump(payload, owner)
+        self._publish_run_owner({"token": self._run_token, "artifact": self._output_identity()})
+
+    def _recover_local_append(self, owner: dict[str, Any], current: dict[str, str]) -> bool:
+        records = owner.get("append")
+        previous = owner.get("artifact", {})
+        if not isinstance(records, str) or "inode" not in previous or previous["inode"] != current.get("inode"):
+            return False
+        offset = int(previous["size"])
+        payload = records.encode("utf-8")
+        size = int(current["size"])
+        if not offset <= size <= offset + len(payload):
+            return False
+        with open(self._path, "r+b") as output:
+            output.seek(offset)
+            tail = output.read()
+            if tail != payload[: len(tail)]:
+                return False
+            # The ownership update confirms a committed append. Discard an
+            # uncommitted tail before the executor retries its input, otherwise
+            # ordinary append sinks could write the same rows twice.
+            output.truncate(offset)
+            output.flush()
+            os.fsync(output.fileno())
+        self._write_run_owner()
+        return True
 
     def _verify_run(self) -> None:
         try:
             owner = self._read_run_owner()
-            if owner.get("token") == self._run_token and owner.get("artifact") == self._output_identity():
-                return
+            if owner.get("token") == self._run_token:
+                current = self._output_identity()
+                if "append" in owner:
+                    if self._recover_local_append(owner, current):
+                        return
+                elif owner.get("artifact") == current:
+                    return
         except FileNotFoundError:
             pass
         msg = f"ManifestWriterStage cannot see its driver-prepared shared output at {self.output_path!r}"
@@ -257,11 +302,18 @@ class ManifestWriterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         """
         if not records:
             return
-        if getattr(self, "_run_token", None) is not None:
+        prepared = getattr(self, "_run_token", None) is not None
+        if prepared:
             self._verify_run()
+            artifact = self._output_identity()
+            if "inode" in artifact:
+                self._publish_run_owner({"token": self._run_token, "artifact": artifact, "append": records})
         with self._fs.open(self._path, "a", encoding="utf-8") as output:
             output.write(records)
-        if getattr(self, "_run_token", None) is not None:
+            if prepared and "inode" in artifact:
+                output.flush()
+                os.fsync(output.fileno())
+        if prepared:
             self._write_run_owner()
 
     def process(self, task: AudioTask) -> AudioTask:

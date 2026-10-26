@@ -222,9 +222,9 @@ all options. The retired `/claude review` and `/claude strict-review` commands
 only reply with migration instructions; they do not run or automatically
 request a review.
 
-The repository policy lives in `skills/pr-review/SKILL.md`. The review service
-must load this rubric from protected `main`, not the pull-request branch.
-Before deploying this migration, publish the rubric, register its repository
-profile, and verify a Ready plugin snapshot containing it. Until those
-prerequisites are verified, do not rely on the redirect as evidence that the
-repository-specific review policy is active.
+Curator's review profile in CI-Events selects its local copy of the
+[Ponytail review skill](https://github.com/NVIDIA-NeMo/CI-Events-Workflows/blob/main/skills/ponytail-review/SKILL.md).
+The review service loads an immutable plugin snapshot published from CI-Events'
+protected `main` branch. CI-Events owns profile registration and publication;
+the formal review service owns review output and submission. Before activating
+the profile, verify a Ready `ponytail-skills` snapshot containing `ponytail-review`.

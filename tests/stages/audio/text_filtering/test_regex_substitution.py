@@ -290,6 +290,54 @@ def test_rejects_invalid_replacement(tmp_path: Path) -> None:
         stage.setup()
 
 
-def test_requires_rules_path() -> None:
-    with pytest.raises(ValueError, match="regex_params_yaml is required"):
-        RegexSubstitutionStage()
+@pytest.mark.parametrize(
+    "rules",
+    [
+        [],
+        [
+            {"pattern": r"\bfoo\b", "repl": "A P I", "count": 1},
+            {"pattern": r"\bA P I\b", "repl": "GPU"},
+        ],
+        [{"pattern": r"\S+", "repl": ""}],
+    ],
+)
+def test_inline_rules_match_file_results(tmp_path: Path, rules: list[dict[str, object]]) -> None:
+    file_stage = RegexSubstitutionStage(regex_params_yaml=_rules(tmp_path, rules))
+    inline_stage = RegexSubstitutionStage(rules=rules)
+    rows = [
+        {"pred_text": "  foo   foo  "},
+        {"pred_text": "   ", "_skipme": ""},
+        {"pred_text": "foo", "text": "preserved", "_skipme": "read_error"},
+    ]
+    file_stage.setup()
+    inline_stage.setup()
+
+    file_results = file_stage.process_batch([AudioTask(data=dict(row)) for row in rows])
+    inline_results = inline_stage.process_batch([AudioTask(data=dict(row)) for row in rows])
+
+    assert [task.data for task in inline_results] == [task.data for task in file_results]
+
+
+@pytest.mark.parametrize(
+    ("rules", "error", "message"),
+    [
+        ({}, TypeError, "must contain a list"),
+        (["not a rule"], TypeError, "must be a mapping"),
+        ([{"pattern": "foo"}], ValueError, "pattern and repl"),
+        ([{"pattern": "foo", "repl": "bar", "count": True}], TypeError, "count must be an integer"),
+        ([{"pattern": "[", "repl": ""}], re.error, "unterminated character set"),
+    ],
+)
+def test_rejects_invalid_inline_rules(rules: object, error: type[Exception], message: str) -> None:
+    stage = RegexSubstitutionStage(rules=rules)
+
+    with pytest.raises(error, match=message):
+        stage.setup()
+
+
+@pytest.mark.parametrize(
+    ("regex_params_yaml", "rules"), [("", None), ("rules.yaml", []), ("rules.yaml", [{"pattern": "x", "repl": ""}])]
+)
+def test_requires_exactly_one_rules_source(regex_params_yaml: str, rules: list[dict[str, str]] | None) -> None:
+    with pytest.raises(ValueError, match="exactly one of regex_params_yaml or rules"):
+        RegexSubstitutionStage(regex_params_yaml=regex_params_yaml, rules=rules)
