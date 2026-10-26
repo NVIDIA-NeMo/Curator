@@ -46,6 +46,7 @@ _TREE = {
     "stages/video/unrelated.py": "SOMETHING = 1\n",
     "stages/audio/audio_agent/__init__.py": "",
     "stages/audio/audio_agent/_verb_pretrain.py": "DRIVER_VERSION = 1\n",
+    "stages/audio/alm/pretrain/finalize.py": "MERGER_VERSION = 1\n",
     "models/asr/dynamic_adapter.py": (
         "from nemo_curator.models.asr import adapter_helper\nclass DynamicAdapter:\n    VALUE = 1\n"
     ),
@@ -78,6 +79,17 @@ def package(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Callable[[str, s
 
 
 class TestWhatTheStampCovers:
+    @pytest.mark.parametrize(
+        "stage", ["SnippetExtractionStage", "SnippetManifestWriterStage", "PretrainMetricsAggregatorStage"]
+    )
+    def test_shared_merger_changes_invalidate_alm_artifacts(
+        self, package: Callable[[str, str], None], stage: str
+    ) -> None:
+        before = code_identity.impl_version(stage)
+        assert not code_identity.is_fallback(before)
+        package("stages/audio/alm/pretrain/finalize.py", "MERGER_VERSION = 2\n")
+        assert code_identity.impl_version(stage) != before
+
     @pytest.mark.parametrize(
         "stage", ["SnippetExtractionStage", "SnippetManifestWriterStage", "PretrainMetricsAggregatorStage"]
     )
