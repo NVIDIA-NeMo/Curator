@@ -98,6 +98,7 @@ class NemotronParsePostprocessStage(ProcessingStage[InterleavedBatch, Interleave
                     proc_size,
                     reorder_floaters=reorder,
                     min_crop_px=self.min_crop_px,
+                    page_numbers=sorted_group["position"].tolist(),
                 )
             )
 

@@ -87,6 +87,35 @@ def test_legacy_projection_remains_unchanged():
     assert actual == expected
 
 
+def test_legacy_selected_pages_keep_pdf_page_numbers():
+    page = image_to_bytes(Image.new("RGB", (220, 170), "red"))
+    raw = "<x_0.1><y_0.1>Hello<x_0.9><y_0.9><class_Text>"
+    batch = InterleavedBatch(
+        dataset_name="test",
+        data=pa.Table.from_pylist(
+            [
+                {
+                    "sample_id": "s",
+                    "url": "u",
+                    "pdf_name": "s.pdf",
+                    "position": position,
+                    "binary_content": page,
+                    "text_content": raw,
+                }
+                for position in (2, 0)
+            ]
+        ),
+        _metadata={"model_path": "nvidia/NVIDIA-Nemotron-Parse-v1.2"},
+    )
+    rows = [
+        row
+        for row in NemotronParsePostprocessStage().process(batch).to_pyarrow().to_pylist()
+        if row["modality"] == "text"
+    ]
+    assert [row["page_number"] for row in rows] == [0, 2]
+    assert [json.loads(row["source_ref"])["page"] for row in rows] == [0, 2]
+
+
 def test_error_row_roundtrip_uses_writer_warn_policy(tmp_path: Path):
     from nemo_curator.stages.interleaved.io import InterleavedParquetWriterStage
 

@@ -379,6 +379,8 @@ def build_interleaved_rows(  # noqa: PLR0913
     proc_size: tuple[int, int] = (2048, 1664),
     reorder_floaters: bool = True,
     min_crop_px: int = DEFAULT_MIN_CROP_PX,
+    *,
+    page_numbers: list[int] | None = None,
 ) -> list[dict[str, Any]]:
     """Convert Nemotron-Parse page outputs into interleaved-schema rows.
 
@@ -392,11 +394,13 @@ def build_interleaved_rows(  # noqa: PLR0913
         reorder_floaters: If True, re-insert Pictures/Captions in reading order
             (needed for v1.1).  If False, preserve raw model output order (v1.2+).
         min_crop_px: Minimum pixel dimension for image crops.
+        page_numbers: PDF page index of each image. Defaults to ``0..n-1``.
     """
     rows: list[dict[str, Any]] = [build_metadata_row(sample_id, url, pdf_name, len(page_images))]
 
     position = 0
-    for page_num, (page_img, raw_output) in enumerate(zip(page_images, page_outputs, strict=True)):
+    numbers = range(len(page_images)) if page_numbers is None else page_numbers
+    for page_num, page_img, raw_output in zip(numbers, page_images, page_outputs, strict=True):
         canvas = build_canvas(page_img, proc_size)
         elements = parse_nemotron_output(raw_output)
 
