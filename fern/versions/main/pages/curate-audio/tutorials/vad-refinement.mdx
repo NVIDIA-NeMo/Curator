@@ -1,0 +1,147 @@
+---
+description: "Refine MFA word boundaries with constrained Silero and Sortformer atomic voting"
+categories: ["audio-curation"]
+tags: ["vad", "forced-alignment", "sortformer", "silero"]
+personas: ["mle-focused", "data-scientist-focused"]
+difficulty: "advanced"
+content_type: "tutorial"
+modality: "audio-only"
+---
+
+# Refine Word Boundaries with VAD
+
+Use the `tutorials/audio/vad_refinement` recipe to refine existing forced-alignment
+word boundaries with Silero and Sortformer. It operates on isolated speaker-channel
+recordings with segment-local MFA TextGrids, preserving the original word count,
+labels, order and extents. It does not assign speaker identities to a mixed recording.
+
+## How refinement works
+
+The recipe partitions time at every MFA, Silero and Sortformer boundary. An atomic
+region inside an original MFA word is always speech. Outside those words, it is
+speech only when both detectors agree:
+
+```text
+speech = original_MFA_word OR (Silero_speech AND Sortformer_speech)
+```
+
+Adjacent speech regions form consensus components. Each component is projected
+once onto the original words: boundaries may widen, but words cannot contract,
+disappear, change label or overlap their neighbors. Components with no MFA word
+are discarded. There is no boundary-shift tolerance, weighted edge averaging,
+additional pause-merging objective or DOVER-Lap fusion.
+
+For example, an MFA word ending at 8.61 seconds can extend to 8.73 when Silero
+supports speech through 8.80 and Sortformer through 8.73. A region supported by
+only one detector does not extend the word. Neither detector can remove speech
+inside the original word, even if they disagree with that alignment.
+
+Sortformer is used as a binary speech detector by taking the maximum posterior
+across speaker channels. Optional Sound Expert event intervals are subtracted
+from both detector streams before voting; original MFA words remain protected.
+
+## Prepare inputs
+
+Use x86_64 Linux with a compatible NeMo ASR environment. From a Curator source
+checkout, install the audio extra and the recipe's lightweight dependency:
+
+```bash
+uv sync --extra audio_cuda12
+source .venv/bin/activate
+python -m pip install -r tutorials/audio/vad_refinement/requirements.txt
+```
+
+Every JSONL manifest represents one session. Required row fields are `session_id`,
+`speaker_id`, `audio_filepath`, `offset`, `duration`, and `mfa_textgrid`:
+
+```json
+{"session_id":"meeting-001","segment_id":"seg-0001","speaker_id":"speaker-00","audio_filepath":"/data/speaker-00.wav","offset":12.4,"duration":3.2,"mfa_textgrid":"/data/seg-0001.TextGrid","text":"example transcript"}
+```
+
+The audio path points to the full speaker recording. `offset` and `duration` are
+seconds on that recording; the TextGrid `words` tier is segment-local. One
+speaker ID must map to one audio file within a session. Use separate manifests
+for separate sessions. This recipe consumes forced alignments; it does not run MFA.
+
+## Run the pipeline
+
+The launcher runs refinement followed by baseline/refined SegLST generation:
+
+```bash
+SORTFORMER_MODEL=/models/sortformer.nemo \
+MANIFEST=/data/session.jsonl \
+OUTPUT_ROOT=/data/refined \
+bash tutorials/audio/vad_refinement/run_vad_refinement.sh
+```
+
+Set `BUILD_SEGLST=0` to omit SegLST generation. For multiple manifests and
+deterministic sharding, use the refinement module directly:
+
+```bash
+python -m tutorials.audio.vad_refinement.rectify_vad_boundaries \
+  --manifest-root /data/manifests \
+  --manifest-pattern "**/*.jsonl" \
+  --output-root /data/refined \
+  --sortformer-model /models/sortformer.nemo \
+  --shard-count 4 --shard-index 0
+```
+
+Run one process per GPU and use a different shard index for each process. Model
+instances are reused within a process. These are standalone recipe commands;
+they do not submit work to the Curator Ray executors. Detector calibration
+options are available through `--help`; the constrained vote has fixed equal
+source weights. Sound Expert is disabled unless a model is explicitly supplied.
+
+## Inspect outputs
+
+Under `OUTPUT_ROOT/<session_id>/`, inspect:
+
+- `manifest_vad_refined.jsonl`, with new TextGrid paths and the activity-source tag;
+- `textgrids/segments/`, with segment-local refined word boundaries;
+- `textgrids/`, with combined recording/session TextGrids;
+- `rttm/`, with recording-global speaker and session RTTMs;
+- `vad_debug/`, with the independent detector activity; and
+- `audit.json`, with detector settings, atomic-vote counts and every word change.
+
+The launcher also writes `seglst/` unless disabled. Phone alignments are not
+regenerated. Source files remain unchanged; outputs contain local paths. Use a
+fresh output root for a new run: the CLI skips sessions with an existing audit
+unless `--overwrite` is requested. That skip is a presence check, not a validation
+that the old output matches the current inputs or model settings.
+
+## Optional frame-agreement filtering
+
+Run the separate filter only when a quality subset is wanted:
+
+```bash
+python -m tutorials.audio.vad_refinement.filter_segments_by_vad_agreement \
+  --manifest /data/refined/meeting-001/manifest_vad_refined.jsonl \
+  --output-dir /data/agreement \
+  --frame-duration 0.01 --reference-source refined \
+  --vad-variant raw --max-bad-ratio 0.10
+```
+
+A bad frame is one where both detectors disagree with the selected reference;
+`bad_ratio` divides that count by the total frame count. This is a consistency
+measure, not an independent transcript-accuracy or boundary-accuracy score.
+
+## Validation and limits
+
+CPU regression tests use synthetic TextGrids and detector outputs; they require
+no model downloads. They check word preservation, both-detector agreement in
+gaps, projection without overlap and non-destructive output generation:
+
+```bash
+pytest tests/tutorials/audio/vad_refinement -m "not gpu" -q
+```
+
+The recipe preserves errors already present inside MFA words. Evaluate boundary
+accuracy or DER against independent references before claiming a quality gain.
+Record the input manifest checksum, model identifiers and thresholds, shard
+settings and audit path for reproducible runs. This is a source-checkout recipe,
+not an additional installed `ProcessingStage`.
+
+The algorithm and regression tests are ported from NVIDIA's Apache-2.0
+`vad-refinement-pipeline` 0.2.0, revision
+`53329a018a049ec7fcf1d189f649df74557d9612`. The recipe's `UPSTREAM.json` records
+module provenance. See its README for all input/output and CLI options.
