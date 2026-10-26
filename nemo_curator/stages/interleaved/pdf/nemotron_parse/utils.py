@@ -109,8 +109,8 @@ def render_pdf_pages(  # noqa: PLR0913
     dpi: int = 300,
     max_pages: int = DEFAULT_MAX_PAGES,
     max_size: tuple[int, int] | None = (1664, 2048),
-    *,
     keep_failed: bool = False,
+    *,
     page_indices: list[int] | None = None,
 ) -> list[Image.Image | None]:
     """Render PDF pages to PIL images using pypdfium2.

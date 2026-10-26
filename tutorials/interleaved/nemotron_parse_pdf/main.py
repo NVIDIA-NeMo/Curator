@@ -32,11 +32,18 @@ from nemo_curator.stages.interleaved.pdf.nemotron_parse import create_nemotron_p
 def main() -> None:
     parser = create_nemotron_parse_pdf_argparser()
     parser.set_defaults(inference_batch_size=32)
+    parser.add_argument(
+        "--nemotron-parse-path",
+        default=None,
+        help="Local Nemotron Parse 3.5 model repository to serve with --parse-mode",
+    )
     args = parser.parse_args()
 
     args.output_dir = os.path.abspath(args.output_dir)
     os.makedirs(args.output_dir, exist_ok=True)
 
+    if args.parse_mode is not None and args.inference_server_endpoint is None and args.nemotron_parse_path is None:
+        parser.error("--parse-mode requires --inference-server-endpoint or --nemotron-parse-path")
     if args.inference_server_endpoint is not None:
         _run_pipeline(
             args,
@@ -52,24 +59,17 @@ def main() -> None:
         parser.error("Dynamo serving requires at least one Ray-visible GPU")
 
     model_name = args.model_path
+    nemotron_parse_path = args.nemotron_parse_path if args.parse_mode is not None else None
     engine_kwargs = {"enforce_eager": True} if args.enforce_eager else {}
-    if args.parse_mode is not None:
-        engine_kwargs.update(
-            {
-                "distributed_executor_backend": "uni",
-                "tensor_parallel_size": 1,
-                "max_model_len": 16384,
-                "max_num_seqs": args.max_num_seqs,
-                "max_num_batched_tokens": 16384,
-                "attention_config": {"flash_attn_version": 3},
-            }
-        )
+    if nemotron_parse_path is not None:
+        engine_kwargs["max_num_seqs"] = args.max_num_seqs
     server = create_nemotron_parse_inference_server(
         model_path=args.model_path,
         model_name=model_name,
         backend="dynamo",
         num_replicas=num_gpus,
         engine_kwargs=engine_kwargs or None,
+        nemotron_parse_path=nemotron_parse_path,
     )
 
     with server:

@@ -167,7 +167,7 @@ class PDFPreprocessStage(ProcessingStage[FileGroupTask, InterleavedBatch]):
         ctx = multiprocessing.get_context("fork")
         result_q: multiprocessing.Queue = ctx.Queue()
 
-        keep_failed = self.retain_failures
+        keep_failed = self.retain_failures or page_indices is not None
 
         def _worker() -> None:
             try:
@@ -291,6 +291,7 @@ class PDFPreprocessStage(ProcessingStage[FileGroupTask, InterleavedBatch]):
             rows.extend(
                 self._page_row(sample_id, file_name, url, page_num, page_img)
                 for page_num, page_img in zip(physical_indexes, page_images, strict=True)
+                if self.retain_failures or page_img is not None
             )
 
         if not rows:

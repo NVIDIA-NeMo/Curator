@@ -89,6 +89,26 @@ def test_manifest_selected_pages_only_preserve_physical_indexes(tmp_path: Path):
     assert [(row["position"], row["page_number"]) for row in rows] == [(2, 2), (0, 0)]
 
 
+@pytest.mark.parametrize("retain", [False, True])
+def test_selected_pages_keep_successful_indexes_after_render_failure(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, retain: bool
+):
+    def render(_document: object, index: int, _scale: float, _max_size: tuple[int, int]) -> Image.Image | None:
+        return None if index == 1 else Image.new("RGB", (10, 10), "red")
+
+    monkeypatch.setattr(utils, "_render_page", render)
+    (tmp_path / "three.pdf").write_bytes(pdf_bytes())
+    stage = preprocess.PDFPreprocessStage(pdf_dir=str(tmp_path), retain_failures=retain)
+    task = FileGroupTask(
+        dataset_name="test",
+        data=[json.dumps({"file_name": "three.pdf", "selected_page_indices": [2, 1, 0]})],
+    )
+    rows = stage.process(task).to_pyarrow().to_pylist()
+    assert [row["position"] for row in rows] == ([2, 1, 0] if retain else [2, 0])
+    if retain:
+        assert json.loads(rows[1]["materialize_error"])["stage"] == "render_pdf"
+
+
 @pytest.mark.parametrize("indexes", [[], [-1], [1, 1], [True]])
 def test_invalid_manifest_selected_pages_are_retained_as_failures(tmp_path: Path, indexes: list[int]):
     (tmp_path / "three.pdf").write_bytes(pdf_bytes())

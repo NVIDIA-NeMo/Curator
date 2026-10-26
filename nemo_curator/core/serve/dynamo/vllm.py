@@ -91,6 +91,17 @@ def _vllm_index_url() -> str | None:
     return None
 
 
+def _cpu_torch_reinstall_options() -> list[str]:
+    """Replace CPU wheels inherited from a CPU-only driver in the CUDA actor."""
+    try:
+        torch_version = importlib.metadata.version("torch")
+    except importlib.metadata.PackageNotFoundError:
+        return []
+    if torch_version.endswith("+cpu"):
+        return ["--reinstall-package", "torch", "--reinstall-package", "torchvision"]
+    return []
+
+
 # The actor install must select the configured CUDA Torch and vLLM wheels even
 # though public PyPI also contains a wheel with the same base vLLM version.
 _ACTOR_VENV_UV_OPTIONS = [
@@ -100,6 +111,7 @@ _ACTOR_VENV_UV_OPTIONS = [
     _ACTOR_VENV_CUDA_TAG,
     "--index-strategy",
     "unsafe-best-match",
+    *_cpu_torch_reinstall_options(),
 ]
 if _resolved_vllm_index_url := _vllm_index_url():
     _ACTOR_VENV_UV_OPTIONS.extend(["--extra-index-url", _resolved_vllm_index_url])

@@ -36,6 +36,22 @@ _TWO_NODES_4GPU = [
 ]
 
 
+@pytest.mark.parametrize("version", ["2.11.0+cpu", "2.11.0+cu129", "2.11.0+cu130"])
+def test_actor_replaces_only_inherited_cpu_torch(version: str) -> None:
+    with mock.patch.object(dynamo_vllm.importlib.metadata, "version", return_value=version):
+        options = dynamo_vllm._cpu_torch_reinstall_options()
+    assert options == (
+        ["--reinstall-package", "torch", "--reinstall-package", "torchvision"] if version.endswith("+cpu") else []
+    )
+
+
+def test_actor_without_driver_torch_uses_fresh_resolution() -> None:
+    with mock.patch.object(
+        dynamo_vllm.importlib.metadata, "version", side_effect=dynamo_vllm.importlib.metadata.PackageNotFoundError
+    ):
+        assert dynamo_vllm._cpu_torch_reinstall_options() == []
+
+
 @pytest.mark.parametrize(
     ("router_mode", "router_kv_events", "expected"),
     [

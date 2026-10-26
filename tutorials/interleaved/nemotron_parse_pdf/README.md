@@ -66,8 +66,8 @@ stage defaults to `4 * num_gpus` workers; override it with `--client-num-workers
 Use `CUDA_VISIBLE_DEVICES` or your Ray cluster resources to control which GPUs are used.
 
 Without `--inference-server-endpoint`, `main.py` starts Dynamo with vLLM.
-This includes served Parse 3.5 when `--parse-mode` is selected and its model
-package is installed in the driver environment. `main.py` does not expose a
+With `--parse-mode`, it serves Parse 3.5 from `--nemotron-parse-path`; see
+[Served Nemotron Parse 3.5](#served-nemotron-parse-35). `main.py` does not expose a
 `--backend` option.
 
 **Alternative — Run inference in process:**
@@ -152,6 +152,7 @@ images = [Image.open(io.BytesIO(b)) for b in df[df["modality"] == "image"]["bina
 | `--dpi` | 300 | PDF rendering resolution |
 | `--max-pages` | 50 | Max pages per PDF |
 | `--text-in-pic` | off | Predict text inside images (v1.2+ feature) |
+| `--nemotron-parse-path` | — | Local Parse 3.5 repository for managed Dynamo (`main.py` only); use with `--parse-mode` |
 
 ## Served Nemotron Parse 3.5
 
@@ -176,10 +177,25 @@ python tutorials/interleaved/nemotron_parse_pdf/main.py \
     --executor ray-data
 ```
 
-Omit `--inference-server-endpoint` to let the tutorial manage the same model
-through Dynamo. CUDA 13 environments must set
-`NEMO_CURATOR_DYNAMO_CUDA_TAG=cu130`; the default remains Curator's `cu129`
-actor environment.
+To let the tutorial manage the model through Dynamo instead, download the complete
+repository and pass it as both `--model-path` and `--nemotron-parse-path`. The
+driver environment needs `ai-dynamo==1.4.2`, which pins vLLM 0.26; Curator's
+locked release pins a vLLM that is older than Parse 3.5 supports. Each serving
+worker installs the repository package with its own dependencies, and Dynamo's
+frontend applies the repository's `chat_template.jinja`. CUDA 13 environments must
+set `NEMO_CURATOR_DYNAMO_CUDA_TAG=cu130`; the default remains Curator's `cu129`
+actor environment. A CPU-only driver can keep CPU PyTorch: serving workers replace
+it with the selected CUDA build.
+
+```bash
+hf download nvidia/Nemotron-3.5-Parse --revision 62cb1e4ba153d113ff64aaf2be6e068c377cf53c \
+    --local-dir /path/to/nemotron-parse
+NEMO_CURATOR_DYNAMO_CUDA_TAG=cu130 python tutorials/interleaved/nemotron_parse_pdf/main.py \
+    --manifest manifest.jsonl --pdf-dir /path/to/pdfs --output-dir /path/to/output \
+    --model-path /path/to/nemotron-parse \
+    --nemotron-parse-path /path/to/nemotron-parse \
+    --parse-mode single --executor ray-data
+```
 
 - `single` reads the whole page.
 - `double` also rereads table and chart crops from that answer.

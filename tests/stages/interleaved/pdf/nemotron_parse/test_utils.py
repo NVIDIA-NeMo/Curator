@@ -182,6 +182,16 @@ class TestRenderPdfPages:
         assert len(render_pdf_pages(stream.getvalue(), page_indices=[2, 0])) == 2
         assert rendered == [2, 0]
 
+    def test_keep_failed_still_accepts_a_positional_argument(self, monkeypatch: pytest.MonkeyPatch):
+        pdfium = pytest.importorskip("pypdfium2")
+        doc = pdfium.PdfDocument.new()
+        doc.new_page(100, 100).close()
+        stream = io.BytesIO()
+        doc.save(stream)
+        doc.close()
+        monkeypatch.setattr(utils, "_render_page", lambda *_args: None)
+        assert render_pdf_pages(stream.getvalue(), 300, 50, (1664, 2048), True) == [None]
+
 
 class TestBuildInterleavedRows:
     def test_basic_output(self):

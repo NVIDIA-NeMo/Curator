@@ -390,7 +390,7 @@ If startup retries are exhausted, first check the worker log for the original fa
 
 ## Served Nemotron Parse 3.5
 
-Set `parse_mode` to read pages with Nemotron Parse 3.5 through an inference server that you start and stop. Curator-managed serving is not yet qualified for this model: its vLLM plugin requires newer vLLM and Transformers releases than Curator's serving stack pins.
+Set `parse_mode` to read pages with Nemotron Parse 3.5 through an inference server that you start and stop, or through Curator-managed Dynamo as described in [Curator-Managed Dynamo](#curator-managed-dynamo).
 
 Install the model team's Python package from the model repository, without the weights or its inference dependencies:
 
@@ -414,6 +414,22 @@ python tutorials/interleaved/nemotron_parse_pdf/main.py \
 ```
 
 Use `--executor xenna` to run the same pipeline on Xenna. The endpoint must serve the named model; each HTTP worker checks `/v1/models` at startup and fails if the model is not listed. For two GPUs, run the model team's server with `--data-parallel-size 2` behind one endpoint; Curator does not route across endpoints.
+
+### Curator-Managed Dynamo
+
+Pass `nemotron_parse_path` to `create_nemotron_parse_inference_server`, or `--nemotron-parse-path` to `main.py`, with a complete local copy of the model repository. Each Dynamo serving worker installs the repository package with its own dependencies, and Dynamo's frontend applies the repository's `chat_template.jinja`. A local `model_path` is also passed to the frontend; a Hugging Face model ID is not, because the frontend accepts only local directories. `nemotron_parse_path` requires the `dynamo` backend.
+
+The driver environment needs `ai-dynamo==1.4.2`, which pins vLLM 0.26; Curator's locked release pins a vLLM that is older than Parse 3.5 supports. For CUDA 13 workers, set `NEMO_CURATOR_DYNAMO_CUDA_TAG=cu130`; the default is `cu129`. A CPU-only driver can keep CPU PyTorch: serving workers replace it with the selected CUDA build.
+
+```bash
+hf download nvidia/Nemotron-3.5-Parse --revision 62cb1e4ba153d113ff64aaf2be6e068c377cf53c \
+    --local-dir /path/to/nemotron-parse
+NEMO_CURATOR_DYNAMO_CUDA_TAG=cu130 python tutorials/interleaved/nemotron_parse_pdf/main.py \
+    --manifest manifest.jsonl --pdf-dir /path/to/pdfs --output-dir /path/to/output \
+    --model-path /path/to/nemotron-parse \
+    --nemotron-parse-path /path/to/nemotron-parse \
+    --parse-mode single --executor ray-data
+```
 
 - `single` reads the whole page.
 - `double` also rereads table and chart crops from that answer.
