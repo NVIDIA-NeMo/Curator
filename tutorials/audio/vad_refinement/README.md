@@ -81,6 +81,13 @@ new_end <= next_word.start
 Consensus components that touch no MFA word are discarded because the pipeline does not invent
 transcript words.
 
+When adjacent words belong to the same continuous consensus component, divide
+their original MFA gap equally. The shared boundary is
+`MFA_end(first) + (MFA_start(second) - MFA_end(first)) / 2`. This preserves both
+MFA words in full and gives each half of the gap, without overlapping word labels.
+Touching MFA words keep their shared boundary. If the consensus contains a pause
+between the words, keep that pause instead of filling it.
+
 ### Objective
 
 Outside hard MFA-word constraints, the vote maximizes duration-weighted agreement:
@@ -128,6 +135,51 @@ The Curator audio extra includes NeMo ASR and Silero. For a separately managed e
 [official NeMo instructions](https://docs.nvidia.com/nemo-framework/user-guide/latest/installation.html)
 for the installed CUDA and PyTorch versions.
 
+## Selected Sortformer checkpoint
+
+Use [nvidia/Nemotron-3-Diarization](https://huggingface.co/nvidia/Nemotron-3-Diarization),
+the September 2026 successor to Sortformer. For reproducibility, download the
+checkpoint at the reviewed revision instead of following a moving model branch:
+
+```bash
+hf download nvidia/Nemotron-3-Diarization Nemotron-3-Diarization.nemo \
+  --revision f667ed73aee57d40cc39428eb768b4fd87a0a29e \
+  --local-dir /models/nemotron3
+export SORTFORMER_MODEL=/models/nemotron3/Nemotron-3-Diarization.nemo
+```
+
+The model card requires Python 3.12+ and current NVIDIA NeMo Speech. The
+published PyPI NeMo 3.0.0 package cannot restore this checkpoint: its transformer
+encoder rejects `self_attention_model='rope'`. The `nemo_version: 3.0.0` checkpoint
+metadata does not identify a compatible build. Curator's locked PyPI package
+therefore needs a recipe-specific replacement in the inference environment.
+
+The real-model CPU smoke test passes with NeMo Speech commit
+`d32dd550ffb016cd7b4133bb2bc69f15ba866361`, Python 3.12, PyTorch/torchaudio
+2.11.0 CPU, Silero VAD 6.2.3, Transformers 4.57.6 and huggingface-hub 0.36.0.
+After preparing the audio environment above, resolve the source build's ASR
+dependencies and explicitly replace NeMo:
+
+```bash
+python -m pip install \
+  'nemo-toolkit[asr] @ https://github.com/NVIDIA-NeMo/Speech/archive/d32dd550ffb016cd7b4133bb2bc69f15ba866361.tar.gz'
+python -m pip install --force-reinstall --no-deps \
+  'nemo-toolkit @ https://github.com/NVIDIA-NeMo/Speech/archive/d32dd550ffb016cd7b4133bb2bc69f15ba866361.tar.gz'
+```
+
+The second command is necessary because this source build also reports version
+3.0.0; pip can otherwise retain the incompatible installed release. A subsequent
+`uv sync` restores the lockfile's PyPI build, so apply the source replacement
+after syncing this inference environment. This override is local to the recipe;
+Curator's shared dependency lock is unchanged. Record the source commit alongside
+package versions. The weights use OpenMDW-1.1; the recipe code uses Apache-2.0.
+
+The recipe reads frame spacing from the loaded model's output subsampling factor
+and preprocessor stride; older models can use the encoder stride. It does not
+assume a fixed 10 ms output spacing. The selected checkpoint emits 10 ms frames.
+The normal regression suite loads no models. The optional smoke test below
+checks real inference and file generation; it does not measure boundary accuracy.
+
 ## Input manifest
 
 The input is JSON Lines. Every file represents one logical session, and every row represents
@@ -157,6 +209,17 @@ Example:
 
 TextGrid times are segment-local. Detector intervals are recording-global and are localized
 internally using `offset`.
+
+Offsets, durations and segment ends must be finite; offsets must be
+non-negative and durations positive. Boolean times are rejected. Segment windows
+for the same speaker must not overlap; adjacent windows and overlapping windows
+for different speakers are allowed. Invalid inputs fail before model loading or
+output creation. Overlapping same-speaker windows are an input-data problem:
+the error identifies the speaker, conflicting manifest rows and boundary times.
+The dataset owner must resolve those windows before rerunning refinement. The
+recipe does not merge, trim or deduplicate conflicting input segments. Other
+manifests can still be processed; the CLI returns a failure status if any manifest
+has an error.
 
 ## Run
 
@@ -200,6 +263,13 @@ python -m tutorials.audio.vad_refinement.rectify_vad_boundaries ... --shard-coun
 Inference is sequential within each process so models are loaded only once. Run one process per
 GPU.
 
+SegLST export clips intervals to each manifest row by default
+(`--boundary-window 0`), so continuous speaker activity cannot expand adjacent
+rows into overlapping transcript segments. The direct SegLST command can still
+use an explicit positive `--boundary-window` for contextual expansion; those
+exports can overlap neighboring rows. This export setting does not change
+atomic voting or TextGrid word refinement.
+
 ## Optional event masking
 
 Provide Sound Expert when non-speech vocal events should be removed from detector support:
@@ -216,6 +286,12 @@ Event spans are subtracted from Silero and Sortformer before atomic voting. Orig
 remain hard speech anchors even when an event overlaps them.
 
 ## Outputs
+
+Speaker RTTMs retain recording-based filenames when unique. If recording
+stems collide with another speaker or the session ID, speaker RTTMs use unique
+names under `rttm/speakers/`. Read the exact paths from `audit.json`; do not infer
+them from input basenames. The combined session RTTM remains separate.
+
 
 For `session_id=meeting-001`:
 
@@ -419,6 +495,30 @@ Tests verify:
 - Detached VAD consensus components are discarded when they contain no transcript word.
 - Frame-agreement scores are not transcript-accuracy scores.
 
+
+### Optional real-model CPU smoke test
+
+Provide the pinned local checkpoint and a short speech recording (at least two
+seconds). The test performs actual Silero/Sortformer inference and writes
+TextGrid, RTTM, manifest and audit files in pytest's temporary directory:
+
+```bash
+CURATOR_VAD_MODEL=/models/nemotron3/Nemotron-3-Diarization.nemo \
+CURATOR_VAD_AUDIO=/data/short-speech.wav \
+OMP_NUM_THREADS=4 MKL_NUM_THREADS=4 \
+python -m pytest -o addopts= \
+  --confcutdir=tests/tutorials/audio/vad_refinement \
+  tests/tutorials/audio/vad_refinement/test_rectify_vad_boundaries.py \
+  -k real_silero_sortformer -v
+```
+
+The test is skipped unless both environment variables are set. It uses synthetic
+word anchors and checks finite speech intervals, word preservation, parseable
+outputs and unchanged source annotations. It does not run MFA, evaluate transcript
+correctness or demonstrate a quality gain. The recorded CPU check used the public
+[Whisper JFK test clip](https://github.com/openai/whisper/blob/main/tests/jfk.flac);
+weights and audio are not included in this repository. Sound Expert is disabled.
+
 ## License
 
 Apache License 2.0. See `LICENSE`.
@@ -428,7 +528,10 @@ Apache License 2.0. See `LICENSE`.
 Ported from NVIDIA's Apache-2.0 `vad-refinement-pipeline` 0.2.0, revision
 `53329a018a049ec7fcf1d189f649df74557d9612`. `UPSTREAM.json` records original
 module checksums. Module imports and launch commands use the Curator recipe
-namespace; the detector, voting, projection and output algorithms are preserved.
+namespace. Atomic voting is preserved; word projection divides shared MFA gaps equally. Local adaptations
+validate timeline inputs before inference, support legacy NeMo frame metadata,
+prevent speaker/session RTTM filename collisions, and keep SegLST export
+inside row boundaries by default.
 The upstream regression tests are under `tests/tutorials/audio/vad_refinement`.
 
 Run these commands from a Curator source checkout. The recipe is not included in

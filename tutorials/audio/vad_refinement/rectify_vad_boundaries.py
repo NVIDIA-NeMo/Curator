@@ -18,11 +18,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 from bisect import bisect_right
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass, field
 from itertools import pairwise
+from numbers import Integral
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
@@ -195,6 +197,30 @@ class SileroVADDetector:
         ]
 
 
+def _sortformer_frame_duration(model: object) -> float:
+    """Resolve modern output resolution or the public legacy encoder stride."""
+    factor = getattr(model, "output_subsampling_factor", None)
+    if factor is None:
+        factor = (
+            1
+            if getattr(model, "high_resolution", False)
+            else getattr(getattr(model, "encoder", None), "subsampling_factor", None)
+        )
+    if isinstance(factor, bool) or not isinstance(factor, Integral) or factor <= 0:
+        msg = "Sortformer must expose a positive integer output or encoder subsampling factor"
+        raise ValueError(msg)
+    preprocessor = getattr(getattr(model, "cfg", None), "preprocessor", None)
+    stride = float(getattr(preprocessor, "window_stride", 0.0))
+    if not math.isfinite(stride) or stride <= 0:
+        msg = "Sortformer preprocessor.window_stride must be finite and positive"
+        raise ValueError(msg)
+    frame_duration = stride * int(factor)
+    if not math.isfinite(frame_duration):
+        msg = "Sortformer output frame duration must be finite"
+        raise ValueError(msg)
+    return frame_duration
+
+
 class SortformerVADDetector:
     def __init__(self, config: SortformerVADConfig) -> None:
         if not config.enabled:
@@ -227,9 +253,7 @@ class SortformerVADDetector:
         self._model = model.to(self._device)
         self._model.eval()
         self._model.freeze()
-        self._frame_duration = float(self._model.cfg.preprocessor.window_stride) * int(
-            self._model.output_subsampling_factor
-        )
+        self._frame_duration = _sortformer_frame_duration(self._model)
 
     @property
     def metadata(self) -> dict[str, object]:
@@ -425,7 +449,13 @@ def project_consensus_to_words(
             raise RuntimeError(msg)
         component_index, (component_start, component_end) = match
         anchored_components.add(component_index)
-        next_start = float(words[word_index + 1][0]) if word_index + 1 < len(words) else component_end
+        next_start = component_end
+        if word_index + 1 < len(words):
+            next_word = words[word_index + 1]
+            next_start = float(next_word[0])
+            next_match = index.containing((next_start + float(next_word[1])) / 2)
+            if next_match is not None and next_match[0] == component_index:
+                next_start = original_end + (next_start - original_end) / 2
         refined_start = max(previous_end, min(original_start, component_start))
         refined_end = min(next_start, max(original_end, component_end))
         projected[word_index][0] = refined_start
@@ -486,8 +516,7 @@ def refine_textgrid_boundaries(
     """Apply one constrained equal-weight atomic vote to TextGrid words."""
     source_path, words = _textgrid_source(row)
     output_path = output_path or source_path.with_name(f"{source_path.stem}_vad_refined.TextGrid")
-    duration = float(row["duration"])
-    offset = float(row["offset"])
+    offset, duration = _row_time_bounds(row, context="TextGrid refinement")
     silero = _local_intervals(predictions.silero, offset, duration)
     sortformer = _local_intervals(predictions.secondary, offset, duration)
     consensus, atomic_regions = atomic_vote_consensus(
@@ -514,6 +543,7 @@ def refine_textgrid_boundaries(
         "algorithm": "constrained_equal_weight_atomic_vote",
         "weights": {"mfa": 1.0, "silero": 1.0, "sortformer": 1.0},
         "hard_constraint": "preserve_mfa_words",
+        "word_boundary_policy": "midpoint_of_mfa_gap_for_shared_component",
         "atomic_regions": atomic_regions,
         "consensus_components": len(consensus),
         "anchored_components": len(anchored_components),
@@ -590,6 +620,24 @@ def _validate_rttm_token(value: object, field_name: str, path: Path, line_number
     return token
 
 
+def _row_time_bounds(row: dict[str, Any], *, context: str) -> tuple[float, float]:
+    """Reject unusable timeline coordinates before inference or output writing."""
+    if isinstance(row["offset"], bool) or isinstance(row["duration"], bool):
+        msg = f"{context}: offset and duration must be finite numbers, not booleans"
+        raise TypeError(msg)
+    try:
+        offset, duration = float(row["offset"]), float(row["duration"])
+    except (TypeError, ValueError, OverflowError) as exc:
+        msg = f"{context}: offset and duration must be finite numbers"
+        raise ValueError(msg) from exc
+    if not all(math.isfinite(value) for value in (offset, duration, offset + duration)) or offset < 0 or duration <= 0:
+        msg = (
+            f"{context}: duration must be finite and positive; offset and segment end must be finite and non-negative"
+        )
+        raise ValueError(msg)
+    return offset, duration
+
+
 def load_manifest(path: Path) -> list[dict[str, Any]]:
     rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
     if not rows:
@@ -603,6 +651,7 @@ def load_manifest(path: Path) -> list[dict[str, Any]]:
     if session_id in {".", ".."} or "/" in session_id or "\\" in session_id:
         msg = f"session_id cannot contain path separators: {session_id!r}"
         raise ValueError(msg)
+    windows: dict[str, list[tuple[float, float, int]]] = defaultdict(list)
     for line_number, row in enumerate(rows, start=1):
         missing = sorted(REQUIRED_MANIFEST_FIELDS - row.keys())
         if missing:
@@ -613,9 +662,21 @@ def load_manifest(path: Path) -> list[dict[str, Any]]:
         if "/" in speaker_id or "\\" in speaker_id:
             msg = f"{path}:{line_number}: speaker_id cannot contain path separators"
             raise ValueError(msg)
-        if float(row["duration"]) <= 0 or float(row["offset"]) < 0:
-            msg = f"{path}:{line_number}: duration must be positive and offset non-negative"
-            raise ValueError(msg)
+        offset, duration = _row_time_bounds(row, context=f"{path}:{line_number}")
+        windows[speaker_id].append((offset, offset + duration, line_number))
+    for speaker_id, speaker_windows in windows.items():
+        previous_end = -math.inf
+        previous_line = 0
+        for start, end, line_number in sorted(speaker_windows):
+            if start < previous_end - TIME_EPSILON:
+                msg = (
+                    f"{path}: input data error: overlapping segment windows for speaker {speaker_id!r} "
+                    f"on rows {previous_line} and {line_number} "
+                    f"(previous end={previous_end}, next start={start}); "
+                    "correct the input manifest before refinement"
+                )
+                raise ValueError(msg)
+            previous_end, previous_line = end, line_number
     return rows
 
 
@@ -657,6 +718,31 @@ def _write_debug_rttms(
         _write_rttm(path, session_id, intervals)
         outputs[label] = str(path.resolve())
     return outputs
+
+
+def _speaker_rttm_targets(
+    source_paths: dict[str, Path],
+    rttm_dir: Path,
+    session_id: str,
+) -> dict[str, tuple[str, Path]]:
+    """Keep legacy names when unique; separate colliding speaker/session outputs."""
+    recording_ids = {
+        speaker: "".join(
+            character if character.isalnum() or character in {"-", "_", "."} else "_" for character in audio.stem
+        ).strip("._")
+        or "recording"
+        for speaker, audio in source_paths.items()
+    }
+    counts = Counter(recording_ids.values())
+    targets: dict[str, tuple[str, Path]] = {}
+    for index, speaker in enumerate(sorted(recording_ids)):
+        recording_id = recording_ids[speaker]
+        directory = rttm_dir
+        if counts[recording_id] > 1 or recording_id == session_id:
+            directory = rttm_dir / "speakers"
+            recording_id = f"speaker-{index:06d}_{recording_id}"
+        targets[speaker] = (recording_id, directory / f"{recording_id}_vad_refined.rttm")
+    return targets
 
 
 def process_manifest(
@@ -723,13 +809,9 @@ def process_manifest(
     session_rttm = rttm_dir / f"{session_id}_vad_refined.rttm"
     _write_rttm(session_rttm, session_id, final_intervals)
     speaker_rttms: dict[str, str] = {}
+    speaker_targets = _speaker_rttm_targets(source_paths, rttm_dir, session_id)
     for speaker_id, intervals in sorted(final_intervals.items()):
-        recording_id = "".join(
-            character if character.isalnum() or character in {"-", "_", "."} else "_"
-            for character in source_paths[speaker_id].stem
-        ).strip("._")
-        recording_id = recording_id or "recording"
-        speaker_path = rttm_dir / f"{recording_id}_vad_refined.rttm"
+        recording_id, speaker_path = speaker_targets[speaker_id]
         _write_rttm(speaker_path, recording_id, {speaker_id: intervals})
         speaker_rttms[speaker_id] = str(speaker_path.resolve())
         speaker_audit[speaker_id]["aligned_intervals"] = aligned[speaker_id]
@@ -751,6 +833,7 @@ def process_manifest(
             "name": "constrained_equal_weight_atomic_vote",
             "weights": {"mfa": 1.0, "silero": 1.0, "sortformer": 1.0},
             "hard_constraint": "preserve_mfa_words",
+            "word_boundary_policy": "midpoint_of_mfa_gap_for_shared_component",
             "postprocessing": "none",
         },
         "speakers": speaker_audit,
@@ -843,17 +926,9 @@ def parse_args() -> argparse.Namespace:
     return args
 
 
-def main() -> int:
-    args = parse_args()
-    manifests = (
-        args.manifest if args.manifest is not None else discover_manifests(args.manifest_root, args.manifest_pattern)
-    )
-    manifests = [path for index, path in enumerate(sorted(manifests)) if index % args.shard_count == args.shard_index]
-    if not manifests:
-        print("No manifests found")
-        return 0
-
-    detector = SileroSortformerVADDetector(
+def _create_detector(args: argparse.Namespace) -> VADDetector:
+    """Load worker-local models only after a manifest passes preflight."""
+    return SileroSortformerVADDetector(
         VADConfig(
             threshold=args.silero_threshold,
             min_speech_duration_ms=args.silero_min_speech_duration_ms,
@@ -884,6 +959,19 @@ def main() -> int:
             event_tokens=tuple(args.sound_expert_events),
         ),
     )
+
+
+def main() -> int:
+    args = parse_args()
+    manifests = (
+        args.manifest if args.manifest is not None else discover_manifests(args.manifest_root, args.manifest_pattern)
+    )
+    manifests = [path for index, path in enumerate(sorted(manifests)) if index % args.shard_count == args.shard_index]
+    if not manifests:
+        print("No manifests found")
+        return 0
+
+    detector: VADDetector | None = None
     failed = 0
     for completed, manifest_path in enumerate(manifests, start=1):
         try:
@@ -893,6 +981,11 @@ def main() -> int:
             if audit_path.is_file() and not args.overwrite:
                 print(f"[{completed}/{len(manifests)}] {session_id}: already complete")
                 continue
+            _speaker_audio_paths(rows)
+            for row in rows:
+                _textgrid_source(row)
+            if detector is None:
+                detector = _create_detector(args)
             summary = process_manifest(manifest_path, args.output_root, detector)
             print(f"[{completed}/{len(manifests)}] {session_id}: {summary['session_rttm']}")
         except Exception as exc:  # noqa: BLE001

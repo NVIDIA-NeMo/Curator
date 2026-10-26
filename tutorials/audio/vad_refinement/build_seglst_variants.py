@@ -165,7 +165,7 @@ def build_seglst_from_intervals(
     intervals: dict[str, list[Interval]],
     *,
     speaker_aliases: dict[str, str] | None = None,
-    boundary_window: float = 0.5,
+    boundary_window: float = 0.0,
     precision: int = 3,
     split_internal_pauses: bool = True,
     textgrid_key: str = "mfa_textgrid",
@@ -204,7 +204,7 @@ def build_seglst(
     rttm_path: Path,
     *,
     speaker_aliases: dict[str, str] | None = None,
-    boundary_window: float = 0.5,
+    boundary_window: float = 0.0,
     precision: int = 3,
     split_internal_pauses: bool = True,
     textgrid_key: str = "mfa_textgrid",
@@ -242,7 +242,7 @@ def build_variants(
     *,
     reference_seglst: Path | None = None,
     speaker_map: Path | None = None,
-    boundary_window: float = 0.5,
+    boundary_window: float = 0.0,
     precision: int = 3,
     split_internal_pauses: bool = True,
 ) -> dict[str, object]:
@@ -314,7 +314,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--reference-seglst", type=Path, default=None)
     parser.add_argument("--speaker-map", type=Path, default=None)
-    parser.add_argument("--boundary-window", type=float, default=0.5)
+    parser.add_argument("--boundary-window", type=float, default=0.0)
     parser.add_argument("--precision", type=int, default=3)
     parser.add_argument(
         "--split-internal-pauses",

@@ -3,11 +3,11 @@
   "version": "0.2.0",
   "revision": "53329a018a049ec7fcf1d189f649df74557d9612",
   "license": "Apache-2.0",
-  "adaptation": "Package import paths only; the refinement algorithm is unchanged.",
+  "adaptation": "Curator package imports, NeMo frame metadata compatibility, finite timeline validation, input-data overlap rejection, collision-safe RTTM paths, row-clipped SegLST defaults and midpoint division of shared MFA gaps. Atomic voting is unchanged; word projection preserves MFA and shares continuous gaps equally.",
   "files": {
     "rectify_vad_boundaries.py": {
       "upstream_sha256": "0cedb577d45f9fa51a1d343918e50c8dc2849a4ba3b2715dfb42803b356fc124",
-      "ported_sha256": "306c72c15aef52a2222d3892ae55929905911b35139c7b3b493a61ac43d34899"
+      "ported_sha256": "7fcbc95aea42d6b1445e9c06ff73462a75eba96210f369ed0a7a9a7ea01e84de"
     },
     "textgrid_rttm.py": {
       "upstream_sha256": "4d26369bfa7242a8398ecaf5de24da85a268c8e565ff00b711c60deb25f374c5",
@@ -19,12 +19,12 @@
     },
     "build_seglst_variants.py": {
       "upstream_sha256": "c6e85e29df069df7aef90bc4cf07ae5b2f624b644f004dc9cd4c99c7dfdf313d",
-      "ported_sha256": "13869670f1fdee8402b567d926c1b81a72618eb9b8489467ea3e29645dc5b9a8"
+      "ported_sha256": "bf6ab8b986903c92ae32f7b579d44bacc67be62eac2bf0b97af9ea70ca4acbe9"
     },
     "filter_segments_by_vad_agreement.py": {
       "upstream_sha256": "61777a13da7785b8ae3557a54ae794afaa124439bf5026bffb2a8af95a3e6c86",
       "ported_sha256": "73c3fc782c076ce0539af18f7bb8c72ed24d5d73826218e06494e05d31e7fab9"
     }
   },
-  "verification": "All five module ASTs match upstream after normalizing the recipe import namespace."
+  "verification": "Three unchanged module ASTs match upstream after import normalization. atomic_vote_consensus matches upstream exactly. Word projection is locally adapted to divide continuous MFA gaps at their midpoints."
 }
