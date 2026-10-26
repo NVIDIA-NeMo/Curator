@@ -16,10 +16,30 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any
+import json
+import os
+import tarfile
+from dataclasses import dataclass, replace
+from typing import TYPE_CHECKING, Any
 
 from nemo_curator.stages.audio.audio_agent import _verb_evidence
+
+if TYPE_CHECKING:
+    from nemo_curator.stages.audio.audio_agent._verb_outputs import _StagedFileOutput
+
+
+_OUTPUT_PARAMS = {
+    "SnippetExtractionStage": ("output_audio_tar_path",),
+    "SnippetManifestWriterStage": ("output_path",),
+    "PretrainMetricsAggregatorStage": ("output_path",),
+}
+
+
+def _atomic_output_params(stage: Any) -> tuple[str, ...]:  # noqa: ANN401
+    """ALM bundle members published together by the agent's driver lifecycle."""
+    if type(stage).__name__ == "SnippetExtractionStage" and getattr(stage, "dry_run", False):
+        return ()
+    return _OUTPUT_PARAMS.get(type(stage).__name__, ())
 
 
 @dataclass(frozen=True)
@@ -33,27 +53,42 @@ class _PretrainFinalizer:
     id_key: str = "id"
     segments_key: str = "segments"
     duration_key: str = "duration"
+    dry_run: bool = False
+
+    def staged(self, outputs: list[_StagedFileOutput]) -> _PretrainFinalizer:
+        paths = {output.final_path: output.staged_path for output in outputs}
+        manifest = paths.get(self.manifest_path, self.manifest_path)
+        return replace(
+            self,
+            manifest_path=manifest,
+            metrics_path=paths.get(self.metrics_path, self.metrics_path),
+            audio_tar_path=f"{manifest}.dry-run.tar"
+            if self.dry_run
+            else paths.get(self.audio_tar_path, self.audio_tar_path),
+        )
+
+    def discard_shards(self) -> None:
+        from nemo_curator.stages.audio.alm.pretrain import prepare_audio_pretrain_outputs
+
+        prepare_audio_pretrain_outputs(self.manifest_path, self.metrics_path, self.audio_tar_path)
 
     def prepare(self) -> None:
-        from nemo_curator.stages.audio.alm.pretrain import (
-            prepare_audio_pretrain_outputs,
-        )
+        """Initialize this attempt's isolated bundle, including the empty-result case."""
+        from nemo_curator.stages.audio.alm.pretrain.finalize import _build_final_summary
 
-        prepare_audio_pretrain_outputs(
-            self.manifest_path,
-            self.metrics_path,
-            self.audio_tar_path,
-        )
+        self.discard_shards()
+        for path in (self.manifest_path, self.metrics_path, self.audio_tar_path):
+            os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        with open(self.manifest_path, "w", encoding="utf-8"):
+            pass
+        with open(self.metrics_path, "w", encoding="utf-8") as stream:
+            json.dump(_build_final_summary({}, []), stream)
+        if not self.dry_run:
+            with tarfile.open(self.audio_tar_path, "w"):
+                pass
 
     def finalize(self) -> int:
-        """Merge this attempt's shards and return its serialized snippet count.
-
-        Only ever called after a SUCCESSFUL attempt. ``finalize_audio_pretrain_outputs``
-        merges unconditionally, so calling it when a failed attempt produced no shards
-        would overwrite a previously completed output bundle with empty files -- which is
-        why the failure path deliberately does not finalize, and any partial shards a
-        crashed run left behind are abandoned rather than merged.
-        """
+        """Merge only a successful attempt's isolated shards and count its snippets."""
         from nemo_curator.stages.audio.alm.pretrain import (
             finalize_audio_pretrain_outputs,
         )
@@ -74,11 +109,7 @@ def _pretrain_finalizer(
     stages: list[Any],
 ) -> tuple[_PretrainFinalizer | None, str]:
     """Resolve a complete ALM shard lifecycle, or reject a partial recipe."""
-    wanted: dict[str, list[Any]] = {
-        "SnippetExtractionStage": [],
-        "SnippetManifestWriterStage": [],
-        "PretrainMetricsAggregatorStage": [],
-    }
+    wanted: dict[str, list[Any]] = {name: [] for name in _OUTPUT_PARAMS}
     for stage in stages:
         name = type(stage).__name__
         if name in wanted:
@@ -129,6 +160,7 @@ def _pretrain_finalizer(
             metrics_path=str(metrics_path),
             audio_tar_path=str(audio_tar_path),
             audio_filepath_key=str(getattr(extraction, "audio_filepath_key", "audio_filepath")),
+            dry_run=bool(getattr(extraction, "dry_run", False)),
             **shared_keys,
         ),
         "",

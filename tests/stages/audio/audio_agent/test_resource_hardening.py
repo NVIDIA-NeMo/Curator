@@ -146,7 +146,7 @@ def test_ray_cluster_capacity_replaces_driver_scheduling_capacity(
     [
         (None, True),
         ("", True),
-        ("auto", True),
+        ("auto", False),
         ("local", True),
         ("localhost:6379", True),
         ("127.0.0.1:6379", True),

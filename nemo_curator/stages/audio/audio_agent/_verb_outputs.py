@@ -22,6 +22,12 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
+from nemo_curator.stages.audio.audio_agent import _verb_pretrain
+
+
+def _atomic_output_params(stage: Any) -> tuple[str, ...]:  # noqa: ANN401
+    return tuple(getattr(stage, "AGENT_ATOMIC_OUTPUT_PARAMS", ())) + _verb_pretrain._atomic_output_params(stage)
+
 
 @dataclass
 class _StagedFileOutput:
@@ -52,9 +58,7 @@ def _atomic_source_resume_sinks(stages: list[Any]) -> list[str]:
     from nemo_curator.stages.audio._agent._composite import expand_composites
 
     return [
-        type(item.stage).__name__
-        for item in expand_composites(stages).stages
-        if getattr(item.stage, "AGENT_ATOMIC_OUTPUT_PARAMS", ())
+        type(item.stage).__name__ for item in expand_composites(stages).stages if _atomic_output_params(item.stage)
     ]
 
 
@@ -70,7 +74,7 @@ def _prepare_staged_file_outputs(stages: list[Any], *, checkpoint_path: str | No
     token = uuid.uuid4().hex
     try:
         for stage_index, stage in enumerate(stages):
-            params = getattr(stage, "AGENT_ATOMIC_OUTPUT_PARAMS", ())
+            params = _atomic_output_params(stage)
             for param in params:
                 final_path = getattr(stage, param, None)
                 if not isinstance(final_path, str) or not final_path:

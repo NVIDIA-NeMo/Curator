@@ -145,16 +145,19 @@ def _attach_same_folder_runs(
 
 
 def _recipe_dataset_key(rec: Recipe, data: str | None) -> str:
-    """The recipe's dataset key from ``data`` or its own source, ``""`` when unresolvable.
+    """The selected recipe input's key, ``""`` when identity cannot be proved.
 
     Returns ``""`` instead of raising so an unreadable source degrades to a structured
     refusal from the caller rather than a traceback: every caller already treats a missing
     key as "cannot prove identity", which is the honest answer when profiling failed.
     """
     try:
-        if data:
-            return _dataset_key_arg(data)
-        profile = _verb_inputs._profile_binding(_verb_inputs._dataset_binding(rec, None))
+        if data and data.startswith(tuple(f"{tier}:" for tier in DATASET_KEY_TIERS)):
+            return data
+        binding = _verb_inputs._dataset_binding(rec, data)
+        if _verb_inputs._binding_blocks_execution(binding, data):
+            return ""
+        profile = _verb_inputs._profile_binding(binding)
         if profile is not None and not _verb_inputs._profile_error(profile):
             return profile.dataset_key()
     except Exception:  # noqa: BLE001 - an unkeyable source is a refusal, not a crash

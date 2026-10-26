@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 import time
 from typing import TYPE_CHECKING, Any
@@ -209,10 +210,11 @@ def run(  # noqa: PLR0913, C901, PLR0911, PLR0912, PLR0915 - one verb, one keywo
         )
 
     caller_executor = executor
+    ray_address = (
+        _verb_inputs._ray_execution_address(os.environ.get("RAY_ADDRESS")) if caller_executor is None else None
+    )
     execution_target = (
-        "custom_executor"
-        if caller_executor is not None
-        else _verb_inputs._ray_execution_target(os.environ.get("RAY_ADDRESS"))
+        "custom_executor" if caller_executor is not None else _verb_inputs._ray_execution_target(ray_address)
     )
     preflight_env = profiler.probe_env()
     from nemo_curator.stages.audio.audio_agent.diagnostics import environment_preflight
@@ -236,7 +238,6 @@ def run(  # noqa: PLR0913, C901, PLR0911, PLR0912, PLR0915 - one verb, one keywo
             }
         )
     owned_ray_address: str | None = None
-    ray_address = os.environ.get("RAY_ADDRESS") if caller_executor is None else None
     if bootstrap_ray and caller_executor is None:
         try:
             from nemo_curator.stages.audio.audio_agent._ray import owns_cluster
@@ -343,12 +344,14 @@ def run(  # noqa: PLR0913, C901, PLR0911, PLR0912, PLR0915 - one verb, one keywo
     used_mode: str | None = None
     pretrain_output_rows: int | None = None
     staged_file_outputs: list[_verb_outputs._StagedFileOutput] = []
+    attempt_finalizer = None
     started_at = _verb_publish._utc_now()
     t0 = time.perf_counter()
     try:
         staged_file_outputs = _verb_outputs._prepare_staged_file_outputs(stages, checkpoint_path=checkpoint_path)
-        if pretrain_finalizer is not None:
-            pretrain_finalizer.prepare()
+        attempt_finalizer = pretrain_finalizer.staged(staged_file_outputs) if pretrain_finalizer is not None else None
+        if attempt_finalizer is not None:
+            attempt_finalizer.prepare()
         results, used_mode = _verb_runtime._run_pipeline_autofallback(
             stages,
             rplan.mode,
@@ -357,17 +360,15 @@ def run(  # noqa: PLR0913, C901, PLR0911, PLR0912, PLR0915 - one verb, one keywo
             before_retry=_verb_runtime._automatic_retry_reset_hook(
                 stages,
                 staged_outputs=staged_file_outputs if checkpoint_path is not None else None,
-                extra_reset=(pretrain_finalizer.prepare if pretrain_finalizer is not None else None),
+                extra_reset=(attempt_finalizer.prepare if attempt_finalizer is not None else None),
             ),
         )
-        if pretrain_finalizer is not None:
-            finalized_rows = pretrain_finalizer.finalize()
+        if attempt_finalizer is not None:
+            finalized_rows = attempt_finalizer.finalize()
             if isinstance(finalized_rows, int) and not isinstance(finalized_rows, bool):
                 pretrain_output_rows = max(0, finalized_rows)
         _verb_outputs._promote_staged_file_outputs(staged_file_outputs)
     except Exception as e:  # noqa: BLE001 - classify + report, do not crash the caller
-        # No finalize on the failure path: merging unconditionally would overwrite a prior
-        # completed output bundle with empty files when this attempt produced no shards.
         from nemo_curator.stages.audio.audio_agent.diagnostics import diagnose_failure
 
         runtime_diagnosis = diagnose_failure(
@@ -381,6 +382,9 @@ def run(  # noqa: PLR0913, C901, PLR0911, PLR0912, PLR0915 - one verb, one keywo
         failures.append(dict(runtime_diagnosis.get("failure") or {}))
         _verb_outputs._discard_staged_file_outputs(staged_file_outputs)
     finally:
+        if attempt_finalizer is not None:
+            with contextlib.suppress(Exception):
+                attempt_finalizer.discard_shards()
         _verb_outputs._restore_staged_file_outputs(staged_file_outputs)
     elapsed = time.perf_counter() - t0
     ended_at = _verb_publish._utc_now()

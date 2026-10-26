@@ -585,7 +585,6 @@ def test_validate_respects_external_ray_instead_of_local_machine_gates(
 @pytest.mark.parametrize(
     "address",
     [
-        "auto",
         "127.0.0.1:6379",
         "127.42.0.1:6379",
         "localhost:6379",

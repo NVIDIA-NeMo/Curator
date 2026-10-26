@@ -86,11 +86,8 @@ def smoke(  # noqa: C901, PLR0911, PLR0912, PLR0913, PLR0915
     if dp_obj is not None and _verb_inputs._profile_error(dp_obj):
         return _safety.redact(_verb_inputs._profile_refusal(binding, dp_obj))
     preflight_stages, preflight_build_issues = build_stages(rec)
-    execution_target = (
-        "custom_executor"
-        if executor is not None
-        else _verb_inputs._ray_execution_target(os.environ.get("RAY_ADDRESS"))
-    )
+    ray_address = _verb_inputs._ray_execution_address(os.environ.get("RAY_ADDRESS")) if executor is None else None
+    execution_target = "custom_executor" if executor is not None else _verb_inputs._ray_execution_target(ray_address)
     preflight_env = profiler.probe_env()
     if preflight_stages is None:
         from nemo_curator.stages.audio.audio_agent.diagnostics import diagnose_failure
@@ -212,7 +209,6 @@ def smoke(  # noqa: C901, PLR0911, PLR0912, PLR0913, PLR0915
     )
     caller_executor = executor
     owned_ray_address: str | None = None
-    ray_address = os.environ.get("RAY_ADDRESS") if caller_executor is None else None
     if bootstrap_ray and caller_executor is None:
         try:
             from nemo_curator.stages.audio.audio_agent._ray import owns_cluster

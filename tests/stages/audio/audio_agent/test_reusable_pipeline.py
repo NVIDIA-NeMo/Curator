@@ -24,7 +24,6 @@ from nemo_curator.stages.audio.audio_agent import (
     _verb_delta,
     _verb_inputs,
     _verb_publish,
-    _verb_reuse,
     _verb_run,
     _verb_validation,
     artifacts,
@@ -1464,6 +1463,8 @@ def test_model_checkpoint_preserves_first_run_verdicts(
 def test_changed_dataset_is_routed_to_existing_delta_flow(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AUDIO_AGENT_RUNS_DIR", str(tmp_path / "runs"))
     recipe = _duration_recipe(tmp_path, checkpoint=True)
+    source = tmp_path / "input.jsonl"
+    source.write_text(json.dumps({"audio_filepath": str(tmp_path / "current.wav")}) + "\n")
     run_store.save(
         RunRecord(
             run_id="prior-run",
@@ -1474,11 +1475,9 @@ def test_changed_dataset_is_routed_to_existing_delta_flow(tmp_path: Path, monkey
             status="completed",
         )
     )
-    monkeypatch.setattr(_verb_reuse, "_dataset_key_arg", lambda _data: "stat:current")
-
     result = aa.plan_checkpoint(
         from_run="prior-run",
-        data=str(tmp_path / "data"),
+        data=str(source),
         decision_stage="GetAudioDurationStage",
         decision_value=8.0,
     )

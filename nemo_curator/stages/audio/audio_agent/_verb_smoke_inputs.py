@@ -57,7 +57,7 @@ class _SmokeBound:
     output_root: str | None = None
 
 
-def _bound_recipe(  # noqa: C901, PLR0911
+def _bound_recipe(  # noqa: C901, PLR0911, PLR0912
     recipe: Recipe,
     sample: int,
     rpt: SmokeReport,
@@ -148,8 +148,17 @@ def _bound_recipe(  # noqa: C901, PLR0911
         "CreateInitialManifestAudioFolderStage",
         "CreateInitialManifestReadSpeechStage",
     }:
-        src.params["max_samples"] = sample
-        rpt.notes.append(f"bounded via max_samples={sample}")
+        configured = src.params.get("max_samples")
+        if "max_samples" not in src.params:
+            from nemo_curator.stages.audio.audio_agent._resolve import static_contract_for
+
+            configured = next(p.default for p in static_contract_for(src.ref).params if p.name == "max_samples")
+        limited = configured is not None and (
+            configured >= 0 if src.ref == "CreateInitialManifestAudioFolderStage" else configured > 0
+        )
+        limit = min(sample, configured) if limited else sample
+        src.params["max_samples"] = limit
+        rpt.notes.append(f"bounded via max_samples={limit}")
         return _SmokeBound(bounded)
 
     return _SmokeBound(

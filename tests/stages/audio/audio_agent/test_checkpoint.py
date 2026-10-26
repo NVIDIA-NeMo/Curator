@@ -345,17 +345,15 @@ class TestTheLocationIsDerived:
         assert out["status"] == "advice"
         assert "recipe" not in out
 
-    def test_an_unreadable_source_is_still_keyed_apart_from_another(
+    def test_an_unreadable_source_does_not_get_a_managed_checkpoint_address(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
-        """Two sources that cannot be profiled must not collapse onto one address.
-
-        Sharing one would hand a run someone else's checkpoint, which is the failure the
-        managed location exists to make impossible.
-        """
+        """Unproven input identity must not select a reusable checkpoint location."""
         _managed_runs(monkeypatch, tmp_path)
         recipe = _recipe(_READER, _ASR, _DUR, _WRITER)
 
         one = _verb_checkpoint.add_checkpoint(recipe, data=str(tmp_path / "absent-a"))
         two = _verb_checkpoint.add_checkpoint(recipe, data=str(tmp_path / "absent-b"))
-        assert one["output_path"] != two["output_path"]
+        assert one["status"] == two["status"] == "advice"
+        assert "output_path" not in one
+        assert "output_path" not in two

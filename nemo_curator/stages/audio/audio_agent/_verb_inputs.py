@@ -30,7 +30,7 @@ from nemo_curator.stages.audio.audio_agent.recipe import (
 def _ray_address_is_local(address: str | None) -> bool:  # noqa: PLR0911
     """Whether a configured Ray address names this machine.
 
-    An unset address plus Ray's ``auto`` and ``local`` modes retain local checks. A head
+    An unset address and Ray's ``local`` mode retain local checks. A head
     THIS process bootstrapped is always local: it runs on this machine even when Ray
     advertises the node's LAN IP (multi-NIC / cloud), so its probed VRAM/GPU names are
     valid. Otherwise a concrete address is local only when its host is ``localhost`` or an
@@ -38,7 +38,7 @@ def _ray_address_is_local(address: str | None) -> bool:  # noqa: PLR0911
     environment facts are never projected onto another machine.
     """
     value = str(address or "").strip()
-    if not value or value.casefold() in {"auto", "local"}:
+    if not value or value.casefold() == "local":
         return True
     try:  # a self-started head is on this machine regardless of the advertised IP
         from nemo_curator.stages.audio.audio_agent import _ray
@@ -62,9 +62,25 @@ def _ray_address_is_local(address: str | None) -> bool:  # noqa: PLR0911
         return False
 
 
+def _ray_execution_address(address: str | None) -> str | None:
+    """Resolve a pre-existing connection without starting or replacing a cluster."""
+    if address and address.strip().casefold() != "auto":
+        return address
+    try:
+        import ray
+    except ImportError:
+        return address
+    if ray.is_initialized():
+        from nemo_curator.stages.audio.audio_agent._ray import _connected_address
+
+        # An initialized but unidentified connection must not inherit driver facts.
+        return _connected_address(ray) or "auto"
+    return address
+
+
 def _ray_execution_target(address: str | None) -> str:
     """Map a Ray address to the environment-analysis target vocabulary."""
-    return "local" if _ray_address_is_local(address) else "external_ray"
+    return "local" if _ray_address_is_local(_ray_execution_address(address)) else "external_ray"
 
 
 def _as_recipe(recipe: Recipe | dict[str, Any]) -> Recipe:

@@ -19,6 +19,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import ClassVar
 
+import pytest
+
 from nemo_curator.stages.audio import audio_agent as aa
 from nemo_curator.stages.audio.audio_agent import cli, profiler
 from nemo_curator.stages.audio.audio_agent._verb_validation import validate
@@ -404,10 +406,11 @@ class TestSampleRateFollowsThePipeline:
             params["target_sample_rate"] = target
         return {"ref": "ResampleAudioStage", "params": params}
 
-    # InferenceSortformerStage's card declares supported_sample_rates: [16000].
+    # Generic rate-provenance checks supply a constrained card in _rate_warnings.
     _SIXTEEN_K_ONLY: ClassVar[dict] = {"ref": "InferenceSortformerStage", "params": {}}
 
-    def test_asr_accepts_source_rate_converted_internally(self) -> None:
+    @pytest.mark.parametrize("consumer", ["ASRStage", "InferenceSortformerStage"])
+    def test_adapter_accepts_source_rate_converted_internally(self, consumer: str) -> None:
         from nemo_curator.stages.audio.audio_agent.checks import CheckContext, _check_card_constraints
         from nemo_curator.stages.audio.audio_agent.recipe import Recipe, build_stages
 
@@ -415,12 +418,14 @@ class TestSampleRateFollowsThePipeline:
             {
                 "stages": [
                     {
-                        "ref": "ASRStage",
+                        "ref": consumer,
                         "params": {
                             "adapter_target": "nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
                             "model_id": "nvidia/parakeet-tdt-0.6b-v2",
                             "max_audio_sec_per_actor": 2400.0,
-                        },
+                        }
+                        if consumer == "ASRStage"
+                        else {},
                     }
                 ]
             }
@@ -442,7 +447,22 @@ class TestSampleRateFollowsThePipeline:
         ]
 
     def _rate_warnings(self, stages: list[dict], manifest: str) -> list[dict]:
-        verdict = aa.validate({"stages": stages}, data=manifest)
+        import copy
+
+        from nemo_curator.stages.audio.audio_agent.index import get_index
+
+        index = get_index()
+        real_card = index.card
+
+        def constrained_card(name: str) -> dict | None:
+            card = copy.deepcopy(real_card(name))
+            if name == "InferenceSortformerStage":
+                card.setdefault("constraints", {})["supported_sample_rates"] = [16000]
+            return card
+
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(index, "card", constrained_card)
+            verdict = aa.validate({"stages": stages}, data=manifest)
         return [
             i
             for pool in ("issues", "card_violations", "gate_flags")
