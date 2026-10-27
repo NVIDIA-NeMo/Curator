@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import fcntl
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
@@ -73,6 +74,29 @@ def _stage(*, mode: str = "task", scorable: bool = True, input_residency: str = 
 
 
 class TestUTMOSFilterStage:
+    def test_node_and_worker_setup_lock_shared_hub_cache(self, tmp_path: Path) -> None:
+        model = _mock_model(4.0)
+        model.to.return_value = model
+
+        def load_under_lock(*_args: object, **_kwargs: object) -> MagicMock:
+            with (tmp_path / ".utmos.lock").open("a") as competing_lock, pytest.raises(BlockingIOError):
+                fcntl.flock(competing_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return model
+
+        with (
+            patch("torch.hub.get_dir", return_value=str(tmp_path)),
+            patch("torch.cuda.is_available", return_value=False),
+            patch("torch.hub.load", side_effect=load_under_lock) as load_model,
+        ):
+            stage = UTMOSFilterStage()
+            stage.setup_on_node()
+            stage.setup()
+
+        assert load_model.call_count == 2
+        assert stage._model is model
+        with (tmp_path / ".utmos.lock").open("a") as released_lock:
+            fcntl.flock(released_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
     def test_failed_github_load_uses_local_hub_cache(self, tmp_path: Path) -> None:
         cached_repo = tmp_path / "tarepan_SpeechMOS_v1.2.0"
         cached_repo.mkdir()
