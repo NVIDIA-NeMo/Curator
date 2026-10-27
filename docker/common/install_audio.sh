@@ -33,4 +33,5 @@ if [ "${1:-}" = --check ]; then
     exit 1
 fi
 bash "$script_dir/install_ffmpeg.sh"
+bash "$script_dir/install_openfst.sh"
 exec "$PYTHON" "$script_dir/install_audio.py"

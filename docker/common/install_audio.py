@@ -67,11 +67,17 @@ def check_audio() -> None:
     import soundfile as sf
     import torch
     from nemo.collections.asr.models import ASRModel  # noqa: F401
+    from nemo_text_processing.text_normalization.normalize import Normalizer
     from pyannote.audio.core.io import Audio
     from torchcodec.decoders import AudioDecoder
     from whisperx.vads.pyannote import load_vad_model  # noqa: F401
 
     from nemo_curator.stages.audio.datasets.readspeech import CreateInitialManifestReadSpeechStage  # noqa: F401
+    from nemo_curator.stages.audio.metrics.wer import ComputeWERStage  # noqa: F401
+
+    if Normalizer(input_case="cased", lang="en").normalize("2", verbose=False) != "two":
+        msg = "NeMo text normalization failed its number-rewrite check."
+        raise RuntimeError(msg)
 
     for requirement in audio_requirements():
         installed = version(requirement.name)
@@ -106,7 +112,7 @@ def check_audio() -> None:
     model = onnx.helper.make_model(graph, opset_imports=[onnx.helper.make_opsetid("", 13)], ir_version=10)
     session = ort.InferenceSession(model.SerializeToString(), providers=["CPUExecutionProvider"])
     np.testing.assert_array_equal(session.run(None, {"audio": np.ones(1, dtype=np.float32)})[0], [1])
-    print("Audio imports, ONNX Runtime CPU inference, and FLAC/PCM WAV decoding passed.")
+    print("Audio imports, text normalization, ONNX Runtime CPU inference, and FLAC/PCM WAV decoding passed.")
 
 
 def installed_constraints(configured_overrides: list[str]) -> tuple[list[str], list[str]]:

@@ -24,7 +24,7 @@ Prepare the following environment before running the audio pipeline:
 - An NVIDIA Volta-class or newer GPU with compute capability 7.0 or later and CUDA 12 is recommended for ASR inference; the example also supports CPU execution.
 
 <Warning>
-On aarch64, `audio_cuda12` uses ONNX Runtime's CPU provider for workflows such as SIGMOS; it does not provide CUDA ONNX inference. NeMo ASR, Pyannote, WhisperX, and TorchCodec are included on both Linux architectures. Some other integrations remain gated to x86-only, including NeMo text processing (Pynini), OpenAI Whisper, SpeechBrain, and Qwen ASR. Check the individual dependency markers before selecting a workflow.
+On aarch64, `audio_cuda12` uses ONNX Runtime's CPU provider for workflows such as SIGMOS; it does not provide CUDA ONNX inference. NeMo ASR, Pyannote, WhisperX, TorchCodec, and NeMo text processing are included on both Linux architectures. Pynini has no ARM wheel: the Dockerfile and audio installer build its OpenFst prerequisites with `docker/common/install_openfst.sh`; run that script before a source installation of the audio extras on ARM. OpenAI Whisper, SpeechBrain, and Qwen ASR remain gated to x86-only. Check the individual dependency markers before selecting a workflow.
 </Warning>
 
 ### Complete and Check an Existing Audio Environment
@@ -49,7 +49,8 @@ fails rather than replacing the inference stack. Such older-image conflicts need
 separate validation; successful dependency resolution alone does not establish
 compatibility.
 
-`--check` never installs packages. It checks NeMo ASR and WhisperX imports,
+`--check` never installs packages. It checks NeMo ASR, WhisperX, and WER stage imports,
+verifies a NeMo text-normalization rewrite,
 executes a small ONNX Runtime CPU model, and decodes generated FLAC and both
 16-bit and float WAV files through TorchCodec and Pyannote. A Pyannote decoder
 warning therefore cannot count as a successful check. Model downloads, GPU model
