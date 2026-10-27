@@ -14,6 +14,7 @@
 
 import math
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import torch
@@ -161,3 +162,18 @@ def test_setup_on_node_resolves_bundle(tmp_path: Path) -> None:
     stage.english_calibration = None
     stage.setup_on_node()
     assert stage.english_calibration == str(tmp_path / "english_verifier.json")
+
+
+def test_inference_runs_in_bounded_chunks_shortest_first(monkeypatch: pytest.MonkeyPatch) -> None:
+    from nemo_curator.stages.audio.tts.early_cutoff import endpoint_gate
+
+    monkeypatch.setattr(endpoint_gate, "_endpoint_threshold", lambda *_: 0.5)
+    stage = _ready_stage(inference_batch_size=4)
+    stage._heads["en"] = SimpleNamespace(calibration_path=None, checkpoint=None)
+    chunks: list[list[int]] = []
+    monkeypatch.setattr(stage, "_infer", lambda items, *_: chunks.append([int(w.numel()) for _, w, _ in items]))
+    items = [({}, torch.zeros(n), None) for n in (900, 100, 500, 300, 700, 200, 800, 400, 600, 1000)]
+    stage._flush(items, "en")
+    assert chunks == [[100, 200, 300, 400], [500, 600, 700, 800], [900, 1000]]
+    with pytest.raises(ValueError, match="inference_batch_size"):
+        EarlyCutOffEndpointGateStage(inference_batch_size=0)

@@ -250,7 +250,8 @@ class EarlyCutOffEndpointGateStage(ProcessingStage[AudioTask, AudioTask]):
     Reads ``text_key`` (default ``tn_raw``) and optional precomputed IPA at
     ``ipa_key``. Writes the early-cut-off dict at ``output_key``.
     English uses ``english_checkpoint``; every other supported language uses
-    ``multilingual_checkpoint``.
+    ``multilingual_checkpoint``. Segments go through the model ``inference_batch_size`` at a time, shortest first,
+    so GPU memory is bounded by that count rather than by the number of segments in a batch of rows.
     """
 
     text_key: str = "tn_raw"
@@ -272,6 +273,7 @@ class EarlyCutOffEndpointGateStage(ProcessingStage[AudioTask, AudioTask]):
     multilingual_calibration: str | None = None
     bundle_manifest: str | None = None
     append_silence_sec: float = 0.30
+    inference_batch_size: int = 16
     sample_rate: int = 16000
     overwrite: bool = False
     tar_root: str | None = None
@@ -285,6 +287,9 @@ class EarlyCutOffEndpointGateStage(ProcessingStage[AudioTask, AudioTask]):
 
     def __post_init__(self) -> None:
         super().__init__()
+        if self.inference_batch_size < 1:
+            msg = "inference_batch_size must be positive"
+            raise ValueError(msg)
         if self.bundle_dir:
             # a download (bundle_url only) is deferred to setup(), so it lands on the worker's cache
             self._apply_bundle_dir()
@@ -549,12 +554,16 @@ class EarlyCutOffEndpointGateStage(ProcessingStage[AudioTask, AudioTask]):
         family = "en" if language_code(language) == "en" else "multi"
         head = self._heads[family]
         threshold = _endpoint_threshold(head.calibration_path, language_code(language), head.checkpoint)
-        try:
-            self._infer(items, language, head, threshold)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("Acoustic inference batch failed: {}", exc)
-            for payload, _, reference in items:
-                self._write(payload, empty_detection("model_inference_failed", str(exc)), language, reference)
+        # each forward pass holds 2x the chunk (original + silence-appended), padded to its longest member
+        ordered = sorted(items, key=lambda item: int(item[1].shape[-1]))
+        for start in range(0, len(ordered), self.inference_batch_size):
+            chunk = ordered[start : start + self.inference_batch_size]
+            try:
+                self._infer(chunk, language, head, threshold)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Acoustic inference batch failed: {}", exc)
+                for payload, _, reference in chunk:
+                    self._write(payload, empty_detection("model_inference_failed", str(exc)), language, reference)
 
     def _infer(
         self,
