@@ -26,7 +26,7 @@ if [ "$#" -gt 1 ] || { [ "$#" -eq 1 ] && [ "$1" != --check ]; }; then
     echo "Usage: install_audio.sh [--check]" >&2
     exit 2
 fi
-if "$PYTHON" "$script_dir/install_audio.py" --check; then
+if "$PYTHON" "$script_dir/_install_audio.py" --check; then
     exit 0
 fi
 if [ "${1:-}" = --check ]; then
@@ -34,4 +34,4 @@ if [ "${1:-}" = --check ]; then
 fi
 bash "$script_dir/install_ffmpeg.sh"
 bash "$script_dir/install_openfst.sh"
-exec "$PYTHON" "$script_dir/install_audio.py"
+exec "$PYTHON" "$script_dir/_install_audio.py"

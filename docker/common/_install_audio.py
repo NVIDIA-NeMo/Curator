@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Install and probe Curator audio dependencies without reinstalling Curator.
+"""Internal helper to install and probe audio dependencies without reinstalling Curator.
 
 Invoked by install_audio.sh after FFmpeg preparation. Requirements come from
 the installer's own Curator checkout, including when used as the documented
