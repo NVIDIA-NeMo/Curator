@@ -71,6 +71,8 @@ def check_audio() -> None:
     from torchcodec.decoders import AudioDecoder
     from whisperx.vads.pyannote import load_vad_model  # noqa: F401
 
+    from nemo_curator.stages.audio.datasets.readspeech import CreateInitialManifestReadSpeechStage  # noqa: F401
+
     for requirement in audio_requirements():
         installed = version(requirement.name)
         if not requirement.specifier.contains(installed, prereleases=True):

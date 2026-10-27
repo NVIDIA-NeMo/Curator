@@ -5662,6 +5662,7 @@ all = [
     { name = "vllm", version = "0.22.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and sys_platform != 'linux'" },
     { name = "vllm", version = "0.22.0+cu129", source = { registry = "https://wheels.vllm.ai/0.22.0/cu129" }, extra = ["otel", "runai"], marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')" },
     { name = "warcio" },
+    { name = "wget" },
     { name = "whisperx", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')" },
 ]
 audio-common = [
@@ -5684,6 +5685,7 @@ audio-common = [
     { name = "torchaudio", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')" },
     { name = "torchcodec", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')" },
     { name = "transformers" },
+    { name = "wget" },
     { name = "whisperx", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')" },
 ]
 audio-cpu = [
@@ -5707,6 +5709,7 @@ audio-cpu = [
     { name = "torchaudio", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')" },
     { name = "torchcodec", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')" },
     { name = "transformers" },
+    { name = "wget" },
     { name = "whisperx", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')" },
 ]
 audio-cuda12 = [
@@ -5740,6 +5743,7 @@ audio-cuda12 = [
     { name = "torchcodec", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')" },
     { name = "torchlibrosa" },
     { name = "transformers" },
+    { name = "wget" },
     { name = "whisperx", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')" },
 ]
 audio-tensorrt = [
@@ -5774,6 +5778,7 @@ audio-tensorrt = [
     { name = "torchcodec", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')" },
     { name = "torchlibrosa" },
     { name = "transformers" },
+    { name = "wget" },
     { name = "whisperx", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')" },
 ]
 cuda12 = [
@@ -6217,6 +6222,7 @@ requires-dist = [
     { name = "vllm", marker = "platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'math-cuda12'", specifier = ">=0.13", index = "https://wheels.vllm.ai/0.22.0/cu129" },
     { name = "vllm", extras = ["flashinfer", "otel", "runai"], marker = "(platform_machine == 'aarch64' and sys_platform == 'linux' and extra == 'vllm') or (platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'vllm')", specifier = "==0.22.0+cu129", index = "https://wheels.vllm.ai/0.22.0/cu129" },
     { name = "warcio", marker = "extra == 'text-cpu'" },
+    { name = "wget", marker = "extra == 'audio-common'" },
     { name = "whisperx", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux' and extra == 'audio-common') or (platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'audio-common')", specifier = ">=3.8.4" },
 ]
 provides-extras = ["cuda12", "cv2", "vllm", "inference-server", "deduplication-cuda12", "audio-common", "audio-cpu", "audio-cuda12", "audio-tensorrt", "image-cpu", "image-cuda12", "translation-common", "translation-metrics", "translation-segmentation", "translation-aws", "translation-google", "translation-nmt", "translation-all", "text-cpu", "lance", "text-cuda12", "video-cpu", "video-cuda12", "video-media", "math-cpu", "math-cuda12", "interleaved-cpu", "interleaved-cuda12", "sdg-cpu", "sdg-cuda12", "all"]
