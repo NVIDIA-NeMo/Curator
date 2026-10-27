@@ -33,6 +33,7 @@ from typing import Any
 
 from loguru import logger
 
+from nemo_curator.stages.audio.tts.audio_io import TAR_MEMBER_FIELD
 from nemo_curator.stages.audio.tts.fields import MISSING, get_dotted, set_dotted
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
@@ -296,6 +297,19 @@ def context_conditions(context_key: str = "context") -> list[FilterCondition]:
     ]
 
 
+def training_conditions(flags_key: str = "tts_flags", max_context_overlap: float = 0.5) -> list[FilterCondition]:
+    """The training-loader predicate (``training_flags.passes_training_filter``) as filter conditions."""
+    return [
+        FilterCondition("valid_tn_raw_transcript", f"{flags_key}.valid_tn_raw_transcript", "eq", value=True),
+        FilterCondition("valid_ipa", f"{flags_key}.valid_ipa", "eq", value=True),
+        FilterCondition("valid_context_audio_text", f"{flags_key}.valid_context_audio_text", "eq", value=True),
+        FilterCondition("no_early_cut_off", f"{flags_key}.early_cut_off", "eq", value=False),
+        FilterCondition(
+            "context_audio_text_overlap", f"{flags_key}.context_audio_text_overlap", "lt", value=max_context_overlap
+        ),
+    ]
+
+
 def safe_name(value: str) -> str:
     """Counter-safe condition id."""
     return re.sub(r"[^A-Za-z0-9_]+", "_", value).strip("_") or "condition"
@@ -389,6 +403,9 @@ class SegmentFilterStage(ProcessingStage[AudioTask, AudioTask]):
             the language (e.g. ``.../bg000/manifest.jsonl``) when no language field is set.
         drop: Remove failing segments. With ``drop=False`` all segments are kept and failed condition ids are
             written to ``reasons_key`` (an empty list for passing segments).
+        context_key: When set, a failing segment that a kept segment uses as context (its tar member equals the
+            kept segment's ``<context_key>.context_recording_id``) is kept, so its audio stays available; it still
+            carries its failing annotations.
     """
 
     conditions: list[Any] = field(default_factory=list)
@@ -399,6 +416,7 @@ class SegmentFilterStage(ProcessingStage[AudioTask, AudioTask]):
     manifest_path_key: str | None = None
     drop: bool = True
     reasons_key: str = "filter_failed_conditions"
+    context_key: str | None = None
     name: str = "SegmentFilter"
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
     batch_size: int = 64
@@ -411,6 +429,11 @@ class SegmentFilterStage(ProcessingStage[AudioTask, AudioTask]):
             raise ValueError(msg)
         self._conditions = parse_conditions(self.conditions or default_conditions(self.preset))
         self._needs_language = any(c.pattern_by_language for c in self._conditions)
+        # languages every per-language condition without a fallback pattern can evaluate
+        per_language = [
+            set(c.pattern_by_language) for c in self._conditions if c.pattern_by_language and not c.pattern
+        ]
+        self._supported_languages = set.intersection(*per_language) if per_language else None
         self.counters: Counter[str] = Counter()
 
     def inputs(self) -> tuple[list[str], list[str]]:
@@ -420,6 +443,17 @@ class SegmentFilterStage(ProcessingStage[AudioTask, AudioTask]):
         return [], ["segments"]
 
     def language_for_row(self, row: dict[str, Any]) -> str:
+        language = self._find_language(row)
+        if language and self._supported_languages is not None and language not in self._supported_languages:
+            # no pattern for this language: every per-language regex would fail and silently drop the whole row
+            msg = (
+                f"SegmentFilterStage: language {language!r} has no per-language filter pattern "
+                f"(supported: {sorted(self._supported_languages)}); pass `conditions` with a pattern for it"
+            )
+            raise ValueError(msg)
+        return language
+
+    def _find_language(self, row: dict[str, Any]) -> str:
         if self.language:
             return logical_language(self.language)
         for key in self.language_keys:
@@ -483,10 +517,26 @@ class SegmentFilterStage(ProcessingStage[AudioTask, AudioTask]):
             else:
                 set_dotted(segment, self.reasons_key, failed)
                 kept.append(segment)
+        if self.drop and self.context_key:
+            kept = self._with_context_segments(segments, kept, stats)
         row["segments"] = kept
         if stats["kept_segments"] == 0:
             stats["samples_without_kept_segments"] += 1
         return stats
+
+    def _with_context_segments(self, segments: list[Any], kept: list[Any], stats: Counter[str]) -> list[Any]:
+        """``kept`` plus the dropped segments that a kept segment uses as context, in the original order."""
+        used = {get_dotted(s, f"{self.context_key}.context_recording_id") for s in kept if isinstance(s, dict)}
+        used.discard(None)
+        kept_ids = {id(s) for s in kept}
+        result = []
+        for segment in segments:
+            if id(segment) in kept_ids:
+                result.append(segment)
+            elif isinstance(segment, dict) and get_dotted(segment, TAR_MEMBER_FIELD) in used:
+                stats["kept_as_context_segments"] += 1
+                result.append(segment)
+        return result
 
     def _warn_on_missing_fields(self, stats: Counter[str]) -> None:
         total = stats["input_segments"]

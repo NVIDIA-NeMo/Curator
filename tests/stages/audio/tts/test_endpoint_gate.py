@@ -12,9 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import math
 from pathlib import Path
 
 import pytest
+import torch
 
 from nemo_curator.stages.audio.tts.early_cutoff.endpoint_gate import EarlyCutOffEndpointGateStage
 from nemo_curator.stages.audio.tts.early_cutoff.phonemization import PhonemizedReference
@@ -135,3 +137,27 @@ def test_tar_member_audio_honours_tar_root(tmp_path: Path) -> None:
     assert abs(int(waveform.numel()) - 16000) <= 1
     stage_without_root = EarlyCutOffEndpointGateStage()
     assert stage_without_root._load_waveform(segment, "t") is None
+
+
+def test_in_memory_waveform_is_resampled() -> None:
+    tone = torch.sin(torch.linspace(0, 2 * math.pi * 440, 44100)).unsqueeze(0)
+    waveform = EarlyCutOffEndpointGateStage()._load_waveform({"waveform": tone, "sample_rate": 44100}, "t")
+    assert waveform.dtype == torch.float32
+    assert abs(int(waveform.numel()) - 16000) <= 1
+
+
+def test_missing_calibration_fails_setup(tmp_path: Path) -> None:
+    stage = EarlyCutOffEndpointGateStage(
+        english_checkpoint=str(tmp_path / "english.pt"),
+        english_calibration=str(tmp_path / "absent.json"),
+        bundle_url=None,
+    )
+    with pytest.raises(FileNotFoundError, match="endpoint calibration"):
+        stage.setup()
+
+
+def test_setup_on_node_resolves_bundle(tmp_path: Path) -> None:
+    stage = EarlyCutOffEndpointGateStage(bundle_dir=str(tmp_path))
+    stage.english_calibration = None
+    stage.setup_on_node()
+    assert stage.english_calibration == str(tmp_path / "english_verifier.json")

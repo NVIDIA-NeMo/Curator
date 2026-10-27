@@ -38,6 +38,16 @@ from nemo_curator.stages.audio.tts.audio_io import (
     SegmentAudioError,
     load_segment_audio,
     make_audio_config,
+    resample,
+)
+from nemo_curator.stages.audio.tts.early_cutoff.bundle import (
+    BUNDLE_MANIFEST,
+    DEFAULT_BUNDLE_URL,
+    ENGLISH_CALIBRATION,
+    ENGLISH_CHECKPOINT,
+    MULTILINGUAL_CHECKPOINT,
+    MULTILINGUAL_THRESHOLDS,
+    resolve_bundle,
 )
 from nemo_curator.stages.audio.tts.early_cutoff.endpoint_classifier import (
     SCALAR_FEATURES,
@@ -249,6 +259,7 @@ class EarlyCutOffEndpointGateStage(ProcessingStage[AudioTask, AudioTask]):
     source_lang_key: str = "source_lang"
     language: str | None = None
     bundle_dir: str | None = None
+    bundle_url: str | None = DEFAULT_BUNDLE_URL
     model_id: str = MODEL_ID
     model_revision: str = MODEL_REVISION
     model_path: str | None = None
@@ -274,7 +285,9 @@ class EarlyCutOffEndpointGateStage(ProcessingStage[AudioTask, AudioTask]):
 
     def __post_init__(self) -> None:
         super().__init__()
-        self._apply_bundle_dir()
+        if self.bundle_dir:
+            # a download (bundle_url only) is deferred to setup(), so it lands on the worker's cache
+            self._apply_bundle_dir()
         self._setup_error: str | None = None
         self._model: Any = None
         self._feature_extractor: Any = None
@@ -285,14 +298,15 @@ class EarlyCutOffEndpointGateStage(ProcessingStage[AudioTask, AudioTask]):
         self._heads: dict[str, _EndpointHead] = {}
 
     def _apply_bundle_dir(self) -> None:
-        if not self.bundle_dir:
+        files = resolve_bundle(self.bundle_dir, self.bundle_url)
+        if files is None:
             return
-        root = Path(self.bundle_dir).expanduser()
-        self.english_checkpoint = self.english_checkpoint or str(root / "english_endpoint.pt")
-        self.english_calibration = self.english_calibration or str(root / "english_verifier.json")
-        self.multilingual_checkpoint = self.multilingual_checkpoint or str(root / "multilingual_endpoint.pt")
-        self.multilingual_calibration = self.multilingual_calibration or str(root / "multilingual_thresholds.json")
-        self.bundle_manifest = self.bundle_manifest or str(root / "manifest.json")
+        self.english_checkpoint = self.english_checkpoint or str(files[ENGLISH_CHECKPOINT])
+        self.english_calibration = self.english_calibration or str(files[ENGLISH_CALIBRATION])
+        self.multilingual_checkpoint = self.multilingual_checkpoint or str(files[MULTILINGUAL_CHECKPOINT])
+        self.multilingual_calibration = self.multilingual_calibration or str(files[MULTILINGUAL_THRESHOLDS])
+        if BUNDLE_MANIFEST in files:
+            self.bundle_manifest = self.bundle_manifest or str(files[BUNDLE_MANIFEST])
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], []
@@ -316,12 +330,29 @@ class EarlyCutOffEndpointGateStage(ProcessingStage[AudioTask, AudioTask]):
         logger.error("Task {} missing required text field {} in {}", task.task_id, keys, location)
         return False
 
+    def setup_on_node(self, _node_info: Any = None, _worker_metadata: Any = None) -> None:  # noqa: ANN401
+        self._apply_bundle_dir()
+
     def setup(self, _worker_metadata: Any = None) -> None:  # noqa: ANN401
+        # a failed download or missing calibration is a configuration error, so it raises instead of annotating
+        self._apply_bundle_dir()
+        self._check_calibrations()
         try:
             self._load_models()
         except Exception as exc:  # noqa: BLE001
             logger.exception("Cannot initialize early cut-off endpoint gate")
             self._setup_error = f"{type(exc).__name__}: {exc}"
+
+    def _check_calibrations(self) -> None:
+        # the checkpoint's own threshold is uncalibrated (multilingual: ~0.0015 vs ~0.9999 calibrated) and would flag
+        # nearly every segment, so a configured but absent calibration is an error
+        for checkpoint, calibration in (
+            (self.english_checkpoint, self.english_calibration),
+            (self.multilingual_checkpoint, self.multilingual_calibration),
+        ):
+            if checkpoint and calibration and not Path(calibration).expanduser().is_file():
+                msg = f"endpoint calibration {calibration} does not exist"
+                raise FileNotFoundError(msg)
 
     def _load_models(self) -> None:
         from transformers import Wav2Vec2FeatureExtractor, Wav2Vec2ForCTC, Wav2Vec2PhonemeCTCTokenizer
@@ -509,8 +540,8 @@ class EarlyCutOffEndpointGateStage(ProcessingStage[AudioTask, AudioTask]):
         if audio is None:
             return None
         waveform, sample_rate = audio
-        waveform = waveform.detach().cpu().reshape(-1).to(dtype=torch.float32)
-        return _resample(waveform, int(sample_rate), self.sample_rate)
+        waveform = waveform.detach().cpu().reshape(-1).to(dtype=torch.float32).numpy()
+        return torch.from_numpy(resample(waveform, int(sample_rate), self.sample_rate))
 
     def _flush(self, items: list[tuple[dict[str, Any], Any, PhonemizedReference]], language: str) -> None:
         if not items:
@@ -685,15 +716,3 @@ class EarlyCutOffEndpointGateStage(ProcessingStage[AudioTask, AudioTask]):
         for language, items in pending.items():
             self._flush(items, language)
         return tasks
-
-
-def _resample(waveform: Any, sample_rate: int, target_sample_rate: int) -> Any:  # noqa: ANN401
-    if sample_rate == target_sample_rate:
-        return waveform
-    target_len = max(1, round(waveform.shape[-1] * target_sample_rate / sample_rate))
-    return torch.nn.functional.interpolate(
-        waveform.view(1, 1, -1),
-        size=target_len,
-        mode="linear",
-        align_corners=False,
-    ).view(-1)

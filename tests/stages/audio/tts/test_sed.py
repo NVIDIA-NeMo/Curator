@@ -195,8 +195,11 @@ def test_stage_annotates_segments_and_reports_audio_errors(tmp_path: Path) -> No
 
 
 def test_stage_requires_classifier_path_unless_disabled() -> None:
+    from nemo_curator.stages.audio.tts.sed import DEFAULT_CLASSIFIER_URL
+
+    assert SegmentSEDStage().classifier_url == DEFAULT_CLASSIFIER_URL  # downloads by default
     with pytest.raises(ValueError, match="classifier_path"):
-        SegmentSEDStage()
+        SegmentSEDStage(classifier_url=None)
     stage = SegmentSEDStage(enable_classifier=False)
     assert stage.outputs() == ([], ["sed"])
     assert stage.fps == 50.0

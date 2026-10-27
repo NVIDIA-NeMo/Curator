@@ -21,6 +21,8 @@ import pytest
 import torch
 
 from nemo_curator.stages.audio.tts.codec import (
+    DEFAULT_CODEC_NAME,
+    PUBLIC_CODEC_MODEL,
     CodecCodesStage,
     CodecEncoder,
     codes_complete,
@@ -100,7 +102,7 @@ def test_extract_codes_writes_aligned_temporal_arrays(tmp_path: Path) -> None:
     assert counts == {"encoded_shards": 2, "reused_shards": 0, "cuts": 6}
     shard = load_registry(registry_path)["shards"][0]
     rate_dir = Path(shard["dir"])
-    target, context = codes_paths(rate_dir, 0, "25fpsSpectralCodecBWE")
+    target, context = codes_paths(rate_dir, 0, DEFAULT_CODEC_NAME)
     ids = read_cut_ids(Path(shard["cuts"]))
     assert codes_complete(target, ids)
     assert codes_complete(context, ids)
@@ -155,8 +157,8 @@ def test_codes_reuse_keyed_on_audio_digest(tmp_path: Path) -> None:
 
     # a codes tar without its marker is not trusted
     shard = load_registry(registry_path)["shards"][0]
-    codes_marker_path(Path(shard["dir"]), 0, "25fpsSpectralCodecBWE").unlink()
-    assert not shard_codes_complete(shard, "25fpsSpectralCodecBWE")
+    codes_marker_path(Path(shard["dir"]), 0, DEFAULT_CODEC_NAME).unlink()
+    assert not shard_codes_complete(shard, DEFAULT_CODEC_NAME)
 
 
 def test_stage_with_injected_model(tmp_path: Path) -> None:
@@ -166,8 +168,8 @@ def test_stage_with_injected_model(tmp_path: Path) -> None:
     assert stage.frame_rate == 25.0
     task = FileGroupTask(dataset_name="d", data=[str(registry_path)])
     assert stage.process(task).data == [str(registry_path)]
-    with pytest.raises(ValueError, match="model_path"):
-        CodecCodesStage()
+    # with nothing passed the stage falls back to the public 21.5 fps NanoCodec
+    assert CodecCodesStage().model_path == PUBLIC_CODEC_MODEL
 
 
 def test_stage_loads_public_hf_model(monkeypatch: pytest.MonkeyPatch) -> None:

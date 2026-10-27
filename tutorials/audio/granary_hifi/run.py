@@ -12,11 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""GranaryHiFi: Granary ASR manifests -> TTS training shards, as two Curator pipelines.
+"""GranaryHiFi: Granary ASR manifests -> annotated, filtered manifests, as one Curator pipeline.
 
-``annotate`` annotates, filters, enhances the kept segments (optional), selects contexts and writes training flags;
-``build_shar`` writes Lhotse SHAR shards with codec codes, validates and publishes them.
-See ``README.md`` for the stage list, input fields and requirements.
+``annotate`` annotates, filters, selects contexts, writes and applies training flags, then enhances what is kept,
+and writes the result as JSONL. See ``README.md`` for the stage list, input fields and requirements.
+
+Packing the result into Lhotse SHAR shards and extracting neural codec codes are available as Curator stages
+(``LhotseSharBuildStage``, ``CodecCodesStage``, ``SharValidationStage``) but are not part of this pipeline.
 """
 
 from __future__ import annotations
@@ -43,12 +45,13 @@ ANNOTATE_STEPS = (
     "utmos",
     "bandwidth",
     "filter",
-    "enhancement",
     "context",
     "ipa",
     "early_cut_off",
     "mfa_resolver",
     "training_flags",
+    "training_filter",
+    "enhancement",
 )
 TN_RAW = "GranaryV2.tn_raw"
 
@@ -77,7 +80,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     sub = ap.add_subparsers(dest="command", required=True)
 
     an = sub.add_parser(
-        "annotate", help="Annotate, filter, enhance (optional), select contexts, IPA, early cut-off, flags."
+        "annotate", help="Annotate, filter, contexts, IPA, early cut-off, training flags/filter, enhance (optional)."
     )
     _add_common(an)
     an.add_argument("--output_manifest", required=True, help="Output directory for sharded JSONL manifests.")
@@ -89,9 +92,19 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     an.add_argument("--sortformer_path", default=None, help="Local Sortformer .nemo (overrides --sortformer_model).")
     an.add_argument("--titanet_path", default=None, help="Local speakerverification_en_titanet_large.nemo.")
     an.add_argument(
+        "--titanet_model",
+        default="nvidia/speakerverification_en_titanet_large",
+        help="Hugging Face repo the TitaNet checkpoint is downloaded from (used when --titanet_path is unset).",
+    )
+    an.add_argument(
         "--sed_checkpoint", default=None, help="Cnn14_DecisionLevelMax_mAP=0.385.pth (downloaded if unset)."
     )
-    an.add_argument("--sed_classifier", default=None, help="gbt_multiclass_model.joblib (GBM postprocessor).")
+    an.add_argument("--sed_classifier", default=None, help="Local gbt_multiclass_model.joblib (GBM postprocessor).")
+    an.add_argument(
+        "--sed_classifier_url",
+        default=None,
+        help="URL the GBM bundle is downloaded from when --sed_classifier is unset (default: Granary-HiFi HF assets).",
+    )
     an.add_argument("--utmos_checkpoint", default=None, help="UTMOSv2 checkpoint (e.g. fold0_s42_best_model.pth).")
     an.add_argument(
         "--enhancement",
@@ -105,33 +118,19 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     an.add_argument("--resemble_run_dir", default=None, help="Pre-staged resemble enhancer_stage2 weights dir.")
     an.add_argument("--resemble_nfe", type=int, default=32)
     an.add_argument(
-        "--enhanced_fallback", action="store_true", help="Use the original audio where no enhanced copy exists."
+        "--early_cut_off_bundle_dir",
+        default=None,
+        help="Local endpoint bundle dir (gate checkpoints + MFA thresholds).",
     )
     an.add_argument(
-        "--early_cut_off_bundle_dir", default=None, help="Endpoint bundle dir (gate checkpoints + MFA thresholds)."
+        "--early_cut_off_bundle_url",
+        default=None,
+        help="Folder URL the endpoint bundle files are downloaded from (default: the Granary-HiFi HF assets).",
     )
     an.add_argument("--mfa_command", default="mfa", help="Montreal Forced Aligner 3.4.1 executable.")
     an.add_argument("--mfa_root_dir", default=None, help="MFA_ROOT_DIR with downloaded acoustic models/dicts.")
     an.add_argument("--mfa_num_jobs", type=int, default=None, help="MFA parallel jobs (default: stage CPUs).")
     an.add_argument("--utmos_repetitions", type=int, default=1, help="UTMOSv2 random-crop repetitions to average.")
-
-    sh = sub.add_parser("build_shar", help="Materialize Lhotse SHAR, codec codes, validate, publish.")
-    _add_common(sh)
-    sh.add_argument("--shar_dir", required=True, help="Working directory for per-manifest shard sets.")
-    sh.add_argument("--preset", required=True, choices=["ytc", "yodas", "voxpopuli", "librilight"])
-    sh.add_argument(
-        "--dataset", default=None, help="Speaker-string dataset (default: GranaryHiFi_<PRESET> (orig_audio))."
-    )
-    sh.add_argument("--language", default=None, help="Overrides the row source_lang; required if rows have none.")
-    sh.add_argument("--max_cuts_per_shard", type=int, default=4096)
-    sh.add_argument(
-        "--codec_model",
-        default=None,
-        help=("Local .nemo path or Hugging Face NeMo model ID, e.g. nvidia/nemo-nano-codec-22khz-1.89kbps-21.5fps."),
-    )
-    sh.add_argument("--skip_codec", action="store_true")
-    sh.add_argument("--enhanced_fallback", action="store_true", help="Original audio where no enhanced copy exists.")
-    sh.add_argument("--publish_root", default=None, help="Hard-link published layout here (same filesystem).")
     return ap
 
 
@@ -139,23 +138,39 @@ def _abs(path: str | None) -> str | None:
     return str(Path(path).expanduser().resolve()) if path else None
 
 
+def _optional(name: str, value: str | None) -> dict[str, str]:
+    """Pass an override through only when it is set, so the stage keeps its own default otherwise."""
+    return {name: value} if value else {}
+
+
 def _check_annotate_args(args: argparse.Namespace, want: list[str]) -> None:
     """Refuse configurations that would silently drop or mislabel the whole dataset."""
     problems = []
-    if "sed" in want and "filter" in want and not args.sed_classifier:
+    from nemo_curator.stages.audio.tts.early_cutoff.bundle import DEFAULT_BUNDLE_URL
+    from nemo_curator.stages.audio.tts.sed import DEFAULT_CLASSIFIER_URL
+
+    if (
+        "sed" in want
+        and "filter" in want
+        and not (args.sed_classifier or args.sed_classifier_url or DEFAULT_CLASSIFIER_URL)
+    ):
         problems.append(
-            "--sed_classifier is required: without the GBM, weighted_classifier_confidence is 0 and the "
-            "common filter drops every segment (or --skip sed filter)"
+            "the SED GBM bundle is required: without it, weighted_classifier_confidence is 0 and the common "
+            "filter drops every segment; pass --sed_classifier or --sed_classifier_url (or --skip sed filter)"
         )
-    if ("early_cut_off" in want or "mfa_resolver" in want) and not args.early_cut_off_bundle_dir:
+    bundle = args.early_cut_off_bundle_dir or args.early_cut_off_bundle_url or DEFAULT_BUNDLE_URL
+    if ("early_cut_off" in want or "mfa_resolver" in want) and not bundle:
         problems.append(
-            "--early_cut_off_bundle_dir is required for the end-of-word check; without it every segment "
-            "would be flagged clean (or --skip early_cut_off mfa_resolver)"
+            "the endpoint bundle is required for the end-of-word check; without it every segment would be "
+            "flagged clean; pass --early_cut_off_bundle_dir or --early_cut_off_bundle_url "
+            "(or --skip early_cut_off mfa_resolver)"
         )
     if "enhancement" in want and args.enhancement == "studio_voice" and not args.studio_voice_url:
         problems.append("--enhancement studio_voice needs --studio_voice_url (a running StudioVoice Triton server)")
     if "mfa_resolver" in want and "early_cut_off" not in want:
         problems.append("mfa_resolver resolves the gate's candidates: it needs the early_cut_off step")
+    if "training_filter" in want and "training_flags" not in want:
+        problems.append("training_filter applies the training flags: it needs the training_flags step")
     if problems:
         raise SystemExit("annotate: " + "; ".join(problems))
 
@@ -164,9 +179,9 @@ def _annotate_stages(args: argparse.Namespace) -> list[ProcessingStage]:  # noqa
     from nemo_curator.stages.audio import tts
 
     source = {"tar_root": _abs(args.tar_root), "strip_tar_key_prefixes": tuple(args.strip_tar_key_prefix)}
-    # The gate scores the original audio (an enhancer would inflate MOS/bandwidth), so only kept segments are
-    # enhanced; every stage after the enhancement reads the enhanced copy.
-    audio = {**source, "audio_source": "original", "enhanced_fallback": False}
+    # Every annotation and filter reads the original audio (an enhancer would change MOS, bandwidth and endpoints);
+    # enhancement runs last, on the segments that pass all filters and their context clips.
+    audio = {**source, "audio_source": "original"}
     want = [s for s in ANNOTATE_STEPS if s not in set(args.skip)]
     if args.enhancement == "none" and "enhancement" in want:
         want.remove("enhancement")
@@ -176,7 +191,6 @@ def _annotate_stages(args: argparse.Namespace) -> list[ProcessingStage]:  # noqa
     stages: list[ProcessingStage] = [ManifestReader(manifest_path=args.input_manifest)]
     for step in want:
         if step == "enhancement":
-            audio = {**source, "audio_source": "enhanced", "enhanced_fallback": args.enhanced_fallback}
             if args.enhancement == "studio_voice":
                 stages.append(
                     tts.StudioVoiceEnhancementStage(
@@ -198,12 +212,15 @@ def _annotate_stages(args: argparse.Namespace) -> list[ProcessingStage]:  # noqa
                 tts.SegmentDiarizationStage(model_name=args.sortformer_model, model_path=args.sortformer_path, **audio)
             )
         elif step == "speaker_clustering":
-            stages.append(tts.SpeakerClusteringStage(model_path=args.titanet_path, **audio))
+            stages.append(
+                tts.SpeakerClusteringStage(model_name=args.titanet_model, model_path=args.titanet_path, **audio)
+            )
         elif step == "sed":
             stages.append(
                 tts.SegmentSEDStage(
                     checkpoint_path=args.sed_checkpoint,
                     classifier_path=args.sed_classifier,
+                    **_optional("classifier_url", args.sed_classifier_url),
                     **audio,
                 )
             )
@@ -224,7 +241,11 @@ def _annotate_stages(args: argparse.Namespace) -> list[ProcessingStage]:  # noqa
             speaker_key = "speaker_id" if scope == "sample" else "speaker_cluster.speaker_id"
             stages.append(
                 tts.ContextSelectionStage(
-                    model_path=args.titanet_path, speaker_id_key=speaker_key, speaker_id_scope=scope, **audio
+                    model_name=args.titanet_model,
+                    model_path=args.titanet_path,
+                    speaker_id_key=speaker_key,
+                    speaker_id_scope=scope,
+                    **audio,
                 )
             )
         elif step == "ipa":
@@ -238,6 +259,7 @@ def _annotate_stages(args: argparse.Namespace) -> list[ProcessingStage]:  # noqa
                     source_lang_key=args.source_lang_key,
                     language=args.language,
                     bundle_dir=_abs(args.early_cut_off_bundle_dir),
+                    **_optional("bundle_url", args.early_cut_off_bundle_url),
                     **audio,
                 )
             )
@@ -247,6 +269,7 @@ def _annotate_stages(args: argparse.Namespace) -> list[ProcessingStage]:  # noqa
                 tts.EarlyCutOffMFAResolverStage(
                     text_key=TN_RAW,
                     bundle_dir=_abs(args.early_cut_off_bundle_dir),
+                    **_optional("bundle_url", args.early_cut_off_bundle_url),
                     mfa_command=args.mfa_command,
                     mfa_root_dir=_abs(args.mfa_root_dir),
                     **mfa_kwargs,
@@ -255,6 +278,12 @@ def _annotate_stages(args: argparse.Namespace) -> list[ProcessingStage]:  # noqa
             )
         elif step == "training_flags":
             stages.append(tts.TrainingFlagsStage(text_key=TN_RAW))
+        elif step == "training_filter":
+            from nemo_curator.stages.audio.tts.segment_filter import training_conditions
+
+            stages.append(
+                tts.SegmentFilterStage(conditions=training_conditions(), context_key="context", name="TrainingFilter")
+            )
     stages.extend(
         [
             AudioToDocumentStage(),
@@ -264,81 +293,12 @@ def _annotate_stages(args: argparse.Namespace) -> list[ProcessingStage]:  # noqa
     return stages
 
 
-def _manifest_audio_source(manifest: str) -> str:
-    """'enhanced' if the annotate run enhanced the audio (segments carry ``enhanced_audio``), else 'original'.
-
-    Keeps build_shar consistent with annotate: the shards contain exactly the audio the annotations were made on.
-    """
-    import glob
-    import json
-
-    paths = sorted(glob.glob(str(Path(manifest) / "*.jsonl")) if Path(manifest).is_dir() else glob.glob(manifest))
-    for path in paths:
-        with open(path, encoding="utf-8") as handle:
-            for line in handle:
-                row = json.loads(line) if line.strip() else {}
-                for segment in row.get("segments") or [row]:
-                    if isinstance(segment, dict) and "enhanced_audio" in segment:
-                        return "enhanced"
-                if row:
-                    return "original"
-    return "original"
-
-
-_DATASET_NAMES = {"ytc": "YTC", "yodas": "YODAS", "voxpopuli": "VoxPopuli", "librilight": "LibriLight"}
-
-
-def _codec_name(args: argparse.Namespace) -> str:
-    from nemo_curator.stages.audio.tts.codec import DEFAULT_CODEC_NAME, PUBLIC_CODEC_NAME, is_local_codec_model
-
-    return DEFAULT_CODEC_NAME if not args.codec_model or is_local_codec_model(args.codec_model) else PUBLIC_CODEC_NAME
-
-
-def _build_shar_stages(args: argparse.Namespace) -> list[ProcessingStage]:
-    from nemo_curator.stages.audio import tts
-    from nemo_curator.stages.file_partitioning import FilePartitioningStage
-
-    if not args.skip_codec and not args.codec_model:
-        msg = "build_shar: --codec_model is required (or --skip_codec)"
-        raise SystemExit(msg)
-    codec_name = _codec_name(args)
-    stages: list[ProcessingStage] = [
-        FilePartitioningStage(file_paths=args.input_manifest, files_per_partition=1, file_extensions=[".jsonl"]),
-        tts.LhotseSharBuildStage(
-            output_dir=_abs(args.shar_dir),
-            dataset=args.dataset or f"GranaryHiFi_{_DATASET_NAMES[args.preset]} (orig_audio)",
-            language=args.language,
-            preset="librilight" if args.preset == "librilight" else "default",
-            max_samples_per_shard=args.max_cuts_per_shard,
-            tar_root=_abs(args.tar_root),
-            strip_tar_key_prefixes=tuple(args.strip_tar_key_prefix),
-            audio_source=_manifest_audio_source(args.input_manifest),
-            enhanced_fallback=args.enhanced_fallback,
-        ),
-    ]
-    if not args.skip_codec:
-        from nemo_curator.stages.audio.tts.codec import is_local_codec_model
-
-        model = _abs(args.codec_model) if is_local_codec_model(args.codec_model) else args.codec_model
-        stages.append(
-            tts.CodecCodesStage(
-                model_path=model,
-                codec_name=codec_name,
-            )
-        )
-    stages.append(tts.SharValidationStage(codec_name=codec_name, require_codes=not args.skip_codec))
-    return stages
-
-
 def main() -> None:
     parser = _build_arg_parser()
     args = parser.parse_args()
     if "://" not in args.input_manifest and not glob.glob(str(Path(args.input_manifest).expanduser())):
         parser.error(f"--input_manifest matches nothing: {args.input_manifest}")
-    if args.command == "annotate":
-        stages, name = _annotate_stages(args), "granary_hifi_annotate"
-    else:
-        stages, name = _build_shar_stages(args), "granary_hifi_build_shar"
+    stages, name = _annotate_stages(args), "granary_hifi_annotate"
 
     if args.executor == "ray_data":
         from nemo_curator.backends.ray_data import RayDataExecutor
@@ -355,28 +315,10 @@ def main() -> None:
     ray_client = RayClient(**({"ray_temp_dir": args.ray_temp_dir} if args.ray_temp_dir else {}))
     ray_client.start()
     try:
-        results = Pipeline(name=name, stages=stages).run(executor=executor)
+        Pipeline(name=name, stages=stages).run(executor=executor)
     finally:
         ray_client.stop()
 
-    if args.command == "build_shar" and args.publish_root:
-        from nemo_curator.stages.audio.tts.shar_validation import PublishLayout, publish_shars
-
-        registries = sorted({path for task in results or [] for path in task.data})
-        codec_name = _codec_name(args)
-        codec_key = (
-            "nemoNanoCodec22kHz1.89kbps21.5fps" if codec_name != "25fpsSpectralCodecBWE" else "spectralCodecBWE25fps"
-        )
-        summary = publish_shars(
-            registries,
-            _abs(args.publish_root),
-            PublishLayout.for_dataset(args.preset, codec_name=codec_name, codec_key=codec_key),
-            require_codes=not args.skip_codec,
-        )
-        logger.info(f"published: {summary}")
-        if not summary.get("shards"):
-            msg = "build_shar: no shards published; see the warnings above"
-            raise SystemExit(msg)
     logger.info(f"{name} complete.")
 
 

@@ -492,7 +492,7 @@ navigation:
               - page: ReadSpeech Tutorial
                 path: ./main/pages/curate-audio/tutorials/readspeech.mdx
                 slug: readspeech
-              - page: GranaryHiFi TTS Shards
+              - page: GranaryHiFi Manifests
                 path: ./main/pages/curate-audio/tutorials/granary-hifi.mdx
                 slug: granary-hifi
           - section: Load Data

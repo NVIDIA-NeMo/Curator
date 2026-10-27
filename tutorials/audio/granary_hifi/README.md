@@ -1,7 +1,12 @@
-# GranaryHiFi: Granary ASR manifests → TTS training shards
+# GranaryHiFi: Granary ASR manifests → annotated, filtered manifests
 
 Turns Granary manifests (one JSONL row per recording, `segments` with tar-member audio in `GranaryHifi.AudioMetadata`)
-into Lhotse SHAR shards with target/context audio, IPA, neural codec codes and training flags.
+into annotated JSONL manifests: speaker, quality and sound-event annotations, a same-speaker context clip, IPA,
+end-of-word verdicts and training flags, with the segments that fail any gate dropped.
+
+Packing the result into Lhotse SHAR shards and extracting neural codec codes are available as Curator stages
+(`LhotseSharBuildStage`, `CodecCodesStage`, `SharValidationStage`) but are not part of this pipeline: no audio is
+read out of the source tars and rewritten.
 
 | Step | Stage | Writes (per segment) |
 |---|---|---|
@@ -10,24 +15,28 @@ into Lhotse SHAR shards with target/context audio, IPA, neural codec codes and t
 | sound events | `SegmentSEDStage` | `sed.weighted_*` |
 | quality | `UTMOSv2AnnotationStage`, `BandwidthEstimationStage` | `utmosv2.score`, `bandwidth.bandwidth` |
 | segment filter | `SegmentFilterStage(preset=ytc\|yodas\|voxpopuli\|librilight)` | drops failing segments |
-| enhancement (optional) | `StudioVoiceEnhancementStage` or `ResembleEnhanceStage` | `enhanced_audio.*` |
 | context selection | `ContextSelectionStage` | `context.*` |
 | phonemization | `ManifestIpaStage` | `ipa.ipa` |
 | end-of-word check | `EarlyCutOffEndpointGateStage` → `EarlyCutOffMFAResolverStage` | `early_cut_off_detection.decision` |
 | training flags | `TrainingFlagsStage` | `tts_flags.*` |
-| shards | `LhotseSharBuildStage` → `CodecCodesStage` → `SharValidationStage` → `publish_shars` | SHAR shards, codec codes |
+| training filter | `SegmentFilterStage(conditions=training_conditions(), context_key="context")` | drops failing segments |
+| enhancement (optional) | `StudioVoiceEnhancementStage` or `ResembleEnhanceStage` | `enhanced_audio.*` |
 
-Only the segment filter drops segments. Training-time filtering (`valid_* == true`, `early_cut_off == false`,
-`context_audio_text_overlap < 0.5`) is left to the data loader; `shar.apply_training_filter` mirrors it.
+Two steps drop segments: the segment filter and the training filter (`valid_* == true`, `early_cut_off == false`,
+`context_audio_text_overlap < 0.5`, the data loader's predicate). The training filter keeps a failing segment that a kept
+segment uses as context, so its audio stays available; its flags still exclude it as a training target.
 
 ## Requirements
 
 - `uv sync --extra audio_tts`, plus UTMOSv2: `uv pip install git+https://github.com/sarulab-speech/UTMOSv2.git`.
-- `espeak-ng` (1.51 or 1.52) and Montreal Forced Aligner 3.4.1 on `PATH`; the early cut-off endpoint bundle.
-- Model files: `gbt_multiclass_model.joblib` (SED classifier); the other models download automatically.
-- Codec: either the public `nvidia/nemo-nano-codec-22khz-1.89kbps-21.5fps` model from Hugging Face or a local
-  `25fps_spectral_codec_with_bandwidth_extension.nemo`.
-- ReUse: a separate `resemble-enhance` venv (`--resemble_python`, `numpy<2`) and its weights (`--resemble_run_dir`).
+- `espeak-ng` (1.51 or 1.52) and Montreal Forced Aligner 3.4.1 on `PATH`.
+- Every model downloads on first use and is cached under `~/.cache/nemo_curator/granary_hifi/` or the Hugging Face
+  cache: Sortformer, TitaNet, UTMOSv2, CNN14, the wav2vec2 CTC backbone and MFA models, plus the SED classifier and
+  the early cut-off endpoint bundle from
+  [`nvidia/Granary-HiFi`](https://huggingface.co/datasets/nvidia/Granary-HiFi/tree/main/assets/quality_control).
+  `--sed_classifier` and `--early_cut_off_bundle_dir` use local copies instead.
+- ReUse: a separate `resemble-enhance` venv (`--resemble_python`, `numpy<2`); its weights are downloaded from
+  Hugging Face unless `--resemble_run_dir` points at a pre-staged copy.
 - Single workstation: set `CUDA_VISIBLE_DEVICES` and use `--execution_mode batch` if there are fewer GPUs than GPU
   stages.
 
@@ -35,32 +44,18 @@ Only the segment filter drops segments. Training-time filtering (`valid_* == tru
 
 ```bash
 python tutorials/audio/granary_hifi/run.py annotate --preset ytc \
-  --input_manifest in.jsonl --output_manifest annotated/ --tar_root /data/audio \
-  --sed_classifier gbt_multiclass_model.joblib \
-  --early_cut_off_bundle_dir endpoint_bundle/ --mfa_root_dir /opt/mfa
-
-# Public 21.5 fps NeMo NanoCodec (downloaded from Hugging Face).
-python tutorials/audio/granary_hifi/run.py build_shar --preset ytc --language it \
-  --input_manifest 'annotated/*.jsonl' --tar_root /data/audio --shar_dir shar/ \
-  --codec_model nvidia/nemo-nano-codec-22khz-1.89kbps-21.5fps --publish_root published/
-
-# Or use a local 25 fps spectral codec.
-python tutorials/audio/granary_hifi/run.py build_shar --preset ytc --language it \
-  --input_manifest 'annotated/*.jsonl' --tar_root /data/audio --shar_dir shar/ \
-  --codec_model 25fps_spectral_codec_with_bandwidth_extension.nemo --publish_root published/
+  --input_manifest in.jsonl --output_manifest annotated/ --tar_root /data/audio --mfa_root_dir /opt/mfa
 ```
 
-`--enhancement studio_voice|reuse` enhances the segments that pass the filter; the filter scores the original audio,
-and all later steps and the shards use the enhanced audio (`build_shar` detects it). Default `none` uses the original
-audio.
+`--enhancement studio_voice|reuse` runs last: every annotation and filter uses the original audio, then the segments
+that pass all filters (and their context clips) are enhanced and recorded under `enhanced_audio`. Default `none`
+uses the original audio.
 
-`--preset default` uses the general filter thresholds (the same as `yodas`). All flags: `run.py annotate --help`,
-`run.py build_shar --help`.
+`--preset default` uses the general filter thresholds (the same as `yodas`). All flags: `run.py annotate --help`.
 
-`annotate --skip` takes step names: `diarization speaker_clustering sed utmos bandwidth filter enhancement context ipa
-early_cut_off mfa_resolver training_flags`. The `librilight` preset uses the row-level `speaker_id` instead of
-speaker clustering. `build_shar --skip_codec` skips codec codes. `--codec_model` accepts either a Hugging Face model
-ID or a local `.nemo` path; codec frame rate is read from the loaded model.
+`annotate --skip` takes step names: `diarization speaker_clustering sed utmos bandwidth filter context ipa early_cut_off
+mfa_resolver training_flags training_filter enhancement`. The `librilight` preset uses the row-level `speaker_id`
+instead of speaker clustering.
 
 `annotate --output_manifest` is an output directory. The final `AudioToDocumentStage` removes cached waveform tensors
 and `JsonlWriter` writes parallel JSONL shards into that directory.

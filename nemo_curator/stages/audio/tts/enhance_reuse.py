@@ -51,6 +51,8 @@ from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
+DEFAULT_RESEMBLE_MODEL = "ResembleAI/resemble-enhance"
+
 METHOD = "resemble_enhance"
 ENHANCE_FAILED = "enhance_failed"
 WORKER_FAILED = "enhance_worker_failed"
@@ -104,7 +106,9 @@ class ResembleEnhanceStage(ProcessingStage[AudioTask, AudioTask]):
     Args:
         output_dir: Enhanced WAVs go to ``<output_dir>/<sample_id>/<tar member stem>.wav``.
         enhancer_python: Interpreter of the resemble-enhance venv (torch 2.1). Defaults to the current one.
-        run_dir: Pre-staged ``enhancer_stage2`` weights (``RESEMBLE_RUN_DIR``); ``None`` lets resemble download.
+        run_dir: Pre-staged ``enhancer_stage2`` weights (``RESEMBLE_RUN_DIR``); ``None`` downloads them from
+            ``model_name`` on Hugging Face.
+        model_name: Hugging Face repo holding ``enhancer_stage2/`` (used when ``run_dir`` is unset).
         nfe, solver, lambd, tau, denoise: enhancer settings.
         target_sample_rate: Output rate; ``None`` keeps the enhancer's native 44.1 kHz.
         skip_existing: Reuse an existing non-empty output (idempotent re-runs).
@@ -116,6 +120,7 @@ class ResembleEnhanceStage(ProcessingStage[AudioTask, AudioTask]):
     output_dir: str = "resemble_enhanced"
     enhancer_python: str | None = None
     run_dir: str | None = None
+    model_name: str = DEFAULT_RESEMBLE_MODEL
     nfe: int = 32
     solver: str = "midpoint"
     lambd: float = 0.9
@@ -158,12 +163,28 @@ class ResembleEnhanceStage(ProcessingStage[AudioTask, AudioTask]):
             cmd.append("--no-denoise")
         return cmd
 
+    def _resolve_run_dir(self) -> Path | None:
+        """``run_dir`` if set, else ``enhancer_stage2`` downloaded from Hugging Face (``None`` if that fails)."""
+        if self.run_dir:
+            return Path(self.run_dir).expanduser()
+        try:
+            from huggingface_hub import snapshot_download
+
+            repo = snapshot_download(repo_id=self.model_name, allow_patterns=["enhancer_stage2/*"])
+        except Exception as exc:  # noqa: BLE001 - resemble-enhance downloads the weights itself as a fallback
+            logger.warning(
+                "Could not fetch {} from Hugging Face ({}); resemble-enhance will download it", self.model_name, exc
+            )
+            return None
+        return Path(repo) / "enhancer_stage2"
+
     def _run_worker(self, manifest: Path) -> str:
         import os
 
         env = dict(os.environ)
-        if self.run_dir:
-            env["RESEMBLE_RUN_DIR"] = str(Path(self.run_dir).expanduser())
+        run_dir = self._resolve_run_dir()
+        if run_dir:
+            env["RESEMBLE_RUN_DIR"] = str(run_dir)
         cmd = self._command(manifest)
         if self.command_runner is not None:
             return self.command_runner(cmd, env, self.timeout_sec)

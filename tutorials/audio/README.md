@@ -56,7 +56,7 @@ python nemo_curator/config/run.py \
 | Evaluate speaker diarization (DER) on a benchmark dataset | [**callhome_diar/**](callhome_diar/) | Yes (~8 GB VRAM) | Requires [LDC license](https://catalog.ldc.upenn.edu/LDC97S42) |
 | Filter a manifest to keep only single-speaker audio | [**single_speaker_filter/**](single_speaker_filter/) | Yes (~8 GB VRAM) | Requires a pre-existing JSONL manifest |
 | Quality-filter raw audio (MOS, VAD, bandwidth, noise) | [**readspeech/**](readspeech/) | Recommended (~4 GB VRAM) | Auto-downloads DNS Challenge (4.88 GB) |
-| GranaryHiFi: Granary ASR manifests to contextual TTS shards (Lhotse SHAR + codec codes) | [**granary_hifi/**](granary_hifi/) | GPU (diarization, TitaNet, SED, UTMOSv2, codec); optional StudioVoice / ReUse enhancement | Granary JSONL with `segments` (tar-member audio, `tn_raw`) |
+| GranaryHiFi: Granary ASR manifests to annotated, filtered manifests | [**granary_hifi/**](granary_hifi/) | GPU (diarization, TitaNet, SED, UTMOSv2); optional StudioVoice / ReUse enhancement | Granary JSONL with `segments` (tar-member audio, `tn_raw`) |
 
 ## Data availability
 

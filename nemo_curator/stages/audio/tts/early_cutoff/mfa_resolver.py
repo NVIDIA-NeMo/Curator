@@ -40,6 +40,15 @@ from nemo_curator.stages.audio.tts.audio_io import (
     load_segment_audio,
     make_audio_config,
 )
+from nemo_curator.stages.audio.tts.early_cutoff.bundle import (
+    BUNDLE_MANIFEST,
+    DEFAULT_BUNDLE_URL,
+    ENGLISH_CALIBRATION,
+    MFA_LANGUAGE_MODELS,
+    MULTILINGUAL_CALIBRATION,
+    MULTILINGUAL_THRESHOLDS,
+    resolve_bundle,
+)
 from nemo_curator.stages.audio.tts.early_cutoff.endpoint_gate import (
     _TEXT_FALLBACKS,
     CASCADE_VERSION,
@@ -69,6 +78,8 @@ from nemo_curator.tasks import AudioTask
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
+
+    from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 
 MODEL_UNAVAILABLE_REVIEW = "MFA_MODEL_UNAVAILABLE_REVIEW"
 TECHNICAL_ERROR_REVIEW = "MFA_TECHNICAL_ERROR_REVIEW"
@@ -207,6 +218,7 @@ class EarlyCutOffMFAResolverStage(ProcessingStage[AudioTask, AudioTask]):
     text_key: str = "tn_raw"
     output_key: str = "early_cut_off_detection"
     bundle_dir: str | None = None
+    bundle_url: str | None = DEFAULT_BUNDLE_URL
     english_calibration: str | None = None
     multilingual_calibration: str | None = None
     multilingual_thresholds: str | None = None
@@ -242,18 +254,33 @@ class EarlyCutOffMFAResolverStage(ProcessingStage[AudioTask, AudioTask]):
     def __post_init__(self) -> None:
         super().__init__()
         if self.bundle_dir:
-            root = Path(self.bundle_dir).expanduser()
-            self.english_calibration = self.english_calibration or str(root / "english_verifier.json")
-            self.multilingual_calibration = self.multilingual_calibration or str(root / "multilingual_verifier.json")
-            self.multilingual_thresholds = self.multilingual_thresholds or str(root / "multilingual_thresholds.json")
-            self.language_models = self.language_models or str(root / "mfa_language_models.yaml")
-            self.bundle_manifest = self.bundle_manifest or str(root / "manifest.json")
+            # a download (bundle_url only) is deferred to setup(), so it lands on the worker's cache
+            self._apply_bundle_dir()
         if self.num_jobs is not None and self.num_jobs < 1:
             msg = "num_jobs must be positive"
             raise ValueError(msg)
         self._models: dict[str, Any] | None = None
         self._calibrations: dict[str, dict[str, Any]] = {}
         self._model_cache: MfaModelCache | None = None
+
+    def _apply_bundle_dir(self) -> None:
+        files = resolve_bundle(self.bundle_dir, self.bundle_url)
+        if files is None:
+            return
+        self.english_calibration = self.english_calibration or str(files[ENGLISH_CALIBRATION])
+        self.multilingual_calibration = self.multilingual_calibration or str(files[MULTILINGUAL_CALIBRATION])
+        self.multilingual_thresholds = self.multilingual_thresholds or str(files[MULTILINGUAL_THRESHOLDS])
+        self.language_models = self.language_models or str(files[MFA_LANGUAGE_MODELS])
+        if BUNDLE_MANIFEST in files:
+            self.bundle_manifest = self.bundle_manifest or str(files[BUNDLE_MANIFEST])
+
+    def setup_on_node(
+        self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None
+    ) -> None:
+        self._apply_bundle_dir()
+
+    def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
+        self._apply_bundle_dir()
 
     def teardown(self) -> None:
         if self._model_cache is not None:

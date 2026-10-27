@@ -1,0 +1,37 @@
+runtime_version: 3.4.1
+supported:
+  bg: {acoustic: bulgarian_mfa, dictionary: bulgarian_mfa, version: 3.0.0}
+  cs: {acoustic: czech_mfa, dictionary: czech_mfa, version: 3.3.0}
+  de: {acoustic: german_mfa, dictionary: german_mfa, version: 3.0.0}
+  el: {acoustic: greek_cv, dictionary: greek_cv, version: 2.0.0}
+  en: {acoustic: english_us_arpa, dictionary: english_us_arpa, version: 3.0.0}
+  es:
+    acoustic: spanish_mfa
+    dictionary: spanish_latin_america_mfa
+    version: 3.3.0
+  fr: {acoustic: french_mfa, dictionary: french_mfa, version: 3.0.0}
+  hr:
+    acoustic: serbocroatian_mfa
+    dictionary: serbocroatian_mfa
+    version: 3.3.0
+  hu: {acoustic: hungarian_cv, dictionary: hungarian_cv, version: 2.0.0}
+  it: {acoustic: italian_cv, dictionary: italian_cv, version: 2.0.0}
+  nl: {acoustic: dutch_cv, dictionary: dutch_cv, version: 2.0.0}
+  pl: {acoustic: polish_mfa, dictionary: polish_mfa, version: 2.0.0}
+  pt:
+    acoustic: portuguese_mfa
+    dictionary: portuguese_brazil_mfa
+    version: 2.0.0
+  ro: {acoustic: romanian_cv, dictionary: romanian_cv, version: 2.0.0}
+  ru: {acoustic: russian_mfa, dictionary: russian_mfa, version: 3.1.0}
+  sv: {acoustic: swedish_mfa, dictionary: swedish_mfa, version: 3.0.0}
+  uk: {acoustic: ukrainian_mfa, dictionary: ukrainian_mfa, version: 3.0.0}
+unsupported:
+  da: no_official_acoustic_model
+  et: no_official_acoustic_model
+  fi: no_official_acoustic_model
+  lt: no_official_acoustic_model
+  lv: no_official_acoustic_model
+  mt: dictionary_only
+  sk: no_official_acoustic_model
+  sl: no_official_acoustic_model

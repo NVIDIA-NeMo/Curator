@@ -21,7 +21,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from nemo_curator.stages.audio.tts.codec import CodecEncoder, extract_codes_for_registry
+from nemo_curator.stages.audio.tts.codec import DEFAULT_CODEC_NAME, CodecEncoder, extract_codes_for_registry
 from nemo_curator.stages.audio.tts.shar import build_shars_for_manifest, load_registry
 from nemo_curator.stages.audio.tts.shar_validation import (
     VALIDATION_REPORT,
@@ -81,7 +81,7 @@ def test_detects_misalignment_missing_codes_and_missing_ipa(tmp_path: Path) -> N
         f.writelines(json.dumps(r) + "\n" for r in rows)
     assert validate_registry(registry2)["valid"]
 
-    codes_dir = Path(shard2["dir"]) / "25fpsSpectralCodecBWE" / "target_codes"
+    codes_dir = Path(shard2["dir"]) / DEFAULT_CODEC_NAME / "target_codes"
     next(codes_dir.iterdir()).unlink()
     assert any("missing streams" in p for p in validate_registry(registry2)["problems"])
     assert validate_registry(registry2, require_codes=False)["valid"]
@@ -121,7 +121,7 @@ def test_publish_hardlinks_layout_and_is_idempotent(tmp_path: Path) -> None:
     inventory = yaml.safe_load((root / "cfgs" / "it" / "GranaryHiFi_YTC_16000_train.yaml").read_text())
     assert inventory["shar_base"] == "${oc.env:AUDIO_ROOT}/it/GranaryHiFi/YTC/16000"
     assert inventory["num_shards"] == 4
-    assert inventory["codecs"] == {"spectralCodecBWE25fps": "25fpsSpectralCodecBWE"}
+    assert inventory["codecs"] == {"spectralCodecBWE25fps": DEFAULT_CODEC_NAME}
     assert inventory["cut_variants"] == {
         "audioContext_with_ipa_wo_early_cut_off": {
             "cuts_dir": "cuts_with_ipaNG_early_cut_off_filter",
@@ -135,12 +135,8 @@ def test_publish_hardlinks_layout_and_is_idempotent(tmp_path: Path) -> None:
         "cuts": [str(pair / "cuts_with_ipaNG_early_cut_off_filter" / f"cuts.{i:06d}.jsonl.gz") for i in range(4)],
         "target_audio": [str(pair / "target_audio" / f"recording.{i:06d}.tar") for i in range(4)],
         "context_audio": [str(pair / "context_audio" / f"recording.{i:06d}.tar") for i in range(4)],
-        "target_codes": [
-            str(pair / "25fpsSpectralCodecBWE" / "target_codes" / f"codes.{i:06d}.tar") for i in range(4)
-        ],
-        "context_codes": [
-            str(pair / "25fpsSpectralCodecBWE" / "context_codes" / f"codes.{i:06d}.tar") for i in range(4)
-        ],
+        "target_codes": [str(pair / DEFAULT_CODEC_NAME / "target_codes" / f"codes.{i:06d}.tar") for i in range(4)],
+        "context_codes": [str(pair / DEFAULT_CODEC_NAME / "context_codes" / f"codes.{i:06d}.tar") for i in range(4)],
     }
     loaded = list(CutSet.from_shar(fields=fields))
     assert len(loaded) == 12
@@ -181,7 +177,7 @@ def test_publish_without_codes(tmp_path: Path) -> None:
     assert report["valid"] is True
     assert report["require_codes"] is False
     pair = root / "it" / "GranaryHiFi" / "YODAS" / "16000"
-    assert not (pair / "25fpsSpectralCodecBWE").exists()
+    assert not (pair / DEFAULT_CODEC_NAME).exists()
     inventory = yaml.safe_load((root / "cfgs" / "it" / "GranaryHiFi_YODAS_16000_train.yaml").read_text())
     assert inventory["codecs"] == {}
     with pytest.raises(SharValidationError):

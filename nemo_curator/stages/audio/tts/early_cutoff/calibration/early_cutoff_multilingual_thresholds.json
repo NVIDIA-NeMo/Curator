@@ -1,0 +1,64 @@
+{
+  "clean_calibration_fraction": 0.5,
+  "clean_split_seed": "v12-clean-controls-holdout",
+  "global_thresholds": {
+    "calibration_clean_count": 16703,
+    "calibration_false_drop_count": 8,
+    "calibration_fpr": 0.000478955876189906,
+    "endpoint_threshold": 0.9999302625656128,
+    "model_validation_false_drop_count": 0,
+    "model_validation_positive_count": 942,
+    "model_validation_recall": 0.70276008492569,
+    "model_validation_true_drop_count": 662,
+    "verifier_threshold": 0.5120648848986074
+  },
+  "language_overrides": {
+    "el": {
+      "calibration_clean_count": 751,
+      "calibration_false_drop_count": 0,
+      "calibration_fpr": 0.0,
+      "endpoint_threshold": 0.9999302625656128,
+      "model_validation_false_drop_count": 0,
+      "model_validation_positive_count": 72,
+      "model_validation_recall": 0.8472222222222222,
+      "model_validation_true_drop_count": 61,
+      "verifier_threshold": 0.7781586392645704
+    },
+    "hu": {
+      "calibration_clean_count": 784,
+      "calibration_false_drop_count": 0,
+      "calibration_fpr": 0.0,
+      "endpoint_threshold": 0.9999302625656128,
+      "model_validation_false_drop_count": 0,
+      "model_validation_positive_count": 12,
+      "model_validation_recall": 0.0,
+      "model_validation_true_drop_count": 0,
+      "verifier_threshold": 0.978119
+    },
+    "it": {
+      "calibration_clean_count": 730,
+      "calibration_false_drop_count": 0,
+      "calibration_fpr": 0.0,
+      "endpoint_threshold": 0.9999302625656128,
+      "model_validation_false_drop_count": 0,
+      "model_validation_positive_count": 72,
+      "model_validation_recall": 0.0,
+      "model_validation_true_drop_count": 0,
+      "verifier_threshold": 0.982014
+    },
+    "uk": {
+      "calibration_clean_count": 737,
+      "calibration_false_drop_count": 0,
+      "calibration_fpr": 0.0,
+      "endpoint_threshold": 0.9999302625656128,
+      "model_validation_false_drop_count": 0,
+      "model_validation_positive_count": 12,
+      "model_validation_recall": 0.0,
+      "model_validation_true_drop_count": 0,
+      "verifier_threshold": 0.967705
+    }
+  },
+  "score_version": "candidate_only_mfa_multilingual_v12_train_calibrated",
+  "selection_data": "Hash-selected FLEURS train calibration controls + model validation positives",
+  "target_fpr": 0.0005
+}

@@ -59,6 +59,13 @@ DEFAULT_CHECKPOINT_SHA256 = (
     "dd3b4043a87d4ec13df8082c0fcfee3fb5084151808e47e060987a95eabdd142"  # pragma: allowlist secret
 )
 _DOWNLOAD_ATTEMPTS = 3
+DEFAULT_CLASSIFIER_URL: str | None = (
+    "https://huggingface.co/datasets/nvidia/Granary-HiFi/resolve/main/assets/quality_control/sed_postprocessing.joblib"
+)
+DEFAULT_CLASSIFIER_SHA256: str | None = (
+    "575421eac8a1a60d6c106f3c02611f1c61a402c00fc8eea0fb2fe13a7937ffb9"  # pragma: allowlist secret
+)
+DEFAULT_CLASSIFIER_FILENAME = "gbt_multiclass_model.joblib"
 DEFAULT_CLASSIFIER_THRESHOLD = 0.11975032188418763
 
 
@@ -507,8 +514,10 @@ class SegmentSEDStage(ProcessingStage[AudioTask, AudioTask]):
     Args:
         checkpoint_path: ``Cnn14_DecisionLevelMax_mAP=0.385.pth``; ``None`` uses (and on first use downloads into)
             the PyTorch Hub checkpoint dir.
-        classifier_path: joblib GBM bundle (``gbt_multiclass_model.joblib``). Required unless
-            ``enable_classifier=False``; without the classifier events carry no ``classifier_prob``.
+        classifier_path: Local joblib GBM bundle (``gbt_multiclass_model.joblib``). Unset, the bundle is
+            downloaded from ``classifier_url``; without either, use ``enable_classifier=False`` and events carry
+            no ``classifier_prob``.
+        classifier_url: Download location of the GBM bundle (defaults to ``DEFAULT_CLASSIFIER_URL``).
         framewise_key: optional segment key to also store the float16 framewise matrix (``ndarray``) under.
     """
 
@@ -516,6 +525,8 @@ class SegmentSEDStage(ProcessingStage[AudioTask, AudioTask]):
     output_key: str = "sed"
     checkpoint_path: str | None = None
     classifier_path: str | None = None
+    classifier_url: str | None = DEFAULT_CLASSIFIER_URL
+    classifier_sha256: str | None = DEFAULT_CLASSIFIER_SHA256
     enable_classifier: bool = True
     model_type: str = "Cnn14_DecisionLevelMax"
     sample_rate: int = 16000
@@ -543,8 +554,11 @@ class SegmentSEDStage(ProcessingStage[AudioTask, AudioTask]):
 
     def __post_init__(self) -> None:
         super().__init__()
-        if self.enable_classifier and not self.classifier_path:
-            msg = "SegmentSEDStage needs classifier_path (GBM joblib bundle) unless enable_classifier=False"
+        if self.enable_classifier and not self.classifier_path and not self.classifier_url:
+            msg = (
+                "SegmentSEDStage needs the GBM joblib bundle: pass classifier_path (a local file) or "
+                "classifier_url (a download location), or set enable_classifier=False"
+            )
             raise ValueError(msg)
         if self.framewise_dtype not in ("float16", "float32"):
             msg = f"framewise_dtype must be 'float16' or 'float32', got {self.framewise_dtype!r}"
@@ -571,10 +585,26 @@ class SegmentSEDStage(ProcessingStage[AudioTask, AudioTask]):
             return Path(self.checkpoint_path).expanduser()
         return Path(torch.hub.get_dir()) / "checkpoints" / DEFAULT_CHECKPOINT_FILENAME
 
+    def _resolve_classifier(self) -> Path:
+        """Local GBM bundle: ``classifier_path`` if set, else downloaded from ``classifier_url`` once per node."""
+        from nemo_curator.stages.audio.tts.model_download import resolve_artifact
+
+        return resolve_artifact(
+            self.classifier_path,
+            self.classifier_url,
+            subdir="sed_classifier",
+            what="SED GBM classifier",
+            option="classifier_path",
+            filename=DEFAULT_CLASSIFIER_FILENAME,
+            sha256=self.classifier_sha256,
+        )
+
     def setup_on_node(
         self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None
     ) -> None:
         """Fetch the public PANNs checkpoint, re-downloading truncated copies (torch.hub does not verify them)."""
+        if self.enable_classifier:
+            self._resolve_classifier()
         checkpoint = self._checkpoint()
         if checkpoint.name != DEFAULT_CHECKPOINT_FILENAME:
             if not checkpoint.is_file():
@@ -620,7 +650,7 @@ class SegmentSEDStage(ProcessingStage[AudioTask, AudioTask]):
         self._model.to(self._torch_device)
         self._model.eval()
         if self.enable_classifier and self._bundle is None:
-            self._bundle = load_gbm_bundle(str(self.classifier_path))
+            self._bundle = load_gbm_bundle(self._resolve_classifier())
 
     def teardown(self) -> None:
         self._model = None

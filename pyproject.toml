@@ -24,6 +24,7 @@ include = [
 
 [tool.setuptools.package-data]
 "nemo_curator.stages.text.experimental.translation" = ["prompts/*.yaml"]
+"nemo_curator.stages.audio.tts.early_cutoff" = ["calibration/*.json", "calibration/*.yaml"]
 
 [tool.setuptools.dynamic]
 version = { attr = "nemo_curator.package_info.__version__" }

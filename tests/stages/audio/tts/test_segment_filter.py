@@ -27,7 +27,9 @@ from nemo_curator.stages.audio.tts.segment_filter import (
     evaluate_condition,
     logical_language,
     parse_conditions,
+    training_conditions,
 )
+from nemo_curator.stages.audio.tts.training_flags import passes_training_filter
 from nemo_curator.tasks import AudioTask
 
 
@@ -278,6 +280,10 @@ def test_language_resolution() -> None:
     assert stage.language_for_row({"manifest": "/data/ytc/bg000/manifest_0.jsonl"}) == "bg"
     assert stage.language_for_row({}) == ""
     assert SegmentFilterStage(language="it").language_for_row({"source_lang": "de"}) == "it"
+    with pytest.raises(ValueError, match="no language for row"):
+        stage.language_for_row({"segments": [{}]})
+    with pytest.raises(ValueError, match="'tr' has no per-language filter pattern"):
+        stage.language_for_row({"source_lang": "tr", "segments": [{}]})
     assert logical_language("en_x") == "en"
     assert logical_language("123") == "123"
 
@@ -294,6 +300,52 @@ def test_context_conditions() -> None:
     }
     bad = {"context": {**ok["context"], "error": "no_context_segment_for_speaker"}}
     assert run(stage, {"segments": [ok, bad, {}]})["segments"] == [ok]
+
+
+def flagged_segment(member: str, context: str | None, **flags: object) -> dict:
+    tts_flags = {
+        "valid_tn_raw_transcript": True,
+        "valid_ipa": True,
+        "valid_context_audio_text": True,
+        "early_cut_off": False,
+        "context_audio_text_overlap": 0.1,
+        **flags,
+    }
+    return {
+        "GranaryHifi": {"AudioMetadata": {"tar_member": member}},
+        "context": {"context_recording_id": context},
+        "tts_flags": tts_flags,
+    }
+
+
+@pytest.mark.parametrize(
+    "flags",
+    [
+        {},
+        {"valid_ipa": False},
+        {"valid_tn_raw_transcript": None},
+        {"valid_context_audio_text": False},
+        {"early_cut_off": True},
+        {"early_cut_off": None},
+        {"context_audio_text_overlap": 0.5},
+        {"context_audio_text_overlap": None},
+    ],
+)
+def test_training_conditions_match_loader_predicate(flags: dict) -> None:
+    segment = flagged_segment("a.wav", "b.wav", **flags)
+    stage = SegmentFilterStage(conditions=training_conditions())
+    kept = run(stage, {"segments": [segment]})["segments"]
+    assert bool(kept) is passes_training_filter(segment["tts_flags"])
+
+
+def test_training_filter_keeps_context_clips_of_kept_segments() -> None:
+    target = flagged_segment("t.wav", "c.wav")
+    context = flagged_segment("c.wav", "t.wav", early_cut_off=True)
+    unused = flagged_segment("u.wav", "t.wav", early_cut_off=True)
+    row = {"segments": [context, target, unused]}
+    stage = SegmentFilterStage(conditions=training_conditions(), context_key="context")
+    assert run(stage, copy.deepcopy(row))["segments"] == [context, target]
+    assert run(SegmentFilterStage(conditions=training_conditions()), copy.deepcopy(row))["segments"] == [target]
 
 
 def test_process_batch_empty_and_multiple() -> None:

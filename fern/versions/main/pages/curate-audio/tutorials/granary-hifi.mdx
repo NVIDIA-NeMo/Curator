@@ -1,17 +1,18 @@
 ---
-description: "Turn Granary ASR manifests into contextual TTS training shards (Lhotse SHAR + codec codes) with the GranaryHiFi stages"
+description: "Turn Granary ASR manifests into annotated, filtered manifests with the GranaryHiFi stages"
 categories: ["tutorials"]
-tags: ["tts", "granary", "lhotse-shar", "speaker-diarization", "speech-enhancement", "ipa"]
+tags: ["granary", "speaker-diarization", "speech-enhancement", "ipa"]
 personas: ["data-scientist-focused", "mle-focused"]
 difficulty: "advanced"
 content_type: "tutorial"
 modality: "audio-only"
 ---
 
-# GranaryHiFi: TTS Training Shards from Granary
+# GranaryHiFi: Annotated Manifests from Granary
 
-Turn Granary ASR manifests (one JSONL row per recording with tar-member audio segments) into Lhotse SHAR shards with
-target/context audio, IPA, neural codec codes and training flags. Source: `tutorials/audio/granary_hifi/`.
+Turn Granary ASR manifests (one JSONL row per recording with tar-member audio segments) into annotated JSONL
+manifests: speaker, quality and sound-event annotations, a same-speaker context clip, IPA, end-of-word verdicts and
+training flags, with the segments that fail any gate dropped. Source: `tutorials/audio/granary_hifi/`.
 
 ## Install
 
@@ -20,25 +21,20 @@ uv sync --extra audio_tts
 uv pip install git+https://github.com/sarulab-speech/UTMOSv2.git
 ```
 
-Also needed: `espeak-ng` (1.51 or 1.52) and Montreal Forced Aligner 3.4.1 on `PATH`, the early cut-off endpoint
-bundle, and the model files listed in the tutorial README. ReUse enhancement runs `resemble-enhance` in a separate
-Python environment.
+Also needed: `espeak-ng` (1.51 or 1.52) and Montreal Forced Aligner 3.4.1 on `PATH`. Every model downloads on first
+use. ReUse enhancement runs `resemble-enhance` in a separate Python environment.
 
 ## Run
 
 ```bash
 python tutorials/audio/granary_hifi/run.py annotate --preset ytc \
-  --input_manifest in.jsonl --output_manifest annotated/ --tar_root /data/audio \
-  --sed_classifier gbt_multiclass_model.joblib \
-  --early_cut_off_bundle_dir endpoint_bundle/ --mfa_root_dir /opt/mfa
-
-python tutorials/audio/granary_hifi/run.py build_shar --preset ytc --language it \
-  --input_manifest 'annotated/*.jsonl' --tar_root /data/audio --shar_dir shar/ \
-  --codec_model nvidia/nemo-nano-codec-22khz-1.89kbps-21.5fps --publish_root published/
+  --input_manifest in.jsonl --output_manifest annotated/ --tar_root /data/audio --mfa_root_dir /opt/mfa
 ```
 
 `annotate` runs diarization, speaker clustering, sound-event detection, UTMOSv2, bandwidth, the segment filter,
-optional enhancement of the kept segments (`--enhancement studio_voice|reuse`), context selection, IPA, the early
-cut-off check and training flags. `build_shar` writes speaker-grouped shards, codec codes, validates and publishes them.
-The filter scores the original audio; with enhancement on, every later step and the shards use the enhanced audio. `--codec_model` also accepts a local `.nemo` codec. See
-`run.py annotate --help` and `run.py build_shar --help` for all flags.
+context selection, IPA, the early cut-off check, training flags and the training filter on the original audio, then
+optionally enhances the kept segments and their context clips (`--enhancement studio_voice|reuse`). See
+`run.py annotate --help` for all flags.
+
+Packing the result into Lhotse SHAR shards and extracting neural codec codes are available as Curator stages
+(`LhotseSharBuildStage`, `CodecCodesStage`, `SharValidationStage`) but are not part of this pipeline.

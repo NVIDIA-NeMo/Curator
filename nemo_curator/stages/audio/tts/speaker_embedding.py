@@ -37,12 +37,14 @@ def l2_normalize(matrix: np.ndarray) -> np.ndarray:
 class TitaNetEmbedder:
     """Batched TitaNet (``EncDecSpeakerLabelModel``) embeddings of segment audio.
 
-    ``model_path`` (a local ``.nemo``) takes precedence over ``model_name`` (``from_pretrained``). A pre-loaded
-    model may be injected through ``model`` (tests, or sharing one instance between stages).
+    ``model_path`` (a local ``.nemo``) takes precedence over ``model_name``, the Hugging Face repository the
+    checkpoint is downloaded from. A pre-loaded model may be injected through ``model`` (tests, or sharing one
+    instance between stages).
     """
 
     model_name: str = DEFAULT_TITANET_MODEL
     model_path: str | None = None
+    cache_dir: str | None = None
     batch_size: int = 32
     device: str = "cuda"
     model: Any | None = None
@@ -51,9 +53,24 @@ class TitaNetEmbedder:
 
     def download(self) -> None:
         if self.model_path is None and self.model is None:
-            from nemo.collections.asr.models import EncDecSpeakerLabelModel
+            from huggingface_hub import snapshot_download
 
-            EncDecSpeakerLabelModel.from_pretrained(self.model_name, return_model_file=True)
+            snapshot_download(repo_id=self.model_name, cache_dir=self.cache_dir)
+
+    def resolve_model_path(self) -> str:
+        """Local ``.nemo`` for the embedder: ``model_path`` if set, else the one in the Hugging Face repository."""
+        if self.model_path:
+            return self.model_path
+        import os
+
+        from huggingface_hub import snapshot_download
+
+        repo_dir = snapshot_download(repo_id=self.model_name, cache_dir=self.cache_dir)
+        nemo_files = sorted(f for f in os.listdir(repo_dir) if f.endswith(".nemo"))
+        if not nemo_files:
+            msg = f"No .nemo file found in {repo_dir} for model {self.model_name}"
+            raise FileNotFoundError(msg)
+        return os.path.join(repo_dir, nemo_files[0])
 
     def load(self) -> None:
         import torch
@@ -62,10 +79,7 @@ class TitaNetEmbedder:
         if self.model is None:
             from nemo.collections.asr.models import EncDecSpeakerLabelModel
 
-            if self.model_path:
-                self.model = EncDecSpeakerLabelModel.restore_from(self.model_path, map_location=self._device)
-            else:
-                self.model = EncDecSpeakerLabelModel.from_pretrained(self.model_name, map_location=self._device)
+            self.model = EncDecSpeakerLabelModel.restore_from(self.resolve_model_path(), map_location=self._device)
             self.model = self.model.to(self._device)
         self.model.eval()
         preprocessor = getattr(self.model, "preprocessor", None)

@@ -50,9 +50,11 @@ from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import FileGroupTask
 
-DEFAULT_CODEC_NAME = "25fpsSpectralCodecBWE"
 PUBLIC_CODEC_MODEL = "nvidia/nemo-nano-codec-22khz-1.89kbps-21.5fps"
 PUBLIC_CODEC_NAME = "nemoNanoCodec22kHz1.89kbps21.5fps"
+# The 21.5 fps NanoCodec is the default everywhere; a local ``.nemo`` can still be passed as ``model_path``
+# together with its own ``codec_name``.
+DEFAULT_CODEC_NAME = PUBLIC_CODEC_NAME
 # Training-only HF discriminators are replaced by an allow-listed no-op module; weights load with strict=False.
 _DISCRIMINATOR_STUB = {"_target_": "torch.nn.Identity"}
 
@@ -344,18 +346,17 @@ def extract_codes_for_registry(
 
 @dataclass
 class CodecCodesStage(ProcessingStage[FileGroupTask, FileGroupTask]):
-    """Extract 25 fps spectral codec codes for SHAR shards listed in ``shar_registry.json`` files.
+    """Extract neural codec codes for SHAR shards listed in ``shar_registry.json`` files.
 
-    ``model_path`` accepts either a local ``.nemo`` path (for example,
-    ``25fps_spectral_codec_with_bandwidth_extension.nemo``) or a Hugging Face NeMo model ID. A pre-loaded codec model
-    can instead be injected through ``codec_model`` (tests). Exactly one model source is required. Output codes live
-    next to the shard's audio under
+    ``model_path`` defaults to the public 21.5 fps NeMo NanoCodec on Hugging Face and also accepts any other NeMo
+    model ID or a local ``.nemo`` path. A pre-loaded codec model can instead be injected through ``codec_model``
+    (tests); exactly one model source is required. Output codes live next to the shard's audio under
     ``<rate>/<codec_name>/{target_codes,context_codes}/``. For local checkpoints, ``check_keys`` verifies that the
     ``strict=False`` load ignored only ``discriminator.*`` weights.
     """
 
-    model_path: str | None = None
-    codec_name: str = DEFAULT_CODEC_NAME
+    model_path: str | None = PUBLIC_CODEC_MODEL
+    codec_name: str = PUBLIC_CODEC_NAME
     frame_rate: float | None = None
     inference_batch_size: int = 128
     device: str = "cuda"
@@ -368,12 +369,12 @@ class CodecCodesStage(ProcessingStage[FileGroupTask, FileGroupTask]):
 
     def __post_init__(self) -> None:
         super().__init__()
+        if self.codec_model is not None and self.model_path == PUBLIC_CODEC_MODEL:
+            self.model_path = None  # an injected model wins over the default model id
         sources = sum(source is not None for source in (self.model_path, self.codec_model))
         if sources != 1:
             msg = "exactly one of model_path or codec_model is required"
             raise ValueError(msg)
-        if self.model_path and not is_local_codec_model(self.model_path) and self.codec_name == DEFAULT_CODEC_NAME:
-            self.codec_name = PUBLIC_CODEC_NAME
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
