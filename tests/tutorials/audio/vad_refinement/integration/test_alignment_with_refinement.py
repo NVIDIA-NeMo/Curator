@@ -4,15 +4,14 @@
 import json
 import shutil
 from pathlib import Path
+from types import SimpleNamespace
 from typing import ClassVar
 
 import numpy as np
 import pytest
 import soundfile as sf
-from textgrid import IntervalTier, TextGrid
 
 from tutorials.audio.vad_refinement import alignment_with_refinement as pipeline
-from tutorials.audio.vad_refinement.mfa_alignment import MFAAlignmentStage
 from tutorials.audio.vad_refinement.rectify_vad_boundaries import VADPredictions, _marked_words
 
 pytest.importorskip("nemo", reason="Physical-shard integration tests require the Curator NeMo audio environment")
@@ -20,34 +19,30 @@ pytest.importorskip("nemo", reason="Physical-shard integration tests require the
 
 class AlignerFixture:
     def __init__(self, root: Path, *, missing: bool = False) -> None:
+        from nemo_curator.stages.audio.tagging.inference.nemo_asr_align import NeMoASRAlignerStage
+
         self.root = root
         self.missing = missing
-        self.stage = MFAAlignmentStage(
-            output_dir=str(root),
-            create_rttm=False,
-            create_ctm=False,
-            copy_models_to_local=False,
-            speaker_key="speaker_id",
-            single_speaker=False,
+        self.stage = NeMoASRAlignerStage(decoder_type="ctc", use_cuda_graphs=False)
+        self.stage._asr_model = SimpleNamespace(
+            cfg=SimpleNamespace(preprocessor=SimpleNamespace(window_stride=0.0125)),
+            transcribe=self.transcribe,
         )
-        self.stage.setup()
-        self.stage._run_mfa_align = self.write_textgrids
 
     def process_batch(self, tasks: list) -> list:
         return self.stage.process_batch(tasks)
 
-    def write_textgrids(self, corpus: Path, output: Path) -> None:
-        if self.missing:
-            return
-        for audio in corpus.rglob("*.wav"):
-            path = output / f"{audio.stem}.TextGrid"
-            path.parent.mkdir(parents=True, exist_ok=True)
-            grid = TextGrid(minTime=0, maxTime=1)
-            tier = IntervalTier(name="words", minTime=0, maxTime=1)
-            tier.add(0.1000068, 0.3000032, "one")
-            tier.add(0.7000068, 0.9000032, "two")
-            grid.append(tier)
-            grid.write(str(path))
+    def transcribe(self, paths: list[str], **_kwargs: object) -> list[SimpleNamespace]:
+        assert all(Path(path).is_file() for path in paths)
+        stamps = (
+            []
+            if self.missing
+            else [
+                {"start_offset": 1, "end_offset": 3, "word": "one"},
+                {"start_offset": 7, "end_offset": 9, "word": "two"},
+            ]
+        )
+        return [SimpleNamespace(timestamp={"word": stamps}, word_confidence=None) for _ in paths]
 
 
 class DetectorFixture:
@@ -79,7 +74,7 @@ def _input_manifest(root: Path, *, count: int = 2) -> Path:
     return manifest
 
 
-def test_reader_mfa_tar_refinement_roundtrip_after_relocation(tmp_path: Path) -> None:
+def test_main_aligner_tar_refinement_roundtrip_after_relocation(tmp_path: Path) -> None:
     source = _input_manifest(tmp_path / "inputs")
     root = tmp_path / "work"
     aligned = pipeline.align_tasks(
@@ -110,20 +105,52 @@ def test_reader_mfa_tar_refinement_roundtrip_after_relocation(tmp_path: Path) ->
         for before, after in zip(originals[index], words, strict=True):
             assert after[0] <= before[0]
             assert after[1] >= before[1]
-        assert words[0][1] == words[1][0] == pytest.approx(0.500005)
+        assert words[0][1] == words[1][0] == pytest.approx(0.5)
+        assert row["alignment_source"] == "curator_nemo_asr"
+        audit = json.loads(Path(row["refinement_audit"]).read_text())
+        assert audit["anchor_source"] == "curator_nemo_asr"
+        assert "mfa" not in audit["refinement_algorithm"]["weights"]
         assert Path(row["mfa_textgrid"]).is_file()
         marker = json.loads((manifest.parent / "complete.json").read_text())
         assert marker["rows"] == 1
 
 
-def test_missing_mfa_words_prevents_publishing_aligned_batch(tmp_path: Path) -> None:
+def test_missing_asr_words_prevents_publishing_aligned_batch(tmp_path: Path) -> None:
     source = _input_manifest(tmp_path / "inputs", count=1)
     root = tmp_path / "work"
-    with pytest.raises(ValueError, match="MFA did not align"):
+    with pytest.raises(ValueError, match="no word timestamps"):
         pipeline.align_tasks(
             pipeline.input_tasks(None, source), root, AlignerFixture(root / "grids", missing=True), batch_size=1
         )
     assert not list((root / "aligned").glob("*.jsonl"))
+
+
+def test_supplied_transcript_is_preserved_separately_from_asr(tmp_path: Path) -> None:
+    source = _input_manifest(tmp_path / "inputs", count=1)
+    (row,) = pipeline.read_rows(source)
+    row["text"] = "a different supplied transcript"
+    pipeline._write_jsonl(source, [row])
+    root = tmp_path / "work"
+    (manifest,) = pipeline.align_tasks(
+        pipeline.input_tasks(None, source), root, AlignerFixture(root / "grids"), batch_size=1
+    )
+    (aligned,) = pipeline.read_rows(manifest)
+    assert aligned["source_text"] == "a different supplied transcript"
+    assert aligned["text"] == "one two"
+
+
+def test_overlapping_main_timestamps_are_reported_without_repair(tmp_path: Path) -> None:
+    row = {"duration": 1.0, "segment_id": "clip", "text": "original"}
+    result = {
+        "text": "one two",
+        "alignment": [
+            {"word": "one", "start": 0.1, "end": 0.7},
+            {"word": "two", "start": 0.6, "end": 0.9},
+        ],
+    }
+    with pytest.raises(ValueError, match="Invalid Curator word timestamp"):
+        pipeline.write_alignment(row, result, tmp_path)
+    assert not list(tmp_path.rglob("*.TextGrid"))
 
 
 def test_non_tar_reader_batches_preserve_original_row_identity(tmp_path: Path) -> None:

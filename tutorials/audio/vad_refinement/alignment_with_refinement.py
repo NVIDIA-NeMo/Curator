@@ -1,11 +1,12 @@
 # Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Alignment with refinement: Curator MFA -> portable audio shards -> VAD refinement."""
+"""Curator NeMo word timestamps -> portable audio shards -> VAD refinement."""
 
 from __future__ import annotations
 
 import argparse
+import gc
 import hashlib
 import json
 import math
@@ -15,6 +16,8 @@ import tempfile
 from itertools import batched
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
+
+from textgrid import IntervalTier, TextGrid
 
 from tutorials.audio.vad_refinement.rectify_vad_boundaries import (
     SileroSortformerVADDetector,
@@ -39,6 +42,48 @@ class BatchAligner(Protocol):
     def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]: ...
 
 
+def write_alignment(row: dict[str, Any], result: dict[str, Any], output_root: Path) -> None:
+    """Preserve main's recognized words/timestamps as the protected baseline."""
+    alignment = result.get("alignment")
+    if not alignment:
+        msg = f"Curator aligner returned no word timestamps for {row['segment_id']}"
+        raise ValueError(msg)
+    duration = float(row["duration"])
+    grid = TextGrid(minTime=0.0, maxTime=duration)
+    tier = IntervalTier(name="words", minTime=0.0, maxTime=duration)
+    previous_end = 0.0
+    for word in alignment:
+        start, end = float(word["start"]), float(word["end"])
+        label = word["word"]
+        if (
+            not isinstance(label, str)
+            or not label.strip()
+            or not math.isfinite(start)
+            or not math.isfinite(end)
+            or start < previous_end
+            or end <= start
+            or end > duration
+        ):
+            msg = f"Invalid Curator word timestamp for {row['segment_id']}: {word!r}"
+            raise ValueError(msg)
+        tier.add(start, end, label)
+        previous_end = end
+    grid.append(tier)
+    target = output_root / "alignments" / f"{row['segment_id']}.TextGrid"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    grid.write(str(target))
+    row.update(
+        source_text=row.get("text"),
+        text=result["text"],
+        alignment=[dict(word) for word in alignment],
+        alignment_source="curator_nemo_asr",
+        alignment_textgrid=str(target.resolve()),
+    )
+    # The original refinement API names its protected TextGrid input mfa_textgrid.
+    # Here it is a compatibility alias; no Montreal Forced Aligner is executed.
+    row["mfa_textgrid"] = row["alignment_textgrid"]
+
+
 def read_rows(path: Path) -> Iterator[dict[str, Any]]:
     with path.open(encoding="utf-8") as stream:
         for line_number, line in enumerate(stream, 1):
@@ -58,17 +103,17 @@ def _validate_alignment(row: dict[str, Any]) -> None:
     duration = float(row["duration"])
     words = _marked_words(Path(row["mfa_textgrid"]))
     if not math.isfinite(duration) or duration <= 0 or not words:
-        msg = f"No usable MFA word alignment for {row['segment_id']}"
+        msg = f"No usable word alignment for {row['segment_id']}"
         raise ValueError(msg)
     _validate_projection(words, words)
     if any(not all(math.isfinite(float(value)) for value in word[:2]) for word in words):
-        msg = f"Nonfinite MFA boundary for {row['segment_id']}"
+        msg = f"Nonfinite word boundary for {row['segment_id']}"
         raise ValueError(msg)
     if row["offset"] != 0.0:
         msg = "Sharded alignment must use clip-local timestamps (offset=0)"
         raise ValueError(msg)
     if float(words[0][0]) < 0 or float(words[-1][1]) > duration + 1e-9:
-        msg = f"MFA word alignment exceeds clip duration for {row['segment_id']}"
+        msg = f"Word alignment exceeds clip duration for {row['segment_id']}"
         raise ValueError(msg)
 
 
@@ -109,7 +154,7 @@ def input_tasks(
         with fsspec.open(manifest_path, "rt", encoding="utf-8", compression="infer") as stream:
             rows = (json.loads(line) for line in stream if line.strip())
             for chunk_index, chunk in enumerate(batched(rows, batch_size)):
-                with tempfile.TemporaryDirectory(prefix="curator-mfa-input-") as temporary:
+                with tempfile.TemporaryDirectory(prefix="curator-alignment-input-") as temporary:
                     chunk_manifest = Path(temporary) / "manifest.jsonl"
                     for row in chunk:
                         audio = row.get("audio_filepath")
@@ -139,7 +184,7 @@ def align_tasks(  # noqa: C901, PLR0913
     worker_count: int = 1,
     worker_index: int = 0,
 ) -> list[Path]:
-    """Align decoded clips in bounded batches; missing MFA words fail the batch."""
+    """Obtain main's ASR words and timestamps; empty or invalid output fails."""
     import soundfile as sf
 
     if batch_size < 1 or worker_count < 1 or not 0 <= worker_index < worker_count:
@@ -161,16 +206,13 @@ def align_tasks(  # noqa: C901, PLR0913
                 if data.get("read_error") or "waveform" not in data:
                     msg = f"Input audio could not be decoded: {source_key}/{task._metadata.get('_shard_input_id')}"
                     raise ValueError(msg)
-                if not isinstance(data.get("text"), str) or not data["text"].strip():
-                    msg = f"Missing transcript for {data.get('audio_filepath')}"
-                    raise ValueError(msg)
                 row_id = _key(f"{source_key}:{task._metadata['_shard_input_id']}")
                 clip_path = output_root / "clips" / f"{row_id}.wav"
                 clip_path.parent.mkdir(parents=True, exist_ok=True)
                 if clip_path.exists():
                     msg = f"Clip output already exists: {clip_path}; use a fresh output root"
                     raise FileExistsError(msg)
-                # The reader has already applied offset/duration. Both MFA and VAD
+                # The reader has already applied offset/duration. Both ASR and VAD
                 # consume this same lossless clip with a local time origin of zero.
                 sf.write(clip_path, data["waveform"], int(data["sampling_rate"]), subtype="PCM_16")
                 row = {key: value for key, value in data.items() if key != "waveform"}
@@ -189,18 +231,16 @@ def align_tasks(  # noqa: C901, PLR0913
                 )
                 task.data.clear()
                 task.data.update(row)
+                task.data.update(split_filepaths=[str(clip_path.resolve())], split_metadata=[], segments=[])
                 rows.append(row)
             aligned = aligner.process_batch(list(batch))
             by_id = {task.data["segment_id"]: task.data for task in aligned}
             if len(aligned) != len(rows) or len(by_id) != len(rows):
-                msg = f"MFA changed input row count in batch {batch_key}"
+                msg = f"Curator aligner changed input row count in batch {batch_key}"
                 raise RuntimeError(msg)
             for row in rows:
                 result = by_id[row["segment_id"]]
-                if result.get("mfa_skipped") or not result.get("textgrid_filepath"):
-                    msg = f"MFA did not align {row['segment_id']}; inspect MFA logs"
-                    raise ValueError(msg)
-                row["mfa_textgrid"] = result["textgrid_filepath"]
+                write_alignment(row, result, output_root)
                 _validate_alignment(row)
             _write_jsonl(target, rows)
             manifests.append(target)
@@ -208,7 +248,7 @@ def align_tasks(  # noqa: C901, PLR0913
 
 
 def pack_shards(aligned_manifests: list[Path], shard_root: Path, *, records_per_shard: int) -> list[Path]:
-    """Write portable NeMo manifest/tar pairs with lossless MFA sidecars."""
+    """Write portable NeMo manifest/tar pairs with lossless alignment sidecars."""
     if records_per_shard < 1:
         msg = "records_per_shard must be positive"
         raise ValueError(msg)
@@ -242,6 +282,7 @@ def pack_shards(aligned_manifests: list[Path], shard_root: Path, *, records_per_
                         **source,
                         "audio_filepath": audio_name,
                         "mfa_textgrid": grid_name,
+                        "alignment_textgrid": grid_name,
                         "offset": 0.0,
                         "shard_id": shard_index,
                     }
@@ -334,11 +375,12 @@ def refine_shards(  # noqa: PLR0915
             if not grid_path.is_relative_to(manifest.parent.resolve()):
                 msg = f"Alignment path escapes physical shard: {grid_path}"
                 raise ValueError(msg)
-            local_grid = row_dir / "mfa.TextGrid"
+            local_grid = row_dir / "alignment.TextGrid"
             shutil.copyfile(grid_path, local_grid)
             row.update(
                 audio_filepath=str(audio_path.resolve()),
                 mfa_textgrid=str(local_grid.resolve()),
+                alignment_textgrid=str(local_grid.resolve()),
                 offset=0.0,
                 duration=len(task.data["waveform"]) / int(task.data["sampling_rate"]),
             )
@@ -346,6 +388,13 @@ def refine_shards(  # noqa: PLR0915
             row_manifest = row_dir / "input.jsonl"
             _write_jsonl(row_manifest, [row])
             summary = process_manifest(row_manifest, row_dir / "refined", detector)
+            summary["anchor_source"] = row["alignment_source"]
+            summary["refinement_algorithm"]["hard_constraint"] = "preserve_alignment_words"
+            summary["refinement_algorithm"]["word_boundary_policy"] = "midpoint_of_alignment_gap_for_shared_component"
+            summary["refinement_algorithm"]["weights"]["alignment"] = summary["refinement_algorithm"]["weights"].pop(
+                "mfa"
+            )
+            _write_json(Path(summary["output_manifest"]).parent / "audit.json", summary)
             (refined_row,) = read_rows(Path(summary["output_manifest"]))
             refined_row.update(
                 alignment_shard=shard_name,
@@ -367,26 +416,23 @@ def parse_args() -> argparse.Namespace:
     source.add_argument("--input-manifest", type=Path)
     source.add_argument("--input-config", type=Path)
     parser.add_argument("--output-root", type=Path, required=True)
-    parser.add_argument("--mfa-command", default="mfa")
-    parser.add_argument("--mfa-dictionary")
-    parser.add_argument("--mfa-acoustic-model")
-    parser.add_argument("--mfa-root-dir", default="")
-    parser.add_argument("--mfa-jobs", type=int, default=4)
-    parser.add_argument("--mfa-batch-size", type=int, default=64)
+    parser.add_argument("--aligner-model", default="nvidia/parakeet-tdt_ctc-1.1b")
+    parser.add_argument("--aligner-model-path", type=Path)
+    parser.add_argument("--aligner-decoder", choices=("ctc", "rnnt"), default="rnnt")
+    parser.add_argument("--aligner-device", choices=("auto", "cpu", "cuda"), default="auto")
+    parser.add_argument("--alignment-batch-size", type=int, default=32)
     parser.add_argument("--records-per-shard", type=int, default=64)
     parser.add_argument("--sortformer-model")
     parser.add_argument("--sortformer-device", default="auto")
     parser.add_argument("--worker-count", type=int, default=1)
     parser.add_argument("--worker-index", type=int, default=0)
     args = parser.parse_args()
-    if min(args.mfa_jobs, args.mfa_batch_size, args.records_per_shard, args.worker_count) < 1:
-        parser.error("Job, batch, shard and worker counts must be positive")
+    if min(args.alignment_batch_size, args.records_per_shard, args.worker_count) < 1:
+        parser.error("Batch, shard and worker counts must be positive")
     if not 0 <= args.worker_index < args.worker_count:
         parser.error("worker-index must be in [0, worker-count)")
-    if args.stage in {"align", "all"} and (
-        not (args.input_manifest or args.input_config) or not args.mfa_dictionary or not args.mfa_acoustic_model
-    ):
-        parser.error("Alignment requires input, --mfa-dictionary and --mfa-acoustic-model")
+    if args.stage in {"align", "all"} and not (args.input_manifest or args.input_config):
+        parser.error("Alignment requires --input-manifest or --input-config")
     if args.stage in {"refine", "all"} and not args.sortformer_model:
         parser.error("Refinement requires --sortformer-model")
     if args.stage in {"shard", "all"} and args.worker_count != 1:
@@ -398,34 +444,36 @@ def main() -> int:
     args = parse_args()
     root = args.output_root.resolve()
     if args.stage in {"align", "all"}:
-        from tutorials.audio.vad_refinement.mfa_alignment import MFAAlignmentStage
+        import torch
 
-        aligner = MFAAlignmentStage(
-            mfa_command=args.mfa_command,
-            dictionary=args.mfa_dictionary,
-            acoustic_model=args.mfa_acoustic_model,
-            g2p_model="",
-            output_dir=str(root / "mfa"),
-            mfa_root_dir=args.mfa_root_dir,
-            num_jobs=args.mfa_jobs,
-            speaker_key="speaker_id",
-            single_speaker=False,
-            local_mfa_base_dir=str(
-                Path(tempfile.gettempdir()) / "curator-mfa" / _key(str(root)) / f"worker-{args.worker_index:06d}"
-            ),
-            create_rttm=False,
-            create_ctm=False,
+        from nemo_curator.stages.audio.tagging.inference.nemo_asr_align import NeMoASRAlignerStage
+        from nemo_curator.stages.resources import Resources
+
+        use_cuda = torch.cuda.is_available() if args.aligner_device == "auto" else args.aligner_device == "cuda"
+        aligner = NeMoASRAlignerStage(
+            model_name=args.aligner_model,
+            model_path=str(args.aligner_model_path) if args.aligner_model_path else None,
+            decoder_type=args.aligner_decoder,
+            timestamp_type="word",
+            compute_timestamps=True,
+            transcribe_batch_size=args.alignment_batch_size,
+            dataloader_num_workers=0,
+            use_cuda_graphs=use_cuda,
+            resources=Resources(gpus=1 if use_cuda else 0),
         )
-        aligner.setup_on_node()
-        aligner.setup()
+        aligner.setup(None)
         align_tasks(
-            input_tasks(args.input_config, args.input_manifest, batch_size=args.mfa_batch_size),
+            input_tasks(args.input_config, args.input_manifest, batch_size=args.alignment_batch_size),
             root,
             aligner,
-            batch_size=args.mfa_batch_size,
+            batch_size=args.alignment_batch_size,
             worker_count=args.worker_count,
             worker_index=args.worker_index,
         )
+        del aligner
+        gc.collect()
+        if use_cuda:
+            torch.cuda.empty_cache()
     if args.stage in {"shard", "all"}:
         pack_shards(
             list((root / "aligned").glob("*.jsonl")), root / "shards", records_per_shard=args.records_per_shard
