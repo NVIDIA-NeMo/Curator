@@ -210,23 +210,134 @@ for serving limits and parser behavior.
 
 ## Reproducing the Parse 3.5 serving benchmarks
 
-The following scripts preserve the CUDA 13 Dynamo and direct-vLLM benchmark
-workflows used for the B200 experiments:
+These scripts preserve the CUDA 13 Dynamo and direct-vLLM workflows used for
+the B200 experiments. They intentionally refuse to overwrite existing result
+directories.
 
-- `run_dynamo_uncapped.py` starts the Curator-managed Dynamo topology and can
-  run eager mode on, off, or both in isolated processes.
-- `run_extractions.sh` runs the capped and uncapped DC10K direct-vLLM cases.
-- `run_8gpu.sh` runs the 16-replica direct-vLLM topology on eight GPUs.
-- `run_8gpu_x100_direct.sh` runs that topology on the repeated 100x corpus.
-- `create_x100_dataset.sh` creates and validates the repeated physical corpus.
-- `round_robin_proxy.py` distributes OpenAI-compatible requests across the
-  local vLLM replicas.
-- `benchmark_run.py` records wall time and one-second GPU telemetry around a
-  command.
-- `benchmarking/scripts/nemotron_parse_pdf_benchmark.py` provides the shared
-  Parse throughput and output metrics used by the runners.
+### Included files
 
-The checked-in defaults reproduce the original host layout. Before running on
-another host, set or edit the Curator checkout, Python environment, model,
-dataset, manifest, and output paths. Every runner refuses to overwrite an
-existing result directory.
+| File | Purpose |
+|---|---|
+| `run_dynamo_uncapped.py` | Start Curator-managed Dynamo and run eager mode on, off, or both |
+| `run_extractions.sh` | Run capped and uncapped DC10K cases through direct vLLM |
+| `run_8gpu.sh` | Run the 16-replica direct-vLLM topology on eight GPUs |
+| `run_8gpu_x100_direct.sh` | Run that topology on the physically repeated corpus |
+| `create_x100_dataset.sh` | Create and validate the 100x physical corpus |
+| `round_robin_proxy.py` | Distribute OpenAI-compatible requests across local vLLM replicas |
+| `benchmark_run.py` | Record wall time and one-second GPU telemetry around a command |
+| `benchmarking/scripts/nemotron_parse_pdf_benchmark.py` | Collect shared Parse throughput and output metrics |
+
+### Prerequisites
+
+- A Curator checkout with the Parse 3.5 and CUDA 13 Dynamo changes.
+- A CUDA 13 Python environment containing Curator's PDF dependencies, vLLM,
+  Dynamo, Ray, `aiohttp`, and the model's Python dependencies.
+- Dynamo's `etcd` and NATS executables on `PATH` for managed-Dynamo runs.
+- `nvidia-smi` and `curl` on `PATH`.
+- A local Nemotron Parse 3.5 model directory.
+- A JSONL PDF manifest and the corresponding PDF root.
+- Eight visible GPUs for the preserved 16-replica topology. Adjust the loops,
+  ports, and replica count together when reproducing on different hardware.
+
+The shell launchers derive `CURATOR_ROOT` from their location and default
+`PYTHON` to `${CURATOR_ROOT}/.venv-parse35-cuda13/bin/python`. Set either value
+explicitly when the environment lives elsewhere.
+
+### Managed Dynamo: uncapped DC10K
+
+Run both graph mode and eager mode in separate processes:
+
+```bash
+python tutorials/interleaved/nemotron_parse_pdf/run_dynamo_uncapped.py \
+  --eager-mode both \
+  --curator-root /path/to/Curator \
+  --python /path/to/cuda13-env/bin/python \
+  --manifest /path/to/dc10k-manifest.jsonl \
+  --pdf-dir /path/to/dc10k-pdfs \
+  --model-path /path/to/Nemotron-3.5-Parse \
+  --output-root /path/to/results \
+  --run-name dc10k-reproduction-01
+```
+
+Use `--eager-mode off` or `--eager-mode on` for one mode. The runner sets
+`NEMO_CURATOR_DYNAMO_CUDA_TAG=cu130`, starts 16 half-GPU replicas, excludes
+server startup from pipeline throughput, and samples all eight GPUs once per
+second. A unique `--run-name` is required for every repeat.
+
+### Direct vLLM: eight-GPU corpus
+
+```bash
+export CURATOR_ROOT=/path/to/Curator
+export PYTHON=/path/to/cuda13-env/bin/python
+export ROOT=/path/to/results
+export MODEL=/path/to/Nemotron-3.5-Parse
+export MANIFEST=/path/to/manifest.jsonl
+export PDF_DIR=/path/to/pdfs
+
+tutorials/interleaved/nemotron_parse_pdf/run_8gpu.sh
+```
+
+This starts two vLLM replicas per GPU in two waves, waits for every endpoint,
+starts the round-robin proxy on port 8000, and runs the Curator pipeline with
+16 PDFs per task, 36 HTTP workers, concurrency 64, 300 DPI, and a 50-page cap.
+
+### Direct vLLM: capped and uncapped DC10K
+
+`run_extractions.sh` expects `manifest-capped50.jsonl` and
+`manifest-uncapped-window50.jsonl` under `ROOT`:
+
+```bash
+export CURATOR_ROOT=/path/to/Curator
+export PYTHON=/path/to/cuda13-env/bin/python
+export ROOT=/path/to/dc10k-experiment
+export MODEL=/path/to/Nemotron-3.5-Parse
+export PDF_DIR=/path/to/dc10k-pdfs
+
+tutorials/interleaved/nemotron_parse_pdf/run_extractions.sh both
+```
+
+Pass `capped50` or `uncapped` instead of `both` to run only one condition.
+
+### Creating and running the 100x corpus
+
+The dataset builder makes independent physical copies rather than reflinks or
+hard links:
+
+```bash
+tutorials/interleaved/nemotron_parse_pdf/create_x100_dataset.sh \
+  /path/to/source-corpus \
+  /path/to/repeated-corpus
+```
+
+After it validates the PDF and manifest counts, run:
+
+```bash
+export CURATOR_ROOT=/path/to/Curator
+export PYTHON=/path/to/cuda13-env/bin/python
+export ROOT=/path/to/results
+export MODEL=/path/to/Nemotron-3.5-Parse
+export MANIFEST=/path/to/repeated-corpus/manifest.jsonl
+export PDF_DIR=/path/to/repeated-corpus
+
+tutorials/interleaved/nemotron_parse_pdf/run_8gpu_x100_direct.sh
+```
+
+### Outputs and timing boundaries
+
+Each measured run writes a result directory containing:
+
+- `output/` with extracted Parquet data;
+- `command.log` with pipeline stdout and stderr;
+- `gpu-samples.csv` with one row per GPU per second;
+- `run-summary.json` with elapsed time and per-GPU utilization; and
+- `topology.json` for the Dynamo runner.
+
+The Dynamo summary reports server startup separately and measures GPU
+utilization only around `pipeline.run()`. The direct launchers start vLLM before
+invoking `benchmark_run.py`, so their recorded interval also excludes model
+startup. Both paths include PDF rendering, inference, postprocessing, and
+output writing in the measured pipeline interval.
+
+The launchers trap normal exit and signals and terminate the processes they
+start. After an interrupted Dynamo run, verify that no experiment-owned etcd,
+NATS, frontend, or vLLM process remains before starting another run.
