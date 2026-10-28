@@ -16,9 +16,11 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import multiprocessing
 import os
+import queue
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -153,29 +155,35 @@ class PDFPreprocessStage(ProcessingStage[FileGroupTask, InterleavedBatch]):
 
     _RENDER_TIMEOUT_S: int = 60  # hard limit per PDF render; kills hung C-extension
 
-    def _render_with_timeout(self, pdf_bytes: bytes, file_name: str, page_indices: list[int] | None = None) -> list:
-        """Render PDF with a process-based timeout.
-
-        SIGALRM cannot be used here because Xenna runs stage workers in non-main
-        threads and signal.signal() is restricted to the main thread.  Instead we
-        fork a child process (inheriting pdf_bytes via copy-on-write) and kill it
-        if it exceeds the timeout, which reliably escapes any C-extension hang.
-        """
+    def _render_once(
+        self, pdf_bytes: bytes, page_indices: list[int] | None
+    ) -> tuple[list[Image.Image | None], bool, int | None]:
+        """Render one page window and report whether its subprocess timed out."""
         dpi = self.dpi
         max_pages = self.max_pages
 
         ctx = multiprocessing.get_context("fork")
         result_q: multiprocessing.Queue = ctx.Queue()
-
-        keep_failed = self.retain_failures or page_indices is not None
+        page_count_q: multiprocessing.Queue = ctx.Queue()
 
         def _worker() -> None:
             try:
+                if page_indices is None:
+                    import pypdfium2 as pdfium
+
+                    doc = pdfium.PdfDocument(pdf_bytes)
+                    try:
+                        page_count_q.put(len(doc))
+                    finally:
+                        doc.close()
+                # Preserve one result slot per requested physical page. This is
+                # required when a timed-out window is split and only one page
+                # in a child window fails.
                 pages = render_pdf_pages(
                     pdf_bytes,
                     dpi=dpi,
                     max_pages=max_pages,
-                    keep_failed=keep_failed,
+                    keep_failed=True,
                     page_indices=page_indices,
                 )
                 result_q.put(pages)
@@ -185,24 +193,62 @@ class PDFPreprocessStage(ProcessingStage[FileGroupTask, InterleavedBatch]):
         proc = ctx.Process(target=_worker)
         proc.start()
         # Drain the queue BEFORE joining. If we join first, the child can
-        # deadlock: after result_q.put(pages) the internal feeder thread must
-        # flush all serialized data through the OS pipe; with 50 pages at
-        # 300 DPI the pipe fills up and the feeder stalls until the parent
-        # reads. Since the parent is blocked in join(), neither side makes
-        # progress and the 60 s timeout fires on a perfectly valid render.
+        # deadlock while its feeder thread serializes a large page window.
         try:
             pages = result_q.get(timeout=self._RENDER_TIMEOUT_S)
-        except Exception:  # noqa: BLE001
+            timed_out = False
+        except queue.Empty:
             pages = []
+            timed_out = proc.is_alive()
         proc.join(timeout=2)
         if proc.is_alive():
             proc.kill()
             proc.join()
-            if not pages:
-                logger.warning(f"Render timed out ({self._RENDER_TIMEOUT_S}s) for {file_name}, skipping")
-                return []
-            logger.debug(f"Forcibly cleaned up render process for {file_name} (result was obtained)")
-        return pages
+        page_count = None
+        if page_indices is None:
+            with contextlib.suppress(queue.Empty):
+                page_count = page_count_q.get_nowait()
+        result_q.close()
+        page_count_q.close()
+        return pages, timed_out, page_count
+
+    def _render_with_timeout(
+        self, pdf_bytes: bytes, file_name: str, page_indices: list[int] | None = None
+    ) -> list[Image.Image | None]:
+        """Render PDF with a process timeout and recursively recover slow windows.
+
+        SIGALRM cannot be used here because Xenna runs stage workers in non-main
+        threads and signal.signal() is restricted to the main thread.  Instead we
+        fork a child process (inheriting pdf_bytes via copy-on-write) and kill it
+        if it exceeds the timeout, which reliably escapes any C-extension hang.
+        A timed-out multi-page window is bisected so slow documents do not lose
+        every page in the window.
+        """
+        pages, timed_out, page_count = self._render_once(pdf_bytes, page_indices)
+        if not timed_out:
+            return pages
+
+        requested = page_indices
+        if requested is None and page_count is not None:
+            requested = list(range(min(page_count, self.max_pages)))
+        if not requested:
+            logger.warning(f"Render timed out ({self._RENDER_TIMEOUT_S}s) for {file_name}; page count unavailable")
+            return []
+        if len(requested) == 1:
+            logger.warning(
+                f"Render timed out ({self._RENDER_TIMEOUT_S}s) for {file_name} page {requested[0]}; retaining failure"
+            )
+            return [None]
+
+        midpoint = len(requested) // 2
+        left, right = requested[:midpoint], requested[midpoint:]
+        logger.warning(
+            f"Render timed out ({self._RENDER_TIMEOUT_S}s) for {file_name} pages "
+            f"{requested[0]}-{requested[-1]}; retrying {len(left)} + {len(right)} pages"
+        )
+        return self._render_with_timeout(pdf_bytes, file_name, left) + self._render_with_timeout(
+            pdf_bytes, file_name, right
+        )
 
     @staticmethod
     def _failed_row(sample_id: str, file_name: str, url: str, stage: str, message: str) -> dict[str, Any]:

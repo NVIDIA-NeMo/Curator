@@ -109,6 +109,40 @@ def test_selected_pages_keep_successful_indexes_after_render_failure(
         assert json.loads(rows[1]["materialize_error"])["stage"] == "render_pdf"
 
 
+def test_timed_out_render_window_is_retried_in_smaller_groups(monkeypatch: pytest.MonkeyPatch):
+    stage = preprocess.PDFPreprocessStage(retain_failures=True)
+    calls = []
+
+    def render_once(_pdf_bytes: bytes, indexes: list[int] | None) -> tuple[list[Image.Image | None], bool, int | None]:
+        calls.append(indexes)
+        if indexes is None:
+            return [], True, 4
+        return [Image.new("RGB", (1, 1), "red") for _ in indexes], False, None
+
+    monkeypatch.setattr(stage, "_render_once", render_once)
+    pages = stage._render_with_timeout(b"pdf", "slow.pdf")
+
+    assert calls == [None, [0, 1], [2, 3]]
+    assert len(pages) == 4
+
+
+def test_single_page_timeout_does_not_drop_successful_siblings(monkeypatch: pytest.MonkeyPatch):
+    stage = preprocess.PDFPreprocessStage(retain_failures=True)
+
+    def render_once(_pdf_bytes: bytes, indexes: list[int] | None) -> tuple[list[Image.Image | None], bool, int | None]:
+        assert indexes is not None
+        if len(indexes) > 1:
+            return [], True, None
+        if indexes == [1]:
+            return [], True, None
+        return [Image.new("RGB", (1, 1), "red")], False, None
+
+    monkeypatch.setattr(stage, "_render_once", render_once)
+    pages = stage._render_with_timeout(b"pdf", "slow.pdf", [0, 1, 2])
+
+    assert [page is not None for page in pages] == [True, False, True]
+
+
 @pytest.mark.parametrize("indexes", [[], [-1], [1, 1], [True]])
 def test_invalid_manifest_selected_pages_are_retained_as_failures(tmp_path: Path, indexes: list[int]):
     (tmp_path / "three.pdf").write_bytes(pdf_bytes())
