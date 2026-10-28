@@ -12,20 +12,18 @@ modality: "audio-only"
 
 ## Alignment with refinement
 
-For audio without existing word timestamps, the
-`tutorials.audio.vad_refinement.alignment_with_refinement` entry point runs
-the public `NeMoASRAlignerStage`, packages its recognized words as physical NeMo
-tar shards with TextGrid sidecars, and applies Silero/Sortformer refinement.
-It reuses Curator's NeMo reader for ordinary and tarred inputs.
+For audio with supplied transcripts, the
+`tutorials.audio.vad_refinement.alignment_with_refinement` entry point invokes
+the standard Montreal Forced Aligner `mfa align` command, packages aligned clips
+as physical NeMo tar shards with TextGrid sidecars, and applies Silero/Sortformer
+refinement. It preserves the supplied text and MFA word extents. No custom MFA
+stage is bundled. Curator's reader handles ordinary and tarred inputs.
 
-Run the phases separately with `--stage align`, `--stage shard` and
-`--stage refine`, or use the default `--stage all`. Configure the NeMo ASR model
-and decoder explicitly. Supplied text is retained separately; the stage
-recognizes speech rather than force-aligning that text. The shard phase
-has one writer; refinement can distribute whole shards across independently
-launched GPU processes with `--worker-count` and `--worker-index`. Models load
-once per refinement process. These commands do not submit cluster jobs.
-
+Run `--stage align`, `--stage shard` and `--stage refine` separately, or use
+`--stage all`. Configure the MFA executable, dictionary and acoustic model for
+the transcript language. Shard assembly has one writer; alignment batches and
+refinement shards can be partitioned across independently launched processes
+with `--worker-count` and `--worker-index`. These commands do not submit jobs.
 See `tutorials/audio/vad_refinement/ALIGNMENT_WITH_REFINEMENT.md` in the source
 checkout for input examples, commands, portability and integration tests.
 The single-session command below remains available for existing MFA TextGrids.

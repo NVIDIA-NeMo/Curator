@@ -3,8 +3,8 @@
 
 import json
 import shutil
+import sys
 from pathlib import Path
-from types import SimpleNamespace
 from typing import ClassVar
 
 import numpy as np
@@ -19,30 +19,43 @@ pytest.importorskip("nemo", reason="Physical-shard integration tests require the
 
 class AlignerFixture:
     def __init__(self, root: Path, *, missing: bool = False) -> None:
-        from nemo_curator.stages.audio.tagging.inference.nemo_asr_align import NeMoASRAlignerStage
+        from tutorials.audio.vad_refinement.montreal_alignment import MontrealAligner
 
-        self.root = root
-        self.missing = missing
-        self.stage = NeMoASRAlignerStage(decoder_type="ctc", use_cuda_graphs=False)
-        self.stage._asr_model = SimpleNamespace(
-            cfg=SimpleNamespace(preprocessor=SimpleNamespace(window_stride=0.0125)),
-            transcribe=self.transcribe,
+        root.mkdir(parents=True, exist_ok=True)
+        executable = root / "fixture_mfa"
+        script = """import sys, os
+from pathlib import Path
+from textgrid import TextGrid, IntervalTier
+assert sys.argv[1] == 'align'
+assert str(Path(sys.argv[0]).parent) == os.environ['PATH'].split(os.pathsep)[0]
+assert '--temporary_directory' in sys.argv
+assert '--num_jobs' in sys.argv
+corpus, output = Path(sys.argv[2]), Path(sys.argv[5])
+for transcript in corpus.rglob('*.lab'):
+    assert transcript.read_text().strip()
+    destination = output / transcript.parent.name / (transcript.stem + '.TextGrid')
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    grid = TextGrid(minTime=0, maxTime=1)
+    tier = IntervalTier(name='words', minTime=0, maxTime=1)
+    tier.add(0.1000068, 0.3000032, 'one')
+    tier.add(0.7000068, 0.9000032, 'two')
+    grid.append(tier)
+    grid.write(str(destination))
+"""
+        if missing:
+            script = "import sys; sys.exit(0)\n"
+        executable.write_text(f"#!{sys.executable}\n" + script)
+        executable.chmod(0o755)
+        self.stage = MontrealAligner(
+            root / "outputs",
+            executable=str(executable),
+            dictionary="fixture-dictionary",
+            acoustic_model="fixture-model",
+            jobs=1,
         )
 
     def process_batch(self, tasks: list) -> list:
         return self.stage.process_batch(tasks)
-
-    def transcribe(self, paths: list[str], **_kwargs: object) -> list[SimpleNamespace]:
-        assert all(Path(path).is_file() for path in paths)
-        stamps = (
-            []
-            if self.missing
-            else [
-                {"start_offset": 1, "end_offset": 3, "word": "one"},
-                {"start_offset": 7, "end_offset": 9, "word": "two"},
-            ]
-        )
-        return [SimpleNamespace(timestamp={"word": stamps}, word_confidence=None) for _ in paths]
 
 
 class DetectorFixture:
@@ -74,7 +87,7 @@ def _input_manifest(root: Path, *, count: int = 2) -> Path:
     return manifest
 
 
-def test_main_aligner_tar_refinement_roundtrip_after_relocation(tmp_path: Path) -> None:
+def test_montreal_tar_refinement_roundtrip_after_relocation(tmp_path: Path) -> None:
     source = _input_manifest(tmp_path / "inputs")
     root = tmp_path / "work"
     aligned = pipeline.align_tasks(
@@ -105,27 +118,27 @@ def test_main_aligner_tar_refinement_roundtrip_after_relocation(tmp_path: Path) 
         for before, after in zip(originals[index], words, strict=True):
             assert after[0] <= before[0]
             assert after[1] >= before[1]
-        assert words[0][1] == words[1][0] == pytest.approx(0.5)
-        assert row["alignment_source"] == "curator_nemo_asr"
+        assert words[0][1] == words[1][0] == pytest.approx(0.500005)
+        assert row["alignment_source"] == "montreal_forced_aligner"
         audit = json.loads(Path(row["refinement_audit"]).read_text())
-        assert audit["anchor_source"] == "curator_nemo_asr"
+        assert audit["anchor_source"] == "montreal_forced_aligner"
         assert "mfa" not in audit["refinement_algorithm"]["weights"]
         assert Path(row["mfa_textgrid"]).is_file()
         marker = json.loads((manifest.parent / "complete.json").read_text())
         assert marker["rows"] == 1
 
 
-def test_missing_asr_words_prevents_publishing_aligned_batch(tmp_path: Path) -> None:
+def test_missing_mfa_output_prevents_publishing_aligned_batch(tmp_path: Path) -> None:
     source = _input_manifest(tmp_path / "inputs", count=1)
     root = tmp_path / "work"
-    with pytest.raises(ValueError, match="no word timestamps"):
+    with pytest.raises(ValueError, match="no TextGrid"):
         pipeline.align_tasks(
             pipeline.input_tasks(None, source), root, AlignerFixture(root / "grids", missing=True), batch_size=1
         )
     assert not list((root / "aligned").glob("*.jsonl"))
 
 
-def test_supplied_transcript_is_preserved_separately_from_asr(tmp_path: Path) -> None:
+def test_supplied_transcript_is_not_replaced(tmp_path: Path) -> None:
     source = _input_manifest(tmp_path / "inputs", count=1)
     (row,) = pipeline.read_rows(source)
     row["text"] = "a different supplied transcript"
@@ -136,21 +149,23 @@ def test_supplied_transcript_is_preserved_separately_from_asr(tmp_path: Path) ->
     )
     (aligned,) = pipeline.read_rows(manifest)
     assert aligned["source_text"] == "a different supplied transcript"
-    assert aligned["text"] == "one two"
+    assert aligned["text"] == "a different supplied transcript"
 
 
-def test_overlapping_main_timestamps_are_reported_without_repair(tmp_path: Path) -> None:
-    row = {"duration": 1.0, "segment_id": "clip", "text": "original"}
-    result = {
-        "text": "one two",
-        "alignment": [
-            {"word": "one", "start": 0.1, "end": 0.7},
-            {"word": "two", "start": 0.6, "end": 0.9},
-        ],
-    }
-    with pytest.raises(ValueError, match="Invalid Curator word timestamp"):
-        pipeline.write_alignment(row, result, tmp_path)
-    assert not list(tmp_path.rglob("*.TextGrid"))
+def test_mfa_textgrid_is_copied_without_rewriting(tmp_path: Path) -> None:
+    from textgrid import IntervalTier, TextGrid
+
+    source = tmp_path / "source.TextGrid"
+    grid = TextGrid(minTime=0, maxTime=1)
+    tier = IntervalTier(name="words", minTime=0, maxTime=1)
+    tier.add(0.1000068, 0.9000032, "word")
+    grid.append(tier)
+    grid.write(str(source))
+    row = {"segment_id": "clip", "text": "original"}
+    pipeline.write_alignment(row, {"mfa_textgrid": str(source)}, tmp_path / "output")
+    assert Path(row["mfa_textgrid"]).read_bytes() == source.read_bytes()
+    assert row["text"] == "original"
+    assert row["alignment_source"] == "montreal_forced_aligner"
 
 
 def test_non_tar_reader_batches_preserve_original_row_identity(tmp_path: Path) -> None:

@@ -1,40 +1,46 @@
 # Alignment with refinement
 
-"Разметка с уточнением" uses the public Curator `NeMoASRAlignerStage`:
+"Разметка с уточнением" uses the standard Montreal Forced Aligner (MFA):
 
 ```text
-audio -> Curator NeMo ASR words/timestamps -> physical tar shards
-      -> Silero + Sortformer -> refined word annotations
+audio + supplied text -> mfa align -> physical NeMo tar shards
+                      -> Silero + Sortformer -> refined word annotations
 ```
 
-This stage recognizes speech and timestamps its recognized words. It does not
-force-align a supplied transcript and does not run Montreal Forced Aligner.
-Optional input text is retained in `source_text`; `text` contains the recognized
-transcript. The protected lower bound is the word alignment produced by Curator.
-Refinement preserves its words, labels and original extents. No transcription
-accuracy or boundary-accuracy gain is implied.
+MFA aligns the supplied transcript to the audio. The transcript is preserved;
+no ASR transcription replaces it. MFA word intervals are the protected lower
+bound: refinement may widen them but cannot contract, remove or relabel words.
+The recipe invokes the official executable directly. It does not bundle the
+user's custom MFA stage or invoke NeMoASRAlignerStage.
 
-## Environment and input
+## Environment and inputs
 
-Use Python 3.12+ and the Curator audio environment. The reader and
-`NeMoASRAlignerStage` are imported directly from the public library; no local
-copy or private MFA stage is bundled. For Silero/Sortformer, use the compatible
-NeMo Speech build and pinned Nemotron checkpoint in [README.md](README.md).
-No MFA executable, dictionary, acoustic model or Praatio installation is needed.
+Use Python 3.12+ in an existing Curator audio environment. Curator's reader
+handles ordinary and tarred audio. Silero/Sortformer require the compatible
+NeMo Speech build documented in [README.md](README.md).
 
-Input JSONL uses NeMo reader conventions:
+MFA is an external application with its own environment. This adapter targets
+MFA 3.x and is tested with 3.4.1. Its standard command syntax is documented in
+[the official MFA guide](https://montreal-forced-aligner.readthedocs.io/en/latest/user_guide/workflows/alignment.html).
+Prepare a pronunciation dictionary and acoustic model for the transcript's
+language. Pass local model files for offline runs; named models may be
+downloaded by MFA. This recipe does not install or modify environments.
+
+Input JSONL contains one audio/transcript pair per row:
 
 ```json
-{"audio_filepath":"/data/clip.wav","text":"optional supplied transcript","speaker":"reader-1","offset":0.0,"duration":4.2}
+{"audio_filepath":"/data/clip.wav","text":"the supplied transcript","speaker":"reader-1","offset":0.0,"duration":4.2}
 ```
 
-Audio and positive duration are required. Optional `offset` selects a portion of
-the recording. The selected clip is materialized once as PCM-16 WAV and used by
-both ASR and refinement. Its time starts at zero; original path, offset, row and
-shard identifiers are saved separately. Use speaker labels without whitespace.
+Audio, a nonempty `text`, and positive duration are required. Optional `offset`
+selects a portion of the recording. The reader applies this offset once and
+materializes a PCM-16 WAV used by MFA and refinement. Its time origin is zero;
+the original file, offset, row and shard are retained as provenance. Speaker
+labels group MFA's corpus directories; missing speaker labels receive distinct
+clip-specific identifiers. Use one language/model pair per run.
 
-Alternatively, `--input-config /data/input.yaml` accepts Curator's NeMo
-`input_cfg`, including ordinary and tarred inputs:
+Alternatively, `--input-config /data/input.yaml` accepts the existing Curator
+NeMo `input_cfg` format, including `nemo` and `nemo_tarred` entries:
 
 ```yaml
 input_cfg:
@@ -46,37 +52,37 @@ input_cfg:
     tarred_audio_filepaths: /data/audio_0.tar
 ```
 
-Tarred manifests need matching `shard_id` fields. Plain JSONL is decoded in
-bounded batches. Existing tarred input materializes one physical shard's audio
-per reader process; size those input shards to fit available memory.
+Tarred manifests require matching `shard_id` fields. Plain JSONL is decoded in
+bounded batches. Existing tarred input materializes one physical shard per
+reader process; size those input shards to fit available memory.
 
 ## Run
 
-From a Curator source checkout:
+From the Curator source checkout:
 
 ```bash
 python -m tutorials.audio.vad_refinement.alignment_with_refinement \
-  --input-manifest /data/audio.jsonl \
+  --input-manifest /data/audio_and_text.jsonl \
   --output-root /data/alignment_run \
-  --aligner-model nvidia/parakeet-tdt_ctc-1.1b \
-  --aligner-decoder rnnt --aligner-device cuda \
-  --alignment-batch-size 32 --records-per-shard 64 \
+  --mfa-command /path/to/mfa-environment/bin/mfa \
+  --mfa-dictionary /models/english_us_arpa.dict \
+  --mfa-acoustic-model /models/english_us_arpa.zip \
+  --mfa-jobs 4 --alignment-batch-size 32 --records-per-shard 64 \
   --sortformer-model /models/Nemotron-3-Diarization.nemo
 ```
 
-The aligner model and RNNT decoder above match the defaults of Curator's stage.
-Choose a model appropriate for the input language. `--aligner-model-path`
-restores an existing local checkpoint instead of downloading by model name.
-`--aligner-device cpu` is available for a small smoke run; normal model loading
-can require substantial memory. Models load once per alignment/refinement
-process. The command does not submit cluster jobs or launch workers itself.
+The example models are for English. `--mfa-model-root` can point to an existing
+MFA model directory; installed names are resolved from its `pretrained_models/`
+subdirectories. Each worker gets isolated MFA state and each batch gets its own
+corpus, work directory, output TextGrids and log. Shared model files are read
+without changing the user's original MFA directory.
 
-Run phases separately with `--stage align`, `--stage shard` and `--stage refine`.
-Alignment does not need Sortformer arguments. The shard phase needs only
-`--output-root` and optional `--records-per-shard`. Refinement needs the output
-root and Sortformer arguments but does not load the ASR model.
+Use `--stage align`, `--stage shard` and `--stage refine` to run phases in
+separate environments. Alignment requires the MFA arguments but not Sortformer.
+The shard phase requires only the output root and optional records-per-shard.
+Refinement requires Sortformer but does not invoke MFA again.
 
-For parallel refinement, launch one command per GPU, for example:
+For parallel refinement, launch one process per GPU:
 
 ```bash
 CUDA_VISIBLE_DEVICES=0 python -m tutorials.audio.vad_refinement.alignment_with_refinement \
@@ -90,12 +96,13 @@ CUDA_VISIBLE_DEVICES=1 python -m tutorials.audio.vad_refinement.alignment_with_r
   --sortformer-device cuda --worker-count 2 --worker-index 1
 ```
 
-The same worker arguments partition alignment batches. Each alignment worker
-receives the same input and batch size; this repeats decoding/I/O across workers.
-Wait for all alignment workers to finish before running the single-writer shard
-phase. The `all` and `shard` modes require one worker. Workers do not use
-Ray/Xenna/Slurm automatically. Existing outputs are rejected; use a fresh output
-root for retries. There is no automatic checkpoint/restart support.
+The worker arguments also partition MFA batches. Alignment workers receive the
+same input and batch size; this repeats decoding/I/O across workers. MFA uses
+`--mfa-jobs` CPU processes within a batch. Wait for all alignment workers before
+the single-writer shard phase. Modes `all` and `shard` require one worker.
+The commands do not launch workers or submit Ray/Xenna/Slurm jobs automatically.
+Existing outputs are rejected; use a fresh root for retries. Completion markers
+are integrity signals, not automatic checkpoint/restart support.
 
 ## Outputs
 
@@ -103,6 +110,11 @@ root for retries. There is no automatic checkpoint/restart support.
 alignment_run/
   aligned/<batch-id>.jsonl
   clips/<clip-id>.wav
+  mfa/batch-*/
+    corpus/<speaker>/<clip-id>.wav
+    corpus/<speaker>/<clip-id>.lab
+    textgrids/...
+    mfa.log
   alignments/<clip-id>.TextGrid
   shards/
     input.json
@@ -117,19 +129,19 @@ alignment_run/
     clips/<row>/...
 ```
 
-Copy the complete `shards/` directory to `<new-output-root>/shards/` to run
-refinement elsewhere. Its manifests, tar files and alignment sidecars suffice;
-original working clips and TextGrids are not required. `input.json` contains
-relative NeMo paths and can be used from inside the `shards/` directory.
+Copy the complete `shards/` directory to `<new-output-root>/shards/` to refine
+elsewhere. Manifests, tar files and TextGrid sidecars suffice; original working
+clips/MFA outputs are unnecessary. `input.json` has relative NeMo paths and can
+be used from inside the shards directory. Refinement outputs retain their own
+audio and baseline TextGrid copies, without temporary extraction paths.
 
-Rows record `alignment_source="curator_nemo_asr"`, the source transcript,
-recognized transcript and `alignment_textgrid`. The legacy refinement input name
-`mfa_textgrid` is kept as a compatibility alias to that same TextGrid; it does
-not indicate that MFA was run. Audits identify the actual anchor source.
-Refinement outputs retain their own audio and baseline alignment copies, with
-no references to temporary extraction files. Missing/invalid/overlapping word
-timestamps fail explicitly; no word boundaries are synthesized or repaired.
-Filtering remains a separate opt-in operation.
+Rows identify `alignment_source="montreal_forced_aligner"`. Their
+`alignment_textgrid` and `mfa_textgrid` fields point to the same unchanged MFA
+alignment, while `text` and `source_text` retain the supplied transcript.
+Missing TextGrids, missing words, invalid timestamps or unreadable audio fail
+explicitly. No evenly distributed fallback word timings are substituted.
+Filtering remains separate and opt-in. Logs/audits contain local paths and
+transcripts; review them before publication.
 
 ## Tests
 
@@ -141,11 +153,15 @@ python -m pytest -o addopts= \
   tests/tutorials/audio/vad_refinement/integration -q
 ```
 
-Tests call the actual public `NeMoASRAlignerStage` batch and timestamp conversion
-methods with fixture model hypotheses, then exercise TextGrid generation, real
-NeMo tar reading and refinement. They cover supplied/recognized text separation,
-nonzero input offsets, filename collisions, bounded reads, portable shards,
-disjoint workers, missing results and invalid word timestamps. No neural model
-inference is performed by these tests. Prior MFA validation applies to the
-removed implementation, not this ASR entry point. A new end-to-end neural smoke
-run and an independent accuracy evaluation have not been performed.
+The automated integration tests run a fixture executable through the real
+subprocess adapter, then exercise TextGrid preservation, the real NeMo tar
+reader and refinement. They cover required transcripts, failing commands,
+missing MFA output, nonzero offsets, filename collisions, bounded reads,
+portable shards and disjoint workers. These fixtures do not measure MFA or
+neural-model accuracy. Real smoke checks must be reported separately.
+
+A real MFA 3.4.1 smoke check aligned one public LibriSpeech clip (14.085
+seconds, 34 words) through this direct CLI adapter. The supplied transcript
+and copied TextGrid were unchanged. Physical tar reading and refinement with
+empty detector fixtures preserved every MFA word interval exactly. This
+check performed no neural inference and submitted no cluster jobs.
