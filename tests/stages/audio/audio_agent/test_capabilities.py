@@ -173,15 +173,13 @@ def new_modules(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SimpleNamesp
     )
 
 
-@pytest.mark.skipif(
-    not (os.environ.get("RAY_ADDRESS") or os.environ.get("CURATOR_TEST_RAY_ADDRESS")),
-    reason="requires an explicitly owned Ray cluster",
-)
+@pytest.mark.ray
 @pytest.mark.parametrize("with_review", [False, True])
 def test_new_modules_smoke_run_and_reuse_through_public_verbs(
     new_modules: SimpleNamespace,
     tmp_path: Path,
     with_review: bool,
+    agent_ray_cluster: str,
 ) -> None:
     import yaml
 
@@ -274,7 +272,7 @@ Path(sys.argv[3]).write_text(json.dumps({'smoke': smoke, 'run': done, 'reuse': r
     environment = {
         **os.environ,
         "PYTHONPATH": str(package),
-        "RAY_ADDRESS": os.environ.get("CURATOR_TEST_RAY_ADDRESS") or os.environ["RAY_ADDRESS"],
+        "RAY_ADDRESS": agent_ray_cluster,
         "AUDIO_AGENT_RUNS_DIR": str(tmp_path / "state"),
         "AUDIO_AGENT_REQUIRE_SMOKE": "1",
     }

@@ -1067,6 +1067,7 @@ def test_public_lazy_exports_are_available() -> None:
     assert WriterExport.__name__ == "NeMoSpeechWriterStage"
 
 
+@pytest.mark.ray
 def test_pipeline_reader_writer_terminal_sink_end_to_end(tmp_path: Path) -> None:
     sample_rate = 16_000
     waveform = np.linspace(-0.2, 0.2, 800, dtype=np.float32)

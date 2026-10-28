@@ -35,7 +35,7 @@ from nemo_curator.stages.audio.audio_agent import (
     calibration_store,
     profiler,
 )
-from nemo_curator.stages.audio.audio_agent.contracts import SmokeReport
+from nemo_curator.stages.audio.audio_agent.contracts import EnvProfile, SmokeReport
 from nemo_curator.stages.audio.audio_agent.recipe import Recipe
 from nemo_curator.stages.audio.common import ManifestCheckpointStage
 from nemo_curator.tasks import AudioTask, DocumentBatch
@@ -54,7 +54,7 @@ def _stub_smoke_runtime(
     """Keep the test at the verb boundary while replacing only execution."""
     monkeypatch.delenv("AUDIO_AGENT_WORKSPACE", raising=False)
     monkeypatch.setattr(_verb_inputs, "_profile_binding", lambda _binding: None)
-    monkeypatch.setattr(profiler, "probe_env", lambda: object())
+    monkeypatch.setattr(profiler, "probe_env", EnvProfile)
     monkeypatch.setattr(
         _verb_runtime,
         "_plan_resources",
@@ -343,7 +343,7 @@ def test_smoke_never_truncates_the_production_manifest_and_cleans_its_sandbox(
     sandbox_outputs: list[str] = []
 
     monkeypatch.setattr(_verb_inputs, "_profile_binding", lambda _binding: None)
-    monkeypatch.setattr(profiler, "probe_env", lambda: object())
+    monkeypatch.setattr(profiler, "probe_env", EnvProfile)
     monkeypatch.setattr(
         _verb_runtime,
         "_plan_resources",
@@ -590,7 +590,7 @@ def test_smoke_token_is_issued_only_after_sampled_goals_are_met(
     source.write_text('{"audio_filepath":"clip.wav"}\n', encoding="utf-8")
 
     monkeypatch.setattr(_verb_inputs, "_profile_binding", lambda _binding: None)
-    monkeypatch.setattr(profiler, "probe_env", lambda: object())
+    monkeypatch.setattr(profiler, "probe_env", EnvProfile)
     monkeypatch.setattr(
         _verb_runtime,
         "_plan_resources",
@@ -689,7 +689,7 @@ def test_a_smokes_measurements_are_waiting_for_the_next_run(
     monkeypatch.setenv("AUDIO_AGENT_RUNS_DIR", str(tmp_path / "runs"))
 
     monkeypatch.setattr(_verb_inputs, "_profile_binding", lambda _binding: None)
-    monkeypatch.setattr(profiler, "probe_env", lambda: object())
+    monkeypatch.setattr(profiler, "probe_env", EnvProfile)
     monkeypatch.setattr(
         _verb_runtime,
         "_plan_resources",
@@ -759,7 +759,7 @@ def test_document_batch_required_output_is_checked_beyond_preview_rows(
     )
 
     monkeypatch.setattr(_verb_inputs, "_profile_binding", lambda _binding: None)
-    monkeypatch.setattr(profiler, "probe_env", lambda: object())
+    monkeypatch.setattr(profiler, "probe_env", EnvProfile)
     monkeypatch.setattr(
         _verb_runtime,
         "_plan_resources",

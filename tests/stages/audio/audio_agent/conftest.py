@@ -12,50 +12,79 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Local test config for the audio_agent unit tests.
-
-The repo-root ``tests/conftest.py`` declares a *session-scoped, autouse*
-``shared_ray_cluster`` fixture, so every test transitively starts (and waits on)
-a real Ray cluster. Most of the tests here are pure logic — redaction and token math
-(``test_safety``), recipe validation (``test_validate``), resource planning
-(``test_planner``), acceptance math (``test_acceptance``) — and requiring Ray for those
-only makes them slow and unrunnable where Ray cannot come up. Overriding the fixture
-here (nearest-conftest wins) keeps them Ray-free.
-
-**The override's original premise no longer holds, and that cost real money.** It said
-"none of them execute a pipeline"; seven modules in this directory now do
-(``test_delta_execution``, ``test_smoke_bounding``, ``test_resource_hardening``,
-``test_reuse``, ``test_verbs``, ``test_output_honesty``, ``test_input_identity``). With
-the fixture stubbed out and no ``bootstrap_ray``, each of those runs let Ray auto-init a
-cluster nobody owns: ``verbs._shutdown_owned_ray`` returns immediately because
-``owned_ray_address`` is ``None``, so nothing was ever torn down. One session produced 33
-cluster directories under ``/tmp/ray`` and left ~160 ``ray::StageWorker`` processes
-reparented to init at ~700MB each — 75GB of a 125GB box, which then OOM'd the next run and
-made every subsequent failure look like a flake.
-
-**A teardown fixture here cannot fix it, and that was measured rather than argued.** Both
-the obvious shapes were tried and both are no-ops: after ``verbs.run`` returns,
-``ray.is_initialized()`` is ``False`` in the pytest process, because the Ray session belongs
-to the Xenna executor, not to the driver. So ``if ray.is_initialized(): ray.shutdown()``
-never fires -- session-scoped left 79 workers behind and per-test left 72, which is noise
-rather than a fix. (``ray.shutdown()`` itself works fine when the driver does own the
-session: 0 -> 5 -> 0 in a direct test.)
-
-The leak is roughly one orphaned worker per pipeline run, so it belongs where the run's Ray
-session is owned -- the Xenna executor teardown -- and fixing it there would fix the same
-leak for a user who calls ``run`` without ``--bootstrap-ray``. Until then, clear them with
-``pkill -f '^ray::'`` between sessions; a poisoned box makes unrelated tests fail as though
-the code were broken.
-"""
+"""Isolated agent unit tests and explicitly requested Ray integration tests."""
 
 from __future__ import annotations
 
-from collections.abc import Iterator  # noqa: TC003
+import os
+import tempfile
+from typing import TYPE_CHECKING
 
 import pytest
+import ray
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 
 @pytest.fixture(scope="session", autouse=True)
-def shared_ray_cluster() -> Iterator[str]:
-    """No-op override of the repo-root Ray fixture: no cluster is started for this directory."""
-    return "audio_agent-unit-tests://no-ray"
+def shared_ray_cluster() -> None:
+    """Agent unit tests do not require the repository-wide cluster fixture."""
+
+
+@pytest.fixture(autouse=True)
+def isolated_ray_context(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep another test's cluster out of unit preflight and resource planning."""
+    if "agent_ray_cluster" in request.fixturenames:
+        monkeypatch.setenv("RAY_ADDRESS", request.getfixturevalue("agent_ray_cluster"))
+        return
+
+    monkeypatch.delenv("RAY_ADDRESS", raising=False)
+    monkeypatch.setattr(ray, "is_initialized", lambda: False)
+    monkeypatch.setattr(ray, "shutdown", lambda: None)
+
+    def unexpected_ray_init(*_args: object, **_kwargs: object) -> None:
+        pytest.fail("Real Ray execution requires the agent_ray_cluster fixture")
+
+    monkeypatch.setattr(ray, "init", unexpected_ray_init)
+
+
+@pytest.fixture(scope="module")
+def agent_ray_cluster() -> Iterator[str]:
+    """Borrow an explicit cluster or own a bounded CPU cluster for this module."""
+    from nemo_curator.core.client import RayClient
+    from nemo_curator.stages.audio.audio_agent._ray import (
+        _connected_address,
+        _interpreter_ray_on_path,
+        _ray_temp_root,
+    )
+
+    address = os.environ.get("CURATOR_TEST_RAY_ADDRESS") or os.environ.get("RAY_ADDRESS")
+    if not address and ray.is_initialized():
+        address = _connected_address(ray)
+    if address:
+        yield address
+        return
+
+    with tempfile.TemporaryDirectory(prefix="agent_ray_", dir=_ray_temp_root()) as directory:
+        client = RayClient(
+            num_cpus=4,
+            num_gpus=0,
+            object_store_memory=512 * 1024**2,
+            ray_temp_dir=directory,
+            include_dashboard=False,
+        )
+        previous_address = os.environ.get("RAY_ADDRESS")
+        try:
+            with _interpreter_ray_on_path():
+                client.start()
+            address = os.environ["RAY_ADDRESS"]
+            # Export only during integration cases, not the intervening unit tests.
+            os.environ.pop("RAY_ADDRESS", None)
+            yield address
+        finally:
+            client.stop()
+            if previous_address is not None:
+                os.environ["RAY_ADDRESS"] = previous_address
+            else:
+                os.environ.pop("RAY_ADDRESS", None)

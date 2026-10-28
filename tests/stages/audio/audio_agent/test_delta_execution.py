@@ -42,6 +42,8 @@ from nemo_curator.stages.audio.audio_agent import (
 )
 from nemo_curator.stages.audio.audio_agent.recipe import Recipe
 
+pytestmark = [pytest.mark.ray, pytest.mark.usefixtures("agent_ray_cluster")]
+
 
 @pytest.fixture(autouse=True)
 def store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
@@ -60,13 +62,16 @@ def _wav(path: Path, *, seconds: float = 0.25, rate: int = 16000) -> None:
 
 
 def _recipe(folder: Path, out: Path) -> Recipe:
-    """folder source -> duration -> manifest: CPU only, and every stage declares independence."""
+    """Exercise independent CPU stages with one worker each to bound integration memory."""
     return Recipe.from_dict(
         {
             "stages": [
-                {"ref": "CreateInitialManifestAudioFolderStage", "params": {"data_dir": str(folder)}},
-                {"ref": "GetAudioDurationStage", "params": {}},
-                {"ref": "ManifestWriterStage", "params": {"output_path": str(out)}},
+                {
+                    "ref": "CreateInitialManifestAudioFolderStage",
+                    "params": {"data_dir": str(folder), "num_workers": 1},
+                },
+                {"ref": "GetAudioDurationStage", "params": {"num_workers": 1}},
+                {"ref": "ManifestWriterStage", "params": {"output_path": str(out), "num_workers": 1}},
             ]
         }
     ).freeze()
@@ -78,7 +83,9 @@ def _rows(path: Path | str) -> list[dict[str, Any]]:
 
 
 def _run(rec: Recipe, folder: Path) -> dict[str, Any]:
-    return _verb_run.run(rec, confirm=True, data=str(folder))
+    result = _verb_run.run(rec, confirm=True, data=str(folder))
+    assert result["status"] == "completed", result
+    return result
 
 
 @pytest.mark.usefixtures("store")
@@ -185,13 +192,21 @@ class TestDeltaExecution:
         rec = Recipe.from_dict(
             {
                 "stages": [
-                    {"ref": "CreateInitialManifestAudioFolderStage", "params": {"data_dir": str(folder)}},
-                    {"ref": "GetAudioDurationStage", "params": {}},
-                    {"ref": "ManifestWriterStage", "params": {"output_path": str(checkpoint)}},
+                    {
+                        "ref": "CreateInitialManifestAudioFolderStage",
+                        "params": {"data_dir": str(folder), "num_workers": 1},
+                    },
+                    {"ref": "GetAudioDurationStage", "params": {"num_workers": 1}},
+                    {"ref": "ManifestWriterStage", "params": {"output_path": str(checkpoint), "num_workers": 1}},
                     # per_row_independent=False, so the traceable region ends here.
                     {
                         "ref": "ManifestGroupExportStage",
-                        "params": {"output_dir": str(groups), "group_by": "audio_filepath", "format": "json"},
+                        "params": {
+                            "output_dir": str(groups),
+                            "group_by": "audio_filepath",
+                            "format": "json",
+                            "num_workers": 1,
+                        },
                     },
                 ]
             }
@@ -226,9 +241,12 @@ class TestDeltaExecution:
         rec = Recipe.from_dict(
             {
                 "stages": [
-                    {"ref": "CreateInitialManifestAudioFolderStage", "params": {"data_dir": str(folder)}},
-                    {"ref": "GetAudioDurationStage", "params": {}},
-                    {"ref": "ManifestWriterStage", "params": {"output_path": str(out)}},
+                    {
+                        "ref": "CreateInitialManifestAudioFolderStage",
+                        "params": {"data_dir": str(folder), "num_workers": 1},
+                    },
+                    {"ref": "GetAudioDurationStage", "params": {"num_workers": 1}},
+                    {"ref": "ManifestWriterStage", "params": {"output_path": str(out), "num_workers": 1}},
                 ],
                 # Two files clear this; the third pushes the corpus past it.
                 "acceptance_criteria": [
@@ -261,12 +279,20 @@ class TestDeltaExecution:
         rec = Recipe.from_dict(
             {
                 "stages": [
-                    {"ref": "CreateInitialManifestAudioFolderStage", "params": {"data_dir": str(folder)}},
-                    {"ref": "GetAudioDurationStage", "params": {}},
-                    {"ref": "ManifestWriterStage", "params": {"output_path": str(checkpoint)}},
+                    {
+                        "ref": "CreateInitialManifestAudioFolderStage",
+                        "params": {"data_dir": str(folder), "num_workers": 1},
+                    },
+                    {"ref": "GetAudioDurationStage", "params": {"num_workers": 1}},
+                    {"ref": "ManifestWriterStage", "params": {"output_path": str(checkpoint), "num_workers": 1}},
                     {
                         "ref": "ManifestGroupExportStage",
-                        "params": {"output_dir": str(groups), "group_by": "audio_filepath", "format": "json"},
+                        "params": {
+                            "output_dir": str(groups),
+                            "group_by": "audio_filepath",
+                            "format": "json",
+                            "num_workers": 1,
+                        },
                     },
                 ],
                 "acceptance_criteria": [
@@ -372,10 +398,14 @@ class TestDeltaExecution:
                 "stages": [
                     {
                         "ref": "CreateInitialManifestAudioFolderStage",
-                        "params": {"data_dir": str(folder), "include_files": [str(folder / "a.wav")]},
+                        "params": {
+                            "data_dir": str(folder),
+                            "include_files": [str(folder / "a.wav")],
+                            "num_workers": 1,
+                        },
                     },
-                    {"ref": "GetAudioDurationStage", "params": {}},
-                    {"ref": "ManifestWriterStage", "params": {"output_path": str(out)}},
+                    {"ref": "GetAudioDurationStage", "params": {"num_workers": 1}},
+                    {"ref": "ManifestWriterStage", "params": {"output_path": str(out), "num_workers": 1}},
                 ]
             }
         ).freeze()
@@ -452,8 +482,11 @@ class TestTheCardOffersIt:
         rec = Recipe.from_dict(
             {
                 "stages": [
-                    {"ref": "CreateInitialManifestAudioFolderStage", "params": {"data_dir": str(folder)}},
-                    {"ref": "GetAudioDurationStage", "params": {}},
+                    {
+                        "ref": "CreateInitialManifestAudioFolderStage",
+                        "params": {"data_dir": str(folder), "num_workers": 1},
+                    },
+                    {"ref": "GetAudioDurationStage", "params": {"num_workers": 1}},
                 ]
             }
         ).freeze()
@@ -604,9 +637,12 @@ def _drifted(folder: Path, out: Path) -> Recipe:
     return Recipe.from_dict(
         {
             "stages": [
-                {"ref": "CreateInitialManifestAudioFolderStage", "params": {"data_dir": str(folder)}},
+                {
+                    "ref": "CreateInitialManifestAudioFolderStage",
+                    "params": {"data_dir": str(folder), "num_workers": 1},
+                },
                 {"ref": "GetAudioDurationStage", "params": {"duration_key": "duration"}},
-                {"ref": "ManifestWriterStage", "params": {"output_path": str(out)}},
+                {"ref": "ManifestWriterStage", "params": {"output_path": str(out), "num_workers": 1}},
             ]
         }
     ).freeze()
@@ -723,9 +759,12 @@ class TestAPipelineHistoryCannotReproduce:
         return Recipe.from_dict(
             {
                 "stages": [
-                    {"ref": "CreateInitialManifestAudioFolderStage", "params": {"data_dir": str(folder)}},
+                    {
+                        "ref": "CreateInitialManifestAudioFolderStage",
+                        "params": {"data_dir": str(folder), "num_workers": 1},
+                    },
                     {"ref": "PyAnnoteDiarizationStage", "params": {"hf_token": "SECRET-TOKEN"}},
-                    {"ref": "ManifestWriterStage", "params": {"output_path": str(out)}},
+                    {"ref": "ManifestWriterStage", "params": {"output_path": str(out), "num_workers": 1}},
                 ]
             }
         ).freeze()
