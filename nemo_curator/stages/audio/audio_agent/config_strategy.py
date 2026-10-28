@@ -187,6 +187,7 @@ def resolve_from_data(
     data_profile: dict[str, Any] | None,
     *,
     already_set: set[str] | None = None,
+    configured: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Path B: bind the parameters the DATA determines, for one stage.
 
@@ -226,12 +227,12 @@ def resolve_from_data(
         return out
     accepted -= already_set or set()
 
-    _bind_observed_sample_rate(stage_id, profile, accepted, out)
+    _bind_observed_sample_rate(stage_id, profile, accepted, out, configured or {})
     return out
 
 
 def _bind_observed_sample_rate(
-    stage_id: str, profile: dict[str, Any], accepted: set[str], out: dict[str, Any]
+    stage_id: str, profile: dict[str, Any], accepted: set[str], out: dict[str, Any], configured: dict[str, Any]
 ) -> None:
     """Set a rate-verifying stage to the rate the data actually is.
 
@@ -239,7 +240,11 @@ def _bind_observed_sample_rate(
     match, so its 48 kHz default silently discards a 16 kHz corpus. The default stays as the
     tutorials expect; the agent supplies the observed rate for the recipe it builds.
     """
-    if "output_sample_rate" not in accepted:
+    from nemo_curator.stages.audio.audio_agent._capabilities import planning_for
+
+    verification = planning_for(stage_id, configured).get("sample_rate_verification", {})
+    rate_param = verification.get("param")
+    if rate_param not in accepted:
         return
     rates = {int(r) for r in (profile.get("sample_rates") or {}) if str(r).lstrip("-").isdigit()}
     if len(rates) != 1:
@@ -250,10 +255,10 @@ def _bind_observed_sample_rate(
             )
         return
     value = rates.pop()
-    out["params"]["output_sample_rate"] = value
+    out["params"][rate_param] = value
     out["strategy"].append(
         ConfigStrategyEntry(
-            param="output_sample_rate",
+            param=rate_param,
             value=value,
             kind="relative",
             mode="data_informed",

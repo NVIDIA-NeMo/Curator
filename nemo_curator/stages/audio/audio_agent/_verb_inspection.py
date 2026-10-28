@@ -421,7 +421,9 @@ def resolve(
     # Path B what is already decided, rather than merging over it afterwards, keeps the
     # ``strategy`` trail honest -- it used to record the data-informed value and its rationale
     # for a param the merge then discarded.
-    derived = config_strategy.resolve_from_data(stage, profile, already_set=set(result["params"]))
+    derived = config_strategy.resolve_from_data(
+        stage, profile, already_set=set(result["params"]), configured=result["params"]
+    )
     result["params"] = {**derived["params"], **result["params"]}
     result["strategy"] = list(result["strategy"]) + list(derived["strategy"])
     asks = list(result["asks"]) + list(derived["asks"])

@@ -263,8 +263,9 @@ def _data_filter_inputs(params: dict[str, Any]) -> dict[str, str]:
     return inputs
 
 
-def model_version(params: dict[str, Any], *, stage_ref: str | None = None) -> str:
+def model_version(params: dict[str, Any], *, stage_ref: str | None = None) -> str:  # noqa: C901
     """Bind model inputs and stage-owned configuration files to reuse identity."""
+    from nemo_curator.stages.audio.audio_agent._capabilities import configured_values, io_for
     from nemo_curator.stages.audio.audio_agent._safety import names_local_path
 
     identifiers = {}
@@ -277,6 +278,12 @@ def model_version(params: dict[str, Any], *, stage_ref: str | None = None) -> st
         "model_dir",
         *adapter_file_keys,
     }
+    declared = []
+    if stage_ref:
+        declared = io_for(stage_ref).get("dependency_params", [])
+        if declared:
+            dependency_keys.update(declared)
+            params = configured_values(stage_ref, params)
     for key, value in sorted(params.items()):
         if isinstance(value, dict):
             nested = model_version(value)
@@ -291,6 +298,13 @@ def model_version(params: dict[str, Any], *, stage_ref: str | None = None) -> st
         local_inputs.update(_sortformer_bundle_inputs(params.get("adapter_kwargs")))
     if stage_ref == "AudioDataFilterStage":
         local_inputs.update(_data_filter_inputs(params))
+    local_inputs.update(
+        {
+            key: _model_input_digest(os.path.expanduser(value) if isinstance(value, str) else None)
+            for key in declared
+            if (value := params.get(key)) not in (None, "") and key not in local_inputs
+        }
+    )
     if not local_inputs and len(identifiers) == 1:
         return next(iter(identifiers.values()))
     if not identifiers and not local_inputs:
@@ -371,25 +385,25 @@ def output_uri(stage: StageRef) -> tuple[str, ArtifactKind]:
     ``("", "unknown")`` when the stage writes nothing -- such a step has no artifact and can
     never be a reuse point, which is exactly right: reuse resumes from disk.
     """
-    from nemo_curator.stages.audio import agent as foundation
-    from nemo_curator.stages.audio.audio_agent.recipe import Recipe, build_stages
+    from nemo_curator.stages.audio.audio_agent._capabilities import io_for, output_paths
 
     try:
-        stages, issues = build_stages(Recipe(stages=[stage]))
-        if issues or not stages:
-            return "", "unknown"
-        configured = stages[0]
-        gates = foundation.build_contract(configured).gates
+        paths = output_paths(stage.ref, stage.params)
+        options = io_for(stage.ref).get("outputs", {})
     except Exception:  # noqa: BLE001 - uninspectable persistence cannot support reuse
         return "", "unknown"
-    if not gates.writes_to_disk or not gates.output_path_params:
+    if not paths:
         return "", "unknown"
-    for key in _URI_PREFERENCE:
-        if key not in gates.output_path_params:
-            continue
-        v = getattr(configured, key, None)
-        if isinstance(v, str) and v:
-            return v, _kind_of(v)
+    primary = [key for key in paths if options.get(key, {}).get("primary")]
+    preferred = primary or [key for key in _URI_PREFERENCE if key in paths]
+    if preferred or len(paths) == 1:
+        key = preferred[0] if preferred else next(iter(paths))
+        value = paths[key]
+        inferred = _kind_of(value)
+        declared = options.get(key, {}).get("kind", inferred)
+        if inferred != "unknown" and declared not in {"unknown", inferred}:
+            return "", "unknown"
+        return value, inferred if declared == "unknown" else declared
     return "", "unknown"
 
 
@@ -458,6 +472,8 @@ class StepPlan:
     ttl_sec: int
     model_version: str
     impl_version: str = ""
+    reuse_block: str = ""
+    required_outputs: tuple[str, ...] = ()
 
     def persists(self) -> bool:
         return bool(self.uri)
@@ -465,10 +481,14 @@ class StepPlan:
 
 def plan_steps(recipe: Recipe, dataset_key: str) -> list[StepPlan]:
     """Compute the Merkle step-key chain for a recipe over a given source dataset."""
+    from nemo_curator.stages.audio.audio_agent._reuse_dependencies import untracked_audio_input
+
+    boundary = untracked_audio_input(recipe)
     plans: list[StepPlan] = []
     prev = f"{STEP_KEY_VERSION}:{dataset_key}"
     prefix_deterministic = True
     prefix_ttl = 0
+    required_outputs: set[str] = set()
     for i, stage in enumerate(recipe.stages):
         sp = stage.semantic_params()
         mv = model_version(stage.params, stage_ref=stage.ref)
@@ -477,7 +497,21 @@ def plan_steps(recipe: Recipe, dataset_key: str) -> list[StepPlan]:
             if "adapter_target" in stage.params
             else impl_version(stage.ref)
         )
-        key = _h(STEP_KEY_VERSION, prev, stage.ref, _semantic_blob(stage.ref, sp), iv, mv)
+        from nemo_curator.stages.audio.audio_agent._capabilities import io_for, output_paths
+
+        declared = io_for(stage.ref)
+        identity = [STEP_KEY_VERSION, prev, stage.ref, _semantic_blob(stage.ref, sp), iv, mv]
+        if declared:
+            identity.append(json.dumps(declared, sort_keys=True))
+        enabled_outputs = output_paths(stage.ref, stage.params)
+        if declared.get("outputs") or len(enabled_outputs) > 1:
+            required_outputs.update(enabled_outputs.values())
+        blocked = boundary[1] if boundary is not None and i >= boundary[0] else ""
+        if blocked:
+            # Only affected suffixes leave the old namespace. Earlier checkpoints
+            # and ordinary single-input pipelines retain their existing keys.
+            identity.append("untracked-audio-input")
+        key = _h(*identity)
         det, ttl = stage_trust(stage.ref)
         prefix_deterministic = prefix_deterministic and det
         if ttl:
@@ -496,10 +530,23 @@ def plan_steps(recipe: Recipe, dataset_key: str) -> list[StepPlan]:
                 ttl_sec=prefix_ttl,
                 model_version=mv,
                 impl_version=iv,
+                reuse_block=blocked,
+                required_outputs=tuple(sorted(required_outputs)),
             )
         )
         prev = key
     return plans
+
+
+def plan_invalid_reasons(plan: StepPlan, artifact: Artifact) -> list[str]:
+    """Proof newly required by the configured recipe, including legacy records."""
+    reasons = [plan.reuse_block] if plan.reuse_block else []
+    reasons.extend(
+        f"required output has no dependency proof: {uri!r}"
+        for uri in plan.required_outputs
+        if uri != artifact.uri and uri not in artifact.dependencies
+    )
+    return reasons
 
 
 def step_keys(recipe: Recipe, dataset_key: str) -> list[str]:

@@ -21,7 +21,6 @@ from typing import Any
 from nemo_curator.stages.audio.audio_agent import _checkpoint_decisions
 from nemo_curator.stages.audio.audio_agent.recipe import Recipe, StageRef
 
-_QUALITY_STAGES = frozenset({"UTMOSFilterStage", "SIGMOSFilterStage"})
 _CHECKPOINT_REF = "ManifestCheckpointStage"
 
 
@@ -42,6 +41,7 @@ def build_planning_advisories(  # noqa: C901 - each branch removes an unproven a
     if preference.get("curation_mode") != "refine_later":
         return []
 
+    from nemo_curator.stages.audio.audio_agent.card_conformance import check_card
     from nemo_curator.stages.audio.audio_agent.index import get_index
 
     exact_pairs, _ = _checkpoint_decisions._decision_pairs(
@@ -52,11 +52,15 @@ def build_planning_advisories(  # noqa: C901 - each branch removes an unproven a
     advisories: list[dict[str, Any]] = []
 
     for stage_index, (stage_ref, stage) in enumerate(zip(recipe.stages, configured_stages, strict=True)):
-        if stage_ref.ref not in _QUALITY_STAGES or stage_index in exact_producers:
+        if stage_index in exact_producers:
             continue
         card = get_index().card(stage_ref.ref) or {}
         decision = card.get("decision")
-        if not isinstance(decision, dict) or decision.get("separable_from_producer") is not True:
+        if (
+            not isinstance(decision, dict)
+            or decision.get("separable_from_producer") is not True
+            or check_card(stage_ref.ref, card)
+        ):
             continue
 
         scope = _explicit_scope(

@@ -189,7 +189,19 @@ class StageRef:
 
     def semantic_params(self) -> dict[str, Any]:
         """Byte-affecting params, including generated asset paths serialized downstream."""
+        from nemo_curator.stages.audio.audio_agent._capabilities import io_for, output_paths
+
         skip = (OUTPUT_LOCATION_PARAMS - GENERATED_ASSET_PARAMS) | NON_SEMANTIC_POLICY_PARAMS
+        options = io_for(self.ref).get("outputs", {})
+        if options:
+            enabled = output_paths(self.ref, self.params)
+            skip -= set(options) & set(enabled)
+            # Continuation can relocate one manifest, not a set of sibling
+            # deliverables. Bind all locations until that protocol exists.
+            if len(enabled) == 1:
+                skip |= {key for key, spec in options.items() if key in enabled and spec.get("relocatable")}
+            else:
+                skip -= set(enabled)
         return {k: v for k, v in self.params.items() if k not in skip}
 
     def semantic_dict(self) -> dict[str, Any]:

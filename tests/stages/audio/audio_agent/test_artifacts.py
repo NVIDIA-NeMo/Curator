@@ -517,3 +517,21 @@ def test_linked_directory_cycles_refuse_reuse(tmp_path: Path, indirect: bool) ->
     assert artifacts.content_digest(str(model)) is None
     params = {"model_path": str(model)}
     assert artifacts.model_version(params) != artifacts.model_version(params)
+
+
+def test_required_sibling_proof_is_not_optional_for_legacy_records(tmp_path: Path) -> None:
+    recipe = Recipe.from_dict(
+        {
+            "stages": [
+                {"ref": "ManifestReader", "params": {"manifest_path": str(tmp_path / "source.jsonl")}},
+                {"ref": "ManifestWriterStage", "params": {"output_path": str(tmp_path / "data.jsonl")}},
+            ]
+        }
+    )
+    step = artifacts.plan_steps(recipe, "data")[-1]
+    audit = str(tmp_path / "audit.jsonl")
+    step.required_outputs = (step.uri, audit)
+    artifact = artifacts.Artifact(step_key=step.step_key, uri=step.uri)
+    assert artifacts.plan_invalid_reasons(step, artifact) == [f"required output has no dependency proof: {audit!r}"]
+    artifact.dependencies[audit] = "digest-checked-by-invalid-reasons"
+    assert artifacts.plan_invalid_reasons(step, artifact) == []

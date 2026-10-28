@@ -73,14 +73,11 @@ class TestCanonicalSource:
 
 
 class TestSourceBoundary:
-    def test_supported_source_table_is_closed(self) -> None:
-        assert SUPPORTED_SOURCE_REFS == (
-            "ManifestReader",
-            "CreateInitialManifestAudioFolderStage",
-            "CreateInitialManifestFleursStage",
-            "CreateInitialManifestReadSpeechStage",
-            "ReadLongFormManifestStage",
-        )
+    @pytest.mark.parametrize("ref", SUPPORTED_SOURCE_REFS)
+    def test_legacy_sources_report_missing_configuration_instead_of_unsupported(self, ref: str) -> None:
+        binding = resolve_dataset_binding(_recipe(ref, {}))
+        assert binding.status == "missing"
+        assert binding.source_ref == ref
 
     def test_empty_and_unknown_first_stage_are_not_guessed(self) -> None:
         assert resolve_dataset_binding(Recipe()).status == "missing"

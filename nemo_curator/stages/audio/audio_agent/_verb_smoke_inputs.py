@@ -161,6 +161,28 @@ def _bound_recipe(  # noqa: C901, PLR0911, PLR0912
         rpt.notes.append(f"bounded via max_samples={limit}")
         return _SmokeBound(bounded)
 
+    from nemo_curator.stages.audio.audio_agent._capabilities import configured_values, io_for
+
+    spec = io_for(src.ref).get("source")
+    if spec:
+        values = configured_values(src.ref, src.params)
+        if spec["kind"] == "manifest":
+            tmp, count, error = _write_bounded_manifest(
+                binding.selected_manifest_files,
+                sample,
+                include_files=values.get(spec.get("include_files_param")),
+                include_files_key=values.get(spec.get("audio_filepath_key_param"), "audio_filepath"),
+            )
+            if error:
+                return _SmokeBound(None, error=error)
+            src.params[spec["path_param"]] = tmp
+            return _SmokeBound(bounded, (tmp,), count)
+        configured = values[spec["limit_param"]]
+        if isinstance(configured, bool) or not isinstance(configured, int):
+            return _SmokeBound(None, error="declared folder limit must be an integer")
+        src.params[spec["limit_param"]] = min(sample, configured) if configured >= 0 else sample
+        return _SmokeBound(bounded)
+
     return _SmokeBound(
         None,
         error=f"source stage {src.ref!r} has no proven smoke-bounding adapter",
@@ -183,9 +205,13 @@ def _isolate_smoke_outputs(bound: _SmokeBound, rpt: SmokeReport) -> _SmokeBound:
 
     aliases: dict[str, str] = {}
     try:
+        from nemo_curator.stages.audio.audio_agent._capabilities import io_for, output_paths
+
         for index, stage in enumerate(bound.recipe.stages):
-            for key in sorted(_SMOKE_FILE_OUTPUT_PARAMS | _SMOKE_DIR_OUTPUT_PARAMS):
-                value = stage.params.get(key)
+            declared = output_paths(stage.ref, stage.params)
+            options = io_for(stage.ref).get("outputs", {})
+            for key in sorted(_SMOKE_FILE_OUTPUT_PARAMS | _SMOKE_DIR_OUTPUT_PARAMS | set(declared)):
+                value = declared.get(key, stage.params.get(key))
                 if not isinstance(value, str) or not value:
                     continue
                 stage.params[key] = _smoke_output_path(
@@ -195,6 +221,7 @@ def _isolate_smoke_outputs(bound: _SmokeBound, rpt: SmokeReport) -> _SmokeBound:
                     key,
                     value,
                     aliases,
+                    file_output=options.get(key, {}).get("kind") == "manifest",
                 )
 
             if (
@@ -258,12 +285,14 @@ def _smoke_output_path(  # noqa: PLR0913
     key: str,
     original: str,
     aliases: dict[str, str],
+    *,
+    file_output: bool = False,
 ) -> str:
     """Map a production location to a stable path inside ``root``."""
     if original in aliases:
         return aliases[original]
     stage_dir = os.path.join(root, f"{stage_index:03d}_{stage_ref}")
-    if key in _SMOKE_FILE_OUTPUT_PARAMS:
+    if file_output or key in _SMOKE_FILE_OUTPUT_PARAMS:
         from urllib.parse import urlsplit
 
         basename = os.path.basename(urlsplit(original).path.rstrip("/"))

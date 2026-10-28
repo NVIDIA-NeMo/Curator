@@ -38,12 +38,16 @@ def source_rejection_count(
     """Subtract counts only when every processing stage preserves one row per source."""
     from nemo_curator.stages.audio._agent._agent_registry import build_contract
     from nemo_curator.stages.audio._agent._composite import expand_composites
+    from nemo_curator.stages.audio.audio_agent._capabilities import io_for
     from nemo_curator.stages.audio.audio_agent.input_identity import SUPPORTED_SOURCE_REFS
     from nemo_curator.stages.audio.audio_agent.recipe import build_stages
 
     if (
         not getattr(recipe, "stages", None)
-        or recipe.stages[0].ref.rsplit(".", 1)[-1] not in SUPPORTED_SOURCE_REFS
+        or not (
+            recipe.stages[0].ref.rsplit(".", 1)[-1] in SUPPORTED_SOURCE_REFS
+            or io_for(recipe.stages[0].ref).get("source")
+        )
         or output_rows > source_items
     ):
         return None

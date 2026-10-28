@@ -19,9 +19,10 @@ core makes the prose retrievable; the host LLM remains responsible for applying
 it to user intent.
 """
 
-# Existing historical regression names intentionally repeat later in this module.
-
 from copy import deepcopy
+from dataclasses import dataclass, replace
+from pathlib import Path
+from typing import ClassVar
 
 import pytest
 
@@ -51,16 +52,184 @@ _VALID_DECISION = {
 }
 
 
-def test_shipped_decisions_are_valid_and_limited_to_proven_producers() -> None:
+@pytest.fixture
+def additional_producer(monkeypatch: pytest.MonkeyPatch) -> tuple[type, dict]:
+    from nemo_curator.stages import base
+    from nemo_curator.stages.audio import agent
+    from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract
+    from nemo_curator.stages.base import ProcessingStage
+    from nemo_curator.tasks import AudioTask
+
+    agent.list_agent_ready_stages()
+    monkeypatch.setattr(base, "_STAGE_REGISTRY", dict(base._STAGE_REGISTRY))
+
+    @dataclass
+    class AdditionalMetricStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
+        duration_key: str = "duration"
+        score_key: str = "additional_score"
+
+        def describe(self) -> StageContract:
+            return StageContract(
+                reads=IOSpec(data_keys=[self.duration_key]),
+                writes=IOSpec(data_keys=[self.score_key]),
+                gates=Gates(per_row_independent=True),
+            )
+
+        def process(self, task: AudioTask) -> AudioTask:
+            task.data[self.score_key] = 2.0 * task.data[self.duration_key]
+            return task
+
+    decision = deepcopy(_VALID_DECISION)
+    decision.update(score_key_param="score_key", score_key_default="additional_score")
+    card = {
+        "stage_id": AdditionalMetricStage.__name__,
+        "category": "quality",
+        "summary": "Deterministic metadata arithmetic for a producer-extension test.",
+        "verified": {"decision": "mechanical"},
+        "provenance": {"card_version": 1},
+        "decision": decision,
+    }
+    monkeypatch.setitem(get_index()._cards_by_stage, AdditionalMetricStage.__name__, card)
+    return AdditionalMetricStage, card
+
+
+def test_additional_producer_is_discovered_and_supports_checkpoint_planning(
+    additional_producer: tuple[type, dict],
+    tmp_path: Path,
+) -> None:
+    from nemo_curator.stages.audio import audio_agent as aa
+    from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
+    from nemo_curator.tasks import AudioTask
+
+    cls, card = additional_producer
+    assert check_card(cls.__name__, card) == []
+    assert cls.__name__ in {stage["stage"] for stage in aa.discover()["stages"]}
+    description = aa.describe(cls.__name__, {"duration_key": "seconds", "score_key": "quality"})
+    assert description["contract"]["reads"]["data_keys"] == ["seconds"]
+    assert description["contract"]["writes"]["data_keys"] == ["quality"]
+
+    stage = cls(duration_key="seconds", score_key="quality")
+    assert_agent_ready(stage, lambda: AudioTask(data={"seconds": 2.0}), available_keys={"seconds"})
+    assert stage.process(AudioTask(data={"seconds": 2.0})).data["quality"] == 4.0
+    result = aa.plan_checkpoint(
+        {
+            "stages": [
+                {"ref": "ManifestReader", "params": {"manifest_path": str(tmp_path / "input.jsonl")}},
+                {"ref": cls.__name__, "params": {"score_key": "quality"}},
+                {"ref": "PreserveByValueStage", "params": {"input_value_key": "quality", "target_value": 3}},
+                {"ref": "ManifestWriterStage", "params": {"output_path": str(tmp_path / "kept.jsonl")}},
+            ]
+        }
+    )
+    assert result["status"] == "candidates"
+    assert result["candidates"][0]["producer_stage"] == cls.__name__
+
+
+@pytest.mark.parametrize(
+    ("updates", "message"),
+    [
+        ({"score_key_param": "missing_key"}, "not a constructor param"),
+        ({"score_key_default": "wrong"}, "does not match"),
+        ({"score_key_param": "duration_key", "score_key_default": "duration"}, "declared producer write"),
+        ({"kind": "compound"}, "kind must be 'scalar'"),
+        ({"atomic": False}, "atomic must be true"),
+    ],
+)
+def test_additional_producer_still_requires_a_proven_decision_binding(
+    additional_producer: tuple[type, dict],
+    updates: dict,
+    message: str,
+) -> None:
+    cls, card = additional_producer
+    card["decision"].update(updates)
+
+    assert any(message in violation for violation in check_card(cls.__name__, card))
+
+
+def test_additional_producer_decision_requires_mechanical_verification(
+    additional_producer: tuple[type, dict],
+) -> None:
+    cls, card = additional_producer
+    card["verified"]["decision"] = "best_guess"
+
+    assert any("verified.decision: mechanical" in violation for violation in check_card(cls.__name__, card))
+
+
+def test_additional_compound_producer_declares_its_complete_dimensions(
+    additional_producer: tuple[type, dict],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from nemo_curator.stages.audio._agent._agent_ready import IOSpec
+    from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
+    from nemo_curator.tasks import AudioTask
+
+    scalar, card = additional_producer
+
+    @dataclass
+    class AdditionalCompoundMetricStage(scalar):
+        noise_key: str = "additional_noise"
+        score_threshold: float = 3.0
+        noise_threshold: float = 2.0
+        SEPARABLE_DECISION_DIMENSIONS: ClassVar[tuple[tuple[str, str], ...]] = (
+            ("score_threshold", "score_key"),
+            ("noise_threshold", "noise_key"),
+        )
+
+        def describe(self):  # noqa: ANN202 - extends the concrete scalar fixture contract
+            return replace(super().describe(), writes=IOSpec(data_keys=[self.score_key, self.noise_key]))
+
+        def process(self, task: AudioTask) -> AudioTask:
+            task = super().process(task)
+            task.data[self.noise_key] = task.data[self.duration_key] / 2.0
+            return task
+
+    compound = deepcopy(card)
+    compound["stage_id"] = AdditionalCompoundMetricStage.__name__
+    compound["decision"] = {
+        "kind": "compound",
+        "separable_from_producer": True,
+        "value_type": "number",
+        "scope": "task",
+        "dimensions": [
+            {
+                "threshold_param": "score_threshold",
+                "score_key_param": "score_key",
+                "score_key_default": "additional_score",
+            },
+            {
+                "threshold_param": "noise_threshold",
+                "score_key_param": "noise_key",
+                "score_key_default": "additional_noise",
+            },
+        ],
+        "selector": {
+            "stage_id": "PreserveByValueConditionsStage",
+            "conditions_param": "conditions",
+            "condition_logic_param": "condition_logic",
+            "required_condition_logic": "and",
+            "missing_policy_param": "missing_value_policy",
+            "required_missing_policy": "drop",
+            "required_operator": "ge",
+        },
+        "missing_score_policy": "selector_drop",
+        "atomic": True,
+    }
+    ref = AdditionalCompoundMetricStage.__name__
+    monkeypatch.setitem(get_index()._cards_by_stage, ref, compound)
+    assert check_card(ref, compound) == []
+    assert_agent_ready(
+        AdditionalCompoundMetricStage(), lambda: AudioTask(data={"duration": 2.0}), available_keys={"duration"}
+    )
+
+    compound["decision"]["dimensions"].pop()
+    assert any("must exactly cover" in violation for violation in check_card(ref, compound))
+
+
+def test_shipped_decisions_have_valid_mechanically_verified_contracts() -> None:
     cards = get_index().all_cards()
     decision_cards = {stage_id: card for stage_id, card in cards.items() if "decision" in card}
 
-    assert set(decision_cards) == {
-        "GetPairwiseWerStage",
-        "GetAudioDurationStage",
-        "SIGMOSFilterStage",
-        "UTMOSFilterStage",
-    }
+    assert decision_cards
     for stage_id, card in decision_cards.items():
         assert _decision_violations(stage_id, card["decision"]) == []
         assert card["verified"]["decision"] == "mechanical"
@@ -127,10 +296,16 @@ def test_decision_requires_mechanical_verification() -> None:
     assert any("verified.decision: mechanical" in violation for violation in violations)
 
 
-def test_decision_is_rejected_for_an_unproven_producer() -> None:
+def test_decision_cannot_claim_an_unrelated_producers_score_binding() -> None:
     violations = _decision_violations("BandFilterStage", deepcopy(_VALID_DECISION))
 
-    assert any("only supported for" in violation for violation in violations)
+    assert any("score_key_param 'wer_key' is not a constructor param" in violation for violation in violations)
+
+
+def test_decision_requires_a_registered_producer() -> None:
+    violations = _decision_violations("UnregisteredMetricStage", deepcopy(_VALID_DECISION))
+
+    assert any("not a registered agent-ready stage" in violation for violation in violations)
 
 
 def test_utmos_decision_requires_exact_task_annotation_and_drop_selector() -> None:
@@ -151,6 +326,15 @@ def test_sigmos_compound_decision_must_cover_every_declared_dimension() -> None:
     violations = _decision_violations("SIGMOSFilterStage", decision)
 
     assert any("must exactly cover" in violation for violation in violations)
+
+
+def test_compound_producer_cannot_be_redeclared_as_a_scalar() -> None:
+    decision = deepcopy(get_index().card("SIGMOSFilterStage")["decision"])
+    decision.update(kind="scalar", score_key_param="ovrl_key", score_key_default="sigmos_ovrl")
+
+    assert any(
+        "kind must be 'compound'" in violation for violation in _decision_violations("SIGMOSFilterStage", decision)
+    )
 
 
 def test_sigmos_compound_decision_requires_atomic_and_selector() -> None:
@@ -414,10 +598,12 @@ def test_a_card_must_date_itself_so_a_stale_guess_is_distinguishable_from_a_fres
     assert any("missing required field 'provenance'" in item for item in violations)
 
 
-def test_a_stage_shipping_without_a_card_is_reported_without_failing(monkeypatch, capsys) -> None:  # noqa: ANN001
-    """Coverage gaps remain visible while existing catalogs can pass the audit."""
-    import json
-
+def test_a_stage_shipping_without_a_card_fails_the_gate_unless_waived(monkeypatch) -> None:  # noqa: ANN001
+    """An uncarded stage was reported and never failed, so a stage could ship plannable with no
+    card semantics behind it: ``discover`` lists it, the planner may pick it, and the host critic
+    gets no meaning, scope or counterexample to reason from. ``--allow-uncarded`` stays as the
+    deliberate waiver for a work-in-progress stage.
+    """
     from nemo_curator.stages.audio.audio_agent import card_conformance as cc
 
     monkeypatch.setattr(
@@ -434,8 +620,7 @@ def test_a_stage_shipping_without_a_card_is_reported_without_failing(monkeypatch
     )
     monkeypatch.setattr(cc, "audit_blueprints", lambda: {"violations": {}, "blueprint_count": 0})
 
-    assert cc.main([]) == 0
-    assert json.loads(capsys.readouterr().out)["uncarded_stages"] == ["AStageNobodyCarded"]
+    assert cc.main([]) == 1
     assert cc.main(["--allow-uncarded"]) == 0
 
 

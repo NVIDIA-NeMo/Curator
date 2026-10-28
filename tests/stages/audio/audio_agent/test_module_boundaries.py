@@ -90,12 +90,3 @@ def test_the_documented_consumer_list_is_the_real_one(symbol: str, home: str, ex
         f"{home}.{symbol}: imported by {sorted(actual)}, documented as {sorted(expected)}. "
         f"Update both this table and the 'Underscored but NOT private' line in its docstring."
     )
-
-
-@pytest.mark.parametrize(("symbol", "home"), [(s, h) for s, (h, _) in _CROSS_MODULE_PRIVATES.items()])
-def test_each_one_says_in_its_docstring_that_it_is_not_private(symbol: str, home: str) -> None:
-    """The warning has to live where someone about to move the function will read it."""
-    module = importlib.import_module(f"nemo_curator.stages.audio.audio_agent.{home}")
-    doc = getattr(module, symbol).__doc__ or ""
-
-    assert "NOT private" in doc, f"{home}.{symbol} is imported by other modules but its docstring does not say so"

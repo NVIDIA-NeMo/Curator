@@ -170,9 +170,10 @@ def test_curation_mode_question_is_plain_once_per_new_workflow_guidance() -> Non
         assert "inherit" in normalized
         assert "stored" in normalized
     assert skill.index("Choose one soft curation mode") < skill.index("### 1. Interpret")
-    assert "Do **not** repeat the question during validation" in skill
-    assert '"fast" or "as\nquickly as possible" means `fast_first`' in skill
-    assert '"I\'ll tune/refine thresholds" or "reuse\nlater" means `refine_later`' in skill
+    normalized_skill = " ".join(skill.replace("**", "").split())
+    assert "Do not repeat the question during validation" in normalized_skill
+    assert '"fast" or "as quickly as possible" means `fast_first`' in normalized_skill
+    assert '"I\'ll tune/refine thresholds" or "reuse later" means `refine_later`' in normalized_skill
 
 
 def test_curation_modes_remain_soft_and_disclose_the_tradeoffs() -> None:
@@ -649,8 +650,7 @@ def test_a_built_wheel_carries_the_skills(tmp_path: Path) -> None:
         check=False,
         env={**os.environ, "SETUPTOOLS_SCM_PRETEND_VERSION": "0.0.0"},
     )
-    if built.returncode != 0:
-        pytest.skip(f"wheel build unavailable in this environment: {built.stderr[-400:]}")
+    assert built.returncode == 0, built.stderr[-4000:]
 
     wheels = list(out.glob("*.whl"))
     assert wheels, "no wheel produced"

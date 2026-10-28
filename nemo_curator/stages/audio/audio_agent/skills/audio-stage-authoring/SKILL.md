@@ -33,17 +33,18 @@ change alters existing output, it is a behavior change and needs its own justifi
    stages together. This is the single most common omission.
 3. **Implement `describe()`** with `reads`, `writes`, `cardinality`, and honest `gates`.
    Do not put `params` in it — those are auto-derived from the dataclass fields.
-4. **Declare a new key concept in `_roles.KEY_ROLES`** if the stage introduces one, or in
-   `INTERNAL_KEY_FIELDS` if it is genuinely stage-internal. `INTERNAL_KEY_FIELDS` is unioned
-   across the MRO, so a subclass declaring its own set does not disown its parent's.
+4. **Reuse an existing semantic role** with a class-local `KEY_ROLE_OVERRIDES` mapping
+   when a new key parameter means an existing concept. Add a shared `_roles.KEY_ROLES`
+   entry only for a new cross-stage concept; declare genuinely internal keys in the
+   stage's `INTERNAL_KEY_FIELDS`. Internal fields are unioned across the MRO.
 5. **Write the capability card** with the meaning of every externally consumed output:
    meaning, unit or range, provenance, scope or granularity, propagation across
    fan-out/nesting/aggregation, and at least one counterexample. Roles prove that two
    stages *can* connect; only the card lets the host judge whether connecting them
    achieves the user's intent.
 6. **Add the conformance test**: `assert_agent_ready(MyStage(...), fixture_factory=...)`.
-   For GPU or model stages, reuse the fake-model harness in
-   `tests/stages/audio/test_agent_simulation_pipelines.py` so no GPU is required.
+   For GPU or model stages, reuse the fake-model or stub setup in the relevant stage's
+   test module so the conformance test needs no GPU.
 7. **Run the card gate**: `card_conformance.audit()` must report zero violations, and an
    unknown top-level card key is a violation rather than something silently ignored.
 

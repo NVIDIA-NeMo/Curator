@@ -207,7 +207,21 @@ def classify(prior: dict[str, str] | None, current: dict[str, str] | None) -> Ch
     )
 
 
-def region(recipe: Recipe, *, upto: int) -> tuple[int, str]:
+def _source_selection_reason(ref: str, stage: Any, independent: bool | None) -> str:  # noqa: ANN401
+    from nemo_curator.stages.audio.audio_agent._capabilities import io_for
+
+    source = io_for(ref).get("source")
+    if not source:
+        return ""
+    limit = getattr(stage, source.get("limit_param", ""), None)
+    if limit is not None and (isinstance(limit, bool) or not isinstance(limit, int) or limit >= 0):
+        return f"{ref} has a bounded or invalid source selection; a changed-file delta is unsafe"
+    if independent is None:
+        return f"{ref} must declare gates.per_row_independent before source delta reuse"
+    return ""
+
+
+def region(recipe: Recipe, *, upto: int) -> tuple[int, str]:  # noqa: PLR0911 - one refusal per missing proof
     """How many leading stages keep each row's work independent of the other files.
 
     Returns ``(depth, reason)`` where ``depth`` counts stages from the source and ``reason``
@@ -219,6 +233,9 @@ def region(recipe: Recipe, *, upto: int) -> tuple[int, str]:
     from nemo_curator.stages.audio.audio_agent.recipe import build_stages
 
     built, _ = build_stages(recipe)
+    from nemo_curator.stages.audio.audio_agent._reuse_dependencies import untracked_audio_input
+
+    boundary = untracked_audio_input(recipe)
     if not built:
         return 0, "the recipe has no runnable stages"
     for index, stage in enumerate(built[: max(0, upto)]):
@@ -230,10 +247,13 @@ def region(recipe: Recipe, *, upto: int) -> tuple[int, str]:
         if contract.cardinality not in _TRACEABLE:
             return index, f"{name} combines rows from several files ({contract.cardinality})"
         independent = contract.gates.per_row_independent
-        if independent is False:
+        source_issue = _source_selection_reason(recipe.stages[index].ref, stage, independent)
+        if independent is False or source_issue:
             # Not "computes a corpus statistic": that is only one of the ways, and an unseeded
             # RNG advanced per row is none of the maths that phrase sends a reader looking for.
-            return index, f"{name} declares that its output for one row depends on the other rows"
+            return index, source_issue or f"{name} declares that its output for one row depends on the other rows"
+        if boundary is not None and index >= boundary[0]:
+            return index, boundary[1]
         if independent is None:
             reach = _can_see_other_rows(stage, contract)
             if reach:
@@ -430,7 +450,11 @@ def _plan_from(  # noqa: PLR0911 - see plan()
 
     plans = art_mod.plan_steps(recipe, prior_key)
     by_key = {a.step_key: a for a in prior}
-    resumable = [p for p in plans if p.persists() and p.step_key in by_key]
+    resumable = [
+        p
+        for p in plans
+        if p.persists() and p.step_key in by_key and not art_mod.plan_invalid_reasons(p, by_key[p.step_key])
+    ]
     if not resumable:
         return Delta(
             change=change,
@@ -625,10 +649,12 @@ def traced(sinks_: list[Sink], *, inventory: dict[str, str], root: str, stale: s
 
 def _uri_param(recipe: Recipe, index: int) -> str:
     """Which param of stage ``index`` holds the output path ``output_uri`` picked."""
-    from nemo_curator.stages.audio.audio_agent.artifacts import _URI_PREFERENCE
+    from nemo_curator.stages.audio.audio_agent._capabilities import output_paths
+    from nemo_curator.stages.audio.audio_agent.artifacts import output_uri
 
-    params = recipe.stages[index].params
-    return next((k for k in _URI_PREFERENCE if isinstance(params.get(k), str) and params[k]), "")
+    stage = recipe.stages[index]
+    uri, _kind = output_uri(stage)
+    return next((key for key, value in output_paths(stage.ref, stage.params).items() if value == uri), "")
 
 
 def prefix_recipe(  # noqa: PLR0913 - the recipe plus the four facts that narrow and redirect it
@@ -653,21 +679,25 @@ def prefix_recipe(  # noqa: PLR0913 - the recipe plus the four facts that narrow
     matches those paths against values that are not paths, selects nothing, and the delta
     "succeeds" having run no files and merged no rows.
     """
+    from nemo_curator.stages.audio.audio_agent._capabilities import selection_params
     from nemo_curator.stages.audio.audio_agent.recipe import Recipe, StageRef
 
     if not 0 < prefix <= len(recipe.stages):
         return None, {}, f"delta prefix {prefix} is outside the recipe ({len(recipe.stages)} stages)"
     source = recipe.stages[0]
+    include_param, key_param = selection_params(source.ref)
     if not _accepts_include(source.ref):
         return (
             None,
             {},
             (
-                f"{source.ref} cannot be narrowed to a subset of the input (no {_INCLUDE_PARAM!r} "
+                f"{source.ref} cannot be narrowed to a subset of the input (no {include_param!r} "
                 f"parameter), so the changed files cannot be run on their own"
             ),
         )
-    selection = source.params.get(_INCLUDE_PARAM)
+    from nemo_curator.stages.audio.audio_agent._capabilities import configured_values
+
+    selection = configured_values(source.ref, source.params).get(include_param)
     if selection is not None:
         wanted = {os.path.abspath(os.path.expanduser(path)) for path in selection}
         if any(os.path.abspath(os.path.expanduser(path)) not in wanted for path in files):
@@ -678,9 +708,9 @@ def prefix_recipe(  # noqa: PLR0913 - the recipe plus the four facts that narrow
     for index, stage in enumerate(recipe.stages[:prefix]):
         params = dict(stage.params)
         if index == 0:
-            params[_INCLUDE_PARAM] = list(files)
-            if inventory_key and _has_field(source.ref, _INCLUDE_KEY_PARAM):
-                params[_INCLUDE_KEY_PARAM] = inventory_key
+            params[include_param] = list(files)
+            if inventory_key and _has_field(source.ref, key_param):
+                params[key_param] = inventory_key
         sink = by_index.get(index)
         if sink is not None:
             params[sink.param] = redirect[sink.uri]
@@ -706,22 +736,19 @@ def prefix_recipe(  # noqa: PLR0913 - the recipe plus the four facts that narrow
 
 def _has_field(ref: str, name: str) -> bool:
     """Whether a stage accepts ``name`` as a constructor parameter."""
-    import dataclasses
-
-    from nemo_curator.stages.audio.audio_agent._resolve import resolve_stage_class
+    from nemo_curator.stages.audio.audio_agent._resolve import static_contract_for
 
     try:
-        cls = resolve_stage_class(ref)
+        return any(param.name == name for param in static_contract_for(ref).params)
     except Exception:  # noqa: BLE001 - an unknown ref is reported by validation, not here
         return False
-    if not dataclasses.is_dataclass(cls):
-        return False
-    return any(f.name == name for f in dataclasses.fields(cls))
 
 
 def _accepts_include(ref: str) -> bool:
     """Whether a source stage can be restricted to a named list of files."""
-    return _has_field(ref, _INCLUDE_PARAM)
+    from nemo_curator.stages.audio.audio_agent._capabilities import selection_params
+
+    return _has_field(ref, selection_params(ref)[0])
 
 
 def merge(  # noqa: PLR0913

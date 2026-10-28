@@ -193,7 +193,12 @@ def _rejection(recipe: Recipe, index: int, baseline: collections.Counter[str]) -
     Two questions, both answered by simulation: does writing here work, and can the rest of the
     run start from what was written.
     """
+    from nemo_curator.stages.audio.audio_agent._reuse_dependencies import untracked_audio_input
     from nemo_curator.stages.audio.audio_agent.continuation import _resume_breaks_on_disk_boundary
+
+    boundary = untracked_audio_input(recipe)
+    if boundary is not None and index > boundary[0]:
+        return boundary[1]
 
     candidate, err = insert(recipe, index=index, output_path=_PROBE_PATH)
     if candidate is None:

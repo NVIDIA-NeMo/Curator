@@ -55,12 +55,105 @@ verified: {params: mechanical, resource: best_guess, model_version: measured, us
 | `metrics` | opt. | `{metric: {scale:{min,max,direction}, threshold_param, valid_range:[lo,hi], presets}}` — score directions/targets for configuration. `scale.direction` must be `higher_better`/`lower_better`; `threshold_param` (if set) must be a real param; `valid_range` must be `[lo, hi]` (all gate-checked). Omit `threshold_param` for annotate-only stages filtered downstream. A generic selector needs a compatible scalar key; nested metric outputs may need extraction first. |
 | `decision` | opt. | A mechanically checked declaration that annotation is already separate from a downstream selector. The primary declaration remains task-scoped for compatibility; optional full `variants` may declare an exact one-level `segments` scope. See below. |
 | `semantic_facts` | opt. | Advisory mapping from an externally consumed output/concept to prose facts such as `{meaning, unit, provenance, scope, propagation, counterexamples}`. It helps the host reason across filters, fan-out and aggregation; it is deliberately not a deterministic ontology or runtime gate. |
+| `io` | opt. | Parameter bindings for existing local-source and persisted-output protocols. Requires `verified.io: mechanical`; see below. No stage implementation or contract change is required. |
+| `planning` | opt. | Tested, configured facts that cannot be inferred from parameter names or cardinality. Requires `verified.planning: mechanical`; see below. Does not change execution/reuse identity. |
 | `versions` | opt. | model-backed stages only: `{model_id: "when-to-use"}` for checkpoints verified interchangeable via `model_name`/`model_path` (same output structure, no module code change). Any version-selecting `preset` (one that sets `model_name`/`model_path`) **must list its model id here** (gate-checked). Mark `verified.versions` `measured` when empirically tested. |
 | `conflicts_with` | opt. | stage_ids that are alternatives / shouldn't co-occur. |
 | `param_dependencies` | opt. | notes on params that depend on each other or on upstream data. |
 | `comparison` | opt. | disambiguation fields for overlapping modules: `{language_support, accuracy_hint, latency_hint, config_complexity, known_limitations}`. |
 | `notes` / `caveats` | opt. | free text. |
-| `provenance` | rec. | `{model_card_url, card_version, last_validated}`. |
+| `provenance` | yes | `{model_card_url, card_version, last_validated}`. |
+
+## Existing I/O protocols
+
+`io` lets a newly registered stage use existing agent source/output handling
+without adding its class name to agent code. It is an opt-in claim about actual
+behavior, not permission to infer support from a parameter name.
+
+```yaml
+io:
+  source:                           # only for a source stage
+    kind: manifest                  # one local .json/.jsonl file of object rows
+    path_param: catalog_path
+    audio_filepath_key_param: audio_filepath_key   # optional; default audio_filepath
+    include_files_param: selected_paths            # optional exact file selection
+  outputs:                          # only enabled contract-declared output paths count
+    destination:
+      kind: manifest                # JSONL; other kinds: audio_dir, rttm_dir,
+                                    # text_dir, archive, unknown
+      primary: true                 # at most one; selects the reusable artifact
+      per_item: true                # exactly one saved row per returned logical task
+      relocatable: true             # location does not enter output rows/asset identity
+  dependency_params: [weights_file]  # optional local file/directory dependencies, including defaults
+verified:
+  io: mechanical
+```
+
+All enabled outputs are required deliverables, including non-primary and
+`relocatable` outputs. The primary selects the resume entry and, when declared
+`per_item` on a final `1:1` writer, the manifest read back for acceptance evidence.
+It does not make its siblings optional. Each declared deliverable is content-bound
+for reuse. Current
+continuation can relocate one manifest only; changing any location of a
+multi-output stage requires fresh execution, with the usual smoke/approval gates.
+
+Declare `per_item` only for a JSONL serializer whose final `1:1` contract agrees
+with actual row accounting. `relocatable` is also manifest-only: do not use it
+for a generated audio location or a path serialized into downstream rows.
+Unannotated output locations remain semantic parameters. Multiple output paths
+without a primary or an established legacy preference are not guessed as a
+reuse boundary. Contract gates, not the card, determine enabled disk writes and
+which paths smoke may redirect. Fixed-file writers continue using the existing
+`AGENT_ATOMIC_OUTPUT_PARAMS` and driver lifecycle hooks for safe publication.
+
+File inputs named in task/segment contracts must have known source or generated
+asset provenance for reuse. An additional external audio-file column is not
+covered merely because the manifest and primary audio are unchanged. Such a
+consumer and its suffix run fresh; earlier valid checkpoints remain eligible.
+This restriction does not block fresh execution, or guess dependencies from
+path-like strings. `per_row_independent` alone does not establish this coverage.
+
+A `source.kind: audio_folder` declaration additionally requires `limit_param`.
+It uses the existing sorted folder protocol: nonnegative limits select at most
+that many files (zero selects none); negative limits are unbounded. Optional
+`extensions_param` and `recursive_param` bind the folder selection settings,
+defaulting to the ordinary folder source's extensions and recursive scan. An
+optional `include_files_param` must select the exact canonical input file paths
+before applying the limit. Prove these semantics with the module's fixtures.
+Source delta support additionally requires an explicit `per_row_independent`
+contract declaration; bounded folder selections never qualify. Unreadable or
+non-path dependency values prevent trusted reuse rather than being ignored.
+
+Sources using configuration files, archives, remote selectors, non-object rows,
+other limit conventions, or different selection semantics must not claim these
+protocols. They remain unsupported by this extension; card declarations do not
+bypass task compatibility, wrapping, credentials, download, or approval gates.
+New formats/lifecycles need separately reviewed support, not executable YAML.
+
+## Exceptional planning facts
+
+Most stages need neither declaration. Parameter spelling is not evidence that a
+stage verifies a rate, and N:1 cardinality is not evidence of continuous audio.
+These optional facts support existing checks/configuration, not a general effects
+language. Preconditions are exact equality against real configured constructor
+parameters (including defaults); no expressions, scripts, or prose are evaluated.
+
+```yaml
+planning:
+  sample_rate_verification:       # only if this parameter verifies, never converts
+    param: expected_rate
+    when: {strict: true}         # optional literal scalar equality conditions
+  restores_continuity:           # only a tested continuous-audio reconstruction
+    when: {restore: true}        # omit when for an unconditional fact
+verified:
+  planning: mechanical
+```
+
+Use only the relevant fact for the stage. Back it with behavior tests, including
+disabled/mismatching modes and source/group boundaries; schema validation cannot
+prove signal-processing semantics. These planning-only declarations do not enter
+step keys. Unknown audio rewrites invalidate old rate evidence rather than
+pretending their outputs retain a previously observed rate.
 
 ## Separable decisions (deterministic strategy layer)
 
@@ -71,6 +164,14 @@ relationship, not general score documentation. Scalar decisions use
 threshold/key dimension. Explicit one-level segment decisions use
 `PreserveByValueConditionsStage` with a generic configured `items_key`;
 recursive nested, metadata-private and batch/corpus decisions remain unsupported.
+
+Any registered agent-ready producer may opt in through a mechanically verified
+`decision` declaration; no central producer-name list is required. The gate
+checks the configured score binding and selector, and preserves any class-declared
+safe settings. A producer declaring `SEPARABLE_DECISION_DIMENSIONS` must use a
+compound decision covering every declared dimension; other producers use scalar
+decisions. Authors must still verify that annotation and selection reproduce the
+documented behavior, rather than treating a writable numeric field as that proof.
 
 ```yaml
 decision:
@@ -106,8 +207,8 @@ on `PreserveByValueStage`. Model filters that are safe only under exact
 configuration add `producer_constraints` (for example
 `{action: annotate, mode: task}`), which conformance compares with the
 producer's class-declared safe settings.
-`value_type` is a mechanically enforced JSON-scalar type. The two phase-1
-producers declare `number`, which rejects booleans, strings, null, containers,
+`value_type` is a mechanically enforced JSON-scalar type. A `number` declaration
+rejects booleans, strings, null, containers,
 and non-finite floats before a candidate can be ready or configured.
 `allowed_operators` may contain only `lt`, `le`, `eq`, `ne`, `ge`, `gt`.
 `missing_score_policy: selector_error` records the default behavior: an absent
@@ -253,7 +354,7 @@ the full configured workload fits.
 - uses an unknown `resource` key / non-numeric numeric / bad `bound`;
 - declares a `versions` block that isn't a `{model_id: string}` map, sets it without a `model_id`, or has a model-selecting `preset` (sets `model_name`/`model_path`) whose model id isn't documented in `versions`;
 - declares a `metrics` block with a bad `scale.direction`, a `threshold_param` that isn't a real param, or a `valid_range` that isn't `[lo, hi]`;
-- declares a `decision` outside the supported producers, uses unknown/missing
+- declares a `decision` for an unregistered producer, uses unknown/missing
   fields or unsupported values, drifts from producer/selector constructor
   params/defaults/writes, omits exact producer constraints/compound dimensions,
   or omits `verified.decision: mechanical`;
@@ -267,4 +368,11 @@ advisory reasoning material, not deterministic validation rules. Review them
 against code/model evidence when authoring the card; green conformance means the
 mechanical surface is honest, not that every intended use is semantically sound.
 
-Coverage gaps (stages with no card) are **reported, not failed** — they name the authoring backlog.
+Coverage gaps (stages with no card) are reported by `audit()` and fail the default
+CLI gate. Use `--allow-uncarded` only when deliberately checking a work-in-progress
+catalog; discovery alone does not replace the release requirement for a truthful card.
+
+Card coverage is also required by the normal audio test suite. The requirement follows
+agent discovery: a registered stage with `AgentReady` and its own `describe()` must
+ship a valid card. Stages outside that discovery catalog do not need cards. No fixed
+stage inventory or module-specific exemption is used for this coverage check.

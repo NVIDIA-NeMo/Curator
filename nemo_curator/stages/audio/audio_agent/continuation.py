@@ -88,7 +88,13 @@ def materialize(new_recipe: Recipe, *, uri: str, kind: str, prefix: int) -> tupl
     # corpus assertion unchanged would make its own metadata contradict its
     # source stage. Keep unrelated/output metadata and bind the physical input;
     # the original corpus identity travels separately as verified lineage.
-    execution_inputs = {key: value for key, value in new_recipe.inputs.items() if key not in _SOURCE_ASSERTION_KEYS}
+    from nemo_curator.stages.audio.audio_agent._capabilities import io_for
+
+    source_keys = set(_SOURCE_ASSERTION_KEYS)
+    declared_source = io_for(new_recipe.stages[0].ref).get("source")
+    if declared_source:
+        source_keys.add(declared_source["path_param"])
+    execution_inputs = {key: value for key, value in new_recipe.inputs.items() if key not in source_keys}
     execution_inputs[param] = uri
     materialized = Recipe(
         stages=[StageRef(ref=ref, params={param: uri}), *suffix],

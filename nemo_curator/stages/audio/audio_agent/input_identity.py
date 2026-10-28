@@ -19,9 +19,9 @@ and the CLI ``--data`` value are assertions about that truth; this module never
 injects either value into a stage.  Resolution is deliberately read-only: local
 filesystem state may be inspected, but no source is downloaded or generated.
 
-This is a closed adapter table rather than a guess based on parameter names.  A
-new source stage must opt in here with its exact path semantics before its input
-may participate in profiling or reuse identity.
+Existing source adapters retain their selection semantics. New sources can opt
+into the same local manifest/folder protocols through a mechanically checked card;
+unknown layouts are never inferred from constructor parameter names.
 """
 
 from __future__ import annotations
@@ -137,19 +137,25 @@ def canonical_source(value: str) -> str:
     return os.path.realpath(os.path.abspath(os.path.expanduser(path)))
 
 
-def resolve_dataset_binding(recipe: Recipe, data: str | None = None) -> DatasetBinding:
+def resolve_dataset_binding(recipe: Recipe, data: str | None = None) -> DatasetBinding:  # noqa: PLR0911
     """Resolve the dataset identity encoded by ``recipe``.
 
-    Supported source stages are intentionally limited to
-    :data:`SUPPORTED_SOURCE_REFS`.  A supported source anywhere except index zero,
+    A supported source anywhere except index zero,
     or more than one supported source, is ambiguous rather than silently guessed.
     """
     if not recipe.stages:
         return _binding("missing", reason="recipe has no source stage")
 
-    source_positions = [
-        (index, stage) for index, stage in enumerate(recipe.stages) if stage.ref in _SUPPORTED_SOURCE_SET
-    ]
+    from nemo_curator.stages.audio.audio_agent._capabilities import io_for
+
+    source_positions = []
+    for index, stage in enumerate(recipe.stages):
+        try:
+            declared = io_for(stage.ref).get("source")
+        except (KeyError, ValueError) as exc:
+            return _binding("unsupported", source_ref=stage.ref, source_index=index, reason=str(exc))
+        if stage.ref in _SUPPORTED_SOURCE_SET or declared:
+            source_positions.append((index, stage))
     if len(source_positions) > 1:
         refs = ", ".join(f"{stage.ref}@{index}" for index, stage in source_positions)
         return _binding(
@@ -183,7 +189,57 @@ def resolve_dataset_binding(recipe: Recipe, data: str | None = None) -> DatasetB
         "CreateInitialManifestReadSpeechStage": _resolve_readspeech,
         "ReadLongFormManifestStage": _resolve_long_form,
     }
-    return handlers[stage.ref](recipe, stage, data)
+    if stage.ref in handlers:
+        return handlers[stage.ref](recipe, stage, data)
+    return _resolve_card_source(recipe, stage, data)
+
+
+def _resolve_card_source(recipe: Recipe, stage: StageRef, data: str | None) -> DatasetBinding:
+    from nemo_curator.stages.audio.audio_agent._capabilities import configured_values, io_for
+    from nemo_curator.stages.audio.audio_agent.recipe import StageRef
+
+    spec = io_for(stage.ref)["source"]
+    values = configured_values(stage.ref, stage.params)
+    path, issue, remote = _canonical_os_scalar(values.get(spec["path_param"]), spec["path_param"])
+    if issue or path is None:
+        return _binding(
+            "unsupported" if remote else "missing",
+            source_ref=stage.ref,
+            source_index=0,
+            reason=issue or "source path is missing",
+        )
+    if spec["kind"] == "audio_folder":
+        proxy = StageRef(
+            ref="CreateInitialManifestAudioFolderStage",
+            params={
+                "data_dir": path,
+                "extensions": values.get(
+                    spec.get("extensions_param"), [".wav", ".flac", ".mp3", ".ogg", ".opus", ".m4a"]
+                ),
+                "recursive": values.get(spec.get("recursive_param"), True),
+                "max_samples": values[spec["limit_param"]],
+                "include_files": values.get(spec.get("include_files_param")),
+            },
+        )
+        binding = replace(_resolve_audio_folder(recipe, proxy, data), source_ref=stage.ref)
+    elif not os.path.isfile(path) or not path.endswith((".jsonl", ".json")):
+        return _binding(
+            "missing",
+            source_ref=stage.ref,
+            source_index=0,
+            reason="declared manifest source requires one existing local JSON/JSONL file",
+        )
+    else:
+        binding = replace(
+            _base(stage.ref, configured_paths=(path,), primary_path=path, profile_source=path),
+            selected_manifest_files=(path,),
+            profile_kwargs={
+                "audio_filepath_key": values.get(spec.get("audio_filepath_key_param"), "audio_filepath"),
+                "include_files": values.get(spec.get("include_files_param")),
+            },
+        )
+    binding = _assert_recipe_inputs(binding, recipe, {spec["path_param"]: ((path,),)})
+    return _assert_cli_data(binding, data, (path,))
 
 
 def _is_unresolved(value: str) -> bool:

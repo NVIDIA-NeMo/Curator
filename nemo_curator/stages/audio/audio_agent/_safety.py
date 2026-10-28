@@ -317,8 +317,14 @@ def path_violations(paths: list[str | None]) -> list[str]:
 
 def recipe_path_params(recipe: Any) -> list[str]:  # noqa: ANN401
     """Path-like string params across a recipe's stages (for the workspace lock)."""
+    from nemo_curator.stages.audio.audio_agent._capabilities import declared_paths
+
     paths: list[str] = []
     for s in getattr(recipe, "stages", []) or []:
+        ref = getattr(s, "ref", None)
+        params = getattr(s, "params", {}) or {}
+        if isinstance(ref, str):
+            paths.extend(declared_paths(ref, params))
         for k, v in (getattr(s, "params", {}) or {}).items():
             key = str(k).lower()
             if key in _UNLOCKED_LOCATION_PARAM_NAMES:
@@ -335,7 +341,7 @@ def recipe_path_params(recipe: Any) -> list[str]:  # noqa: ANN401
                 if dual_purpose and not names_local_path(item):
                     continue  # a hub id names no filesystem location to contain
                 paths.append(item)
-    return paths
+    return list(dict.fromkeys(paths))
 
 
 def redact_secret_text(value: str) -> str:

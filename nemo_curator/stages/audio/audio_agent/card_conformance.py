@@ -32,8 +32,8 @@ drift (the exact ``resample`` / ``audio_to_document`` failure class):
   in ``verified`` instead.
 * a ``metrics`` block, if present, must use a valid ``scale.direction``, a real
   ``threshold_param``, and a ``[lo, hi]`` ``valid_range``.
-* a ``decision`` block, if present, must describe one of the explicitly supported
-  task or one-level segment score producers and its real downstream selector
+* a ``decision`` block, if present, must describe a registered producer's
+  task or one-level segment scores and its real downstream selector
   parameters. The score key's declared fallback is checked against the constructor
   default and the key parameter must control a real stage write.
 * ``semantic_facts``, if present, is shape-checked as advisory prose.  The gate
@@ -65,20 +65,6 @@ _ADAPTER_CAPABILITY_FIELDS = frozenset({"supported_devices", "cpu_requires"})
 _VERIFIED_TIERS = frozenset({"mechanical", "measured", "best_guess"})
 _DIRECTIONS = frozenset({"higher_better", "lower_better"})
 _SEMANTIC_PROSE_FIELDS = frozenset({"meaning", "unit", "provenance", "scope", "propagation"})
-_DECISION_PRODUCERS = frozenset(
-    {
-        "GetAudioDurationStage",
-        "GetPairwiseWerStage",
-        "SIGMOSFilterStage",
-        "UTMOSFilterStage",
-    }
-)
-_DECISION_KINDS = {
-    "GetAudioDurationStage": "scalar",
-    "GetPairwiseWerStage": "scalar",
-    "SIGMOSFilterStage": "compound",
-    "UTMOSFilterStage": "scalar",
-}
 _DECISION_VALUE_TYPES = frozenset({"number", "string", "boolean"})
 _DECISION_FIELDS = frozenset(
     {
@@ -493,9 +479,16 @@ def _decision_violations(  # noqa: C901, PLR0912, PLR0915 - one branch per card 
         f"{prefix} is missing required field {key!r}" for key in sorted(required_fields) if key not in raw
     )
 
-    if stage_id not in _DECISION_PRODUCERS:
-        violations.append(f"{prefix} is only supported for {sorted(_DECISION_PRODUCERS)} in this phase")
-    expected_kind = _DECISION_KINDS.get(stage_id)
+    from nemo_curator.stages.audio.audio_agent._resolve import resolve_stage_class
+
+    try:
+        producer = resolve_stage_class(stage_id)
+    except Exception:  # noqa: BLE001 - unresolved producers cannot certify a decision
+        violations.append(f"{prefix} producer is not a registered agent-ready stage")
+        expected_kind = None
+    else:
+        dimensions = getattr(producer, "SEPARABLE_DECISION_DIMENSIONS", ())
+        expected_kind = "compound" if dimensions else "scalar"
     if kind not in {"scalar", "compound"}:
         violations.append(f"{prefix}.kind must be 'scalar' or 'compound'")
     elif expected_kind is not None and kind != expected_kind:
@@ -750,6 +743,8 @@ _KNOWN_CARD_FIELDS = frozenset(
         "deterministic",
         "decision",
         "adapter_capabilities",
+        "io",
+        "planning",
     }
 )
 
@@ -921,6 +916,10 @@ def check_card(  # noqa: C901, PLR0912, PLR0915 - one branch per card section
     params = _stage_param_names(stage_id)
     if params is None:
         return [f"{stage_id}: stage_id does not resolve to a registered agent-ready stage"]
+    from nemo_curator.stages.audio.audio_agent._capabilities import io_violations, planning_violations
+
+    v.extend(io_violations(stage_id, card, params))
+    v.extend(planning_violations(stage_id, card, params))
 
     # required structural fields (a card must state its category, a summary, and how
     # honest each fact is — the verified tiers).
@@ -1087,6 +1086,7 @@ def audit(index: Any = None) -> dict[str, Any]:  # noqa: ANN401
     gate_unverified = sorted(s for s in (carded & all_stages) if _effective_default_gates(s) is None)
     return {
         "violations": violations,
+        "knowledge_errors": list(getattr(idx, "load_errors", [])),
         "orphan_cards": sorted(carded - all_stages),  # cards for a stage that no longer exists
         "uncarded_stages": sorted(all_stages - carded),  # stages still missing a card (coverage gap)
         "gate_unverified": gate_unverified,  # tags present but unjudgeable: not default-constructible
@@ -1156,9 +1156,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument(
         "--allow-uncarded",
         action="store_true",
-        help="accept missing cards (coverage gaps are reported without failing by default)",
+        help="do not fail on coverage gaps (default: an uncarded stage fails the gate)",
     )
-    ap.parse_args(argv)
+    args = ap.parse_args(argv)
 
     result = audit()
     # Blueprints are planner-facing worked examples, so a preset naming a parameter that
@@ -1167,8 +1167,19 @@ def main(argv: list[str] | None = None) -> int:
     result["blueprint_violations"] = blueprints["violations"]
     result["blueprint_count"] = blueprints["blueprint_count"]
     print(json.dumps(result, indent=2, ensure_ascii=False, default=str))
-    # Coverage gaps remain visible in the audit; invalid cards and blueprints fail.
-    ok = not result["violations"] and not result["orphan_cards"] and not blueprints["violations"]
+    # Drift, orphan cards, and coverage gaps are all hard failures. An uncarded stage used to be
+    # reported only, which meant a stage could ship plannable with no card semantics behind it --
+    # `discover` lists it, the planner may pick it, and the host critic gets no meaning, scope or
+    # counterexample to reason from. --allow-uncarded is the deliberate escape hatch for a
+    # work-in-progress stage; the flag existed for this and was simply never wired up.
+    ok = (
+        not result["violations"]
+        and not result["orphan_cards"]
+        and not result.get("knowledge_errors")
+        and not blueprints["violations"]
+    )
+    if result["uncarded_stages"] and not args.allow_uncarded:
+        ok = False
     return 0 if ok else 1
 
 

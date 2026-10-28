@@ -190,6 +190,10 @@ def _publish_artifacts(  # noqa: PLR0913, C901, PLR0912, PLR0915 - publishing ga
                 uri = getattr(st, name, None) or rec.stages[i].params.get(name)
                 if isinstance(uri, str) and uri:
                     dependencies[uri] = art_mod.content_digest(uri) or ""
+        from nemo_curator.stages.audio.audio_agent._capabilities import generated_asset_paths
+
+        for uri in generated_asset_paths(rec.stages[i].ref, rec.stages[i].params):
+            dependencies[uri] = art_mod.content_digest(uri) or ""
         with contextlib.suppress(Exception):
             c = foundation.build_contract(st)
             roles |= _roles_of(c)
@@ -203,6 +207,10 @@ def _publish_artifacts(  # noqa: PLR0913, C901, PLR0912, PLR0915 - publishing ga
         duration, gpu_seconds = _stage_cost(per_stage, st)
         cumulative += duration  # every step so far, persisting or not: that is the true saving
         if not plan.persists():
+            continue
+        if plan.reuse_block:
+            if persistence_warnings is not None:
+                persistence_warnings.append(f"{plan.stage_ref} was not published for reuse: {plan.reuse_block}")
             continue
         if "://" in plan.uri and not plan.uri.startswith("file://"):
             if persistence_warnings is not None:

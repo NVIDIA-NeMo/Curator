@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from pathlib import Path
 
 import pytest
@@ -63,6 +64,43 @@ def _recipe(
     if preference is not None:
         result["planning_preference"] = preference
     return result
+
+
+@pytest.mark.parametrize("verified", [True, False])
+def test_additional_declared_filter_gets_advice_only_with_a_conformant_card(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    verified: bool,
+) -> None:
+    from nemo_curator.stages import base
+    from nemo_curator.stages.audio import agent
+    from nemo_curator.stages.audio.audio_agent.index import get_index
+    from nemo_curator.stages.audio.filtering.utmos import UTMOSFilterStage
+
+    agent.list_agent_ready_stages()
+    monkeypatch.setattr(base, "_STAGE_REGISTRY", dict(base._STAGE_REGISTRY))
+
+    class AdditionalQualityFilterStage(UTMOSFilterStage):
+        def describe(self):  # noqa: ANN202 - inherits the concrete stage contract
+            return super().describe()
+
+    ref = AdditionalQualityFilterStage.__name__
+    card = deepcopy(get_index().card("UTMOSFilterStage"))
+    card["stage_id"] = ref
+    if not verified:
+        card["verified"]["decision"] = "best_guess"
+    monkeypatch.setitem(get_index()._cards_by_stage, ref, card)
+    result = aa.validate(
+        _recipe(tmp_path, {"ref": ref, "params": {"action": "filter", "mode": "task", "input_residency": "file"}})
+    )
+    advisories = [
+        item for item in result["planning_advisories"] if item["code"] == "refine_later_reusable_decision_available"
+    ]
+
+    assert bool(advisories) is verified
+    if verified:
+        assert advisories[0]["stage"] == ref
+        assert advisories[0]["suggested_shape"]["producer"]["ref"] == ref
 
 
 @pytest.mark.parametrize(

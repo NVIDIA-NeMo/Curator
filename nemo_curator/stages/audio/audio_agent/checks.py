@@ -32,6 +32,7 @@ from nemo_curator.stages.audio.audio_agent.contracts import Issue
 from nemo_curator.stages.audio.audio_agent.index import get_index
 
 if TYPE_CHECKING:
+    from nemo_curator.stages.audio._agent._agent_ready import StageContract
     from nemo_curator.stages.audio.audio_agent.recipe import Recipe
 
 # Params whose value is compared against a card ``max_speakers`` constraint.
@@ -277,13 +278,40 @@ def _rate_converted_to(stage: Any, built: Any) -> int | None:  # noqa: ANN401 - 
     return _to_int(v)
 
 
-def _sample_rate_provenance(ctx: CheckContext, data_srs: set[int]) -> list[set[int]]:  # noqa: C901
+def _forget_rewritten_rates(
+    contract: StageContract,
+    sample_rate_key: str,
+    file_rates: dict[str, set[int]],
+    resident_rates: dict[str, set[int]],
+    resident_rate_keys: dict[str, str],
+) -> None:
+    """A write revokes evidence for its carrier and any shared resident rate field."""
+    writes = [contract.writes, *(branch.writes for branch in contract.conditional_writes)]
+    for spec in writes:
+        for key in spec.data_keys:
+            role = contract.key_roles.get(key)
+            if role == "audio_filepath":
+                file_rates[key] = set()
+            elif role == "waveform":
+                resident_rates[key] = set()
+                resident_rate_keys[key] = sample_rate_key
+            elif role == "sample_rate":
+                for resident_key, rate_key in resident_rate_keys.items():
+                    if rate_key == key:
+                        resident_rates[resident_key] = set()
+    if not contract.preserves_upstream_keys:
+        file_rates.update({key: set() for key in file_rates})
+        resident_rates.update({key: set() for key in resident_rates})
+
+
+def _sample_rate_provenance(ctx: CheckContext, data_srs: set[int]) -> list[set[int]]:  # noqa: C901, PLR0912
     """Track file and resident rate evidence separately for each configured binding."""
     # A conversion only changes the keys it actually writes. In particular, the
     # default resampler leaves the source filepath untouched, and ASR's internal
     # input preparation does not change audio supplied to a later stage.
     file_rates: dict[str, set[int]] = {}
     resident_rates: dict[str, set[int]] = {}
+    resident_rate_keys: dict[str, str] = {}
     converted_resident_keys: set[str] = set()
     for key in ctx.initial_tensor_keys or ():
         resident_rates[key] = set(data_srs)
@@ -301,6 +329,9 @@ def _sample_rate_provenance(ctx: CheckContext, data_srs: set[int]) -> list[set[i
 
         filepath_key = param("filepath_key", param("audio_filepath_key", "audio_filepath"))
         waveform_key = param("waveform_key", "waveform")
+        sample_rate_key = param("sample_rate_key", "sample_rate")
+        if waveform_key in resident_rates:
+            resident_rate_keys.setdefault(waveform_key, sample_rate_key)
         residency = param("input_residency", "file")
         file_srs = file_rates.get(filepath_key, data_srs)
         waveform_srs = resident_rates.get(waveform_key)
@@ -309,7 +340,7 @@ def _sample_rate_provenance(ctx: CheckContext, data_srs: set[int]) -> list[set[i
         elif residency == "auto" and waveform_srs is not None:
             # Auto prefers a usable resident pair, but a file fallback can still be
             # taken on other rows. Both routes must meet the model constraint.
-            srs_here = set(waveform_srs) | set(file_srs)
+            srs_here = set(waveform_srs) | set(file_srs) if waveform_srs else set()
         else:
             srs_here = set(file_srs)
         rates.append(srs_here)
@@ -324,10 +355,17 @@ def _sample_rate_provenance(ctx: CheckContext, data_srs: set[int]) -> list[set[i
                         file_rates[filepath_key] = {converted}
                 if param("keep_waveform_in_task", False):
                     resident_rates[waveform_key] = {converted}
+                    resident_rate_keys[waveform_key] = sample_rate_key
                     converted_resident_keys.add(waveform_key)
                 elif param("write_to_disk", True) and residency != "file":
                     resident_rates.pop(waveform_key, None)
                     converted_resident_keys.discard(waveform_key)
+        elif stage_obj is not None and i > 0:
+            from nemo_curator.stages.audio import agent as foundation
+
+            _forget_rewritten_rates(
+                foundation.build_contract(stage_obj), sample_rate_key, file_rates, resident_rates, resident_rate_keys
+            )
     return rates
 
 
@@ -669,10 +707,9 @@ def _check_request_type_sanity(ctx: CheckContext) -> CheckResult:
 # hands it a torn signal (the `diarization-needs-continuous-audio` rule). Separating first,
 # on continuous audio, is fine. Roles come from card metadata so a new stage needs no code
 # change here -- diarizer = category 'diarize'; fragmenter = category 'segment' with a
-# 'fanout' tag, minus diarizers; re-joiner has no card signal, so it stays an explicit set.
+# 'fanout' tag, minus diarizers; re-joiners declare a tested configured card fact.
 _DIARIZERS = frozenset({"InferenceSortformerStage", "PyAnnoteDiarizationStage", "SpeakerSeparationStage"})
 _FRAGMENTERS = frozenset({"VADSegmentationStage", "WhisperXVADStage"})
-_REJOINERS = frozenset({"SegmentConcatenationStage"})
 
 
 def _is_diarizer(ref: str, idx: Any) -> bool:  # noqa: ANN401
@@ -693,12 +730,11 @@ def _is_fragmenter(ref: str, idx: Any) -> bool:  # noqa: ANN401
     return card.get("category") == "segment" and "fanout" in (card.get("tags") or []) and not _is_diarizer(ref, idx)
 
 
-def _is_rejoiner(ref: str, idx: Any) -> bool:  # noqa: ANN401, ARG001
-    """A stage that stitches segments back into a continuous waveform. Structural: the only
-    such stage today is SegmentConcatenationStage, so this is an explicit set kept behind a
-    helper for symmetry with the derived diarizer/fragmenter checks (and a future card signal).
-    """
-    return ref in _REJOINERS
+def _is_rejoiner(stage: Any, idx: Any) -> bool:  # noqa: ANN401
+    """N:1 cardinality alone says nothing about the continuity of the output."""
+    from nemo_curator.stages.audio.audio_agent._capabilities import planning_for
+
+    return "restores_continuity" in planning_for(stage.ref, stage.params, card=idx.card(stage.ref) or {})
 
 
 @register("diarization_continuity")
@@ -717,7 +753,7 @@ def _check_diarization_continuity(ctx: CheckContext) -> CheckResult:
         if not frags_before:
             continue  # runs on continuous audio (no upstream fragmentation) -> fine
         fi = max(frags_before)  # nearest fragmenter before the diarizer
-        if not any(_is_rejoiner(rr, idx) for rr in refs[fi + 1 : di]):
+        if not any(_is_rejoiner(stage, idx) for stage in ctx.recipe.stages[fi + 1 : di]):
             out.append(
                 Issue(
                     "diarization_needs_continuous_audio",

@@ -108,8 +108,12 @@ def _verify_continuation_context(  # noqa: PLR0911, C901, PLR0912 - each refusal
     if len(matches) != 1:
         return None, "continued-run artifact step does not belong to the logical recipe"
     reused_plan = matches[0]
+    if reused_plan.reuse_block:
+        return None, reused_plan.reuse_block
 
     artifact, reasons = art_mod.lookup(reuse_step_key, dataset_key=dataset_key)
+    if artifact is not None:
+        reasons.extend(art_mod.plan_invalid_reasons(reused_plan, artifact))
     if artifact is None or reasons:
         why = "; ".join(reasons or ["artifact record is missing"])
         return None, f"continued-run lineage is no longer valid: {why}"
@@ -320,6 +324,19 @@ def _merge_plans(rec: Recipe, plan: dict[str, Any], scan: dict[str, Any], *, dat
             plan.setdefault("source", "parent_diff")
             return plan
         if not scan_depth:
+            from nemo_curator.stages.audio.audio_agent._capabilities import output_paths
+            from nemo_curator.stages.audio.audio_agent._reuse_dependencies import untracked_audio_input
+
+            boundary = untracked_audio_input(rec)
+            needs_proof = boundary is not None and boundary[0] < plan_depth
+            needs_proof = needs_proof or any(len(output_paths(s.ref, s.params)) > 1 for s in rec.stages[:plan_depth])
+            if needs_proof:
+                return {
+                    "mode": "full_rerun",
+                    "reason": "required input/output dependency proof is unavailable: " + "; ".join(why_not),
+                    "run_stages": [s.ref for s in rec.stages],
+                    "parent_run_id": plan.get("parent_run_id"),
+                }
             plan["reuse_point_unavailable"] = why_not
             plan.setdefault("source", "parent_diff")
             return plan

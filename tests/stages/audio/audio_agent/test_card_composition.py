@@ -22,6 +22,8 @@ because the recommendation was prose naming a stage.
 
 from __future__ import annotations
 
+import pytest
+
 from nemo_curator.stages.audio.audio_agent.card_conformance import (
     _adapter_capability_violations,
     _blueprint_violations,
@@ -116,10 +118,91 @@ class TestCompositeLegibility:
 
 
 class TestTheShippedCardsConform:
+    def test_every_discoverable_stage_has_a_card(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from nemo_curator.stages import base
+        from nemo_curator.stages.audio import agent
+
+        agent.list_agent_ready_stages()
+        # Test collection also registers helper stages that are not shipped in the package.
+        monkeypatch.setattr(
+            base,
+            "_STAGE_REGISTRY",
+            {name: cls for name, cls in base._STAGE_REGISTRY.items() if cls.__module__.startswith("nemo_curator.")},
+        )
+        result = audit()
+        assert not result["uncarded_stages"], "Discoverable agent-ready stages require capability cards: " + ", ".join(
+            result["uncarded_stages"]
+        )
+
     def test_no_card_violates_anything(self) -> None:
         # Including the two checks above: the recommendation graph is checked, not just described.
         result = audit()
+        assert not result["knowledge_errors"], result["knowledge_errors"]
         assert result["violations"] == {}, result["violations"]
+
+
+@pytest.mark.parametrize(
+    ("stage_kind", "include_card", "missing_card"),
+    [
+        ("plain", False, False),
+        ("inherited", False, False),
+        ("ready", False, True),
+        ("ready", True, False),
+    ],
+)
+def test_card_requirement_follows_agent_discovery(
+    monkeypatch: pytest.MonkeyPatch,
+    stage_kind: str,
+    include_card: bool,
+    missing_card: bool,
+) -> None:
+    from nemo_curator.stages import base
+    from nemo_curator.stages.audio._agent import _catalog
+    from nemo_curator.stages.audio._agent._agent_ready import AgentReady, StageContract
+    from nemo_curator.stages.audio.audio_agent import card_conformance, index
+    from nemo_curator.stages.base import ProcessingStage
+    from nemo_curator.tasks import AudioTask
+
+    monkeypatch.setattr(base, "_STAGE_REGISTRY", {})
+    monkeypatch.setattr(_catalog, "_IMPORTED", True)
+
+    class PlainCoverageStage(ProcessingStage[AudioTask, AudioTask]):
+        def describe(self) -> StageContract:
+            return StageContract()
+
+        def process(self, task: AudioTask) -> AudioTask:
+            return task
+
+    class ReadyCoverageStage(AgentReady, PlainCoverageStage):
+        def describe(self) -> StageContract:
+            return StageContract()
+
+    class InheritedCoverageStage(ReadyCoverageStage):
+        pass
+
+    stage = {"plain": PlainCoverageStage, "ready": ReadyCoverageStage, "inherited": InheritedCoverageStage}[stage_kind]
+    monkeypatch.setattr(base, "_STAGE_REGISTRY", {stage.__name__: stage})
+    knowledge = index.KnowledgeIndex()
+    knowledge._cards_by_stage = (
+        {
+            stage.__name__: {
+                "stage_id": stage.__name__,
+                "category": "preprocess",
+                "summary": "Pass through task metadata unchanged.",
+                "verified": {"params": "mechanical"},
+                "provenance": {"card_version": 1},
+            }
+        }
+        if include_card
+        else {}
+    )
+    knowledge._blueprints = {}
+    monkeypatch.setattr(index, "get_index", lambda: knowledge)
+
+    result = card_conformance.audit()
+    assert result["uncarded_stages"] == ([stage.__name__] if missing_card else [])
+    assert result["violations"] == {}
+    assert card_conformance.main([]) == (1 if missing_card else 0)
 
 
 class TestBlueprintConformance:

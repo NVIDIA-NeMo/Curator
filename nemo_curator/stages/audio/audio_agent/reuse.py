@@ -94,6 +94,8 @@ def scan(recipe: Recipe, *, dataset_key: str, limit: int = 5) -> dict[str, Any]:
     reusable: list[tuple[StepPlan, Artifact]] = []
     for plan in plans:
         art, reasons = art_mod.lookup(plan.step_key, dataset_key=dataset_key)
+        reasons = [*reasons, *(art_mod.plan_invalid_reasons(plan, art) if art is not None else [plan.reuse_block])]
+        reasons = [reason for reason in reasons if reason]
         probes.append(
             {
                 "stage_index": plan.index,
@@ -101,7 +103,7 @@ def scan(recipe: Recipe, *, dataset_key: str, limit: int = 5) -> dict[str, Any]:
                 "step_key": plan.step_key,
                 "found": art is not None,
                 "reusable": bool(art is not None and not reasons),
-                "blocked_by": reasons if art is not None else [],
+                "blocked_by": reasons if art is not None else ([plan.reuse_block] if plan.reuse_block else []),
             }
         )
         if art is not None and not reasons:
@@ -183,6 +185,9 @@ def _fresh_rationale(
     if blocked:
         first = blocked[0]
         return f"prior work exists for {first['stage']} but is not reusable: {'; '.join(first['blocked_by'])}"
+    uncovered = [p for p in probes if p["blocked_by"]]
+    if uncovered:
+        return "reuse cannot be proven: " + "; ".join(uncovered[0]["blocked_by"])
     if unsaved:
         return str(unsaved["note"])
     if elsewhere:
@@ -330,7 +335,11 @@ def verified_point(recipe: Recipe, depth: int, *, dataset_key: str) -> tuple[dic
     if depth > len(plans):
         return None, ["the claimed reuse is deeper than this pipeline"]
     step = plans[depth - 1]
+    if step.reuse_block:
+        return None, [step.reuse_block]
     art, reasons = art_mod.lookup(step.step_key, dataset_key=dataset_key)
+    if art is not None:
+        reasons.extend(art_mod.plan_invalid_reasons(step, art))
     if art is None or reasons:
         return None, reasons or ["no prior artifact for this step"]
     return reuse_point(step, art), []
@@ -546,7 +555,11 @@ def _candidates(plans: list[StepPlan], *, dataset_key: str, limit: int) -> list[
     out: list[dict[str, Any]] = []
     for plan in reversed(plans):
         art = art_mod.load(plan.step_key)
-        if art is None or art_mod.invalid_reasons(art, dataset_key=dataset_key):
+        if (
+            art is None
+            or art_mod.invalid_reasons(art, dataset_key=dataset_key)
+            or art_mod.plan_invalid_reasons(plan, art)
+        ):
             continue
         out.append(_card(art, run_store.load(art.run_id) if art.run_id else None))
         if len(out) >= limit:

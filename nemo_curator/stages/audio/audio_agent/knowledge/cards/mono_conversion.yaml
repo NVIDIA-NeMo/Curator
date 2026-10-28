@@ -5,6 +5,8 @@ tags: [is_filter]   # strict_sample_rate defaults True, so a rate mismatch DROPS
 model_id: null
 domain: {language: any, style: any}
 constraints: {}
+planning:
+  sample_rate_verification: {param: output_sample_rate, when: {strict_sample_rate: true}}
 resource:
   cpus: 1.0
   gpu_mem_gb: 0.0
@@ -56,5 +58,5 @@ notes:
   - "This stage is TWO policies in one: a mono downmix and a strict single-rate gate. That coupling is why the default silently discards a 16 kHz corpus. ChannelCountStage and SampleRateFilterStage split the same work in two so each can be set on its own, and each names whether it is measuring, selecting or converting."
   - "Disk output is OPT-IN (write_to_disk=False by default); the default keeps the mono waveform in the task, so the card carries no writes_disk tag (matching SpeakerSeparation/SegmentConcatenation)."
   - "ResampleAudioStage does not update audio_filepath by default. When it is upstream, read resampled_audio_filepath, consume its retained waveform, or enable update_audio_filepath on the resampler; otherwise this stage will reopen the original audio."
-verified: {params: mechanical, semantic_facts: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess}
-provenance: {model_card_url: null, card_version: 6, last_validated: "2026-09-22"}
+verified: {params: mechanical, planning: mechanical, semantic_facts: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess}
+provenance: {model_card_url: null, card_version: 7, last_validated: "2026-10-27"}

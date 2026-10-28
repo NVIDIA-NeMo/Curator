@@ -10,6 +10,7 @@
 # limitations under the License.
 
 import json
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
@@ -17,6 +18,110 @@ import pytest
 from nemo_curator.stages.audio import audio_agent as aa
 from nemo_curator.stages.audio.audio_agent.checks import _missing_source_audio_keys
 from nemo_curator.stages.audio.audio_agent.recipe import Recipe, build_stages
+
+
+@pytest.mark.parametrize("waveform_key", ["waveform", "pcm"])
+def test_unknown_rewrite_forgets_only_its_own_rate_evidence(
+    waveform_key: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from nemo_curator.stages import base
+    from nemo_curator.stages.audio._agent import _catalog
+    from nemo_curator.stages.audio._agent._agent_ready import AgentReady, IOSpec, StageContract
+    from nemo_curator.stages.audio.audio_agent.checks import CheckContext, _sample_rate_provenance
+    from nemo_curator.stages.audio.audio_agent.recipe import StageRef
+    from nemo_curator.stages.base import ProcessingStage
+    from nemo_curator.tasks import AudioTask
+
+    _catalog.list_agent_ready_stages()
+    monkeypatch.setattr(base, "_STAGE_REGISTRY", dict(base._STAGE_REGISTRY))
+
+    @dataclass
+    class FutureResidentRewrite(AgentReady, ProcessingStage[AudioTask, AudioTask]):
+        waveform_key: str = "waveform"
+        sample_rate_key: str = "sample_rate"
+
+        def describe(self) -> StageContract:
+            return StageContract(writes=IOSpec(data_keys=[self.waveform_key, self.sample_rate_key]))
+
+        def process(self, task: AudioTask) -> AudioTask:
+            return task
+
+    recipe = Recipe(
+        stages=[
+            StageRef("ManifestReader", {"manifest_path": "source.jsonl"}),
+            StageRef(
+                "ResampleAudioStage",
+                {
+                    "resampled_audio_dir": "unused",
+                    "target_sample_rate": 48000,
+                    "write_to_disk": False,
+                    "keep_waveform_in_task": True,
+                    "waveform_key": waveform_key,
+                },
+            ),
+            StageRef("FutureResidentRewrite", {"waveform_key": waveform_key}),
+            StageRef("UTMOSFilterStage", {"input_residency": "waveform", "waveform_key": waveform_key}),
+        ]
+    )
+    built, errors = build_stages(recipe)
+    assert not errors
+    ctx = CheckContext(recipe, built, None, None, set(), set(), 0)
+    rates = _sample_rate_provenance(ctx, {48000})
+    assert rates[2] == {48000}
+    assert rates[3] == set()  # unknown, not stale 48 kHz
+    recipe.stages[2].params["waveform_key"] = "unrelated"
+    built, errors = build_stages(recipe)
+    assert not errors
+    ctx.stages = built
+    assert _sample_rate_provenance(ctx, {48000})[3] == set()  # the rate field is still shared
+    recipe.stages[2].params["sample_rate_key"] = "unrelated_rate"
+    built, errors = build_stages(recipe)
+    assert not errors
+    ctx.stages = built
+    assert _sample_rate_provenance(ctx, {48000})[3] == {48000}
+
+
+def test_card_declared_rejoiner_requires_the_configured_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    from nemo_curator.stages import base
+    from nemo_curator.stages.audio._agent import _catalog
+    from nemo_curator.stages.audio._agent._agent_ready import AgentReady, StageContract
+    from nemo_curator.stages.audio.audio_agent import checks, index
+    from nemo_curator.stages.audio.audio_agent.checks import CheckContext
+    from nemo_curator.stages.audio.audio_agent.recipe import StageRef
+    from nemo_curator.stages.base import ProcessingStage
+    from nemo_curator.tasks import AudioTask
+
+    _catalog.list_agent_ready_stages()
+    monkeypatch.setattr(base, "_STAGE_REGISTRY", dict(base._STAGE_REGISTRY))
+
+    @dataclass
+    class FutureTimelineRestore(AgentReady, ProcessingStage[AudioTask, AudioTask]):
+        restore: bool = True
+
+        def describe(self) -> StageContract:
+            return StageContract(cardinality="N:1")
+
+        def process(self, task: AudioTask) -> AudioTask:
+            return task
+
+    knowledge = index.KnowledgeIndex()
+    card = {"planning": {"restores_continuity": {"when": {"restore": True}}}, "verified": {"planning": "mechanical"}}
+    knowledge._cards_by_stage["FutureTimelineRestore"] = card
+    monkeypatch.setattr(checks, "get_index", lambda: knowledge)
+    recipe = Recipe(
+        stages=[
+            StageRef("VADSegmentationStage"),
+            StageRef("FutureTimelineRestore"),
+            StageRef("InferenceSortformerStage"),
+        ]
+    )
+    ctx = CheckContext(recipe, [], None, None, set(), set(), 0)
+    assert checks._check_diarization_continuity(ctx).issues == []
+    recipe.stages[1].params["restore"] = False
+    assert checks._check_diarization_continuity(ctx).issues
+    recipe.stages[1].params.clear()
+    card.pop("planning")
+    assert checks._check_diarization_continuity(ctx).issues  # N:1 is not sufficient
 
 
 def _recipe(tmp_path: Path, stages: list[dict], row: dict) -> dict:

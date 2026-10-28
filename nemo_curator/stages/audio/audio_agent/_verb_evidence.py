@@ -156,7 +156,14 @@ def _terminal_evidence_outputs(
     ``SnippetManifestWriterStage`` intentionally skips origin stubs, and a
     writer followed by another stage need not have the final run's cardinality,
     so those cases remain explicitly unproven.
+
+    A declared primary per-item manifest selects evidence when a writer saves
+    several manifests. Its siblings remain required artifacts, not alternative
+    evidence for the primary's fields.
     """
+    from nemo_curator.stages.audio.audio_agent._capabilities import io_for, output_paths
+    from nemo_curator.stages.audio.audio_agent._resolve import resolved_contract_for
+
     per_item_writers = {
         "DocumentBatchJsonlWriterStage",
         "ManifestWriterStage",
@@ -164,6 +171,21 @@ def _terminal_evidence_outputs(
     }
     for index in range(len(rec.stages) - 1, -1, -1):
         stage = rec.stages[index]
+        options = io_for(stage.ref).get("outputs", {})
+        paths = output_paths(stage.ref, stage.params) if options else {}
+        declared = {key: paths[key] for key, spec in options.items() if key in paths and spec.get("per_item")}
+        if declared:
+            selected = [path for key, path in declared.items() if options[key].get("primary")] or list(
+                declared.values()
+            )
+            resolved = resolved_contract_for(stage.ref, stage.params)
+            proven = (
+                len(selected) == 1
+                and index == len(rec.stages) - 1
+                and resolved.resolved
+                and resolved.contract.cardinality == "1:1"
+            )
+            return selected, proven
         short_ref = stage.ref.rsplit(".", 1)[-1]
         if short_ref not in per_item_writers:
             continue
@@ -211,11 +233,14 @@ def _recipe_outputs(recipe: Recipe, output_dir: str | None) -> list[str]:
     executable recipe did not write.
     """
 
+    from nemo_curator.stages.audio.audio_agent._capabilities import output_paths
+
     keys = [*sorted(OUTPUT_LOCATION_PARAMS - {"raw_data_dir"}), "path"]
     outs: list[str] = []
     for s in recipe.stages:
-        for key in keys:
-            v = s.params.get(key)
+        declared = output_paths(s.ref, s.params)
+        for key in dict.fromkeys([*keys, *declared]):
+            v = declared.get(key, s.params.get(key))
             if isinstance(v, str) and v not in outs:
                 outs.append(v)
     _ = output_dir  # legacy no-op; stage params are execution truth

@@ -70,7 +70,7 @@ def _load_yaml(path: str) -> Any:  # noqa: ANN401
         return yaml.safe_load(f)
 
 
-def _load_dir(path: str) -> dict[str, Any]:
+def _load_dir(path: str, *, errors: list[str] | None = None) -> dict[str, Any]:
     """Load every ``*.yaml`` in a directory into ``{stem: parsed}`` (missing dir -> {})."""
     out: dict[str, Any] = {}
     if not os.path.isdir(path):
@@ -79,8 +79,12 @@ def _load_dir(path: str) -> dict[str, Any]:
         if fn.endswith((".yaml", ".yml")):
             stem = os.path.splitext(fn)[0]
             try:
+                if stem in out and errors is not None:
+                    errors.append(f"{path}/{fn}: duplicate knowledge filename stem {stem!r}")
                 out[stem] = _load_yaml(os.path.join(path, fn))
-            except Exception:  # noqa: BLE001, S112 - a malformed knowledge file must not break discovery
+            except Exception as exc:  # noqa: BLE001 - keep discovery available, but expose invalid knowledge
+                if errors is not None:
+                    errors.append(f"{path}/{fn}: could not load YAML ({type(exc).__name__})")
                 continue
     return out
 
@@ -89,7 +93,8 @@ class KnowledgeIndex:
     """Loads knowledge + catalog and answers tiered retrieval / role queries."""
 
     def __init__(self) -> None:
-        self._cards = _load_dir(os.path.join(_KNOWLEDGE_DIR, "cards"))
+        self.load_errors: list[str] = []
+        self._cards = _load_dir(os.path.join(_KNOWLEDGE_DIR, "cards"), errors=self.load_errors)
         self._blueprints = _load_dir(os.path.join(_KNOWLEDGE_DIR, "blueprints"))
         self._patterns = _load_dir(os.path.join(_KNOWLEDGE_DIR, "patterns"))
         self._recipes = _load_dir(_RECIPES_DIR)
@@ -99,7 +104,12 @@ class KnowledgeIndex:
         self._cards_by_stage: dict[str, dict[str, Any]] = {}
         for stem, card in self._cards.items():
             if isinstance(card, dict):
-                self._cards_by_stage[str(card.get("stage_id", stem))] = card
+                stage_id = str(card.get("stage_id", stem))
+                if stage_id in self._cards_by_stage:
+                    self.load_errors.append(f"{stem}: duplicate card stage_id {stage_id!r}")
+                self._cards_by_stage[stage_id] = card
+            else:
+                self.load_errors.append(f"{stem}: card is not a mapping")
 
     # ------------------------------------------------------------------ #
     # catalog + categories

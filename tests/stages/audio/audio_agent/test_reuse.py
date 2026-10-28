@@ -2904,9 +2904,8 @@ class TestArtifactKindComesFromTheOutput:
 class TestEveryWritingStageIsReusable:
     """A stage that writes must say where, or reuse cannot see its output at all.
 
-    Output locations are recognised from a fixed set of parameter names. That set is a promise: a
-    new writing stage whose parameter is not in it silently drops out of reuse, with no failure
-    anywhere to point at it.
+    Output locations bind to constructor parameters through contracts or verified
+    cards. Legacy parameter names remain a fallback, not an onboarding requirement.
     """
 
     @staticmethod
@@ -2924,6 +2923,7 @@ class TestEveryWritingStageIsReusable:
     def test_a_stage_that_writes_to_disk_declares_where(self) -> None:
         from nemo_curator.stages.audio._agent._agent_registry import static_contract
         from nemo_curator.stages.audio._agent._catalog import get_agent_ready_stage_class, list_agent_ready_stages
+        from nemo_curator.stages.audio.audio_agent._capabilities import io_for
 
         undeclared = []
         for name in list_agent_ready_stages():
@@ -2940,12 +2940,16 @@ class TestEveryWritingStageIsReusable:
             # is an INPUT to the run rather than a deliverable of it.
             if contract.gates.output_path_params == [] or contract.accepts_task_type == "EmptyTask":
                 continue
-            if not (self._param_names(stage_cls) & set(artifacts._URI_PREFERENCE)):
+            params = self._param_names(stage_cls)
+            bindings = contract.gates.output_path_params
+            if bindings is None:
+                bindings = list(io_for(name).get("outputs", {}))
+            recognized = set(bindings) <= params if bindings else bool(params & set(artifacts._URI_PREFERENCE))
+            if not recognized:
                 undeclared.append(name)
         assert not undeclared, (
-            "these stages write to disk but name no output location reuse recognises, so their "
-            f"output can never be reused: {undeclared}. Add the parameter to "
-            "artifacts._URI_PREFERENCE and recipe.OUTPUT_LOCATION_PARAMS."
+            f"these stages write to disk without valid constructor-bound output locations: {undeclared}. "
+            "Declare real output_path_params in the contract or verified card io.outputs bindings."
         )
 
     def test_the_two_output_param_lists_agree(self) -> None:
@@ -2954,6 +2958,72 @@ class TestEveryWritingStageIsReusable:
         from nemo_curator.stages.audio.audio_agent.recipe import OUTPUT_LOCATION_PARAMS
 
         assert set(artifacts._URI_PREFERENCE) == set(OUTPUT_LOCATION_PARAMS)
+
+    @pytest.mark.parametrize("declaration", ["contract", "card", "invalid"])
+    def test_new_writer_bindings_do_not_require_legacy_parameter_names(
+        self, monkeypatch: pytest.MonkeyPatch, declaration: str, tmp_path: Path
+    ) -> None:
+        from dataclasses import dataclass
+
+        from nemo_curator.stages import base
+        from nemo_curator.stages.audio._agent import _catalog
+        from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, StageContract, StaticHints
+        from nemo_curator.stages.audio.audio_agent import index
+        from nemo_curator.stages.audio.audio_agent.card_conformance import check_card
+        from nemo_curator.stages.audio.audio_agent.recipe import StageRef
+        from nemo_curator.stages.base import ProcessingStage
+        from nemo_curator.tasks import AudioTask
+
+        _catalog.list_agent_ready_stages()
+        monkeypatch.setattr(base, "_STAGE_REGISTRY", dict(base._STAGE_REGISTRY))
+        paths = ["records_file", "review_file"]
+        declared_paths = None if declaration == "card" else (["misspelled"] if declaration == "invalid" else paths)
+
+        @dataclass
+        class FutureBoundWriter(AgentReady, ProcessingStage[AudioTask, AudioTask]):
+            records_file: str
+            review_file: str
+            name: str = "FutureBoundWriter"
+            AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
+                gates=Gates(writes_to_disk=True, output_path_params=declared_paths)
+            )
+
+            def describe(self) -> StageContract:
+                return StageContract(gates=Gates(writes_to_disk=True, output_path_params=paths))
+
+            def process(self, task: AudioTask) -> AudioTask:
+                for path in (self.records_file, self.review_file):
+                    with open(path, "a", encoding="utf-8") as stream:
+                        stream.write(json.dumps(task.data) + "\n")
+                return task
+
+        card = {
+            "stage_id": "FutureBoundWriter",
+            "category": "export",
+            "summary": "Write records and a sibling manifest.",
+            "tags": ["writes_disk"],
+            "io": {
+                "outputs": {
+                    "records_file": {"kind": "manifest", "primary": True},
+                    "review_file": {"kind": "manifest"},
+                }
+            },
+            "verified": {"params": "mechanical", "io": "mechanical"},
+            "provenance": {"card_version": 1},
+        }
+        knowledge = index.KnowledgeIndex()
+        knowledge._cards_by_stage["FutureBoundWriter"] = card
+        monkeypatch.setattr(index, "get_index", lambda: knowledge)
+        assert check_card("FutureBoundWriter", card) == []
+        primary = str(tmp_path / "records.jsonl")
+        assert artifacts.output_uri(
+            StageRef("FutureBoundWriter", {"records_file": primary, "review_file": str(tmp_path / "review.jsonl")})
+        ) == (primary, "manifest")
+        if declaration == "invalid":
+            with pytest.raises(AssertionError, match="FutureBoundWriter"):
+                self.test_a_stage_that_writes_to_disk_declares_where()
+        else:
+            self.test_a_stage_that_writes_to_disk_declares_where()
 
 
 class TestGeneratedOutputIntegrity:
@@ -3019,7 +3089,10 @@ class TestGeneratedOutputIntegrity:
         rec = _frozen(
             [
                 _READER,
-                {"ref": "PyAnnoteDiarizationStage", "params": {"write_rttm": False}},
+                {
+                    "ref": "PyAnnoteDiarizationStage",
+                    "params": {"write_rttm": False, "audio_filepath_key": "audio_filepath"},
+                },
                 {"ref": "ManifestWriterStage", "params": {"output_path": str(manifest)}},
             ]
         )

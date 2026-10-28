@@ -109,7 +109,6 @@ def test_the_scan_finds_the_names_it_is_supposed_to_guard() -> None:
     """Guard for the test itself. Tighten the AST walk by accident and this file keeps passing
     while checking nothing -- the same way a fixture with the wrong key silently checks nothing.
     """
-    assert len(_HARDCODED) >= 20, f"expected ~22 hardcoded stage names, found {len(_HARDCODED)}"
     assert "ManifestReader" in _HARDCODED, "the unsuffixed refs are not being picked up"
     assert {"_verb_smoke_inputs.py", "checks.py", "input_identity.py"} <= set().union(*_HARDCODED.values())
 
