@@ -1,7 +1,7 @@
 # Refine aligned words with Silero and Sortformer
 
 For audio with transcripts but no word alignment, use
-[Alignment with refinement](ALIGNMENT_WITH_REFINEMENT.md): standard Montreal Forced Aligner
+[Alignment with refinement](ALIGNMENT_WITH_REFINEMENT.md): Curator's Montreal Forced Aligner stage
 alignment, physical NeMo tar shards, then Silero/Sortformer refinement. It also
 accepts existing NeMo tarred input and supports separate CPU/GPU worker commands.
 
@@ -550,7 +550,7 @@ Run these commands from a Curator source checkout. The recipe is not included in
 the installed Curator wheel.
 The single-session refinement command consumes existing forced alignments; it
 does not run MFA or infer transcripts. The separate alignment-with-refinement
-entry point runs the official MFA executable on supplied transcripts first.
+entry point runs Curator's MFAAlignmentStage on supplied transcripts first.
 Each manifest row uses a full, isolated speaker-channel recording. Sortformer
 posteriors are reduced by the maximum across speakers into binary speech
 activity, so this recipe does not assign speaker identities to mixed recordings.

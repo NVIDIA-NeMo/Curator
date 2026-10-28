@@ -1,21 +1,26 @@
 # Alignment with refinement
 
-"Разметка с уточнением" uses the standard Montreal Forced Aligner (MFA):
+"Разметка с уточнением" uses Curator's `MFAAlignmentStage` to run Montreal Forced Aligner (MFA):
 
 ```text
-audio + supplied text -> mfa align -> physical NeMo tar shards
+audio + supplied text -> Curator MFAAlignmentStage -> physical tar shards
                       -> Silero + Sortformer -> refined word annotations
 ```
 
 MFA aligns the supplied transcript to the audio. The transcript is preserved;
 no ASR transcription replaces it. MFA word intervals are the protected lower
 bound: refinement may widen them but cannot contract, remove or relabel words.
-The recipe invokes the official executable directly. It does not bundle the
-user's custom MFA stage or invoke NeMoASRAlignerStage.
+The recipe imports `nemo_curator.stages.audio.alignment.MFAAlignmentStage`.
+The stage is ported from [Ssofja/Curator's montreal_forced_aligner branch](https://github.com/Ssofja/Curator/tree/montreal_forced_aligner),
+commit `74cb83a0`; `MFA_UPSTREAM.json` records the exact source and adaptations.
+Only target-framework agent contracts, configurable output keys and lazy exports
+are added. MFA execution, cache locking, timeouts and source defaults are retained.
+The separate direct-CLI adapter has been removed.
 
 ## Environment and inputs
 
-Use Python 3.12+ in an existing Curator audio environment. Curator's reader
+Use Python 3.12+ in an existing Curator audio environment. Praatio, required
+by the MFA stage, is included in the optional `audio_common` dependencies. Curator's reader
 handles ordinary and tarred audio. Silero/Sortformer require the compatible
 NeMo Speech build documented in [README.md](README.md).
 
@@ -71,12 +76,17 @@ python -m tutorials.audio.vad_refinement.alignment_with_refinement \
   --sortformer-model /models/Nemotron-3-Diarization.nemo
 ```
 
-The example models are for English. `--mfa-model-root` can point to an existing
-MFA model directory; installed names are resolved from its `pretrained_models/`
-subdirectories. Each worker gets isolated MFA state and each batch gets its own
-corpus, work directory, output TextGrids and log. Shared model files are read
-without changing the user's original MFA directory.
+The example models are for English. `--mfa-model-root` configures the stage's
+source MFA model directory. Curator copies its model cache to node-local storage
+and protects cache population with a lock and a source/model identity marker.
+Each explicitly launched recipe worker gets a separate local cache base.
+`--mfa-timeout` sets the subprocess timeout (default 3600 seconds); expiry kills
+the MFA process group, including its Kaldi children.
 
+The recipe requests only TextGrids from the MFA stage (`create_rttm=False`,
+`create_ctm=False`). If the stage reports `mfa_skipped=True`, an empty path or
+no lexical words, the batch fails before refinement. The stage's optional
+fallback RTTM/CTM outputs are not used as word anchors.
 Use `--stage align`, `--stage shard` and `--stage refine` to run phases in
 separate environments. Alignment requires the MFA arguments but not Sortformer.
 The shard phase requires only the output root and optional records-per-shard.
@@ -110,11 +120,7 @@ are integrity signals, not automatic checkpoint/restart support.
 alignment_run/
   aligned/<batch-id>.jsonl
   clips/<clip-id>.wav
-  mfa/batch-*/
-    corpus/<speaker>/<clip-id>.wav
-    corpus/<speaker>/<clip-id>.lab
-    textgrids/...
-    mfa.log
+  mfa/textgrids/<batch>/...
   alignments/<clip-id>.TextGrid
   shards/
     input.json
@@ -153,15 +159,15 @@ python -m pytest -o addopts= \
   tests/tutorials/audio/vad_refinement/integration -q
 ```
 
-The automated integration tests run a fixture executable through the real
-subprocess adapter, then exercise TextGrid preservation, the real NeMo tar
+The integration tests run a fixture executable through the actual Curator
+MFAAlignmentStage, then exercise TextGrid preservation, the real NeMo tar
 reader and refinement. They cover required transcripts, failing commands,
 missing MFA output, nonzero offsets, filename collisions, bounded reads,
 portable shards and disjoint workers. These fixtures do not measure MFA or
 neural-model accuracy. Real smoke checks must be reported separately.
 
-A real MFA 3.4.1 smoke check aligned one public LibriSpeech clip (14.085
-seconds, 34 words) through this direct CLI adapter. The supplied transcript
-and copied TextGrid were unchanged. Physical tar reading and refinement with
-empty detector fixtures preserved every MFA word interval exactly. This
-check performed no neural inference and submitted no cluster jobs.
+A real MFA 3.4.1 smoke check through the imported Curator stage aligned a
+public LibriSpeech clip (14.085 seconds, 34 words). The supplied transcript
+and copied TextGrid remained unchanged. Tar packaging, Curator reading and
+refinement with empty detector fixtures preserved every MFA interval exactly.
+No neural inference or cluster submission was performed in this smoke check.

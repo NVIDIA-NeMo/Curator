@@ -19,7 +19,7 @@ pytest.importorskip("nemo", reason="Physical-shard integration tests require the
 
 class AlignerFixture:
     def __init__(self, root: Path, *, missing: bool = False) -> None:
-        from tutorials.audio.vad_refinement.montreal_alignment import MontrealAligner
+        from nemo_curator.stages.audio.alignment import MFAAlignmentStage
 
         root.mkdir(parents=True, exist_ok=True)
         executable = root / "fixture_mfa"
@@ -28,10 +28,10 @@ from pathlib import Path
 from textgrid import TextGrid, IntervalTier
 assert sys.argv[1] == 'align'
 assert str(Path(sys.argv[0]).parent) == os.environ['PATH'].split(os.pathsep)[0]
-assert '--temporary_directory' in sys.argv
-assert '--num_jobs' in sys.argv
+assert '--beam' in sys.argv
+assert '-j' in sys.argv
 corpus, output = Path(sys.argv[2]), Path(sys.argv[5])
-for transcript in corpus.rglob('*.lab'):
+for transcript in corpus.rglob('*.txt'):
     assert transcript.read_text().strip()
     destination = output / transcript.parent.name / (transcript.stem + '.TextGrid')
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -46,13 +46,20 @@ for transcript in corpus.rglob('*.lab'):
             script = "import sys; sys.exit(0)\n"
         executable.write_text(f"#!{sys.executable}\n" + script)
         executable.chmod(0o755)
-        self.stage = MontrealAligner(
-            root / "outputs",
-            executable=str(executable),
+        self.stage = MFAAlignmentStage(
+            output_dir=str(root / "outputs"),
+            mfa_command=str(executable),
             dictionary="fixture-dictionary",
             acoustic_model="fixture-model",
-            jobs=1,
+            num_jobs=1,
+            g2p_model="",
+            create_rttm=False,
+            create_ctm=False,
+            mfa_root_dir=str(root / "state"),
+            copy_models_to_local=False,
         )
+        self.stage.setup_on_node()
+        self.stage.setup()
 
     def process_batch(self, tasks: list) -> list:
         return self.stage.process_batch(tasks)
@@ -131,7 +138,7 @@ def test_montreal_tar_refinement_roundtrip_after_relocation(tmp_path: Path) -> N
 def test_missing_mfa_output_prevents_publishing_aligned_batch(tmp_path: Path) -> None:
     source = _input_manifest(tmp_path / "inputs", count=1)
     root = tmp_path / "work"
-    with pytest.raises(ValueError, match="no TextGrid"):
+    with pytest.raises(ValueError, match="no word alignment"):
         pipeline.align_tasks(
             pipeline.input_tasks(None, source), root, AlignerFixture(root / "grids", missing=True), batch_size=1
         )
@@ -162,7 +169,7 @@ def test_mfa_textgrid_is_copied_without_rewriting(tmp_path: Path) -> None:
     grid.append(tier)
     grid.write(str(source))
     row = {"segment_id": "clip", "text": "original"}
-    pipeline.write_alignment(row, {"mfa_textgrid": str(source)}, tmp_path / "output")
+    pipeline.write_alignment(row, {"textgrid_filepath": str(source)}, tmp_path / "output")
     assert Path(row["mfa_textgrid"]).read_bytes() == source.read_bytes()
     assert row["text"] == "original"
     assert row["alignment_source"] == "montreal_forced_aligner"

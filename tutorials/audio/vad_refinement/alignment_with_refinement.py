@@ -41,8 +41,8 @@ class BatchAligner(Protocol):
 
 def write_alignment(row: dict[str, Any], result: dict[str, Any], output_root: Path) -> None:
     """Keep the supplied transcript and the official MFA TextGrid unchanged."""
-    source = result.get("mfa_textgrid")
-    if not source:
+    source = result.get("textgrid_filepath")
+    if result.get("mfa_skipped") or not source:
         msg = f"MFA returned no word alignment for {row['segment_id']}"
         raise ValueError(msg)
     target = output_root / "alignments" / f"{row['segment_id']}.TextGrid"
@@ -392,6 +392,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--mfa-acoustic-model")
     parser.add_argument("--mfa-model-root", type=Path)
     parser.add_argument("--mfa-jobs", type=int, default=4)
+    parser.add_argument("--mfa-timeout", type=float, default=3600.0)
     parser.add_argument("--alignment-batch-size", type=int, default=32)
     parser.add_argument("--records-per-shard", type=int, default=64)
     parser.add_argument("--sortformer-model")
@@ -403,6 +404,8 @@ def parse_args() -> argparse.Namespace:
         parser.error("Batch, shard and worker counts must be positive")
     if not 0 <= args.worker_index < args.worker_count:
         parser.error("worker-index must be in [0, worker-count)")
+    if not math.isfinite(args.mfa_timeout) or args.mfa_timeout <= 0:
+        parser.error("mfa-timeout must be finite and positive")
     if args.stage in {"align", "all"} and (
         not (args.input_manifest or args.input_config) or not args.mfa_dictionary or not args.mfa_acoustic_model
     ):
@@ -418,17 +421,28 @@ def main() -> int:
     args = parse_args()
     root = args.output_root.resolve()
     if args.stage in {"align", "all"}:
-        from tutorials.audio.vad_refinement.montreal_alignment import MontrealAligner
+        from nemo_curator.stages.audio.alignment import MFAAlignmentStage
 
-        aligner = MontrealAligner(
-            root / "mfa",
-            executable=args.mfa_command,
+        aligner = MFAAlignmentStage(
+            output_dir=str(root / "mfa"),
+            mfa_command=args.mfa_command,
             dictionary=args.mfa_dictionary,
             acoustic_model=args.mfa_acoustic_model,
-            jobs=args.mfa_jobs,
-            model_root=args.mfa_model_root,
+            num_jobs=args.mfa_jobs,
+            batch_size=args.alignment_batch_size,
+            mfa_root_dir=str(args.mfa_model_root) if args.mfa_model_root else None,
+            g2p_model="",
+            create_rttm=False,
+            create_ctm=False,
+            speaker_key="speaker_id",
+            align_timeout_seconds=args.mfa_timeout,
+            local_mfa_base_dir=str(
+                Path(tempfile.gettempdir()) / "curator-mfa" / _key(str(root)) / f"worker-{args.worker_index:06d}"
+            ),
         )
         try:
+            aligner.setup_on_node()
+            aligner.setup()
             align_tasks(
                 input_tasks(args.input_config, args.input_manifest, batch_size=args.alignment_batch_size),
                 root,
@@ -438,7 +452,7 @@ def main() -> int:
                 worker_index=args.worker_index,
             )
         finally:
-            aligner.close()
+            aligner.teardown()
     if args.stage in {"shard", "all"}:
         pack_shards(
             list((root / "aligned").glob("*.jsonl")), root / "shards", records_per_shard=args.records_per_shard

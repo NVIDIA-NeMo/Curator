@@ -14,10 +14,9 @@ modality: "audio-only"
 
 For audio with supplied transcripts, the
 `tutorials.audio.vad_refinement.alignment_with_refinement` entry point invokes
-the standard Montreal Forced Aligner `mfa align` command, packages aligned clips
+Curator's `MFAAlignmentStage` from the `montreal_forced_aligner` branch, packages aligned clips
 as physical NeMo tar shards with TextGrid sidecars, and applies Silero/Sortformer
-refinement. It preserves the supplied text and MFA word extents. No custom MFA
-stage is bundled. Curator's reader handles ordinary and tarred inputs.
+refinement. It preserves the supplied text and MFA word extents. The separate CLI adapter is removed; source provenance is recorded in `MFA_UPSTREAM.json`. Curator's reader handles ordinary and tarred inputs.
 
 Run `--stage align`, `--stage shard` and `--stage refine` separately, or use
 `--stage all`. Configure the MFA executable, dictionary and acoustic model for
