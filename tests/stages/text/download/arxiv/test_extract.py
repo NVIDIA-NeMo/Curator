@@ -74,3 +74,15 @@ class TestArxivExtractor:
         # Verify that the section header content is retained.
         assert "Introduction" in extracted_text
         assert "This is the introduction" in extracted_text
+
+    def test_non_arg_macros_are_expanded_literally(self) -> None:
+        extractor = ArxivExtractor()
+        content = (
+            "\\newcommand{\\R}{\\mathbb{R}}\n"
+            "\\newcommand{\\angstrom}{Å}\n"
+            "\\section{Setup}\n"
+            "Let $x \\in \\R$ be 5 \\angstrom{} long.\n"
+        )
+        result = extractor.extract({"content": [content]})
+        # A non-ASCII macro value must not cause the whole paper to be dropped
+        assert result == {"text": "\\section{Setup}\nLet $x \\in \\mathbb{R}$ be 5 Å{} long.\n"}
