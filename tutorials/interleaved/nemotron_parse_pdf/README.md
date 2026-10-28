@@ -207,3 +207,26 @@ or parse is written as one `text` row with `materialize_error` set, which the tu
 writer keeps with `on_materialize_error="warn"`. See the
 [Nemotron Parse PDF guide](../../../fern/versions/main/pages/curate-text/load-data/nemotron-parse-pdf.mdx)
 for serving limits and parser behavior.
+
+## Reproducing the Parse 3.5 serving benchmarks
+
+The following scripts preserve the CUDA 13 Dynamo and direct-vLLM benchmark
+workflows used for the B200 experiments:
+
+- `run_dynamo_uncapped.py` starts the Curator-managed Dynamo topology and can
+  run eager mode on, off, or both in isolated processes.
+- `run_extractions.sh` runs the capped and uncapped DC10K direct-vLLM cases.
+- `run_8gpu.sh` runs the 16-replica direct-vLLM topology on eight GPUs.
+- `run_8gpu_x100_direct.sh` runs that topology on the repeated 100x corpus.
+- `create_x100_dataset.sh` creates and validates the repeated physical corpus.
+- `round_robin_proxy.py` distributes OpenAI-compatible requests across the
+  local vLLM replicas.
+- `benchmark_run.py` records wall time and one-second GPU telemetry around a
+  command.
+- `benchmarking/scripts/nemotron_parse_pdf_benchmark.py` provides the shared
+  Parse throughput and output metrics used by the runners.
+
+The checked-in defaults reproduce the original host layout. Before running on
+another host, set or edit the Curator checkout, Python environment, model,
+dataset, manifest, and output paths. Every runner refuses to overwrite an
+existing result directory.
