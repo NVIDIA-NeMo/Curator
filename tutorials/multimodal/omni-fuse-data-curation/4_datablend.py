@@ -14,27 +14,7 @@
 
 """Rank SNS-refined records into a query-conditioned datablend."""
 
-from __future__ import annotations
-
-from utils import config_parser, load_tutorial_config, print_outputs, run_datablend
-
-
-def main() -> int:
-    parser = config_parser(__doc__ or "")
-    args = parser.parse_args()
-    config = load_tutorial_config(args.config)
-    task = run_datablend(config)
-    metadata = dict(getattr(task, "_metadata", {}) or {})
-    print_outputs(
-        {
-            "run_dir": str(config.run_dir),
-            "datablend_ranked_path": metadata.get("datablend_ranked_path"),
-            "datablend_topk_path": metadata.get("datablend_topk_path"),
-            "datablend_size": metadata.get("datablend_size"),
-        }
-    )
-    return 0
-
+from utils import main, run_datablend
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main(__doc__, run_datablend)

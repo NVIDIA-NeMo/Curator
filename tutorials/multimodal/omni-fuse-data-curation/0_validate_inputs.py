@@ -14,18 +14,7 @@
 
 """Validate config, data manifests, API keys, and local model assets."""
 
-from __future__ import annotations
-
-from utils import config_parser, load_tutorial_config, print_outputs, validate_inputs
-
-
-def main() -> int:
-    parser = config_parser(__doc__ or "")
-    args = parser.parse_args()
-    config = load_tutorial_config(args.config)
-    print_outputs(validate_inputs(config))
-    return 0
-
+from utils import main, validate_inputs
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main(__doc__, validate_inputs)

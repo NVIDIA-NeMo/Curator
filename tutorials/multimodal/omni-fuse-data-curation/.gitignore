@@ -1,0 +1,7 @@
+# Downloaded during setup (see README)
+/model_files/
+/third_party/
+
+# Generated when running the pipeline
+/outputs/
+/tmp/

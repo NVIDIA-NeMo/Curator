@@ -20,8 +20,6 @@ CONFIG="${CONFIG:-${TUTORIAL_DIR}/configs/omni_fuse_hybrid.yaml}"
 PYTHON_BIN="${PYTHON_BIN:-python}"
 read -r -a PYTHON_CMD <<< "${PYTHON_BIN}"
 
-"${PYTHON_CMD[@]}" "${TUTORIAL_DIR}/0_validate_inputs.py" --config "${CONFIG}"
-"${PYTHON_CMD[@]}" "${TUTORIAL_DIR}/1_sns.py" --config "${CONFIG}"
-"${PYTHON_CMD[@]}" "${TUTORIAL_DIR}/2_embed.py" --config "${CONFIG}"
-"${PYTHON_CMD[@]}" "${TUTORIAL_DIR}/3_project.py" --config "${CONFIG}"
-"${PYTHON_CMD[@]}" "${TUTORIAL_DIR}/4_datablend.py" --config "${CONFIG}"
+for step in 0_validate_inputs 1_sns 2_embed 3_project 4_datablend; do
+    "${PYTHON_CMD[@]}" "${TUTORIAL_DIR}/${step}.py" --config "${CONFIG}"
+done

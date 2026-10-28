@@ -14,28 +14,7 @@
 
 """Train the Omni-Fuse projection network and project raw embeddings."""
 
-from __future__ import annotations
-
-from utils import config_parser, load_tutorial_config, print_outputs, run_projection
-
-
-def main() -> int:
-    parser = config_parser(__doc__ or "")
-    args = parser.parse_args()
-    config = load_tutorial_config(args.config)
-    task = run_projection(config)
-    metadata = dict(getattr(task, "_metadata", {}) or {})
-    print_outputs(
-        {
-            "run_dir": str(config.run_dir),
-            "projection_model_path": metadata.get("projection_model_path"),
-            "projection_metrics_path": metadata.get("projection_metrics_path"),
-            "projected_embeddings_path": metadata.get("projected_embeddings_path"),
-            "projection_records_path": metadata.get("projection_records_path"),
-        }
-    )
-    return 0
-
+from utils import main, run_projection
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main(__doc__, run_projection)

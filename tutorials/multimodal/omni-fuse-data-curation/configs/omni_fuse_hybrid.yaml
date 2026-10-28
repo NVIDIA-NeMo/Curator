@@ -1,5 +1,4 @@
 experiment_id: "omni-fuse-hybrid-tutorial"
-description: "API-first hybrid Omni-Fuse multimodal data curation tutorial"
 output_dir: "../outputs"
 
 data_pools:
@@ -27,7 +26,6 @@ data_pools:
 sns:
   enabled: true
   continue_on_error: true
-  backend: "hybrid"
   direction: "bidirectional"
   mi_ratio: 0.75
   mi_eps: 0.05
@@ -45,17 +43,14 @@ sns:
   use_ann_components: true
 
 eee:
-  backend: "hybrid"
   continue_on_error: true
   experts: ["text-based", "fusion", "e2e"]
   embedding_dim: 2048
-  batch_size: 1
   nvidia_api_base_url: "https://integrate.api.nvidia.com/v1"
-  nvidia_text_describer_model: "nvidia/nemotron-nano-12b-v2-vl"
-  nvidia_image_describer_model: "nvidia/nemotron-nano-12b-v2-vl"
-  nvidia_video_describer_model: "nvidia/nemotron-nano-12b-v2-vl"
+  nvidia_image_describer_model: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
+  nvidia_video_describer_model: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
   nvidia_audio_describer_model: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
-  nvidia_embedding_model: "nvidia/llama-nemotron-embed-1b-v2"
+  nvidia_embedding_model: "nvidia/llama-nemotron-embed-vl-1b-v2"
   nvidia_multimodal_model: "nvidia/omni-embed-nemotron-3b"
 
 parallelism:
@@ -69,8 +64,6 @@ parallelism:
   logging_interval_s: 60
 
 projection:
-  enabled: true
-  backend: "torch"
   device: "auto"
   num_gpus: 1
   num_epochs: 1
@@ -87,5 +80,3 @@ datablend:
 
 runtime:
   device: "auto"
-  dtype: "float32"
-  offline_mode: false

@@ -14,26 +14,7 @@
 
 """Run the Expert Embedding Engine for SNS-refined records."""
 
-from __future__ import annotations
-
-from utils import config_parser, load_tutorial_config, print_outputs, run_eee
-
-
-def main() -> int:
-    parser = config_parser(__doc__ or "")
-    args = parser.parse_args()
-    config = load_tutorial_config(args.config)
-    task = run_eee(config)
-    metadata = dict(getattr(task, "_metadata", {}) or {})
-    print_outputs(
-        {
-            "run_dir": str(config.run_dir),
-            "embedding_metadata_path": metadata.get("embedding_metadata_path"),
-            "embedding_records_path": metadata.get("embedding_records_path"),
-        }
-    )
-    return 0
-
+from utils import main, run_eee
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main(__doc__, run_eee)

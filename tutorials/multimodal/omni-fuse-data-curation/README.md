@@ -45,8 +45,8 @@ my_pool/
   pair_mapping.jsonl
 ```
 
-Each mapping row must contain a raw path and either an annotation path or inline
-annotation text:
+Each mapping row must contain a `data_path` and either an `annotation_path` or
+inline `annotation` text:
 
 ```json
 {"id": "sample-1", "data_path": "raw/sample.jpg", "annotation_path": "annotations/sample.txt"}
@@ -69,16 +69,12 @@ Use small `n_samples` values while validating the tutorial.
 
 ### Model Backends
 
-The default config uses `sns.backend: hybrid` and `eee.backend: hybrid`.
-If you wish to use strictly api-based or local models, you can change these to `api` or `local`. However, this won't work out of the box and you will have to modify code to fit your requirements.
-
 API-backed components:
 
 - Modality descriptions for backward SNS and the text-based EEE expert:
-  - `nvidia/nemotron-nano-12b-v2-vl` for text, image, and video.
-  - `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning` for audio.
+  - `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning` for image, video, and audio.
 - Text embeddings:
-  - `nvidia/llama-nemotron-embed-1b-v2`.
+  - `nvidia/llama-nemotron-embed-vl-1b-v2`.
 
 Local components:
 
@@ -126,7 +122,7 @@ MI gating use local Omni-Embed. Text lists are embedded in real batches
 cached within each worker. Forward extraction for image/audio/video stays local
 with Grounding-DINO/AM-DETR/CG-DETR.
 
-Gemma audio descriptions use the same inline `input_audio` payload as EmbedSim.
+Audio descriptions use the same inline `input_audio` payload as EmbedSim.
 If the endpoint rejects the payload size, the tutorial automatically falls back
 to an NVCF asset upload and finally to an inline preview. Bidirectional forward
 and backward extraction both start from the original pair, matching EmbedSim.
@@ -224,7 +220,6 @@ one GPU is assigned. Use a batch size large enough to keep each GPU busy:
 
 ```yaml
 projection:
-  backend: "torch"
   device: "cuda"
   num_gpus: 2
   batch_size: 128
@@ -280,9 +275,6 @@ with `1_2_parallel.py`:
 ```bash
 PYTHON_BIN="uv run python" CONFIG=configs/omni_fuse_hybrid.yaml bash e2e_parallel.sh
 ```
-
-For the five-dataset benchmark used in this tutorial, the matching two-GPU,
-4,000-epoch config is `configs/omni_fuse_1000_4000ep_parallel.yaml`.
 
 ## Output Layout
 

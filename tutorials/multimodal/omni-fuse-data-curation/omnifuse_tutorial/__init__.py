@@ -14,7 +14,7 @@
 
 """NeMo Curator rewrite of the Omni-Fuse data curation pipeline."""
 
-from omnifuse_tutorial.config.models import ExperimentConfig
-from omnifuse_tutorial.pipeline import build_pipeline
+from omnifuse_tutorial.config import ExperimentConfig
+from omnifuse_tutorial.stages import build_pipeline
 
 __all__ = ["ExperimentConfig", "build_pipeline"]

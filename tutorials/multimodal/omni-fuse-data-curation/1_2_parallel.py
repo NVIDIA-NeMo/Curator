@@ -14,19 +14,8 @@
 
 """Run sharded SNS and EEE concurrently across multiple GPUs."""
 
-from __future__ import annotations
-
 from omnifuse_tutorial.parallel import run_parallel_sns_eee
-from utils import config_parser, load_tutorial_config, print_outputs
-
-
-def main() -> int:
-    parser = config_parser(__doc__ or "")
-    args = parser.parse_args()
-    config = load_tutorial_config(args.config)
-    print_outputs(run_parallel_sns_eee(config))
-    return 0
-
+from utils import main
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main(__doc__, run_parallel_sns_eee)

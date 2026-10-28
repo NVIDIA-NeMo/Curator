@@ -14,26 +14,7 @@
 
 """Run Symmetric Nucleus Subsampling over paired multimodal records."""
 
-from __future__ import annotations
-
-from utils import config_parser, load_tutorial_config, print_outputs, run_sns
-
-
-def main() -> int:
-    parser = config_parser(__doc__ or "")
-    args = parser.parse_args()
-    config = load_tutorial_config(args.config)
-    task = run_sns(config)
-    metadata = dict(getattr(task, "_metadata", {}) or {})
-    print_outputs(
-        {
-            "run_dir": str(config.run_dir),
-            "sns_manifest_path": metadata.get("sns_manifest_path"),
-            "sns_records_path": metadata.get("sns_records_path"),
-        }
-    )
-    return 0
-
+from utils import main, run_sns
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main(__doc__, run_sns)
