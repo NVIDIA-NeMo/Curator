@@ -188,15 +188,20 @@ def install_audio() -> None:
         if uv is None:
             msg = "uv is required to preserve Curator's existing dependency overrides during audio installation."
             raise RuntimeError(msg)
-        pip = [sys.executable, "-m", "pip", "install", "--upgrade-strategy", "only-if-needed"]
         # An installed wrong-CUDA wheel can satisfy the series; replace it from the matching index.
         subprocess.run(  # noqa: S603
             [
-                *pip,
-                "--force-reinstall",
+                uv,
+                "--no-config",
+                "pip",
+                "install",
+                "--python",
+                sys.executable,
                 "--no-deps",
                 "--index-url",
                 f"https://download.pytorch.org/whl/{flavor}",
+                "--reinstall-package",
+                "torchcodec",
                 codec,
             ],
             check=True,
