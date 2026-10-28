@@ -81,7 +81,8 @@ overrides = [
     { name = "setuptools", specifier = ">=80.10.1" },
     { name = "torch", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')", specifier = "==2.11.0", index = "https://download.pytorch.org/whl/cu129" },
     { name = "torchaudio", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')", specifier = "==2.11.0", index = "https://download.pytorch.org/whl/cu129" },
-    { name = "torchcodec", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')", specifier = "~=0.11.0", index = "https://download.pytorch.org/whl/cu129" },
+    { name = "torchcodec", marker = "platform_machine == 'aarch64' and sys_platform == 'linux'", specifier = "~=0.11.0", index = "https://download.pytorch.org/whl/cu129" },
+    { name = "torchcodec", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'", specifier = "~=0.11.0", index = "https://pypi.org/simple" },
     { name = "torchvision", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')", specifier = "==0.26.0", index = "https://download.pytorch.org/whl/cu129" },
     { name = "xgrammar", specifier = ">=0.1.32" },
 ]
@@ -5656,7 +5657,8 @@ all = [
     { name = "timm" },
     { name = "torch", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')" },
     { name = "torchaudio", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')" },
-    { name = "torchcodec", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')" },
+    { name = "torchcodec", version = "0.11.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
+    { name = "torchcodec", version = "0.11.1+cu129", source = { registry = "https://download.pytorch.org/whl/cu129" }, marker = "platform_machine == 'aarch64' and sys_platform == 'linux'" },
     { name = "torchlibrosa" },
     { name = "torchvision", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')" },
     { name = "trafilatura" },
@@ -5685,7 +5687,8 @@ audio-common = [
     { name = "soundfile" },
     { name = "speechbrain", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { name = "torchaudio", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')" },
-    { name = "torchcodec", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')" },
+    { name = "torchcodec", version = "0.11.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
+    { name = "torchcodec", version = "0.11.1+cu129", source = { registry = "https://download.pytorch.org/whl/cu129" }, marker = "platform_machine == 'aarch64' and sys_platform == 'linux'" },
     { name = "transformers" },
     { name = "wget" },
     { name = "whisperx", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')" },
@@ -5709,7 +5712,8 @@ audio-cpu = [
     { name = "soundfile" },
     { name = "speechbrain", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { name = "torchaudio", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')" },
-    { name = "torchcodec", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')" },
+    { name = "torchcodec", version = "0.11.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
+    { name = "torchcodec", version = "0.11.1+cu129", source = { registry = "https://download.pytorch.org/whl/cu129" }, marker = "platform_machine == 'aarch64' and sys_platform == 'linux'" },
     { name = "transformers" },
     { name = "wget" },
     { name = "whisperx", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')" },
@@ -5742,7 +5746,8 @@ audio-cuda12 = [
     { name = "soundfile" },
     { name = "speechbrain", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { name = "torchaudio", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')" },
-    { name = "torchcodec", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')" },
+    { name = "torchcodec", version = "0.11.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
+    { name = "torchcodec", version = "0.11.1+cu129", source = { registry = "https://download.pytorch.org/whl/cu129" }, marker = "platform_machine == 'aarch64' and sys_platform == 'linux'" },
     { name = "torchlibrosa" },
     { name = "transformers" },
     { name = "wget" },
@@ -5777,7 +5782,8 @@ audio-tensorrt = [
     { name = "speechbrain", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { name = "tensorrt", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "torchaudio", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')" },
-    { name = "torchcodec", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')" },
+    { name = "torchcodec", version = "0.11.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
+    { name = "torchcodec", version = "0.11.1+cu129", source = { registry = "https://download.pytorch.org/whl/cu129" }, marker = "platform_machine == 'aarch64' and sys_platform == 'linux'" },
     { name = "torchlibrosa" },
     { name = "transformers" },
     { name = "wget" },
@@ -6209,7 +6215,8 @@ requires-dist = [
     { name = "torchaudio", marker = "(platform_machine != 'aarch64' and platform_machine != 'x86_64' and extra == 'video-cuda12') or (sys_platform == 'darwin' and extra == 'video-cuda12')", index = "https://pypi.org/simple" },
     { name = "torchaudio", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux' and extra == 'audio-common') or (platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'audio-common')", index = "https://download.pytorch.org/whl/cu129" },
     { name = "torchaudio", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux' and extra == 'video-cuda12') or (platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'video-cuda12')", index = "https://download.pytorch.org/whl/cu129" },
-    { name = "torchcodec", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux' and extra == 'audio-common') or (platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'audio-common')", index = "https://download.pytorch.org/whl/cu129" },
+    { name = "torchcodec", marker = "platform_machine == 'aarch64' and sys_platform == 'linux' and extra == 'audio-common'", index = "https://download.pytorch.org/whl/cu129" },
+    { name = "torchcodec", marker = "platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'audio-common'", index = "https://pypi.org/simple" },
     { name = "torchlibrosa", marker = "extra == 'audio-cuda12'", specifier = ">=0.1.0" },
     { name = "torchvision", marker = "(platform_machine == 'aarch64' and sys_platform != 'darwin' and sys_platform != 'linux' and extra == 'image-cpu') or (platform_machine == 'x86_64' and sys_platform != 'darwin' and sys_platform != 'linux' and extra == 'image-cpu')" },
     { name = "torchvision", marker = "(platform_machine == 'aarch64' and sys_platform != 'darwin' and sys_platform != 'linux' and extra == 'video-cpu') or (platform_machine == 'x86_64' and sys_platform != 'darwin' and sys_platform != 'linux' and extra == 'video-cpu')" },
@@ -8817,7 +8824,8 @@ dependencies = [
     { name = "torch" },
     { name = "torch-audiomentations" },
     { name = "torchaudio" },
-    { name = "torchcodec" },
+    { name = "torchcodec", version = "0.11.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64'" },
+    { name = "torchcodec", version = "0.11.1+cu129", source = { registry = "https://download.pytorch.org/whl/cu129" }, marker = "platform_machine != 'x86_64'" },
     { name = "torchmetrics" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/20/05/6b2d4829ab00f2933b8966035cc8da5e27f81dc9c8c3c9eb58419ffa51e8/pyannote_audio-4.0.4.tar.gz", hash = "sha256:dee724dc3cff17dac9ea5afd36053f373ab7839f7b3044e617ff51e099deb131", size = 13960474, upload-time = "2026-02-07T09:56:27.776Z" }
@@ -11631,15 +11639,32 @@ wheels = [
 
 [[package]]
 name = "torchcodec"
+version = "0.11.1"
+source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version >= '3.13' and platform_machine == 'x86_64' and sys_platform == 'linux'",
+    "python_full_version == '3.12.*' and platform_machine == 'x86_64' and sys_platform == 'linux'",
+    "python_full_version < '3.12' and platform_machine == 'x86_64' and sys_platform == 'linux'",
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f6/50/bd8e96424e2ae403b4ef3e2cb839a0be8a685fa9f6f27482acdaad075845/torchcodec-0.11.1-cp311-cp311-manylinux_2_28_x86_64.whl", hash = "sha256:dd17e1cb3b8c6cdd2f6a522d8822031b169fb10b7ff465d0de748df9af4ea930", size = 2310372, upload-time = "2026-04-14T18:24:47.75Z" },
+    { url = "https://files.pythonhosted.org/packages/ca/a9/a2b6ee3e84c55bdd0c45fd991dde71c95a99115ec9e26938b212b4545dcf/torchcodec-0.11.1-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:6c26e90e7aa982302644d0af8cb706318682bb390f48a80ecbfeab03499acd04", size = 2329883, upload-time = "2026-04-14T18:24:55.467Z" },
+    { url = "https://files.pythonhosted.org/packages/5d/b2/85ad7a81f387e40983c21bc94da0c333974afb41f38c3a85d25875274187/torchcodec-0.11.1-cp313-cp313-manylinux_2_28_x86_64.whl", hash = "sha256:5eee69971cec1147a03b8a6b678b5dfbeff0b2c71ed7929e488391f9fbcd630c", size = 2332721, upload-time = "2026-04-14T18:25:02.518Z" },
+]
+
+[[package]]
+name = "torchcodec"
 version = "0.11.1+cu129"
 source = { registry = "https://download.pytorch.org/whl/cu129" }
+resolution-markers = [
+    "python_full_version >= '3.13' and platform_machine == 'aarch64' and sys_platform == 'linux'",
+    "python_full_version == '3.12.*' and platform_machine == 'aarch64' and sys_platform == 'linux'",
+    "python_full_version < '3.12' and platform_machine == 'aarch64' and sys_platform == 'linux'",
+]
 wheels = [
     { url = "https://download.pytorch.org/whl/cu129/torchcodec-0.11.1%2Bcu129-cp311-cp311-manylinux_2_28_aarch64.whl", hash = "sha256:659cad0d64a333bd33827d5964fbebb652ff419893592bb89a374de93db4610d", upload-time = "2026-04-14T18:06:04Z" },
-    { url = "https://download.pytorch.org/whl/cu129/torchcodec-0.11.1%2Bcu129-cp311-cp311-manylinux_2_28_x86_64.whl", hash = "sha256:e58def3a347a7a0476d9d662ecc80bdfb679d0f821af175da439a3e5a534056e", upload-time = "2026-04-14T18:06:04Z" },
     { url = "https://download.pytorch.org/whl/cu129/torchcodec-0.11.1%2Bcu129-cp312-cp312-manylinux_2_28_aarch64.whl", hash = "sha256:0956fad9507a09a80ff3f17e73187a41da07a67b5d00f0934774f0692fa5ca5e", upload-time = "2026-04-14T18:06:04Z" },
-    { url = "https://download.pytorch.org/whl/cu129/torchcodec-0.11.1%2Bcu129-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:628ce609e90b6903230a398fa545a529c2a4bcc0564a0e3d9a72106c9e3ed51a", upload-time = "2026-04-14T18:06:04Z" },
     { url = "https://download.pytorch.org/whl/cu129/torchcodec-0.11.1%2Bcu129-cp313-cp313-manylinux_2_28_aarch64.whl", hash = "sha256:383ca534df40c904a494203480ebce35511471a07159023a2612947c2d2cac04", upload-time = "2026-04-14T18:06:04Z" },
-    { url = "https://download.pytorch.org/whl/cu129/torchcodec-0.11.1%2Bcu129-cp313-cp313-manylinux_2_28_x86_64.whl", hash = "sha256:e5aa69a4c2157acbcb7550a765438c11f9151ceca55b6e093e8e13b2e45f9806", upload-time = "2026-04-14T18:06:04Z" },
 ]
 
 [[package]]
@@ -12464,7 +12489,8 @@ dependencies = [
     { name = "pyannote-audio" },
     { name = "torch" },
     { name = "torchaudio" },
-    { name = "torchcodec" },
+    { name = "torchcodec", version = "0.11.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64'" },
+    { name = "torchcodec", version = "0.11.1+cu129", source = { registry = "https://download.pytorch.org/whl/cu129" }, marker = "platform_machine != 'x86_64'" },
     { name = "torchvision" },
     { name = "transformers" },
     { name = "triton", marker = "platform_machine == 'x86_64'" },

@@ -412,7 +412,10 @@ torchvision = [
     { index = "pypi", marker = "sys_platform == 'darwin' or (platform_machine != 'x86_64' and platform_machine != 'aarch64')" },
 ]
 torchcodec = [
-    { index = "pytorch", marker = "sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')" },
+    # PyPI's ARM wheel requires CUDA 13; match our ARM Torch/CUDA 12.9 stack instead.
+    # Keep x86 on PyPI so CPU installs do not acquire native CUDA requirements.
+    { index = "pytorch", marker = "sys_platform == 'linux' and platform_machine == 'aarch64'" },
+    { index = "pypi", marker = "sys_platform != 'linux' or platform_machine != 'aarch64'" },
 ]
 vllm = [
     { index = "vllm-cu129", marker = "sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')" },
