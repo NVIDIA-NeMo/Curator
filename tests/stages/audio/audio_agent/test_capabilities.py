@@ -184,7 +184,6 @@ def new_modules(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SimpleNamesp
     )
 
 
-@pytest.mark.ray
 @pytest.mark.parametrize("with_review", [False, True])
 def test_new_modules_smoke_run_and_reuse_through_public_verbs(
     new_modules: SimpleNamespace,

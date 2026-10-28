@@ -42,7 +42,7 @@ from nemo_curator.stages.audio.audio_agent import (
 )
 from nemo_curator.stages.audio.audio_agent.recipe import Recipe
 
-pytestmark = [pytest.mark.ray, pytest.mark.usefixtures("agent_ray_cluster")]
+pytestmark = pytest.mark.usefixtures("agent_ray_cluster")
 
 
 @pytest.fixture(autouse=True)

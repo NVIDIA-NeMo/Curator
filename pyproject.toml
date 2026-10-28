@@ -495,7 +495,6 @@ testpaths = ["tests"]
 markers = [
     "asyncio",
     "gpu: marks tests as GPU tests (deselect with '-m \"not gpu\"')",
-    "ray: marks integration tests that execute against a real Ray cluster",
 ]
 
 [tool.check-manifest]
