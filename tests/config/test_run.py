@@ -28,7 +28,7 @@ from unittest.mock import MagicMock, patch
 import hydra
 import pytest
 from hydra import compose, initialize, initialize_config_dir
-from omegaconf import OmegaConf
+from omegaconf import ListConfig, OmegaConf
 
 from nemo_curator.config.run import create_executor_from_yaml, create_pipeline_from_yaml, main
 from nemo_curator.pipeline import Pipeline
@@ -660,6 +660,101 @@ def test_qwen_asr_tutorial_yaml_uses_generic_adapter_contract():
 
     assert executor.__class__.__name__ == "RayDataExecutor"
     assert executor.config == {}
+
+
+def test_chatterbox_tts_tutorial_yaml_matches_reference_runner_config():
+    config_dir = Path(__file__).parents[2] / "tutorials" / "audio" / "tts"
+    with initialize_config_dir(config_dir=str(config_dir), version_base=None):
+        cfg = compose(
+            config_name="pipeline",
+            overrides=[
+                "input_manifest=tests/fixtures/audio/tts/sample_turns.jsonl",
+                "reference_voices_dataset=/data/reference_voices",
+                "output_dir=/data/tts_output",
+                "cfg_weight=0.3",
+            ],
+        )
+
+    pipeline = create_pipeline_from_yaml(cfg, log_config=False)
+    reader, stage, writer = pipeline.stages
+    executor = create_executor_from_yaml(cfg)
+
+    assert reader.__class__.__name__ == "ManifestReader"
+    assert reader.manifest_path == "tests/fixtures/audio/tts/sample_turns.jsonl"
+
+    assert stage.__class__.__name__ == "ChatterboxTTSStage"
+    assert stage.output_audio_dir == "/data/tts_output/audio"
+    assert stage.reference_voices_dataset == "/data/reference_voices"
+    assert stage.language is None
+    assert stage.device == "cuda"
+    assert stage.cache_dir is None
+    assert stage.sample_rate == 24000
+    assert stage.cfg_weight == 0.3
+    assert stage.exaggeration == 0.5
+    assert stage.temperature == 0.8
+    # English model (language=None) default penalty, not the multilingual 2.0.
+    assert stage.repetition_penalty == 1.2
+    assert stage.min_p == 0.05
+    assert stage.top_p == 1.0
+    assert stage.normalize_audio is True
+    assert stage.normalize_level == -20.0
+    assert stage.max_reference_duration == 60.0
+    # Declared on the stage itself, not the tutorial: no runner-side .with_() hook needed.
+    assert stage.batch_size == 1
+    assert stage.resources.gpus == 1
+
+    assert writer.__class__.__name__ == "ManifestWriterStage"
+    assert writer.output_path == "/data/tts_output/result.jsonl"
+
+    # ray_data is the tutorial default; both Ray Data and Xenna honor the same
+    # isolated Chatterbox runtime_env (see README "Choosing a backend").
+    assert executor.__class__.__name__ == "RayDataExecutor"
+    assert executor.config == {}
+
+    from nemo_curator.backends.ray_data.adapter import RayDataStageAdapter
+    from nemo_curator.backends.xenna.adapter import XennaStageAdapter
+
+    class _Dataset:
+        def map_batches(self, _fn: object, **kwargs: object) -> "_Dataset":
+            self.kwargs = kwargs
+            return self
+
+    dataset = _Dataset()
+    RayDataStageAdapter(stage).process_dataset(dataset)
+    assert dataset.kwargs["runtime_env"]["pip"] == stage.runtime_env["pip"]
+
+    xenna_env = XennaStageAdapter(stage).env_info
+    assert xenna_env is not None
+    assert xenna_env.to_ray_runtime_env().get("pip") == stage.runtime_env["pip"]
+
+
+@pytest.mark.parametrize("backend", ["ray_data", "xenna"])
+def test_chatterbox_tts_tutorial_yaml_accepts_exaggeration_range(backend: str, tmp_path: Path) -> None:
+    config_dir = Path(__file__).parents[2] / "tutorials" / "audio" / "tts"
+    with initialize_config_dir(config_dir=str(config_dir), version_base=None):
+        cfg = compose(
+            config_name="pipeline",
+            overrides=[
+                "input_manifest=tests/fixtures/audio/tts/sample_turns.jsonl",
+                "reference_voices_dataset=/data/reference_voices",
+                f"output_dir={tmp_path}/tts_output",
+                f"backend={backend}",
+                "exaggeration=[0.25,0.75]",
+            ],
+        )
+
+    assert isinstance(cfg.exaggeration, ListConfig)
+    pipeline = create_pipeline_from_yaml(cfg, log_config=False)
+    stage = pipeline.stages[1]
+    executor = create_executor_from_yaml(cfg)
+
+    assert stage.exaggeration_range == (0.25, 0.75)
+    assert stage.exaggeration == 0.25
+    value = stage._get_exaggeration("conv001")
+    assert 0.25 <= value <= 0.75
+    assert stage._get_exaggeration("conv001") == value
+    expected_executor = "RayDataExecutor" if backend == "ray_data" else "XennaExecutor"
+    assert executor.__class__.__name__ == expected_executor
 
 
 def test_faster_whisper_tutorial_yaml_matches_reference_contract():
