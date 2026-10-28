@@ -53,6 +53,8 @@ class LSHStage(ProcessingStage[FileGroupTask, FileGroupTask]):
         Size of the RMM GPU memory pool in bytes.
         If "auto", the memory pool is set to 90% of the free GPU memory.
         If None, the memory pool is set to 50% of the free GPU memory that can expand if needed.
+    use_async_memory
+        Whether to use a CUDA asynchronous memory resource for the shuffle.
     spill_memory_limit
         Device memory limit in bytes for spilling to host.
         If "auto", the limit is set to 80% of the RMM pool size.
@@ -89,6 +91,7 @@ class LSHStage(ProcessingStage[FileGroupTask, FileGroupTask]):
     enable_statistics: bool = False
     bands_per_iteration: int = 5  # number of bands to process in each iteration
     total_nparts: int | None = None
+    use_async_memory: bool = True
 
     def __post_init__(self):
         super().__init__()
@@ -103,6 +106,7 @@ class LSHStage(ProcessingStage[FileGroupTask, FileGroupTask]):
             "id_field": self.id_field,
             "minhash_field": self.minhash_field,
             "rmm_pool_size": self.rmm_pool_size,
+            "rmm_async": self.use_async_memory,
             "spill_memory_limit": self.spill_memory_limit,
             "enable_statistics": self.enable_statistics,
             "read_kwargs": self.read_kwargs,

@@ -45,7 +45,29 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.13-dev \
     python3.13-venv \
     python-is-python3 && \
-    apt-get install -y --only-upgrade gnupg libunbound8 && \
+    apt-get install -y --only-upgrade gnupg libunbound8 openssl libssl3t64 && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# Replace any bundled Nsight Systems with the pinned, patched devtools release.
+# Keep the repository key scoped to this source.
+RUN rm -rf /usr/local/cuda*/NsightSystems-cli-* /opt/nvidia/nsight-systems* && \
+    installed_nsys=$(dpkg-query -W -f='${binary:Package} ${db:Status-Status}\n' \
+        | awk '$1 ~ /^nsight-systems/ && $2 == "installed" {print $1}') && \
+    if [ -n "${installed_nsys}" ]; then \
+        apt-get remove --purge -y --allow-change-held-packages ${installed_nsys}; \
+    fi && \
+    NSYS_VERSION="2026.5.1.161-265138896106v0" && \
+    NSYS_RELEASE=$(echo "${NSYS_VERSION}" | cut -d. -f1-3) && \
+    NSYS_REPO="https://developer.download.nvidia.com/devtools/repos/ubuntu$(. /etc/lsb-release; echo "${DISTRIB_RELEASE}" | tr -d .)/$(dpkg --print-architecture)" && \
+    curl -fsSL "${NSYS_REPO}/nvidia.pub" -o /usr/share/keyrings/nvidia-devtools.asc && \
+    echo "deb [signed-by=/usr/share/keyrings/nvidia-devtools.asc] ${NSYS_REPO}/ /" \
+        > /etc/apt/sources.list.d/nvidia-devtools.list && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends "nsight-systems-cli-${NSYS_RELEASE}=${NSYS_VERSION}" && \
+    nsys --version && \
+    test "$(dpkg-query -W -f='${Version}' "nsight-systems-cli-${NSYS_RELEASE}")" = "${NSYS_VERSION}" && \
+    rm -f /etc/apt/sources.list.d/nvidia-devtools.list /usr/share/keyrings/nvidia-devtools.asc && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
@@ -68,11 +90,6 @@ COPY docker/common/install_etcd_nats.sh .
 RUN bash install_etcd_nats.sh && \
     rm install_etcd_nats.sh
 
-# Use the ray-haproxy wheel so Ray Serve's HAProxy ingress mode can discover
-# the packaged binary without compiling HAProxy in the image.
-ENV RAY_SERVE_EXPERIMENTAL_PIP_HAPROXY=1
-
-
 FROM nemo_curator_dep AS nemo_curator
 
 ARG CURATOR_EXTRA=all
@@ -89,14 +106,10 @@ RUN if [ -n "${CURATOR_EXTRA}" ]; then \
     else \
         uv sync --link-mode copy --locked ${CURATOR_GROUPS} --no-cache; \
     fi && \
+    # Curator uses Python Ray workers only; remove Java/cross-language support.
+    # Remove the directory, not just JAR files, so Ray disables Java workers.
+    find /opt/venv -type d -path "*/site-packages/ray/jars" -prune -exec rm -rf {} + && \
     find /opt/venv -type d -path "*ray/_private/runtime_env/agent/thirdparty_files/aiohttp*" -exec rm -rf {} + && \
-    # Address GHSA-72hv-8253-57qq: jackson-core bundled in ray_dist.jar (jackson-core 2.16.1 < 2.18.6)
-    # Ray's Java support is not used; deleting the JAR removes the vulnerable jackson-core classes.
-    # TODO: Remove once Ray upgrades bundled jackson-core to >=2.18.6 (https://github.com/ray-project/ray/issues/35949)
-    find /opt/venv -name "ray_dist.jar" -delete && \
-    if find /opt/venv -name "ray_dist.jar" | grep -q .; then \
-        echo "ERROR: GHSA-72hv-8253-57qq not fixed — ray_dist.jar still present after deletion" && exit 1; \
-    fi && \
     # Strip opencv-python-headless (ffmpeg CVE carrier); tolerate arm64 where vllm doesn't pull it.
     (uv pip uninstall opencv-python-headless || true)
 

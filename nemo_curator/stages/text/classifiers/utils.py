@@ -36,10 +36,10 @@ class SortByLengthStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         return ["data"], [ATTENTION_MASK_FIELD, SEQ_ORDER_FIELD]
 
     def process(self, batch: DocumentBatch) -> DocumentBatch:
-        if SEQ_ORDER_FIELD in batch.data.columns:
+        if SEQ_ORDER_FIELD in batch.get_columns():
             return batch
 
-        output = batch.data.copy()
+        output = batch.to_pandas()
 
         # Add column to preserve original order
         output[SEQ_ORDER_FIELD] = np.arange(len(output))

@@ -10,7 +10,6 @@ A comprehensive benchmarking framework for measuring and tracking the performanc
 - [Configuration](#configuration)
 - [Running benchmarks and using the container](#running-benchmarks-and-using-the-container)
 - [Audio Benchmark Data Setup](#audio-benchmark-data-setup)
-- [Audio Tagging Benchmark](#audio-tagging-benchmark)
 - [Writing Benchmark Scripts](#writing-benchmark-scripts)
 - [Sinks: Custom Reporting & Actions](#sinks-custom-reporting--actions)
 
@@ -18,30 +17,40 @@ A comprehensive benchmarking framework for measuring and tracking the performanc
 
 ## Quick Start
 
-**1. Build the Docker image:**
+**1. Choose where Curator runs:**
 
-Assuming the working directory is the NeMo Curator repo root dir:
+For an installed Curator environment on the local machine (bare
+metal), run the source-tree runner directly:
+
 ```bash
-./benchmarking/tools/build_docker.sh --tag-as-latest
+python benchmarking/run.py --help
 ```
 
-This builds the `curator_benchmarking` image with:
-- CUDA support
-- Python 3.12 environment
-- NeMo Curator from source in repo root dir
-- All NeMo Curator dependencies
-- Benchmarking framework and scripts
+For a Docker image, use the source-tree container helper. The standard
+Curator image is the Curator-under-test; the benchmark tools come from
+this checkout on the host:
 
-Note: you may only need to do this periodically when the environment needs to be updated. See the `--use-host-curator` example below.
+```bash
+python benchmarking/tools/container.py start \
+  --image nvcr.io/nvidia/nemo-curator:latest \
+  --name curator-benchmark \
+  --config ./benchmarking/benchmarks.yaml \
+  --config ./benchmarking/nightly-data-setup.yaml
+```
+
+By default, the container can access all GPUs unless `GPUS` is set in the host
+environment. See [Container Resources](#container-resources) to select GPUs and
+set memory limits before starting it.
 
 **2. Update config:**
 
-Update the `host_path` values in the `paths` section of the YAML config file based on your preferences. In this example, we'll edit the YAML config `./benchmarking/nightly-benchmark.yaml`
+Update the `host_path` values in the `paths` section of the YAML config file based on your preferences. In this example, we'll edit the YAML config `./benchmarking/benchmarks.yaml`
 
 ```yaml
 paths:
   - name: results_path
     host_path: /path/where/results/are/stored
+    # in this case, container_path defaults to /MOUNT/path/where/results/are/stored
   - name: datasets_path
     host_path: /path/to/datasets
     container_path: /datasets
@@ -55,38 +64,91 @@ pre-staged model snapshots or caches, such as audio tagging.
 
 **3. Run benchmarks:**
 
+**Bare metal:** run directly in the environment containing Curator:
+
 ```bash
-./benchmarking/tools/run.sh \
-  --config ./benchmarking/nightly-benchmark.yaml \
+python benchmarking/run.py \
+  --config ./benchmarking/benchmarks.yaml \
   --config ./benchmarking/nightly-data-setup.yaml
 ```
 
-To run using the Curator sources on the host instead of those in the image, pass the `--use-host-curator` option:
-```bash
-./benchmarking/tools/run.sh \
-  --config ./benchmarking/nightly-benchmark.yaml \
-  --config ./benchmarking/nightly-data-setup.yaml \
-  --use-host-curator
-```
-This is especially useful during active development and debugging since it avoids a costly rebuild step.
+**Container:** run from the host, targeting the container started in step 1:
 
+```bash
+python benchmarking/tools/container.py run \
+  --container curator-benchmark \
+  --config ./benchmarking/benchmarks.yaml \
+  --config ./benchmarking/nightly-data-setup.yaml
+```
+
+The start command runs `benchmarking/tools/setup_benchmark_env.sh` by default.
+If the selected image is missing benchmark runtime dependencies, setup installs
+`benchmarking/requirements.txt` and the required system tools inside the
+container before the first run. Reuse that container for subsequent runs.
+
+For a 4-GPU, 64-CPU GB200 environment, layer the SKU override after the full-suite
+config in either run command. For example, on bare metal:
+
+```bash
+python benchmarking/run.py \
+  --config ./benchmarking/benchmarks.yaml \
+  --config ./benchmarking/4xGB200-64CPU.yaml \
+  --config ./benchmarking/nightly-data-setup.yaml
+```
+
+The 4xGB200-64CPU override updates resource counts, timeout values, known 4-GPU video
+throughput thresholds, and workload-specific scaling settings. Other performance
+requirements are inherited from `benchmarks.yaml` until 4xGB200-64CPU-specific
+baselines are measured.
+For container runs, this YAML override does not restrict Docker to four GPUs;
+select the devices separately with `start --gpus` as described under
+[Container Resources](#container-resources).
 
 **4. View results:**
 
-Results are written to the `results_path` specified in your configuration, organized by session timestamp.
+Results are written to the `results_path` specified in your
+configuration, organized by session timestamp.
+
+Task performance statistics are always aggregated into `metrics.json`. The
+benchmark scripts default to saving full task objects in `tasks.pkl`. When
+`save_tasks` is omitted globally and for an entry, the runner adds no retention
+flag, preserving compatibility with custom scripts. The full-suite `benchmarks.yaml` explicitly
+sets `save_tasks: false` to reduce retained artifacts. Set `save_tasks: true`
+globally or within an individual entry to retain tasks for inspection. Entry
+settings override the global setting in either direction. Scripts run directly
+also save tasks by default; pass `--no-save-tasks` to opt out or `--save-tasks`
+to enable retention explicitly. The runner passes the effective YAML setting
+using these same CLI flags.
+
+```yaml
+save_tasks: false
+entries:
+  - name: alm_pipeline_xenna
+    save_tasks: true
+```
+
+This override can be layered on top of the full-suite config. Task pickles can
+be very large because they include data payloads, not just performance statistics.
+
+Archived Ray and inference-server `.log` files larger than 10 MiB are stored as
+`.log.gz` files, preserving their full contents. Read them with
+`gzip -cd path/to/file.log.gz`. The default benchmark config uses INFO-level
+Ray Data logging; an environment override can set `RAY_DATA_LOG_LEVEL: DEBUG`
+for detailed debugging.
 
 ---
 
 ## Nightly Benchmark Ownership
 
-Curator owns the benchmark workload: `benchmarking/nightly-benchmark.yaml`,
+Curator owns the benchmark workload: `benchmarking/benchmarks.yaml`,
 the benchmark runner, benchmark scripts, data setup scripts, and local developer
-tools such as `benchmarking/tools/run.sh`.
+tools such as `benchmarking/tools/container.py`.
 
 The scheduled nightly run is orchestrated outside of the Curator repository by
 CI infrastructure. That pipeline reads Curator's
-`benchmarking/nightly-benchmark.yaml`, generates one scheduler job per enabled
-entry, and starts each job in a benchmark runtime environment.
+`benchmarking/benchmarks.yaml` plus any selected SKU override config, generates
+one scheduler job per enabled entry from the merged config, and starts each job
+in a benchmark runtime environment.
 
 Each generated job invokes Curator's `benchmarking/run.py` for its assigned
 entry. The jobs share a session name and results root so their per-entry outputs
@@ -94,6 +156,12 @@ are collected as one logical nightly benchmark session. The CI layer also
 provides environment-specific path overrides, such as mapping the public
 benchmark config's logical dataset and results paths to the storage locations
 available in that runtime environment.
+
+When a CI job starts in a container, it should run
+`benchmarking/tools/setup_benchmark_env.sh` inside that container before
+invoking `benchmarking/run.py`. That keeps Curator-specific benchmark
+environment checks and setup steps in this repository instead of duplicating
+them in orchestration code.
 
 CI-only files that control job generation, path mapping, and runtime launch
 behavior live in a CI orchestration repository outside Curator. Keeping those
@@ -145,10 +213,27 @@ An **entry** is a single benchmark run within a session. Each entry:
 
 Built-in sinks include:
 - **Slack**: Post results to Slack channels
-- **Google Drive**: Upload results to cloud storage (extensible)
-- **MLflow**: Track experiments and metrics
 
 See [Sinks: Custom Reporting & Actions](#sinks-custom-reporting--actions) for details.
+
+### Automation Helpers
+
+Automation can use the same config loading and entry planning helpers as the
+runner without importing `run.py` or installing a separate benchmark package.
+From the repository root:
+
+```bash
+PYTHONPATH="$PWD/benchmarking${PYTHONPATH:+:$PYTHONPATH}" python - <<'PY'
+from nemo_curator_benchmarking.config import build_benchmark_config_plan, merge_config_files
+
+config = merge_config_files(["benchmarking/benchmarks.yaml"])
+plan = build_benchmark_config_plan(config)
+for entry in plan.entries:
+    print(entry.name, entry.timeout_s)
+PY
+```
+
+The helpers require PyYAML, but do not import Curator runtime dependencies.
 
 ## Configuration
 
@@ -158,11 +243,26 @@ The framework uses one or more YAML files to configure benchmark sessions. Multi
 
 A useful pattern is to use multiple YAML files, where configuration that does not typically change is in one or more files, and user or machine-specific configuration is others.  For example, `my_paths_and_reports.yaml` could have results / datasets paths and personal sink settings (individual slack channel, etc.), and `release-benchmarks.yaml` could have the team-wide configuration containing the individual benchmark entries and performance requirements.
 
-This can be especially useful during development. During development you'll not only want to use your own paths and report settings, you'll also want to use the standard benchmarking environment (i.e. a container), but cannot afford to rebuild the Docker image for each code change you're evaluating. The `--use-host-curator` flag is intended for this case. This flag will use your Curator source dir on host inside the container via a volume mount (this works because the container has curator installed in editable mode), and no image rebuild step is needed.
+This can be especially useful during development. Benchmark configs, scripts,
+and tutorials are copied from the host checkout into the container at start and
+before each benchmark run, so most benchmark-only changes do not require an image rebuild. The
+`--use-host-curator` flag is for testing local Curator library changes too; it
+mounts the host checkout at `/opt/Curator`, replacing the Curator package from
+the image.
 
 An example of a development scenario using this pattern looks like this:
 ```bash
-./benchmarking/tools/run.sh --use-host-curator --config ~/curator_benchmarking/my_paths_and_reports.yaml --config ./benchmarking/release-benchmarks.yaml
+python benchmarking/tools/container.py start \
+  --image nvcr.io/nvidia/nemo-curator:latest \
+  --name curator-dev \
+  --use-host-curator \
+  --config ~/curator_benchmark_paths.yaml \
+  --config ./benchmarking/release-benchmarks.yaml
+
+python benchmarking/tools/container.py run \
+  --container curator-dev \
+  --config ~/curator_benchmark_paths.yaml \
+  --config ./benchmarking/release-benchmarks.yaml
 ```
 
 ### Configuration Structure
@@ -171,9 +271,10 @@ An example of a development scenario using this pattern looks like this:
 # Required: Paths to files and directories used by the benchmarks.
 # Each entry must have a "name" and a "host_path". The name can be referenced elsewhere
 # in the config using {name} placeholders (e.g. {datasets_path}).
-# When running in Docker with tools/run.sh, each path is automatically mounted into the
-# container. An optional "container_path" overrides the default mount point
-# (which is the host_path prefixed with "/MOUNT").
+# When running in Docker with benchmarking/tools/container.py, each path is
+# automatically mounted into the container. An optional "container_path"
+# overrides the default mount point (which is the host_path prefixed with
+# "/MOUNT").
 # An entry with name "results_path" is required.
 paths:
   - name: results_path
@@ -213,24 +314,22 @@ delete_scratch: true
 
 # Optional: Configure sinks for result processing
 sinks:
-  - name: mlflow
-    enabled: true
-    tracking_uri: ${MLFLOW_TRACKING_URI}
-    experiment: my-experiment
   - name: slack
     enabled: true
     channel_id: ${SLACK_CHANNEL_ID}
     default_metrics: ["exec_time_s"]  # Metrics to report by default for all entries
-  - name: gdrive
-    enabled: false
-    drive_folder_id: ${GDRIVE_FOLDER_ID}
-    service_account_file: ${GDRIVE_SERVICE_ACCOUNT_FILE}
 
 # Optional: Global Ray settings inherited by all entries; per-entry ray sections override these values
 ray:
   num_cpus: 64
   num_gpus: 8
   enable_object_spilling: false
+
+# Optional: Global environment variables inherited by benchmark subprocesses.
+# Per-entry environment sections add variables and override matching names.
+environment:
+  NCCL_DEBUG: WARN
+  HF_HOME: "{model_weights_path}/hf_cache"
 
 # Optional: Define datasets for template substitution
 datasets:
@@ -262,6 +361,12 @@ entries:
       num_gpus: 1
       enable_object_spilling: false
 
+    # Optional: Add or override environment variables for this entry subprocess.
+    # This entry inherits NCCL_DEBUG from the top-level environment and overrides HF_HOME.
+    environment:
+      HF_HOME: "{session_entry_dir}/scratch/hf_cache"
+      UCX_TLS: all
+
     # Optional: Requirements for the benchmark to pass
     requirements:
       - metric: throughput_docs_per_sec
@@ -270,6 +375,16 @@ entries:
     # Optional: Override global delete_scratch setting
     delete_scratch: false
 ```
+
+Environment variables configured in YAML are merged into the current process
+environment before each benchmark subprocess starts. Top-level `environment`
+values apply to every entry. Entry-level `environment` values are merged on top
+of the top-level values and override individual variables with the same name.
+The full list of subprocess environment variable names is written to the
+entry's `logs/stdouterr.log` before the command output starts. Values inherited
+from the parent process are redacted by default. Values configured in YAML are
+shown only when their variable names do not look secret-bearing; tokens,
+passwords, credentials, keys, webhooks, and similar values are redacted.
 
 ### Passing Configuration Files
 
@@ -282,7 +397,7 @@ python benchmarking/run.py \
   --config machine_specific.yaml
 ```
 
-Files are merged in order using a deep recursive merge, so later files can override or extend specific nested values without replacing entire top-level keys.
+Files are merged in order using a deep recursive merge, so later files can override or extend specific nested values without replacing entire top-level keys. `benchmarking/benchmarks.yaml` is the complete full-suite reference config and is calibrated for the default 8-GPU H100 nightly environment. SKU-specific files such as `benchmarking/4xGB200-64CPU.yaml` should be passed after it to override only the values that differ for that environment.
 
 **Merge behavior:**
 - **Scalar values** (strings, numbers, booleans): later file wins.
@@ -293,7 +408,7 @@ This makes it practical to write small override files that change only specific 
 
 **Example — overriding a single entry's timeout and requirements:**
 
-Base config (`nightly-benchmark.yaml`) defines many entries including:
+Base config (`benchmarks.yaml`) defines many entries including:
 ```yaml
 entries:
   - name: domain_classification_xenna
@@ -316,7 +431,7 @@ entries:
 Running with both files:
 ```bash
 python benchmarking/run.py \
-  --config nightly-benchmark.yaml \
+  --config benchmarks.yaml \
   --config my_overrides.yaml
 ```
 
@@ -381,8 +496,6 @@ paths:
 sinks:
   - name: slack
     channel_id: ${SLACK_CHANNEL_ID}
-  - name: mlflow
-    tracking_uri: ${MLFLOW_TRACKING_URI}
 ```
 
 ### Template Substitution and Path Resolution
@@ -461,101 +574,173 @@ entries:
 
 ## Running benchmarks and using the container
 
-The `benchmarking/tools/run.sh` script provides a convenient way to run benchmarks in a Docker container with proper volume mounts, GPU access, and environment configuration.
+Use `python benchmarking/run.py` when Curator is already installed in the
+current Python environment. Use `python benchmarking/tools/container.py` when
+Curator is installed in a Docker image or an already-running Docker container.
+The host running `container.py` needs Docker, Python, and PyYAML; the rest of
+the benchmark runtime dependencies are checked and installed inside the
+container.
 
-### Basic Usage
+### Bare-metal runs
 
-Run benchmarks using a configuration file:
-
-```bash
-./benchmarking/tools/run.sh --config benchmarking/my-benchmark.yaml
-```
-
-This command:
-- Reads the configuration file and extracts `results_path` and `datasets_path`
-- Automatically creates volume mounts to map these paths into the container
-- Runs the benchmarking framework with the Curator code built into the Docker image
-- Passes environment variables like `SLACK_BOT_TOKEN`, `SLACK_CHANNEL_ID`, and `MLFLOW_TRACKING_URI` to the container
-
-### Using Host Curator Sources
-
-To run benchmarks using Curator source code from your local repository instead of the version built into the image:
+Run the source-tree benchmark runner directly:
 
 ```bash
-./benchmarking/tools/run.sh --use-host-curator --config benchmarking/my-benchmark.yaml
+python benchmarking/run.py \
+  --config benchmarking/benchmarks.yaml \
+  --config /path/to/paths.yaml
 ```
 
-This mounts your local Curator repository (from `$HOST_CURATOR_DIR`) into the container at `/opt/Curator`, allowing you to:
-- Test local changes without rebuilding the Docker image
-- Quickly iterate on Curator development
-- Debug issues with modified source code
-
-The `HOST_CURATOR_DIR` environment variable defaults to the repository root but can be overridden:
+Install `benchmarking/requirements.txt` in this environment when the runner is
+missing benchmark-only Python packages such as `rich` or `slack_sdk`.
+To check the current environment first:
 
 ```bash
-HOST_CURATOR_DIR=/path/to/my/curator/fork ./benchmarking/tools/run.sh --use-host-curator --config my-benchmark.yaml
+bash benchmarking/tools/setup_benchmark_env.sh --check
 ```
 
-### Interactive Shell
+### Reusable Docker container
 
-Get an interactive bash shell in the container environment:
+Start a container from a standard Curator image:
 
 ```bash
-./benchmarking/tools/run.sh --shell
+python benchmarking/tools/container.py start \
+  --image nvcr.io/nvidia/nemo-curator:latest \
+  --name curator-benchmark \
+  --config benchmarking/benchmarks.yaml \
+  --config /path/to/paths.yaml
 ```
 
-This is useful for:
-- Exploring the container environment
-- Running benchmarks manually for debugging
-- Checking installed packages and versions
-- Testing commands before adding them to scripts
+The start command mounts this checkout read-only at
+`/tmp/.curator-benchmark-source`, copies only `benchmarking` and `tutorials` to
+`/opt/curator-benchmark-source`, reads the supplied configs, and mounts
+configured benchmark paths into the container. Config files outside this
+checkout are mounted under `/MOUNT/...`. Pass all configs that introduce host
+paths to `start`; Docker cannot add new mounts to an already-running container.
+Source preparation also runs with `--setup-benchmark-env no`; that option skips
+dependency installation, not the source copy.
 
-### Running Commands in the Container
-
-Execute a specific command in the container without an interactive shell:
+Run one or more benchmark entries in that container:
 
 ```bash
-./benchmarking/tools/run.sh --shell "uv pip list"
+python benchmarking/tools/container.py run \
+  --container curator-benchmark \
+  --config benchmarking/benchmarks.yaml \
+  --config /path/to/paths.yaml \
+  -- --entries score_filter_raydata
 ```
 
-This runs the command and exits. Examples:
+Use `--` before arguments that should be passed through to `benchmarking/run.py`.
+Each `run` refreshes the benchmark scripts, configs, and tutorials from the mounted
+checkout without reinstalling Curator or dependencies. If your edits add a dependency,
+run environment setup again before benchmarking. Use one benchmark run at a time
+per container, since runs share the runtime source copy.
+When finished, remove the container with Docker:
 
 ```bash
-# Check installed packages
-./benchmarking/tools/run.sh --shell "uv pip list | grep curator"
-
-# Verify Python environment
-./benchmarking/tools/run.sh --shell "python -c 'import nemo_curator; print(nemo_curator.__version__)'"
-
-# List available benchmark scripts
-./benchmarking/tools/run.sh --shell "ls -l /opt/Curator/benchmarking/scripts/"
+docker rm -f curator-benchmark
 ```
 
-### Controlling GPU Access
+### Benchmark environment setup
 
-Use the `GPUS` environment variable to control which GPUs are visible to the container:
+`benchmarking/tools/setup_benchmark_env.sh` is the shared benchmark environment
+setup entry point. It is used by `container.py start` and can also be run
+directly by bare-metal users or scheduler orchestration before invoking
+`benchmarking/run.py`.
 
 ```bash
-# Use all GPUs (default)
-./benchmarking/tools/run.sh --config my-benchmark.yaml
-
-# Use specific GPUs
-GPUS="device=0,1" ./benchmarking/tools/run.sh --config my-benchmark.yaml
-
-# Use only GPU 2
-GPUS="device=2" ./benchmarking/tools/run.sh --config my-benchmark.yaml
-
-# Run without GPU access
-GPUS="none" ./benchmarking/tools/run.sh --config my-benchmark.yaml
+bash benchmarking/tools/setup_benchmark_env.sh --check
+bash benchmarking/tools/setup_benchmark_env.sh
 ```
 
-The `GPUS` value is passed directly to Docker's `--gpus` flag.
+`--check` verifies Curator workflow dependencies, benchmark Python
+dependencies, and required system tools without copying sources or installing anything.
+The default action prepares the source copy when the host mount is present, runs every
+benchmark-compatible `install_*.sh` script in the selected `docker/common` directory,
+installs `benchmarking/requirements.txt`, then checks again.
 
-### More details
-For more details, refer to the `--help` output for `run.sh`
+The legacy `install_etcd_nats.sh` and `install_h264_support.sh` helpers are not
+part of this discovery contract. The former is used by the image build; the
+latter is retained for existing standalone installation instructions.
+Setup prefers the Curator-under-test checkout when it includes this benchmark
+setup entry point. For older checkouts, it warns and uses the benchmark-source
+`docker/common` installers instead.
+
+`CURATOR_BENCHMARK_CURATOR_REPO_DIR` must point at the full Curator-under-test
+source checkout. Container runs set it to `/opt/Curator`; bare-metal users
+should set it when benchmark configs use `{curator_repo_dir}` placeholders or
+when setup needs Curator-under-test dependency scripts.
+
+`start` runs setup by default. `run` assumes the existing container was already
+prepared. Use the `check` command to verify a reusable container explicitly.
+Both Docker helpers and standalone install-mode setup use
+`benchmarking/tools/prepare_benchmark_source.py` for source preparation. Bare-metal
+runs use their checkout directly and do not need a source copy.
+
+To force or skip setup:
+
 ```bash
-./benchmarking/tools/run.sh --help
+python benchmarking/tools/container.py start --setup-benchmark-env yes ...
+python benchmarking/tools/container.py start --setup-benchmark-env no ...
 ```
+
+### Shell and checks
+
+Open an interactive shell:
+
+```bash
+python benchmarking/tools/container.py shell --container curator-benchmark
+```
+
+Run a command in the container:
+
+```bash
+python benchmarking/tools/container.py shell --container curator-benchmark -- \
+  python -c 'import nemo_curator; print(nemo_curator.__version__)'
+```
+
+Check whether a running container has the expected benchmark runtime
+dependencies:
+
+```bash
+python benchmarking/tools/container.py check --container curator-benchmark
+```
+
+### Container Resources
+
+Set container resources with `container.py start`:
+
+| Option | Default | Purpose |
+|---|---|---|
+| `--gpus` | Host `GPUS` environment variable, otherwise `all` | GPU devices exposed to Docker. Use `none` to request no GPUs. |
+| `--container-memory` | Detected memory, capped at 2 TiB | Container memory limit, in bytes. |
+| `--shm-size` | Half the selected container memory limit | Size of `/dev/shm`, in bytes. |
+
+Memory arguments accept integer byte counts, not values such as `400g`. The helper
+currently has no CPU-limit option. YAML CPU counts configure benchmark usage;
+they do not impose a Docker CPU limit.
+
+For example, expose host GPUs 0 and 1:
+
+```bash
+python benchmarking/tools/container.py start \
+  --image nvcr.io/nvidia/nemo-curator:latest \
+  --name curator-benchmark \
+  --gpus '"device=0,1"' \
+  --config benchmarking/benchmarks.yaml \
+  --config /path/to/two-gpu-overrides.yaml
+```
+
+The GPU value is passed directly to Docker's `--gpus` flag. Preserve the nested
+quotes around comma-separated device selections, as shown above.
+
+Docker controls the resources available to the container; YAML configures what
+the benchmarks use. Selecting fewer GPUs does not automatically scale workers,
+workloads, timeouts, or requirements. Use a YAML override appropriate for the
+hardware exposed to the container.
+
+Resource options apply to `start`, not `run`. To change them through this helper,
+recreate the container with the new settings.
 
 ---
 
@@ -563,147 +748,544 @@ For more details, refer to the `--help` output for `run.sh`
 
 Audio benchmarks that depend on external corpora use the same two-layer setup:
 
-1. Run a `benchmarking/data_prep/prepare_*_data.py` script once on the benchmark
-   machine to populate persistent paths under `{datasets_path}` and, when
-   needed, `{model_weights_path}`.
-2. Run nightly entries with `--raw-data-dir` and `--no-auto-download` so the
-   benchmark itself never downloads the corpus during the scheduled run.
+1. The benchmark runner executes each configured
+   `benchmarking/data_prep/prepare_*_data.py` entry before the benchmarks to
+   populate or reuse persistent paths under `{datasets_path}` and, when needed,
+   `{model_weights_path}`.
+2. Run nightly entries from the staged data and local model paths so the
+   benchmark itself never downloads inputs during the scheduled run. Entries
+   that support a standalone download fallback also pass `--no-auto-download`.
 
-The benchmark scripts keep their standalone auto-download path for ad hoc local
+Benchmarks that expose a standalone auto-download path keep it for ad hoc local
 debugging only. That fallback stages into `{session_entry_dir}/scratch` or a
 local scratch path and uses a stable Hugging Face cache to avoid re-fetching
 blobs across reruns, but it is not the nightly path.
 
 To run the checked-in audio setup before the benchmark session, pass
 `--config benchmarking/nightly-data-setup.yaml` alongside the main benchmark
-config to `benchmarking/tools/run.sh`. All supplied config files are merged
-before the setup entries verify and reuse existing staged data, or download and
-stage it into the configured paths before the nightly benchmark entries start.
+config to `benchmarking/run.py`. All supplied config files are merged
+before data setup entries run, so they can reuse existing versioned manifests
+or download and stage data into the configured paths before the nightly
+benchmark entries start.
 
 Current audio setup commands:
 
 ```bash
-python benchmarking/data_prep/prepare_fleurs_data.py \
-  --output-path {datasets_path}/fleurs
+python benchmarking/data_prep/prepare_librispeech_data.py \
+  --output-path {datasets_path}/librispeech_all_train_750h_71cacbfb \
+  --cache-dir {datasets_path}/_hf_cache/librispeech \
+  --hf-repo-id openslr/librispeech_asr \
+  --hf-revision 71cacbfb7e2354c4226d01e70d77d5fca3d04ba1 \
+  --hf-config all \
+  --hf-split train.clean.100+train.clean.360+train.other.500 \
+  --target-audio-hours 750.0
 
 python benchmarking/data_prep/prepare_audio_tagging_data.py \
-  --output-path {datasets_path}/audio_tagging_ami_sdm \
-  --model-output-path {model_weights_path}/audio_tagging/pyannote-speaker-diarization-community-1
+  --output-path {datasets_path}/audio_tagging_ami_sdm_8cdaae2_30h_max60m \
+  --min-audio-hours 30 --max-meeting-duration-minutes 60 \
+  --model-output-path {model_weights_path}/audio_tagging/pyannote-speaker-diarization-community-1_8a52737
+
+python benchmarking/data_prep/prepare_alm_data.py \
+  --output-path {datasets_path}/alm_ami_sdm_8cdaae2
+
+python benchmarking/data_prep/prepare_audio_sortformer_data.py \
+  --output-path {datasets_path}/audio_sortformer_librispeech_450h_1800x15m_71cacbfb \
+  --model-output-path {model_weights_path}/audio_sortformer/diar_streaming_sortformer_4spk-v2.1.nemo
+
+python benchmarking/data_prep/prepare_audio_indic_asr_data.py \
+  --output-path {datasets_path}/audio_indic_asr_parakeet_hindi_531h_35376a11 \
+  --cache-dir {datasets_path}/_hf_cache/audio_indic_asr
+
+python benchmarking/data_prep/prepare_readspeech_data.py \
+  --output-path {datasets_path}/read_speech \
+  --num-parts 3 \
+  --expected-wav-count 43354 \
+  --expected-wav-bytes 20011661694 \
+  --expected-inventory-sha256 ac097a3d4187d8e0e82fab14c8d0a59c0ab6f9de47f8784f2638054580232c20
 ```
 
-After preparation, the nightly YAML mounts `{datasets_path}/fleurs` as
-`fleurs_hy_am` and `{datasets_path}/audio_tagging_ami_sdm` as
-`audio_tagging_ami_sdm`. Both nightly benchmark commands pass `--no-auto-download`.
+The setup pins each Hugging Face revision and selects the configured workload
+scale in one pass. Timed entries consume these versioned paths and validate
+pipeline outputs without rescanning or downloading the staged corpus.
+The Hindi Indic ASR setup pins the public `ketav/parakeet-hindi-asr` revision
+`35376a112c4b79318eeaba0c0dd1b6f1a9bf0ea0` (train, Apache-2.0). The pinned
+source manifest has 216,169 rows / 1,914,385,701 ms and SHA-256
+`407b58ccb9c74c75a5129e882b1fd000970e082e109adf95a1889592c66964a4`;
+the 40,543,034,328-byte source archive has SHA-256
+`9f481545c1fe183eeab3a80c1a170215299c333f1cd754f4fab221eebf517c20`.
+The archive is a superset, so only files referenced by that manifest define
+the cohort.
 
----
-
-## Audio Tagging Benchmark
-
-The nightly entries process three real AMI single-distant-microphone meetings:
-about 1.25 hours of long, multi-speaker audio with overlap. Stage this corpus and
-the local PyAnnote diarization snapshot once on the benchmark machine:
-
-```bash
-python benchmarking/data_prep/prepare_audio_tagging_data.py \
-  --output-path /path/to/datasets/audio_tagging_ami_sdm \
-  --model-output-path /path/to/model_weights/audio_tagging/pyannote-speaker-diarization-community-1
-```
-
-The prep script does not take an HF token. By default it downloads the three
-benchmark AMI SDM meetings from `diarizers-community/ami` (`sdm` config,
-`test` split) and the local diarization snapshot from the token-free
-`pyannote-community/speaker-diarization-community-1` mirror. Override the
-defaults only when debugging with `--hf-repo-id`, `--ami-config`, `--ami-split`,
-or `--model-hf-repo-id`. If the PyAnnote snapshot already exists locally, pass
-`--model-source-path` to copy it instead of downloading the model files.
-Benchmark runs do not download or modify these staged inputs. The expected data
-layout is:
+Full-sample decoding deterministically rejects five referenced corrupt FLACs:
+`audio/hindi_017643.flac`, `audio/hindi_017666.flac`, and
+`audio/hindi_018619.flac` are empty; `audio/hindi_017655.flac` and
+`audio/hindi_017656.flac` are truncated 262,144-byte files whose decoders lose
+sync. They account for 58,233 ms. The shared runnable cohort therefore has
+216,164 unique mono 16 kHz clips / 1,914,327,468 ms (531.75763 hours). Its
+116,382,162-byte canonical manifest has SHA-256
+`0a8ccc0f3ff8d4ad35b3e7e104e5e093b0de14a92542d71fa6911c8045373727`.
+Both executor modes consume this byte-identical retained cohort and also require
+the production-compatible model artifacts to be staged at:
 
 ```text
-{datasets_path}/audio_tagging_ami_sdm/
-|-- manifest.jsonl
-`-- audio/
-    |-- EN2002b.Array1-01.wav
-    |-- ES2004c.Array1-01.wav
-    `-- TS3003a.Array1-01.wav
+{model_weights_path}/audio_indic_asr/indic_canary_trtllm/engine_bfloat16_64_new
+{model_weights_path}/audio_indic_asr/parakeet_indic_trt/encoder_fp16_b1_o8_m16_f8_o800_m4001
 ```
 
-`manifest.jsonl` must contain these three rows. `audio_item_id` must be unique
-and stable. The benchmark rewrites a per-run manifest from `--raw-data-dir` so
-`audio_filepath` points at `<raw-data-dir>/audio/<filename>` in the active
-environment rather than relying on hand-authored container paths:
+The Parakeet TensorRT directory is a self-contained bundle whose `model.nemo`
+is the epoch-37 checkpoint used to construct the engine. NeMo-CI does not run
+`nightly-data-setup.yaml`; stage the pinned Hindi data and both engine bundles
+under its mounted dataset and model roots before launching this entry.
 
-```jsonl
-{"audio_filepath":"/datasets/audio_tagging_ami_sdm/audio/EN2002b.Array1-01.wav","audio_item_id":"EN2002b.Array1-01"}
-{"audio_filepath":"/datasets/audio_tagging_ami_sdm/audio/ES2004c.Array1-01.wav","audio_item_id":"ES2004c.Array1-01"}
-{"audio_filepath":"/datasets/audio_tagging_ami_sdm/audio/TS3003a.Array1-01.wav","audio_item_id":"TS3003a.Array1-01"}
-```
+Follow the [Indic ASR tutorial environment and model instructions](../tutorials/audio/granary_v2/indic_asr/README.md#1-build-and-check-the-environment)
+first, including its shared Granary image, model bundles and eight-H100 allocation.
+Run the [shared runtime initialization](../tutorials/audio/granary_v2/metadata/README.md#initialize-the-runtime)
+in the parent shell before either executor. Use the same image and unchanged
+[pipeline.yaml](../tutorials/audio/granary_v2/indic_asr/pipeline.yaml) for both
+executors. The benchmark loads that YAML directly; it changes only input/output
+paths and executor, retaining the tutorial's model settings, batch64, eight
+workers per model, reader/preparation worker counts and Ray resources. Input
+validation and manifest sharding happen before the pipeline timer.
 
-The model output directory must include `config.yaml` and its `segmentation/`,
-`embedding/`, and `plda/` artifacts. The diarization stage loads only this local
-snapshot and requires neither `HF_TOKEN` nor network access. Other model stages
-continue to use their standard NeMo and Torch cache locations.
+The Indic run entries are intentionally absent from `benchmarks.yaml`; the
+dataset mapping and `nightly-data-setup.yaml` entry remain available. The
+benchmark script keeps the standard audio benchmark interface, shared YAML executor configuration,
+and `params.json` / `metrics.json` result writer. Like the LibriSpeech benchmark,
+it derives correctness metrics from the final JSONL rather than retained tasks;
+`--save-tasks` therefore writes an empty task list, not stage snapshots.
 
-The benchmark executes the production tagging graph end to end: manifest read,
-optional row repetition, resampling, speaker diarization, long-audio splitting,
-first-pass ASR alignment, split metadata join, alignment/diarization merge,
-bandwidth and SQUIM metrics, TTS-segment preparation, second-pass ASR, WER, and
-manifest write. This follows the same split as the FLEURS benchmark: use the
-data-prep script for persistent nightly inputs, then run the benchmark with
-`--raw-data-dir` and `--no-auto-download`. Use the same pre-staged paths for a
-local benchmark run:
+For a standalone run, mount the staged corpus at `/datasets`, the model bundles
+at `/model_weights`, and a writable result directory at `/results`. Inside the
+dedicated image, from `/opt/Curator`, run:
 
 ```bash
-python benchmarking/scripts/audio_tagging_benchmark.py \
-  --benchmark-results-path /tmp/audio-tagging-results \
-  --scratch-output-path /tmp/audio-tagging-scratch \
-  --raw-data-dir /path/to/audio_tagging_ami_sdm \
-  --no-auto-download \
-  --diarization-model-path /path/to/pyannote-speaker-diarization-community-1 \
-  --executor xenna
+python benchmarking/scripts/audio_indic_asr_benchmark.py \
+  --benchmark-results-path=/results/indic_asr_xenna \
+  --input-manifest=/datasets/audio_indic_asr_parakeet_hindi_531h_35376a11/manifest.jsonl \
+  --indic-canary-engine-dir=/model_weights/audio_indic_asr/indic_canary_trtllm/engine_bfloat16_64_new \
+  --parakeet-tensorrt-engine-dir=/model_weights/audio_indic_asr/parakeet_indic_trt/encoder_fp16_b1_o8_m16_f8_o800_m4001 \
+  --regex-yaml=tutorials/audio/granary_v2/indic_asr/regex.yaml \
+  --hall-phrases=tutorials/audio/whisper_hallucination/phrases.txt \
+  --executor=xenna --no-save-tasks
 ```
 
-On constrained local GPUs, disable ASR CUDA graphs and lower the model
-microbatches without changing the pipeline or its output checks:
+The defaults retain the eight-GPU workload and frozen cohort checks. Use
+`--executor=ray_data` and a different, unused results path for the same-data
+comparison. Dataset setup remains separate and is not rerun by this script.
+Do not build the stock `benchmarking/Dockerfile` on top of this image or run
+root `uv sync` in it: that would replace the dedicated native stack with the
+normal `all` dependencies. A site-specific harness configuration must explicitly
+select this image; the standard nightly environment does not supply it.
 
+The shared image supplies CUDA 13 forward-compatibility libraries; preserve its
+loader path and the tutorial's runtime settings. The benchmark imports the actual TensorRT-LLM native bindings,
+NeMo ASR, the Parakeet adapter, and text normalization, then validates complete
+engine inventories before its processor-chain timer starts. Harness
+`exec_time_s` still includes the entire benchmark subprocess, including those
+preflight checks; environment creation and data staging belong before it.
+
+#### Indic ASR observed throughput
+
+The 2026-10-20 EOS runs used Curator `8d275057` and the tutorial's Granary
+environment and model bundles. Each executor processed the same 216,164 Hindi
+clips totaling 531.75763 audio hours on one node with eight NVIDIA H100 80 GB
+GPUs, batch size 64 and eight workers per model.
+
+| Executor | Full process | Pipeline | Pipeline audio-hours/hour | Pipeline audio-hours/GPU-hour |
+| --- | ---: | ---: | ---: | ---: |
+| Xenna streaming | 624.493 s | 531.098 s | 3,604.471 | 450.559 |
+| Ray Data | 5,028.510 s | 4,938.302 s | 387.649 | 48.456 |
+
+These rates divide source audio hours by the recorded `pipeline_time_s`,
+converted to hours, then by eight allocated GPUs for the per-GPU figure.
+The saved benchmark metric uses `time_taken_s`, which also includes output
+validation: 537.703 s for Xenna and 4,944.549 s for Ray Data. Its corresponding
+rates are 3,560.197 and 387.159 audio-hours/hour. Full-process rates are
+3,065.410 and 380.695 audio-hours/hour. Dataset and model preparation precede
+all three measurements.
+
+Both outputs preserve every input identity and reference. Mean per-row WER
+was 12.1986232735% for Xenna and 12.1986298149% for Ray Data, with 37 and 36
+flagged rows retained. Selected transcripts differ on 9,383 rows and three
+skip decisions differ, so similar aggregate WER does not establish exact
+output parity. Xenna met the 600–900 second full-process target; Ray Data
+took 8.05× as long. The middle 80% of each run had a median sampled active
+GPU count of eight for Xenna and one for Ray Data. Dividing by allocated
+GPUs does not establish scaling efficiency.
+
+#### Audio workload summary
+
+The ReadSpeech setup reuses staging only when its file count, byte count, and
+relative-path inventory match the configured cohort. It automatically stages,
+validates, and publishes a replacement when an older or incomplete cohort is
+present.
+
+| Workload | Before | Current result and target decision |
+| --- | --- | --- |
+| LibriSpeech ASR | Full English FLEURS, 7.4908h: Xenna 92.45s, Ray Data 143.92s | Shared 750h `openslr/librispeech_asr` manifest (CC BY 4.0), 217,974 unique clips with no repeated rows. |
+| Audio tagging | Three AMI meetings: 100s; synthetic 8× repeat entry: 243s | 56 unique AMI SDM meetings / 30.2032h: 12m02s wall / 11m45s processing. Target achieved with real data; the repeat entry and repeat-factor support were removed |
+| ALM | Ticket baselines: Ray Data 65s, Xenna 187s | Full AMI metadata (168 meetings / 82,063 segments / 96.41 timeline hours): Ray Data 32.37s, Xenna 38.72s. CPU-only, so the 8-GPU target does not apply |
+| Hindi Indic ASR | Production Slurm pipeline only | 2026-10-20, 216,164 clips / 531.75763h on 8× H100: Xenna 624.493s full process / 531.098s pipeline; Ray Data 5,028.510s / 4,938.302s. Pipeline throughput: 3,604.471 / 387.649 audio-hours/hour. Xenna met the 600–900s full-process target. Neither executor is registered in the standard nightly matrix. |
+| ReadSpeech | Ticket baselines: Xenna 315s; Ray Data did not finish when checked | Three DNS ReadSpeech parts (43,354 WAV files / 18.63 GB / ~57h), 48 kHz full-band on 8× H100: Xenna 732.18s wall / 711.52s processing; Ray Data 4314.47s wall / 4285.61s processing. Xenna target achieved. |
+
+### Granary metadata extraction
+
+`benchmarking/scripts/audio_granary_metadata_benchmark.py` runs the complete
+[Granary metadata tutorial graph](../tutorials/audio/granary_v2/metadata/pipeline.yaml):
+resampling, speaker diarization, speech segmentation, sound-event detection,
+three-model language identification, language selection, Opus writing, and
+JSONL output. It loads the same YAML as the tutorial, so model settings and
+stage order stay aligned across both entrypoints.
+
+Complete the [shared environment and model preparation](../tutorials/audio/granary_v2/metadata/README.md#1-build-and-prepare-the-shared-environment)
+from the tutorial first. Use its `granary` image, exact model assets, generated
+TensorRT engines, runtime initialization, and unchanged YAML for benchmarking.
+Both paths require 128 logical CPUs, eight H100 80 GB GPUs, and a 500 GiB Ray
+object store (`536870912000` bytes); 1 TiB host RAM is recommended. A standard
+benchmark runner must request those same resources. Do not install packages,
+replace models, or override stage settings between tutorial and benchmark.
+This benchmark is not registered in the standard nightly matrix because that
+environment does not provide the complete native stack and model artifacts.
+
+Stage audio before measurement. Each input row needs an absolute
+`audio_filepath` and its accurate decoded `duration` in seconds. Optional
+`audio_item_id` values must be unique plain filenames. Remove parent-recording
+`text` and `transcript` fields: those transcripts are not aligned to the new VAD
+segments. The tutorial creates `/work/data/fleurs/metadata_input.jsonl` for a
+small check. For a larger cohort, set `GRANARY_INPUT_MANIFEST` to its prepared
+manifest, retaining its dataset revision, license, counts, duration, and hash.
+Make every referenced audio path visible in the container. Use the same frozen
+manifest and audio files for both executors; an already verified Lustre cohort
+can be mounted read-only without downloading or preparing it again.
+
+Run these commands inside the tutorial image from `/opt/Curator`, after its
+runtime initialization. Only the input size/path, output path, and selected
+executor change. `GRANARY_BENCHMARK_OUTPUT` optionally selects the result
+directory reserved by a benchmark runner; otherwise each command uses the
+default below. Such a directory may contain runner parameters and an empty
+scratch directory, but no previous results. The script also checks scratch
+contents. Run one executor at a time and choose fresh output and log paths.
+
+<!-- granary-eos: benchmark-xenna -->
 ```bash
-python benchmarking/scripts/audio_tagging_benchmark.py \
-  --benchmark-results-path /tmp/audio-tagging-results \
-  --scratch-output-path /tmp/audio-tagging-scratch \
-  --raw-data-dir /path/to/audio_tagging_ami_sdm \
-  --no-auto-download \
-  --diarization-model-path /path/to/pyannote-speaker-diarization-community-1 \
-  --disable-cuda-graphs \
-  --asr-transcribe-batch-size 8 \
-  --squim-compute-batch-size 8 \
-  --diarization-segmentation-batch-size 16 \
-  --diarization-embedding-batch-size 16 \
-  --gpu-stage-num-workers 1 \
-  --cpu-stage-num-workers 1 \
-  --execution-mode batch \
-  --executor xenna
+set -euo pipefail
+benchmark_input="${GRANARY_INPUT_MANIFEST:-/work/data/fleurs/metadata_input.jsonl}"
+benchmark_output="${GRANARY_BENCHMARK_OUTPUT:-/work/benchmarks/xenna}"
+mkdir -p "$(dirname "$benchmark_output")"
+test ! -e "$benchmark_output/results"
+test ! -e "$benchmark_output/metrics.json"
+test ! -e "$benchmark_output/tasks.pkl"
+test ! -e "$benchmark_output.log"
+python benchmarking/scripts/audio_granary_metadata_benchmark.py \
+  --benchmark-results-path "$benchmark_output" \
+  --input-manifest "$benchmark_input" \
+  --model-dir /models --executor xenna --execution-mode streaming \
+  2>&1 | tee "$benchmark_output.log"
 ```
 
-For ad hoc standalone debugging only, the benchmark also mirrors FLEURS'
-runtime auto-download fallback: if `--raw-data-dir` is omitted, it stages under
-`<scratch-output-path>/audio_tagging_ami_sdm`, reuses that staging if present,
-or downloads `manifest.jsonl` and the three `audio/*.wav` files from
-`--hf-repo-id` or `$CURATOR_AUDIO_TAGGING_HF_REPO_ID` with blobs cached under
-`--cache-dir`, `$CURATOR_AUDIO_TAGGING_CACHE_DIR`, or
-`/tmp/curator/audio_tagging_cache`. Nightly does not use this fallback.
+<!-- granary-eos: benchmark-ray-data -->
+```bash
+set -euo pipefail
+benchmark_input="${GRANARY_INPUT_MANIFEST:-/work/data/fleurs/metadata_input.jsonl}"
+benchmark_output="${GRANARY_BENCHMARK_OUTPUT:-/work/benchmarks/ray_data}"
+mkdir -p "$(dirname "$benchmark_output")"
+test ! -e "$benchmark_output/results"
+test ! -e "$benchmark_output/metrics.json"
+test ! -e "$benchmark_output/tasks.pkl"
+test ! -e "$benchmark_output.log"
+python benchmarking/scripts/audio_granary_metadata_benchmark.py \
+  --benchmark-results-path "$benchmark_output" \
+  --input-manifest "$benchmark_input" \
+  --model-dir /models --executor ray_data \
+  2>&1 | tee "$benchmark_output.log"
+```
 
-Every downstream stage preserves outer task rows, so success requires
-`input manifest rows * repeat factor == returned tasks == output manifest rows`.
-Nested segments may still be rejected when a model does not produce the fields
-needed by the following stage; those segments remain visible in the emitted and
-skipped metrics but do not count as successfully tagged output. Success also
-requires complete second-pass ASR and finite WER output, nonzero work from all
-12 measured processing stages, at least 70 percent segment-output coverage,
-and at least 1.2 source audio hours (2.4 for the repeated entry). The nightly
-configuration additionally requires at least 100 complete segments and 0.2
-tagged audio hours (200 segments and 0.4 hours for the repeated entry).
+The standard result writer saves `params.json` and `metrics.json`; pipeline
+artifacts are under `results/`, including `metadata.jsonl`, `audio/`, and
+`rttm/`. Validation requires every input recording to be represented by speech
+segments or a no-speech audit row. It checks interval bounds, clip and RTTM
+files, duplicate outputs, source identities, language metadata, and failure
+flags. Language rejection counts remain visible rather than being treated
+as accepted labels.
+
+`time_taken_s` includes model startup, resampling, inference, segmentation,
+output writing, and executor shutdown. Input inspection and output validation
+and owned Ray cluster startup/shutdown are outside this timer.
+`total_audio_duration_hours` counts
+source recordings, whereas `total_segment_duration_hours` counts emitted
+speech. The throughput metric uses source audio hours. Divide it by the
+number of allocated GPUs to report audio-hours/GPU-hour. The timer
+excludes dataset downloading and container construction. Tasks are not
+retained; enabling `--save-tasks` writes an empty list, not intermediate rows.
+
+#### Observed throughput
+
+In the 2026-10-20 EOS benchmark run,
+each executor received one node with 8× H100 80 GB GPUs and processed a frozen cohort of
+30,631 cached LibriSpeech recordings (107.76357 source hours), using Curator
+`8d27505764d4cf941bee31e9faf82c6b685b6432` and the same pinned NeMo
+runtime as the tutorial. The existing immutable image was reused with the
+verified source checkout. The input manifest SHA-256 is
+`9c6f7d8f61af7c74d5d574d21ec19c70c07f399564592d8fd9d39eb06998e99e`.
+
+| Executor | Full process (`exec_time_s`) | Pipeline (`time_taken_s`) | Pipeline audio-hours/hour | Pipeline audio-hours/GPU-hour |
+| --- | ---: | ---: | ---: | ---: |
+| Xenna streaming | 863.954 s | 821.388 s | 472.309 | 59.039 |
+| Ray Data | 2,374.678 s | 2,333.515 s | 166.251 | 20.781 |
+
+Xenna met the 600–900 second wall-time target; Ray Data took 2.75× as long.
+Both passed output validation with 100% source coverage. Each executor emitted
+38,416 speech clips plus one no-speech audit row, with
+218 language-rejection flags. Segment intervals, speaker counts, selected
+languages, skip reasons, SED events and all RTTM files matched across executors.
+Language-identification audit values differed on 15,626 rows without changing
+the final language or rejection decisions. Encoded Opus files are not
+byte-identical; decoded audio matched exactly for the two retained sample pairs,
+while full-corpus decoded parity was not checked.
+The harness wall time includes input inspection and output validation, which
+are outside the pipeline timer. Data staging and model-engine preparation
+precede measurement; each executor writes to a fresh output directory.
+GPU samples show processing activity across all eight devices for Xenna;
+Ray Data used physical GPU 7 only briefly. Pipeline throughput divides source
+audio hours by pipeline time in hours; per-GPU throughput divides that rate
+by all eight allocated GPUs. Full-process throughput is 449.039 audio-hours/hour
+for Xenna and 163.369 for Ray Data. These timings
+compare the configured executors on equal allocations; they do not establish
+eight-GPU scaling efficiency.
+
+The graph currently loads each recording into memory and uses one parent per
+VAD stage call. The production reader's bounded handling of recordings up
+to 11 hours and its 64-parent VAD scheduling are not reproduced here.
+Numerical parity with the production Granary pipeline and long-recording
+memory scaling remain unverified.
 
 ---
+
+### Qwen Omni ASR
+
+[audio_qwen_omni_asr_benchmark.py](scripts/audio_qwen_omni_asr_benchmark.py)
+transcribes audio with Qwen3-Omni, checks the generated text, selects a transcript,
+and cleans it. Existing transcripts are used only for fallback after inference;
+Qwen receives audio with the English or multilingual prompt from the YAML,
+preserving disfluencies and spoken numbers without a supplied transcript.
+Both Xenna and Ray Data load the complete
+[tutorial YAML](../tutorials/audio/granary_v2/qwen_omni_asr/pipeline.yaml), including its
+pinned model revision, batching, and all eight stages. Only the input
+size, paths, and executor change. The script is standalone; it is not registered
+in `benchmarks.yaml`.
+
+Use the [tutorial environment](../tutorials/audio/granary_v2/qwen_omni_asr/README.md#1-set-up-the-environment)
+for both executors, with `.venv-qwen-omni` activated. Keep the same installed
+packages for the tutorial and benchmark. From the repository root, stage a
+five-hour LibriSpeech sample and the model:
+
+```bash
+python benchmarking/data_prep/prepare_librispeech_data.py \
+  --output-path "$PWD/qwen-omni-asr-benchmark/data" \
+  --cache-dir "$PWD/qwen-omni-asr-benchmark/cache" \
+  --hf-repo-id openslr/librispeech_asr \
+  --hf-revision 71cacbfb7e2354c4226d01e70d77d5fca3d04ba1 \
+  --hf-config all --hf-split train.clean.100 --target-audio-hours 5.0
+
+hf download Qwen/Qwen3-Omni-30B-A3B-Instruct \
+  --revision 26291f793822fb6be9555850f06dfe95f2d7e695 \
+  --local-dir "$PWD/qwen-omni-asr-benchmark/model"
+```
+
+Reuse the staged data and model for both runs. Run one executor at a time,
+using a new results directory for every run. Each standalone command starts a
+new local Ray cluster, avoiding a stale address left after the tutorial stops
+its cluster. Keep this setting on the individual command; the benchmark runner
+manages its own cluster address.
+
+```bash
+export VLLM_WORKER_MULTIPROC_METHOD=spawn
+RAY_ADDRESS=local python benchmarking/scripts/audio_qwen_omni_asr_benchmark.py \
+  --benchmark-results-path "$PWD/qwen-omni-asr-benchmark/xenna" \
+  --input-manifest "$PWD/qwen-omni-asr-benchmark/data/manifest.jsonl" \
+  --model-id "$PWD/qwen-omni-asr-benchmark/model" \
+  --executor xenna --execution-mode streaming
+
+RAY_ADDRESS=local python benchmarking/scripts/audio_qwen_omni_asr_benchmark.py \
+  --benchmark-results-path "$PWD/qwen-omni-asr-benchmark/raydata" \
+  --input-manifest "$PWD/qwen-omni-asr-benchmark/data/manifest.jsonl" \
+  --model-id "$PWD/qwen-omni-asr-benchmark/model" \
+  --executor ray_data
+```
+
+The script writes `results/qwen_omni_asr.jsonl`, `metrics.json`, and the
+resolved configuration in `params.json`. It validates exact input/output
+coverage, unchanged input transcripts, nonempty predictions, positive finite
+durations, and reuse of the original text when a generated transcript is
+rejected. `num_input_text_fallbacks` counts these reused transcripts;
+`num_skipped_tasks` counts rows that remain flagged and need inspection.
+The pipeline timer, `time_taken_s`, includes model startup, audio loading,
+resampling, inference, cleanup, writing, and executor shutdown. It excludes
+data/model staging and output validation. These checks establish completion and
+output structure, not transcription accuracy.
+
+#### Observed throughput
+
+The 2026-10-20 EOS runs used Curator `8d275057`
+and the documented tutorial environment. One run per executor processed the
+same 22,710 unique English LibriSpeech clips totaling 80.61259 audio hours.
+Each received one exclusive node with 224 logical CPUs and 8 × NVIDIA H100
+80GB HBM3 GPUs, batch size 32, two GPUs per ASR worker, and automatic worker scaling.
+
+| Executor | Full process | Pipeline | Pipeline audio-hours/hour | Pipeline audio-hours/GPU-hour |
+| --- | --- | --- | --- | --- |
+| Xenna streaming | 719.284 s | 713.711 s | 406.615 | 50.827 |
+| Ray Data | 1,276.624 s | 1,270.467 s | 228.424 | 28.553 |
+
+Both produced all 22,710 outputs, preserved the input transcripts, used the
+original transcript for five clips, and left zero rows flagged. Xenna met the
+600–900 second full-process target. Ray Data used the same cohort. Full process
+time includes imports and output validation; staging is excluded. Per-GPU
+throughput divides whole-node throughput by all eight allocated GPUs.
+Selected transcripts differed on 3,473 rows; coverage and matching fallback
+decisions do not establish exact generated-output parity.
+
+All eight Xenna GPUs and six Ray Data GPUs recorded at least 30 seconds above
+10% utilization while their ASR workers were ready. Ray Data completed correctly
+with repeated model initialization and two GPUs without qualifying model work.
+These measurements do not establish scaling efficiency. Both runs logged worker
+shutdown diagnostics despite complete outputs and normal process exits.
+
+---
+
+## Audio Text Pipeline Benchmark
+
+`scripts/audio_text_llm_benchmark.py` runs the complete English transcript graph
+from [text_pipeline.yaml](../tutorials/audio/granary_v2/text_pipeline/text_pipeline.yaml):
+manifest reader → entity recovery → punctuation/capitalization → language
+prediction and verification → text normalization → fused captioning, code
+switching and speech QA → inverse text normalization → disfluency removal →
+manifest writer. Every row remains an `AudioTask`; no audio files are opened.
+
+The tutorial and benchmark use the same prompts, stage order, generation options
+and serving settings. Defaults are `RedHatAI/gemma-4-31B-it-FP8-dynamic`, four
+Dynamo replicas with tensor parallelism two (eight GPUs), 12 workers, batches of
+128 and 256 concurrent requests per worker. The benchmark uses Curator's existing
+`InferenceServer` API and executor/result helpers. Like the standalone Indic ASR
+benchmark, it has no entries or enablement overlay in the standard nightly matrix.
+
+### Input and paired runs
+
+Use one fixed, pre-staged English cohort that fits in driver memory. Every row
+needs a unique string `audio_item_id`, `source_lang: en`, a reference transcript
+in `text`, and an ASR or normalized transcript in `abbreviated_text`. Use
+`--id-key` for another identity field. Preserve the source dataset's license,
+revision and selection rule alongside the manifest. Human-gold inputs are also
+supported, but identify them as such; do not label copied human text as ASR output.
+
+Follow the [tutorial environment and server instructions](../tutorials/audio/granary_v2/text_pipeline/README.md#1-prepare-the-environment)
+exactly: build its project image from the same checkout, use the same eight-GPU
+node and mounted directories, start its server, and run and check the two bundled
+examples. Place the benchmark cohort at
+`text_processing_data/english/manifest.jsonl` on the host; the container sees it
+read-only at `/data/english/manifest.jsonl`.
+
+Keep that container, Ray cluster and server running. In the tutorial's second
+terminal, run these commands sequentially. Both executors use the same endpoint,
+resolved package environment, model weights, `/cache/compilation` and complete
+YAML. Only the cohort size, executor and result paths change from the tutorial.
+Use a fresh benchmark results directory:
+
+```bash
+cd /opt/Curator
+export RAY_ADDRESS=127.0.0.1:6379
+set -euo pipefail
+test ! -e /output/benchmarks
+input_sha256=$(sha256sum /data/english/manifest.jsonl | cut -d ' ' -f 1)
+input_rows=$(python -c 'from pathlib import Path; print(sum(bool(line.strip()) for line in Path("/data/english/manifest.jsonl").open()))')
+python benchmarking/scripts/audio_text_llm_benchmark.py \
+  --input-manifest=/data/english/manifest.jsonl \
+  --expected-num-rows="$input_rows" \
+  --expected-manifest-sha256="$input_sha256" \
+  --output-dir=/output/benchmarks/xenna/output \
+  --cache-root=/cache/compilation \
+  --endpoint="$(cat /output/endpoint.txt)" \
+  --executor=xenna \
+  --benchmark-results-path=/output/benchmarks/xenna
+
+python benchmarking/scripts/audio_text_llm_benchmark.py \
+  --input-manifest=/data/english/manifest.jsonl \
+  --expected-num-rows="$input_rows" \
+  --expected-manifest-sha256="$input_sha256" \
+  --output-dir=/output/benchmarks/ray_data/output \
+  --cache-root=/cache/compilation \
+  --endpoint="$(cat /output/endpoint.txt)" \
+  --executor=ray_data \
+  --benchmark-results-path=/output/benchmarks/ray_data
+```
+
+The shared row count and SHA-256 checks pin both runs to identical input bytes.
+Results appear under `text_processing_output/benchmarks/` on the host. After
+inspecting both runs, follow the tutorial's server shutdown instructions.
+
+The script can also start the same configured server itself when `--endpoint` is
+omitted; `--cache-root` is then required. `--model-path` selects pre-staged weights
+without changing the served model alias. The walkthrough above reuses the tutorial
+server so it cannot resolve a different worker environment between runs.
+
+### Outputs and timing
+
+Each run writes `text_pipeline.jsonl` under `--output-dir` and standard
+`params.json`, `metrics.json` and `tasks.pkl` under `--benchmark-results-path`.
+Use `--no-save-tasks` to omit the pickle. Parameters retain the resolved pipeline
+and serving configuration; metrics record the actual manifest SHA-256. Validation
+checks identities, preserved source fields, all nine operation outcomes, and the
+written JSONL against the returned tasks. An entirely skipped workload fails validation.
+
+The pipeline timer includes reader, all text operations, writer, and executor
+setup/cleanup inside `Pipeline.run`. It excludes input integrity checks,
+Ray/server startup and teardown, output validation and result serialization.
+Server startup is reported separately only when the benchmark starts its own
+server. It is zero in the commands above, which reuse the already-running
+tutorial server. Those commands measure a warm server, after the tutorial; there
+is no additional warmup pass. Earlier processing-only benchmark results excluded
+reader/writer execution and are not directly comparable to this timer.
+
+Metrics include row throughput and per-operation applied, fallback and skipped
+counts. Requests count logical model calls, including rejected completions;
+transport retries are not extra logical requests. Physical attempts and token
+throughput require serving telemetry. The shared result writer also aggregates
+batch statistics into `task_*` metrics, even with `--no-save-tasks`. It deduplicates
+by object identity, so separately deserialized copies can inflate batch totals.
+Use the independently calculated row/request throughput and operation counts for
+comparisons. These checks prove execution coverage, not semantic parity or model
+quality. Inspect the output fields and fallback counts before interpreting
+throughput.
+
+### Observed throughput
+
+The 2026-10-20 EOS runs used Curator `8d275057` and the documented tutorial
+environment on one node with eight NVIDIA H100 80 GB GPUs. Both executors
+processed the same 14,290 English transcript rows sequentially against the
+same running server: four TP=2 replicas, batch size 128, 12 workers and
+256 concurrent requests per worker.
+
+| Executor | Pipeline with running server | Pipeline rows/second | Pipeline rows/GPU-second |
+| --- | ---: | ---: | ---: |
+| Xenna streaming | 471.889 s | 30.283 | 3.785 |
+| Ray Data | 1,169.686 s | 12.217 | 1.527 |
+
+Rates divide input rows by pipeline seconds; per-GPU rates divide by all
+eight allocated GPUs. The shared server took 510.097 seconds to start,
+outside both pipeline timers. Individual full-process wall times were not
+recorded, so these results do not establish a 600–900 second full-process
+target. All nine operations, the reader and writer are included in each
+pipeline run. These are row rates, not token rates or audio-hour rates.
+
+Both outputs preserve every input identity, original transcript and immutable
+field. Xenna retained five language-flagged rows and Ray Data retained four.
+The 865/870 operation fallbacks preserve prior text after text guards; no
+request-failure or empty-response fallback notes were found. Generated,
+audit or status values differ on 7,727 rows, including one language-rejection
+decision, so exact generated-output parity was not achieved.
+All eight GPUs recorded sustained work in both benchmark process windows;
+this does not establish scaling efficiency or isolate individual operation
+throughput.
 
 ## Writing Benchmark Scripts
 
@@ -727,7 +1309,7 @@ Your script **must** write three JSON/pickle files to the `--benchmark-results-p
 
 **`metrics.json`** - A JSON file containing all measured metrics from the benchmark (execution time, throughput, memory usage, etc.). Metric names used here can be referenced in entry requirements and sink configurations.
 
-**`tasks.pkl`** - A pickle file containing NeMo Curator `Task` objects that capture detailed performance data. Use `nemo_curator.tasks.Task` with `TaskPerfUtils()` to wrap operations in your script, then save all tasks using `Task.get_all_tasks()`.
+**`tasks.pkl`** - An optional pickle file containing complete NeMo Curator `Task` objects, including payloads and individual performance statistics. Written only when `save_tasks: true` is enabled for the entry. Scripts return completed tasks to `write_benchmark_results()`, which saves aggregate statistics in `metrics.json` regardless of task retention.
 
 ### Reference Implementations
 
@@ -751,18 +1333,6 @@ Sinks extend the framework to perform custom actions at various stages of the be
 
 ### Built-in Sinks
 
-#### MLflow Sink
-
-Tracks experiments and metrics in MLflow:
-
-```yaml
-sinks:
-  - name: mlflow
-    tracking_uri: http://mlflow-server:5000
-    experiment: my-experiment
-    enabled: true
-```
-
 #### Slack Sink
 
 Posts results to Slack channels:
@@ -777,16 +1347,6 @@ sinks:
 Results are posted as interactive Slack messages with environment info and metrics. Requires:
 - `SLACK_BOT_TOKEN` environment variable set to your Slack Bot User OAuth Token
 - `SLACK_CHANNEL_ID` in config or environment variable for the target channel
-
-#### Google Drive Sink
-
-Placeholder for uploading results to Google Drive:
-
-```yaml
-sinks:
-  - name: gdrive
-    enabled: false
-```
 
 ### Writing a Custom Sink
 

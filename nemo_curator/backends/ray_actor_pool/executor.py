@@ -23,13 +23,23 @@ from ray.util.actor_pool import ActorPool
 from tqdm import tqdm
 
 from nemo_curator.backends.base import BaseExecutor
-from nemo_curator.backends.utils import RayStageSpecKeys, execute_setup_on_node, register_loguru_serializer
+from nemo_curator.backends.utils import (
+    RayStageSpecKeys,
+    execute_setup_on_node,
+    get_stage_num_workers_per_node,
+    register_loguru_serializer,
+)
 from nemo_curator.tasks import EmptyTask, Task
 
 from .adapter import RayActorPoolStageAdapter
 from .raft_adapter import RayActorPoolRAFTAdapter
 from .shuffle_adapter import ShuffleStageAdapter
-from .utils import calculate_optimal_actors_for_stage, create_named_ray_actor_pool_stage_adapter
+from .utils import (
+    calculate_optimal_actors_for_stage_with_wait,
+    create_named_ray_actor_pool_stage_adapter,
+    get_available_actor_pool_resources,
+    update_resource_baseline,
+)
 
 if TYPE_CHECKING:
     from nemo_curator.stages.base import ProcessingStage
@@ -47,6 +57,16 @@ def _parse_runtime_env(runtime_env: dict) -> dict:
         )
     env_vars["RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES"] = ""
     return user_runtime_env
+
+
+def _get_actor_options(stage: "ProcessingStage") -> dict:
+    options = {
+        "num_cpus": stage.resources.cpus,
+        "num_gpus": stage.resources.gpus,
+    }
+    if get_stage_num_workers_per_node(stage) is not None:
+        options["scheduling_strategy"] = "SPREAD"
+    return options
 
 
 class RayActorPoolExecutor(BaseExecutor):
@@ -69,7 +89,9 @@ class RayActorPoolExecutor(BaseExecutor):
         """Initialize the Ray Actor Pool executor.
 
         Args:
-            config: Configuration dictionary for the executor.
+            config: Configuration dictionary for the executor. ``resource_wait_timeout_s``
+                controls how long to wait for the intended actor pool before failing, and
+                ``resource_wait_interval_s`` controls the polling interval.
             ignore_head_node: If True, don't schedule tasks on the head node.
             show_progress: If True, display tqdm progress bars during execution.
             progress_interval: Minimum interval in seconds between progress bar updates.
@@ -78,7 +100,19 @@ class RayActorPoolExecutor(BaseExecutor):
         self.show_progress = show_progress
         self.progress_interval = progress_interval
 
-    def execute(self, stages: list["ProcessingStage"], initial_tasks: list[Task] | None = None) -> list[Task]:  # noqa: PLR0912
+    @staticmethod
+    def _get_stage_spec(stage: "ProcessingStage") -> dict:
+        stage_spec = stage.ray_stage_spec()
+        if RayStageSpecKeys.USE_TASK_WEIGHTS in stage_spec and not stage_spec.get(
+            RayStageSpecKeys.IS_RAFT_ACTOR, False
+        ):
+            msg = f"Stage {stage.name} sets use_task_weights but is not a RAFT stage"
+            raise RuntimeError(msg)
+        return stage_spec
+
+    def execute(  # noqa: PLR0912, PLR0915
+        self, stages: list["ProcessingStage"], initial_tasks: list[Task] | None = None
+    ) -> list[Task]:
         """Execute the pipeline stages using ActorPool.
 
         Args:
@@ -103,6 +137,15 @@ class RayActorPoolExecutor(BaseExecutor):
             logger.info(
                 f"Setup on node complete for all stages. Starting Ray Actor Pool pipeline with {len(stages)} stages"
             )
+            reserved_cpus = self.config.get("reserved_cpus", 0.0)
+            reserved_gpus = self.config.get("reserved_gpus", 0.0)
+            resource_wait_timeout = float(self.config.get("resource_wait_timeout_s", 5.0))
+            resource_wait_interval = float(self.config.get("resource_wait_interval_s", 0.2))
+            resource_baseline = get_available_actor_pool_resources(
+                reserved_cpus,
+                reserved_gpus,
+                self.ignore_head_node,
+            )
             # Initialize with initial tasks
             current_tasks = initial_tasks or [EmptyTask()]
             # Process through each stage with ActorPool
@@ -114,32 +157,51 @@ class RayActorPoolExecutor(BaseExecutor):
                     msg = f"{stage} - No tasks to process, can't continue"
                     raise ValueError(msg)  # noqa: TRY301
 
-                if stage.ray_stage_spec().get(RayStageSpecKeys.IS_LSH_STAGE, False):
-                    current_tasks = self._execute_lsh_stage(stage, current_tasks)
+                resource_baseline = update_resource_baseline(
+                    resource_baseline,
+                    reserved_cpus,
+                    reserved_gpus,
+                    self.ignore_head_node,
+                )
+
+                stage_spec = self._get_stage_spec(stage)
+                if stage_spec.get(RayStageSpecKeys.IS_LSH_STAGE, False):
+                    current_tasks = self._execute_lsh_stage(
+                        stage,
+                        current_tasks,
+                        resource_baseline,
+                        reserved_cpus,
+                        reserved_gpus,
+                        resource_wait_timeout,
+                        resource_wait_interval,
+                    )
                 else:
                     # Create actor pool for this stage
-                    num_actors = calculate_optimal_actors_for_stage(
+                    num_actors = calculate_optimal_actors_for_stage_with_wait(
                         stage,
                         len(current_tasks),
-                        reserved_cpus=self.config.get("reserved_cpus", 0.0),
-                        reserved_gpus=self.config.get("reserved_gpus", 0.0),
+                        resource_baseline,
+                        reserved_cpus=reserved_cpus,
+                        reserved_gpus=reserved_gpus,
                         ignore_head_node=self.ignore_head_node,
+                        timeout=resource_wait_timeout,
+                        interval=resource_wait_interval,
                     )
                     logger.info(
                         f" {stage} - Creating {num_actors} actors (CPUs: {stage.resources.cpus}, GPUs: {stage.resources.gpus})"
                     )
                     # TODO: Clean up branching logic and handling here
                     # Check if this is a RAFT stage and create appropriate actor pool
-                    if stage.ray_stage_spec().get(RayStageSpecKeys.IS_RAFT_ACTOR, False):
+                    if stage_spec.get(RayStageSpecKeys.IS_RAFT_ACTOR, False):
                         logger.info(f"  Creating RAFT actor pool for stage: {stage.name}")
                         actor_pool = self._create_raft_actor_pool(stage, num_actors, session_id)
-                    elif stage.ray_stage_spec().get(RayStageSpecKeys.IS_SHUFFLE_STAGE, False):
+                    elif stage_spec.get(RayStageSpecKeys.IS_SHUFFLE_STAGE, False):
                         logger.info(f"  Creating Shuffle actors for stage: {stage.name}")
                         actor_pool = self._create_rapidsmpf_actors(stage, num_actors, len(current_tasks))
                     else:
                         actor_pool = self._create_actor_pool(stage, num_actors)
                     logger.info(f"Created actor pool for {stage.name} with {num_actors} actors")
-                    if stage.ray_stage_spec().get(RayStageSpecKeys.IS_SHUFFLE_STAGE, False):
+                    if stage_spec.get(RayStageSpecKeys.IS_SHUFFLE_STAGE, False):
                         current_tasks = self._process_shuffle_stage_with_rapidsmpf_actors(actor_pool, current_tasks)
                         # Clean up actor pool
                         self._cleanup_actors(actor_pool)
@@ -167,10 +229,7 @@ class RayActorPoolExecutor(BaseExecutor):
     def _create_actor_pool(self, stage: "ProcessingStage", num_actors: int) -> ActorPool:
         """Create an ActorPool for a specific stage."""
         actors = []
-        actor_options: dict = {
-            "num_cpus": stage.resources.cpus,
-            "num_gpus": stage.resources.gpus,
-        }
+        actor_options = _get_actor_options(stage)
         if stage.runtime_env:
             actor_options["runtime_env"] = stage.runtime_env
         for i in range(num_actors):
@@ -193,8 +252,7 @@ class RayActorPoolExecutor(BaseExecutor):
             actor = (
                 create_named_ray_actor_pool_stage_adapter(stage, RayActorPoolRAFTAdapter)
                 .options(
-                    num_cpus=stage.resources.cpus,
-                    num_gpus=stage.resources.gpus,
+                    **_get_actor_options(stage),
                     name=f"{stage.name}Actor-{actor_idx}",
                 )
                 .remote(
@@ -232,8 +290,7 @@ class RayActorPoolExecutor(BaseExecutor):
         actors = []
         for actor_idx in range(num_actors):
             actor = ShuffleStageAdapter.options(
-                num_cpus=stage.resources.cpus,
-                num_gpus=stage.resources.gpus,
+                **_get_actor_options(stage),
                 name=f"{stage.name}-Worker_{actor_idx}",
             ).remote(stage=stage, rank=actor_idx, nranks=num_actors, num_input_tasks=num_tasks)
             actors.append(actor)
@@ -252,13 +309,18 @@ class RayActorPoolExecutor(BaseExecutor):
         return actors
 
     def _generate_task_batches(
-        self, tasks: list[Task], batch_size: int | None = None, num_output_tasks: int | None = None
+        self,
+        tasks: list[Task],
+        batch_size: int | None = None,
+        num_output_tasks: int | None = None,
+        task_weights: list[int] | None = None,
     ) -> list[list[Task]]:
         """Generate task batches from a list of tasks.
         Args:
             tasks: List of Task objects to process
             batch_size: The size of the batch
             num_output_tasks: The number of output tasks to generate.
+            task_weights: Optional weights used to balance tasks across output batches.
             Either batch_size or num_output_tasks must be provided but not both.
         Returns:
             List of task batches
@@ -270,6 +332,23 @@ class RayActorPoolExecutor(BaseExecutor):
             err_msg = "Either batch_size or num_output_tasks must be provided but not both"
             raise ValueError(err_msg)
         elif num_output_tasks is not None:
+            if task_weights is not None:
+                if len(task_weights) != len(tasks):
+                    msg = "task_weights must have the same length as tasks"
+                    raise ValueError(msg)
+                num_batches = min(num_output_tasks, len(tasks))
+                batches: list[list[Task]] = [[] for _ in range(num_batches)]
+                batch_weights = [0] * num_batches
+                for task, weight in sorted(
+                    zip(tasks, task_weights, strict=True), key=lambda item: item[1], reverse=True
+                ):
+                    # Break equal-weight ties by task count so zero-weight tasks still reach every RAFT actor.
+                    batch_index = min(
+                        range(num_batches), key=lambda index: (batch_weights[index], len(batches[index]))
+                    )
+                    batches[batch_index].append(task)
+                    batch_weights[batch_index] += weight
+                return batches
             return [batch.tolist() for batch in np.array_split(tasks, num_output_tasks) if len(batch) > 0]
         else:
             return [tasks[i : i + batch_size] for i in range(0, len(tasks), batch_size)]
@@ -287,20 +366,30 @@ class RayActorPoolExecutor(BaseExecutor):
         Returns:
             List of processed Task objects
         """
+        stage_spec = self._get_stage_spec(_stage)
+        is_raft_stage = stage_spec.get(RayStageSpecKeys.IS_RAFT_ACTOR, False)
         stage_batch_size: int = ray.get(actor_pool._idle_actors[0].get_batch_size.remote())
-        if _stage.ray_stage_spec().get(RayStageSpecKeys.IS_RAFT_ACTOR, False):
+        if is_raft_stage:
             # For a RAFT stage we want to ensure all actors are utilized by distributing tasks evenly
             if stage_batch_size is not None:
                 logger.warning(
                     f"Stage {_stage.name} is a RAFT stage but has a batch size of {stage_batch_size}. Ignoring batch size."
                 )
             num_actors = len(actor_pool._idle_actors)
-            task_batches = self._generate_task_batches(tasks, num_output_tasks=num_actors)
+            task_weights = None
+            if stage_spec.get(RayStageSpecKeys.USE_TASK_WEIGHTS, True):
+                weights = [(task._metadata or {}).get("task_weight") for task in tasks]
+                task_weights = weights if all(weight is not None for weight in weights) else None
+            task_batches = self._generate_task_batches(
+                tasks,
+                num_output_tasks=num_actors,
+                task_weights=task_weights,
+            )
         else:
             # For non-RAFT stages, we batch it based on the stage batch size
             task_batches = self._generate_task_batches(tasks, batch_size=stage_batch_size)
 
-        if _stage.ray_stage_spec().get(RayStageSpecKeys.IS_RAFT_ACTOR, False):
+        if is_raft_stage:
             logger.info(
                 f"Distributed {len(tasks)} tasks evenly across {len(task_batches)} actors for RAFT stage {_stage.name}"
             )
@@ -382,7 +471,16 @@ class RayActorPoolExecutor(BaseExecutor):
 
         self._cleanup_actors(all_actors)
 
-    def _execute_lsh_stage(self, stage: "LSHStage", input_tasks: list[Task]) -> list[Task]:
+    def _execute_lsh_stage(  # noqa: PLR0913
+        self,
+        stage: "LSHStage",
+        input_tasks: list[Task],
+        resource_baseline: tuple[float, float],
+        reserved_cpus: float,
+        reserved_gpus: float,
+        resource_wait_timeout: float,
+        resource_wait_interval: float,
+    ) -> list[Task]:
         """Execute an LSH stage with band iteration.
 
         Args:
@@ -401,12 +499,15 @@ class RayActorPoolExecutor(BaseExecutor):
             output_path = stage.output_paths[i]
             stage.actor_kwargs["output_path"] = output_path
 
-            num_actors = calculate_optimal_actors_for_stage(
+            num_actors = calculate_optimal_actors_for_stage_with_wait(
                 stage,
                 len(original_input),
-                reserved_cpus=self.config.get("reserved_cpus", 0.0),
-                reserved_gpus=self.config.get("reserved_gpus", 0.0),
+                resource_baseline,
+                reserved_cpus=reserved_cpus,
+                reserved_gpus=reserved_gpus,
                 ignore_head_node=self.ignore_head_node,
+                timeout=resource_wait_timeout,
+                interval=resource_wait_interval,
             )
             logger.info(
                 f" {stage} - Creating {num_actors} actors (CPUs: {stage.resources.cpus}, GPUs: {stage.resources.gpus})"

@@ -26,10 +26,13 @@ from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
-# Benchmark runs always retain Ray Data scheduler diagnostics for post-run analysis.
-os.environ.setdefault("NEMO_CURATOR_RAY_DATA_DIAGNOSTICS", "1")
-
 from loguru import logger
+from nemo_curator_benchmarking.config import (
+    assert_valid_config_dict,
+    merge_config_files,
+    remove_disabled_blocks,
+    resolve_env_vars,
+)
 
 from nemo_curator.pipeline.workflow import WorkflowRunResult
 from nemo_curator.tasks.utils import TaskPerfUtils
@@ -46,6 +49,7 @@ sys.path.insert(0, _this_script_dir)
 from runner.datasets import DatasetResolver
 from runner.entry import Entry
 from runner.env_capture import dump_env
+from runner.environment import merge_subprocess_environment
 from runner.gpu_stats_recorder import GPUStatsRecorder
 from runner.path_resolver import PathResolver
 from runner.process import run_command_with_timeout
@@ -55,16 +59,8 @@ from runner.ray_cluster import (
     teardown_ray_cluster_and_env,
 )
 from runner.session import Session
-from runner.utils import (
-    assert_valid_config_dict,
-    find_result,
-    get_gpu_stats,
-    get_obj_for_json,
-    log_gpu_stats,
-    merge_config_files,
-    remove_disabled_blocks,
-    resolve_env_vars,
-)
+from runner.sinks.sink import call_sink_hook, initialize_sinks
+from runner.utils import find_result, get_gpu_stats, get_obj_for_json, log_gpu_stats
 from runner.viewer_url import resolve_viewer_url
 
 
@@ -93,7 +89,6 @@ def get_entry_script_persisted_data(session_entry_path: Path) -> dict[str, Any]:
 
     tasks_pkl = session_entry_path / "tasks.pkl"
     if not tasks_pkl.exists():
-        logger.warning(f"Tasks pickle file not found at {tasks_pkl}")
         script_tasks = []
     else:
         with open(tasks_pkl, "rb") as f:
@@ -154,6 +149,21 @@ def check_requirements_update_results(result_data: dict[str, Any], requirements:
     return meets_requirements
 
 
+def build_subprocess_environment(
+    entry: Entry,
+    session_entry_path: Path,
+    path_resolver: PathResolver,
+    dataset_resolver: DatasetResolver,
+) -> tuple[dict[str, str], set[str]]:
+    """Return the full subprocess environment and the configured names safe to consider for value logging."""
+    entry_environment = {}
+    for name, value in entry.environment.items():
+        resolved_value = entry.substitute_reserved_placeholders(value, session_entry_path, dataset_resolver)
+        resolved_value = entry.substitute_container_or_host_paths(resolved_value, path_resolver)
+        entry_environment[name] = resolved_value
+    return merge_subprocess_environment(entry_environment), set(entry_environment)
+
+
 def run_data_setup_entry(
     setup_entry: Entry,
     path_resolver: PathResolver,
@@ -179,10 +189,15 @@ def run_data_setup_entry(
         "logs_dir": logs_path,
     }
     try:
+        subprocess_env, configured_env_names = build_subprocess_environment(
+            setup_entry, setup_path, path_resolver, dataset_resolver
+        )
         run_data = run_command_with_timeout(
             command=cmd,
             timeout=setup_entry.timeout_s,
             stdouterr_path=stdouterr_path,
+            env=subprocess_env,
+            env_value_allowlist=configured_env_names,
             run_id=f"data_setup-{setup_entry.name}-{int(started_exec)}",
             fancy=os.environ.get("CURATOR_BENCHMARKING_DEBUG", "0") == "0",
         )
@@ -267,12 +282,14 @@ def run_entry(  # noqa: PLR0913
             create_or_overwrite_dir(directory)
         ensure_dir(logs_path)
 
+        startup_env, _ = build_subprocess_environment(entry, session_entry_path, path_resolver, dataset_resolver)
         ray_client, ray_temp_dir = setup_ray_cluster_and_env(
             num_cpus=ray_num_cpus,
             num_gpus=ray_num_gpus,
             enable_object_spilling=ray_enable_object_spilling,
             ray_log_path=logs_path / "ray.log",
             object_store_size=None if entry.object_store_size == "default" else entry.object_store_size,
+            ray_data_log_level=startup_env.get("RAY_DATA_LOG_LEVEL"),
         )
 
         # Prepopulate <session_entry_path>/params.json with entry params.
@@ -313,11 +330,17 @@ def run_entry(  # noqa: PLR0913
             else nullcontext()
         )
         started_exec = time.time()
+        # Resolve again after cluster startup so the subprocess inherits its RAY_ADDRESS.
+        subprocess_env, configured_env_names = build_subprocess_environment(
+            entry, session_entry_path, path_resolver, dataset_resolver
+        )
         with gpu_stats_recorder_ctx:
             run_data = run_command_with_timeout(
                 command=cmd,
                 timeout=entry.timeout_s,
                 stdouterr_path=stdouterr_path,
+                env=subprocess_env,
+                env_value_allowlist=configured_env_names,
                 run_id=run_id,
                 fancy=os.environ.get("CURATOR_BENCHMARKING_DEBUG", "0") == "0",
             )
@@ -545,8 +568,7 @@ def main() -> int:  # noqa: C901, PLR0911, PLR0912, PLR0915
         logger.error("Data setup failed; benchmark entries will not be run.")
         return 1
 
-    for sink in session.sinks:
-        sink.initialize(session_name=session_name, session=session, env_dict=env_dict)
+    active_sinks = initialize_sinks(session.sinks, session_name=session_name, session=session, env_dict=env_dict)
 
     # Print a summary of the entries that will be run in the for loop below
     # Disabled entries will not be printed
@@ -571,8 +593,14 @@ def main() -> int:  # noqa: C901, PLR0911, PLR0912, PLR0915
         entry_log_id = logger.add(entry_stdouterr_path, mode="a", colorize=False)
         logger.info(f"🚀 Running {entry.name} (run ID: {run_id})")
 
-        for sink in session.sinks:
-            sink.register_benchmark_entry_starting(result_dict=result_data, benchmark_entry=entry)
+        for sink in active_sinks:
+            call_sink_hook(
+                sink,
+                "register_benchmark_entry_starting",
+                context=f"registering {entry.name} as starting",
+                result_dict=result_data,
+                benchmark_entry=entry,
+            )
 
         try:
             run_success = run_entry(
@@ -598,13 +626,19 @@ def main() -> int:  # noqa: C901, PLR0911, PLR0912, PLR0915
             )
 
         finally:
-            logger.remove(entry_log_id)
             session_overall_success &= run_success
-            for sink in session.sinks:
-                sink.register_benchmark_entry_finished(result_dict=result_data, benchmark_entry=entry)
+            for sink in active_sinks:
+                call_sink_hook(
+                    sink,
+                    "register_benchmark_entry_finished",
+                    context=f"registering {entry.name} as finished",
+                    result_dict=result_data,
+                    benchmark_entry=entry,
+                )
+            logger.remove(entry_log_id)
 
-    for sink in session.sinks:
-        sink.finalize()
+    for sink in active_sinks:
+        call_sink_hook(sink, "finalize", context="finalizing benchmark reporting sinks")
     logger.info(f"Session {session_name} completed with overall success: {session_overall_success}")
     return 0 if session_overall_success else 1
 

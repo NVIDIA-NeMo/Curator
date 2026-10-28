@@ -158,8 +158,6 @@ data/
 alm_output/
 benchmark_results/
 
-# Agent related files
-AGENTS.md
 CLAUDE.md
 .claude/settings.local.json
 

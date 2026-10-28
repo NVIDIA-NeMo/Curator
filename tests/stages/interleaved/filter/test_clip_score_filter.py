@@ -33,6 +33,21 @@ def test_clip_score_filter_requires_model_dir() -> None:
         stage.setup_on_node(NodeInfo(), WorkerMetadata())
 
 
+def test_clip_score_filter_teardown_releases_model() -> None:
+    stage = InterleavedCLIPScoreFilterStage(model_dir="/fake/clip")
+    stage._model = MagicMock()
+
+    with (
+        patch("nemo_curator.stages.interleaved.filter.clip_score_filter.gc.collect") as mock_gc_collect,
+        patch("nemo_curator.stages.interleaved.filter.clip_score_filter.torch.cuda.empty_cache") as mock_empty_cache,
+    ):
+        stage.teardown()
+
+    assert not hasattr(stage, "_model")
+    mock_gc_collect.assert_called_once_with()
+    mock_empty_cache.assert_called_once_with()
+
+
 def test_sample_texts_list_from_df_missing_modality_column() -> None:
     sample_frame = pd.DataFrame({"sample_id": ["s1"], "text_content": ["hello"]})
     assert _sample_texts_list_from_df(sample_frame, "s1") == []

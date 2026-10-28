@@ -107,6 +107,7 @@ class TestBucketsToEdgesStage:
         assert len(output_task.data) == 1
         assert output_task.dataset_name == "test_buckets_edges"
         assert "storage_options" in output_task._metadata
+        assert output_task._metadata["task_weight"] > 0
 
         # Verify output file exists
         output_file = output_task.data[0]

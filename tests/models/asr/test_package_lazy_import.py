@@ -29,6 +29,7 @@ def test_importing_asr_subpackage_does_not_load_concrete_adapters(monkeypatch: p
     original_import = builtins.__import__
     blocked: list[str] = []
     concrete_modules = {
+        "nemo_curator.models.asr.faster_whisper",
         "nemo_curator.models.asr.nemo_asr",
         "nemo_curator.models.asr.qwen_asr",
         "nemo_curator.models.asr.qwen_omni",
@@ -52,6 +53,7 @@ def test_importing_asr_subpackage_does_not_load_concrete_adapters(monkeypatch: p
     module_names = {
         "nemo_curator.models.asr",
         "nemo_curator.models.asr.base",
+        "nemo_curator.models.asr.faster_whisper",
         "nemo_curator.models.asr.nemo_asr",
         "nemo_curator.models.asr.qwen_asr",
         "nemo_curator.models.asr.qwen_omni",
@@ -64,6 +66,7 @@ def test_importing_asr_subpackage_does_not_load_concrete_adapters(monkeypatch: p
         import nemo_curator.models.asr as asr_pkg
 
         assert blocked == []
+        assert "FasterWhisperASR" not in vars(asr_pkg)
         assert "NeMoASRAdapter" not in vars(asr_pkg)
         assert "QwenASRAdapter" not in vars(asr_pkg)
         assert "QwenOmniASRAdapter" not in vars(asr_pkg)
@@ -75,10 +78,11 @@ def test_importing_asr_subpackage_does_not_load_concrete_adapters(monkeypatch: p
                 sys.modules[mod_name] = module
 
 
-def test_hydra_resolves_both_qwen_adapters_from_module_paths() -> None:
+def test_hydra_resolves_adapters_from_module_paths() -> None:
     import hydra.utils
 
     targets = {
+        "nemo_curator.models.asr.faster_whisper.FasterWhisperASR": "FasterWhisperASR",
         "nemo_curator.models.asr.qwen_asr.QwenASRAdapter": "QwenASRAdapter",
         "nemo_curator.models.asr.qwen_omni.QwenOmniASRAdapter": "QwenOmniASRAdapter",
     }

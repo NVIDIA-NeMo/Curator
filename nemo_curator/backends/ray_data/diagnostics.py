@@ -30,6 +30,7 @@ import json
 import logging
 import os
 import threading
+import time
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
@@ -38,7 +39,7 @@ from typing import Any
 # private, untyped implementation modules.
 # ruff: noqa: ANN401
 
-_SUPPORTED_RAY_VERSION = "2.56.1"
+_SUPPORTED_RAY_VERSION = "2.57.0"
 _INSTALL_MARKER = "_nemo_curator_ray_data_diagnostics_installed"
 _INSTALL_LOCK = threading.Lock()
 RAY_DATA_DIAGNOSTICS_ENV_VAR = "NEMO_CURATOR_RAY_DATA_DIAGNOSTICS"
@@ -66,6 +67,10 @@ class _TaskAdmissionDecision:
     allocation: Any = None
 
 
+def _milliseconds(seconds: float) -> float:
+    return round(seconds * 1000, 3)
+
+
 def format_logfmt_event(event: str, fields: dict[str, object]) -> str:
     """Format an event as stable, parseable logfmt-like tokens."""
 
@@ -91,6 +96,13 @@ def execution_resource_fields(prefix: str, resources: Any) -> dict[str, object]:
         f"{prefix}_gpu": None if resources is None else resources.gpu,
         f"{prefix}_heap_memory": None if resources is None else resources.memory,
         f"{prefix}_object_store_memory": None if resources is None else resources.object_store_memory,
+    }
+
+
+def _object_store_memory_fields(resource_manager: Any, op: Any) -> dict[str, object]:
+    return {
+        "object_store_internal_bytes": resource_manager.get_mem_op_internal(op),
+        "object_store_output_bytes": resource_manager.get_mem_op_outputs(op),
     }
 
 
@@ -154,7 +166,7 @@ def _has_native_diagnostics(autoscaler_module: Any, resource_manager_module: Any
     )
 
 
-def _install_resource_admission_diagnostics(  # noqa: C901
+def _install_resource_admission_diagnostics(  # noqa: C901, PLR0915
     resource_manager_module: Any, resource_policy_module: Any
 ) -> None:
     allocator_cls = resource_manager_module.OpResourceAllocator
@@ -201,6 +213,7 @@ def _install_resource_admission_diagnostics(  # noqa: C901
     def policy_init(self: Any, data_context: Any, topology: Any, resource_manager: Any) -> None:
         original_init(self, data_context, topology, resource_manager)
         self._nemo_curator_previous_decisions = {}
+        self._nemo_curator_resource_blocked_since = {}
 
     def can_add_input(self: Any, op: Any) -> bool:
         allocator = self._resource_manager._op_resource_allocator
@@ -213,6 +226,13 @@ def _install_resource_admission_diagnostics(  # noqa: C901
         signature = (decision.allowed, decision.reason)
         previous = self._nemo_curator_previous_decisions
         if previous.get(op) != signature:
+            blocked_since = self._nemo_curator_resource_blocked_since
+            if decision.allowed:
+                started_at = blocked_since.pop(op, None)
+                blocked_duration_ms = None if started_at is None else _milliseconds(time.perf_counter() - started_at)
+            else:
+                blocked_since.setdefault(op, time.perf_counter())
+                blocked_duration_ms = None
             usage = None
             allocation = None
             if decision.remaining_budget is not None:
@@ -227,6 +247,8 @@ def _install_resource_admission_diagnostics(  # noqa: C901
                 "pending_output_estimate": decision.pending_output_estimate,
                 **execution_resource_fields("usage", usage),
                 **execution_resource_fields("allocation", allocation),
+                **_object_store_memory_fields(self._resource_manager, op),
+                "blocked_duration_ms": blocked_duration_ms,
             }
             resource_policy_module.logger.debug(format_logfmt_event("ray_data_resource_budget_admission", fields))
             previous[op] = signature
@@ -238,6 +260,11 @@ def _install_resource_admission_diagnostics(  # noqa: C901
 
 def _install_downstream_capacity_diagnostics(downstream_policy_module: Any) -> None:
     policy_cls = downstream_policy_module.DownstreamCapacityBackpressurePolicy
+    original_init = policy_cls.__init__
+
+    def policy_init(self: Any, *args: Any, **kwargs: Any) -> None:
+        original_init(self, *args, **kwargs)
+        self._nemo_curator_downstream_blocked_since = {}
 
     def should_apply_backpressure(self: Any, op: Any) -> bool:
         if self._should_skip_backpressure(op):
@@ -256,6 +283,13 @@ def _install_downstream_capacity_diagnostics(downstream_policy_module: Any) -> N
 
         previous = self._prev_should_backpressure.get(op)
         if previous != result:
+            blocked_since = self._nemo_curator_downstream_blocked_since
+            if result:
+                blocked_since.setdefault(op, time.perf_counter())
+                blocked_duration_ms = None
+            else:
+                started_at = blocked_since.pop(op, None)
+                blocked_duration_ms = None if started_at is None else _milliseconds(time.perf_counter() - started_at)
             queue_bytes = self._get_queue_size_bytes(op)
             downstream_capacity_bytes = self._get_downstream_capacity_size_bytes(op)
             downstream_policy_module.logger.debug(
@@ -269,12 +303,15 @@ def _install_downstream_capacity_diagnostics(downstream_policy_module: Any) -> N
                         "queue_ratio": f"{queue_ratio:.2f}",
                         "configured_ratio": self._backpressure_capacity_ratio,
                         "utilized_object_store_budget_fraction": utilized_fraction,
+                        **_object_store_memory_fields(self._resource_manager, op),
+                        "blocked_duration_ms": blocked_duration_ms,
                     },
                 )
             )
             self._prev_should_backpressure[op] = result
         return result
 
+    policy_cls.__init__ = policy_init
     policy_cls._should_apply_backpressure = should_apply_backpressure
 
 
@@ -377,6 +414,7 @@ def _install_actor_autoscaling_diagnostics(autoscaler_module: Any) -> None:
                     **execution_resource_fields("allocation", allocation),
                     **execution_resource_fields("usage", usage),
                     **execution_resource_fields("remaining_budget", remaining_budget),
+                    **_object_store_memory_fields(self._resource_manager, op),
                 },
             )
         )

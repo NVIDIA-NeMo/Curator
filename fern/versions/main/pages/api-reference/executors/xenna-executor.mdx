@@ -67,7 +67,7 @@ results = pipeline.run(executor=executor)
 
 ### Per-Stage Worker Overrides
 
-Use `num_workers` for a cluster-wide count. To request workers per node instead, leave `num_workers` unset and configure only `num_workers_per_node`:
+Use `num_workers` for a cluster-wide count. To request workers per node instead, leave `num_workers` unset and use the common `num_workers_per_node` override:
 
 ```python
 from nemo_curator.stages.base import ProcessingStage
@@ -92,14 +92,12 @@ cluster_wide_stage = PassthroughStage().with_(
 
 per_node_stage = PassthroughStage().with_(
     num_workers=None,
-    xenna_stage_spec={
-        "num_workers_per_node": 2,
-    },
+    num_workers_per_node=2,
 )
 ```
 
 <Warning>
-Do not set both worker controls. Do not place `num_workers` inside `xenna_stage_spec`; use `with_(num_workers=...)` or override the stage's `num_workers()` method.
+Do not set both worker controls. Do not place `num_workers` inside `xenna_stage_spec`; use the common `with_()` arguments or override the corresponding stage method. The legacy `xenna_stage_spec={"num_workers_per_node": N}` form remains supported when neither common worker hook is set.
 </Warning>
 
 See [Stage Worker Sizing](/reference/infra/stage-worker-sizing#xenna-worker-counts) for scope, invalid-combination behavior, and `with_()` merge semantics.

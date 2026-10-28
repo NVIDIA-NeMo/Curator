@@ -119,7 +119,7 @@ results = pipeline.run()
 ray_client.stop()
 
 # Examine the first 5 rows of the first DocumentBatch
-print(results[0].data.head())
+print(results[0].to_pandas().head())
 ```
 
 This approach:

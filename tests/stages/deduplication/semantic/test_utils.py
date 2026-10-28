@@ -15,10 +15,13 @@
 # limitations under the License.
 
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
-import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
+
+# TODO: Remove the GPU markers when the semantic package can be imported without GPU-only dependencies.
 
 
 @pytest.mark.gpu
@@ -45,121 +48,99 @@ def test_get_array_from_df() -> None:
     cp.testing.assert_allclose(result, expected_array, rtol=1e-5, atol=1e-5)
 
 
-@pytest.mark.gpu  # TODO : Remove this once we figure out how to import semantic on CPU
+@pytest.mark.gpu
+def test_parquet_file_info_preserves_order(tmp_path: Path) -> None:
+    import cudf
+
+    from nemo_curator.stages.deduplication.semantic.utils import read_parquet_file_info
+
+    files = []
+    for index in range(3):
+        path = tmp_path / f"part-{index}.parquet"
+        cudf.DataFrame(
+            {
+                "id": range(index * 7, (index + 1) * 7),
+                "value": [index] * 7,
+                "embeddings": [[1.0, 2.0]] * 7,
+            }
+        ).to_parquet(path)
+        files.append(str(path))
+    file_info = read_parquet_file_info(files, retained_columns=["id"], embedding_column="embeddings")
+
+    # Grouping consumes this list positionally, so footer batching must not reorder the caller's files.
+    assert [info.path for info in file_info] == files
+    assert [info.num_rows for info in file_info] == [7, 7, 7]
+    assert [info.embedding_elements for info in file_info] == [14, 14, 14]
+
+
+@pytest.mark.gpu
+def test_parquet_file_info_uses_fsspec_for_remote_uri_without_storage_options() -> None:
+    from nemo_curator.stages.deduplication.semantic.utils import read_parquet_file_info
+
+    sink = pa.BufferOutputStream()
+    pq.write_table(
+        pa.table(
+            {
+                "metadata.with.dot": [1, 2],
+                "embeddings.with.dot": pa.array([[1.0, 2.0], [3.0, 4.0]], type=pa.list_(pa.float32())),
+            }
+        ),
+        sink,
+    )
+    remote_path = "s3://public-bucket/input.parquet"
+
+    # The in-memory footer keeps this a unit test while the URI verifies remote-path dispatch.
+    with patch(
+        "nemo_curator.stages.deduplication.semantic.utils.open_parquet_files",
+        return_value=[pa.BufferReader(sink.getvalue())],
+    ) as open_files:
+        [info] = read_parquet_file_info(
+            [remote_path],
+            retained_columns=["metadata.with.dot"],
+            embedding_column="embeddings.with.dot",
+        )
+
+    open_files.assert_called_once_with([remote_path], storage_options=None, row_groups=[])
+    assert info.path == remote_path
+    assert info.num_rows == 2
+    assert info.metadata_bytes > 0
+    assert info.embedding_elements == 4
+
+
+@pytest.mark.gpu
 class TestBreakParquetPartitionIntoGroups:
-    @patch("pyarrow.parquet.read_metadata", return_value=Mock(num_rows=10_000))
-    @patch("nemo_curator.stages.deduplication.semantic.utils.open_parquet_file")
-    def test_calculation_logic(self, mock_open_parquet: Mock, mock_read_metadata: Mock) -> None:
-        from nemo_curator.stages.deduplication.semantic.utils import break_parquet_partition_into_groups
+    def test_calculation_logic(self) -> None:
+        from nemo_curator.stages.deduplication.semantic.utils import (
+            ParquetFileInfo,
+            break_parquet_partition_into_groups,
+        )
 
         """Test the calculation logic of break_parquet_partition_into_groups without actual files."""
-        # Mock the parquet metadata to return a specific number of rows
-
         test_files = [f"mock_file_{i}.parquet" for i in range(1000)]
-        # Test with embedding_dim=1000
-        # Expected calculation:
-        # - cudf_max_num_rows = 2_000_000_000
-        # - cudf_max_num_elements = 2_000_000_000 / 1000 = 2_000_000
-        # - avg_num_rows = 10_000 * 1.5 = 15_000
-        # - max_files_per_subgroup = int(2_000_000 / 15_000) = 133
-        # Since we have 1000 files and max_files_per_subgroup=133
+        file_info = [ParquetFileInfo(path, 10_000, 0, embedding_elements=10_000_000) for path in test_files]
 
-        groups = break_parquet_partition_into_groups(test_files, embedding_dim=1000)
+        # The limit is strict: 199 files contain 1.99B embedding leaves and fit, while 200
+        # contain exactly 2B and must start the next group. Therefore 1000 files need 6 groups.
+        groups = break_parquet_partition_into_groups(file_info)
 
-        # Verify the mock was called
-        mock_open_parquet.assert_called_once()
-        mock_read_metadata.assert_called_once()
+        assert len(groups) == 6
+        assert all(len(group) <= 199 for group in groups)
 
-        # With our calculation, all 10 files should fit in one group
-        assert len(groups) == 8, "1000 files each with 10k rows with embedding_dim=1000 should fit in 8 groups"
-        for i, group in enumerate(groups):
-            if i != len(groups) - 1:
-                assert len(group) == 133, f"Group {i} should contain 133 files"
-            else:
-                assert len(group) == 69, "Last group should contain fewer files"
+    def test_uses_exact_counts_for_skewed_files(self) -> None:
+        from nemo_curator.stages.deduplication.semantic.utils import (
+            ParquetFileInfo,
+            break_parquet_partition_into_groups,
+        )
 
-    def test_small_files_no_break(self, tmp_path: Path) -> None:
-        """Test that break_parquet_partition_into_groups correctly splits files to avoid cuDF 2bn row limit."""
-        from nemo_curator.stages.deduplication.semantic.utils import break_parquet_partition_into_groups
+        files = ["large.parquet", "tiny-1.parquet", "tiny-2.parquet"]
+        file_info = [
+            ParquetFileInfo(files[0], 1_900, 0, embedding_elements=1_899_000_000),
+            ParquetFileInfo(files[1], 100, 0, embedding_elements=100_000_000),
+            ParquetFileInfo(files[2], 1, 0, embedding_elements=1_000_000),
+        ]
 
-        # Create test parquet files
-        test_files = []
-        for i in range(5):
-            file_path = tmp_path / f"test_file_{i}.parquet"
-            # Create a small test dataframe and save as parquet
-            df = pd.DataFrame(
-                {
-                    "id": list(range(i * 10, (i + 1) * 10)),
-                    "embedding": [[1.0, 2.0, 3.0]] * 10,
-                }
-            )
-            df.to_parquet(file_path)
-            test_files.append(str(file_path))
+        # Exact footer counts let the 1.899B and 100M files share a 1.999B group. Adding the
+        # final 1M file would reach the unsupported 2B boundary, so it starts a new group.
+        groups = break_parquet_partition_into_groups(file_info)
 
-        # Test with default embedding dimension (1024)
-        groups = break_parquet_partition_into_groups(test_files, embedding_dim=1024)
-
-        # Verify that we get groups (should be all files in one group for small test data)
-        assert len(groups) == 1, "Should create one group"
-        # Verify all files are included
-        all_files_in_group = list(groups[0])
-        assert set(all_files_in_group) == set(test_files), "All input files should be included in groups"
-
-    def test_large_files_break(self, tmp_path: Path) -> None:
-        """Test break_parquet_partition_into_groups with large embedding dimension that forces multiple groups."""
-        from nemo_curator.stages.deduplication.semantic.utils import break_parquet_partition_into_groups
-
-        # Create test parquet files
-        test_files = []
-        num_rows, num_files = 1000, 10
-
-        # Create 10 files, each with 1000 rows and 2000-dimensional embeddings
-        # Each file contains: 1000 rows * 2000 dimensions = 2,000,000 elements
-        for i in range(num_files):
-            file_path = tmp_path / f"large_test_file_{i}.parquet"
-            df = pd.DataFrame(
-                {
-                    "id": list(range(i * num_rows, (i + 1) * num_rows)),
-                    "embedding": [[1.0] * 2000] * num_rows,  # 2000-dim embeddings
-                }
-            )
-            df.to_parquet(file_path)
-            test_files.append(str(file_path))
-
-        # Test with embedding_dim=400,000 to force file splitting
-        # This parameter tells the function how many dimensions each embedding has
-        # The function uses this to calculate the effective row limit for cuDF
-
-        # Calculation breakdown:
-        # 1. cuDF max rows: 2,000,000,000 (2 billion)
-        # 2. Effective max elements per group: 2,000,000,000 / 400,000 = 5,000
-        # 3. Each file has 1000 rows, so with 1.5x safety factor: 1000 * 1.5 = 1,500 rows per file
-        # 4. Max files per group: int(5,000 / 1,500) = int(3.33) = 3
-        # 5. With 10 files and max 3 files per group: ceil(10 / 3) = 4 groups
-
-        # Expected groups:
-        # - Group 0: files 0, 1, 2 (3 files)
-        # - Group 1: files 3, 4, 5 (3 files)
-        # - Group 2: files 6, 7, 8 (3 files)
-        # - Group 3: file 9 (1 file)
-
-        groups = break_parquet_partition_into_groups(test_files, embedding_dim=400_000)
-
-        # Verify we get exactly 4 groups as calculated above
-        assert len(groups) == 4, "Should create 4 groups based on embedding_dim=400,000 calculation"
-        for i, group in enumerate(groups):
-            if i != len(groups) - 1:
-                assert len(group) == 3, f"Group {i} should contain 3 files"
-                assert set(group) == set(test_files[i * 3 : (i + 1) * 3]), (
-                    f"Group {i} should contain files {i * 3} to {(i + 1) * 3}"
-                )
-            else:
-                assert len(group) == 1, f"Group {i} should contain 1 file"
-                assert set(group) == set(test_files[i * 3 : (i + 1) * 3]), (
-                    f"Group {i} should contain files {i * 3} to {(i + 1) * 3}"
-                )
-
-        # If we run with the default value of embedding_dim=1024, we should get one group
-        groups = break_parquet_partition_into_groups(test_files)
-        assert len(groups) == 1, "Should create one group"
-        assert set(groups[0]) == set(test_files), "All input files should be included in groups"
+        assert groups == [files[:2], files[2:]]

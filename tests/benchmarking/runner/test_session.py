@@ -42,6 +42,39 @@ def test_session_defaults_max_timeout_s() -> None:
     assert session.entries[0].timeout_s == 7200
 
 
+@pytest.mark.parametrize("global_value", [False, True])
+def test_save_tasks_inherits_and_overrides_global_setting(global_value: bool) -> None:
+    session = Session.from_dict(
+        _config(
+            [
+                {"name": "inherited", "script": "benchmark.py"},
+                {"name": "enabled", "script": "benchmark.py", "save_tasks": True},
+                {"name": "disabled", "script": "benchmark.py", "save_tasks": False},
+            ],
+            save_tasks=global_value,
+        )
+    )
+    assert [entry.save_tasks for entry in session.entries] == [global_value, True, False]
+
+
+def test_save_tasks_leaves_script_default_when_setting_is_omitted() -> None:
+    session = Session.from_dict(_config([{"name": "entry_a", "script": "benchmark.py"}]))
+    assert session.entries[0].save_tasks is None
+
+
+@pytest.mark.parametrize("value", ["false", 1])
+@pytest.mark.parametrize("per_entry", [False, True])
+def test_save_tasks_rejects_non_boolean_settings(value: object, per_entry: bool) -> None:
+    entry = {"name": "entry_a", "script": "benchmark.py"}
+    overrides = {}
+    if per_entry:
+        entry["save_tasks"] = value
+    else:
+        overrides["save_tasks"] = value
+    with pytest.raises(TypeError, match="Invalid save_tasks"):
+        Session.from_dict(_config([entry], **overrides))
+
+
 def test_session_rejects_timeout_above_max_timeout_s() -> None:
     with pytest.raises(ValueError, match=r"entry_a.*timeout_s=101.*max_timeout_s=100"):
         Session.from_dict(
@@ -86,6 +119,67 @@ def test_session_accepts_run_metadata() -> None:
     assert session.viewer_url is None
     assert session.viewer_url_template == "http://viewer/run?dir={session_path_url}"
     assert session.run_reason == "release candidate check"
+
+
+def test_session_merges_environment_defaults_per_variable() -> None:
+    session = Session.from_dict(
+        _config(
+            [
+                {"name": "entry_a", "script": "benchmark.py"},
+                {
+                    "name": "entry_b",
+                    "script": "benchmark.py",
+                    "environment": {"ENTRY_ONLY": "yes", "SHARED": "entry"},
+                },
+            ],
+            environment={"GLOBAL_ONLY": "yes", "SHARED": "session"},
+        )
+    )
+
+    assert session.entries[0].environment == {"GLOBAL_ONLY": "yes", "SHARED": "session"}
+    assert session.entries[1].environment == {
+        "GLOBAL_ONLY": "yes",
+        "ENTRY_ONLY": "yes",
+        "SHARED": "entry",
+    }
+
+
+def test_session_rejects_invalid_environment_value_type() -> None:
+    with pytest.raises(TypeError, match="environment variable value"):
+        Session.from_dict(
+            _config(
+                [{"name": "entry_a", "script": "benchmark.py", "environment": {"MY_VAR": 1}}],
+            )
+        )
+
+
+def test_session_rejects_invalid_environment_block_type() -> None:
+    with pytest.raises(TypeError, match="Invalid environment for session"):
+        Session.from_dict(
+            _config(
+                [{"name": "entry_a", "script": "benchmark.py"}],
+                environment=["MY_VAR=value"],
+            )
+        )
+
+
+@pytest.mark.parametrize("bad_name", ["", "BAD=NAME", "BAD\0NAME"])
+def test_session_rejects_invalid_environment_variable_name(bad_name: str) -> None:
+    with pytest.raises(ValueError, match="environment variable name"):
+        Session.from_dict(
+            _config(
+                [{"name": "entry_a", "script": "benchmark.py", "environment": {bad_name: "value"}}],
+            )
+        )
+
+
+def test_session_rejects_environment_value_with_nul() -> None:
+    with pytest.raises(ValueError, match="environment variable value"):
+        Session.from_dict(
+            _config(
+                [{"name": "entry_a", "script": "benchmark.py", "environment": {"MY_VAR": "bad\0value"}}],
+            )
+        )
 
 
 def test_session_rejects_viewer_url_and_viewer_url_template() -> None:

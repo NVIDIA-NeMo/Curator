@@ -9,12 +9,10 @@ content_type: "how-to"
 modality: "universal"
 ---
 
-{/* Note: This documentation has been verified against NeMo Curator source code for technical accuracy */}
-
 `SlurmRayClient` is a drop-in replacement for `RayClient` that bootstraps a multi-node Ray cluster under SLURM. The head node starts `ray start --head`, writes the assigned GCS port to a shared file, and waits for workers to join. Worker nodes block on the port file and call `ray start --block`. Only the head returns from `start()`, so your pipeline code runs on the head while workers stay attached to the cluster.
 
 <Note>
-For details on container environments and SLURM-specific environment variables, refer to [Container Environments](/reference/infra/container-environments).
+For image build instructions, refer to [Build an Image](/reference/infra/container-environments#build-an-image).
 </Note>
 
 ## When to Use It
@@ -32,7 +30,7 @@ If you want many independent pipeline runs over deterministic source shards inst
 
 - **SLURM cluster**: a working SLURM cluster with at least one GPU node.
 - **Shared filesystem**: a filesystem visible from every allocated node (NFS, Lustre, GPFS) — required for the Ray port broadcast file.
-- **Pyxis + enroot** (recommended): for the container-based submit script. If unavailable, use the bare-metal `uv` script.
+- **Pyxis + enroot** (optional): for the container-based submit script. The image must be available to every allocated node as a registry reference or a site-supported shared image file. If unavailable, use the bare-metal `uv` script.
 - **uv** (alternative): for bare-metal execution. Install via [astral.sh/uv](https://docs.astral.sh/uv/getting-started/installation/).
 - **Source checkout**: NeMo Curator source code on a shared filesystem path readable from every node.
 
@@ -55,6 +53,8 @@ The head/worker split is determined automatically from `SLURM_NODEID`. Workers s
 
 ## Required Environment
 
+`SlurmRayClient` reads these variables to identify nodes and share Ray connection details:
+
 | Variable | Required | Description |
 | --- | --- | --- |
 | `SLURM_NODEID` | Yes (set by SLURM) | Identifies the head node (`SLURM_NODEID=0`) vs workers. |
@@ -69,9 +69,9 @@ The repository ships two reference submit scripts at `tutorials/slurm/`:
 
 <Tabs>
 
-<Tab title="1. NGC Container (Pyxis)">
+<Tab title="1. User-Built Container (Pyxis)">
 
-`submit_container.sh` — launches the NGC NeMo Curator container via [Pyxis](https://github.com/NVIDIA/pyxis) on each allocated node. **Recommended for production** because the container ships a known-good environment.
+`submit_container.sh` launches an image on each allocated node with [Pyxis](https://github.com/NVIDIA/pyxis). Build an image by following [Build an Image](/reference/infra/container-environments#build-an-image), then provide a registry reference or a shared image file.
 
 ```bash
 #!/bin/bash
@@ -87,7 +87,8 @@ set -euo pipefail
 
 # Path on shared filesystem, visible from every node
 CURATOR_DIR="${CURATOR_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
-CONTAINER_IMAGE="nvcr.io/nvidia/nemo-curator:{{ container_version }}"
+# Registry reference reachable by the cluster, or a shared image path supported by Pyxis.
+CONTAINER_IMAGE="/shared/containers/nemo-curator.sqsh"
 
 # Shared filesystem path for Ray's port broadcast
 export RAY_PORT_BROADCAST_DIR="${CURATOR_DIR}/logs"
@@ -116,9 +117,9 @@ sbatch --nodes=2 --gpus-per-node=8 tutorials/slurm/submit_container.sh
 
 </Tab>
 
-<Tab title="2. Bare-metal (uv)">
+<Tab title="2. Bare-Metal (uv)">
 
-`submit.sh` — activates a `uv`-managed virtualenv and runs the pipeline directly on the node. Useful for development and quick iteration without rebuilding containers.
+`submit.sh` activates a `uv`-managed virtualenv and runs the pipeline directly on the node. Useful for development and quick iteration without rebuilding containers.
 
 ```bash
 #!/bin/bash
@@ -175,7 +176,7 @@ Both scripts default `RAY_PORT_BROADCAST_DIR` to `${CURATOR_DIR}/logs`. Change t
 
 ## Verified Configurations
 
-End-to-end tested on H100 nodes using the `nvcr.io/nvidia/nemo-curator:26.02` container at the time `SlurmRayClient` was introduced. The reference workload is a word-count + GPU-tagging pipeline shipped in the `tutorials/slurm/` directory; it works unchanged on subsequent container versions, including {{ container_version }}.
+The reference workload in `tutorials/slurm/` runs a word-count and GPU-tagging pipeline. It was tested on H100 nodes with `nvcr.io/nvidia/nemo-curator:26.02` when `SlurmRayClient` was introduced.
 
 | Nodes | GPUs / node | Status | Notes |
 | --- | --- | --- | --- |
@@ -221,7 +222,7 @@ The first line of each node's log identifies its role:
 | Head node crashes with `Permission denied` writing the port file | Job UID can't write to the configured directory | Pick a `RAY_PORT_BROADCAST_DIR` your job's UID can write to (the default `${CURATOR_DIR}/logs` works once the directory exists). |
 | Pipeline runs on only one node | `--nodes=1` or the script wasn't `srun`-launched on every node | Confirm your job has `--nodes>1` and that `srun` is launched on every node. |
 | `ray start --head` crashes with port conflict | Concurrent Ray jobs on the same node share `/tmp/ray` | Set `RAY_TMPDIR=/tmp/ray_${SLURM_JOB_ID}` per job (the bundled scripts already do this). |
-| Container image pull fails on Pyxis | Pyxis can't reach NGC | Configure `~/.config/enroot/.credentials` with NGC API key, or pre-pull the image with `enroot import`. |
+| Container image cannot be found or loaded by Pyxis | The registry reference is unreachable, credentials are missing, or the configured image path is not visible to the nodes | Check the registry credentials and connectivity, or use the site's documented image import workflow and a shared image path. |
 
 ## Performance Considerations
 
@@ -233,5 +234,5 @@ The first line of each node's log identifies its role:
 ## Related Topics
 
 - **[SLURM Job Arrays](/admin/deployment/slurm-arrays)** — deterministic source sharding, completion manifests, and retries across independent jobs.
-- **[Container Environments](/reference/infra/container-environments)** — image versions and SLURM-specific environment variables.
+- **[Container Environments](/reference/infra/container-environments)** — build an image and make it available to SLURM nodes.
 - **[Execution Backends](/reference/infra/execution-backends)** — Ray Data, Xenna, and Ray actor pool executor selection.

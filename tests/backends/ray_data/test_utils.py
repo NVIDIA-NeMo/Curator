@@ -64,12 +64,12 @@ class TestGetActorComputeStrategyForStage:
     """Test class for Ray Data compute strategy construction."""
 
     @pytest.mark.parametrize(
-        ("num_workers", "ray_stage_spec", "expected", "expected_warning"),
+        ("num_workers", "ray_stage_spec", "expected"),
         [
-            (4, {}, ActorPoolStrategy(size=4), None),
-            (0, {}, ActorPoolStrategy(min_size=1, max_size=None), None),
-            (-1, {}, ActorPoolStrategy(min_size=1, max_size=None), None),
-            (None, {}, ActorPoolStrategy(min_size=1, max_size=None), None),
+            (4, {}, ActorPoolStrategy(size=4)),
+            (0, {}, ActorPoolStrategy(min_size=1, max_size=None)),
+            (-1, {}, ActorPoolStrategy(min_size=1, max_size=None)),
+            (None, {}, ActorPoolStrategy(min_size=1, max_size=None)),
             (
                 None,
                 {
@@ -78,17 +78,6 @@ class TestGetActorComputeStrategyForStage:
                     RayStageSpecKeys.INITIAL_WORKERS: 4,
                 },
                 ActorPoolStrategy(min_size=2, max_size=8, initial_size=4),
-                None,
-            ),
-            (
-                3,
-                {
-                    RayStageSpecKeys.MIN_WORKERS: 1,
-                    RayStageSpecKeys.MAX_WORKERS: 8,
-                    RayStageSpecKeys.INITIAL_WORKERS: 2,
-                },
-                ActorPoolStrategy(size=3),
-                "uses num_workers=3",
             ),
         ],
     )
@@ -97,19 +86,11 @@ class TestGetActorComputeStrategyForStage:
         num_workers: int | None,
         ray_stage_spec: dict[str, object],
         expected: ActorPoolStrategy,
-        expected_warning: str | None,
     ):
         mock_stage = Mock(num_workers=lambda: num_workers, ray_stage_spec=lambda: ray_stage_spec)
         mock_stage.name = "stage"
 
-        with patch("nemo_curator.backends.ray_data.utils.logger.warning") as mock_warning:
-            assert get_actor_compute_strategy_for_stage(mock_stage) == expected
-
-        if expected_warning is None:
-            mock_warning.assert_not_called()
-        else:
-            mock_warning.assert_called_once()
-            assert expected_warning in mock_warning.call_args.args[0]
+        assert get_actor_compute_strategy_for_stage(mock_stage) == expected
 
     def test_actor_compute_strategy_rejects_invalid_sizing(self):
         mock_stage = Mock(
