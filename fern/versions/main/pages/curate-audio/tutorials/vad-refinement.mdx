@@ -10,6 +10,25 @@ modality: "audio-only"
 
 # Refine Word Boundaries with VAD
 
+## Alignment with refinement
+
+For audio and supplied transcripts without existing word alignments, the
+`tutorials.audio.vad_refinement.alignment_with_refinement` entry point runs
+Curator's MFA batch implementation, packages aligned clips as physical NeMo
+tar shards with TextGrid sidecars, and applies Silero/Sortformer refinement.
+It reuses Curator's NeMo reader for ordinary and tarred inputs.
+
+Run the phases separately with `--stage align`, `--stage shard` and
+`--stage refine`, or use the default `--stage all`. Configure the MFA executable,
+language-specific dictionary and acoustic model explicitly. The shard phase
+has one writer; refinement can distribute whole shards across independently
+launched GPU processes with `--worker-count` and `--worker-index`. Models load
+once per refinement process. These commands do not submit cluster jobs.
+
+See `tutorials/audio/vad_refinement/ALIGNMENT_WITH_REFINEMENT.md` in the source
+checkout for input examples, commands, portability and integration tests.
+The single-session command below remains available for existing MFA TextGrids.
+
 Use the `tutorials/audio/vad_refinement` recipe to refine existing forced-alignment
 word boundaries with Silero and Sortformer. It operates on isolated speaker-channel
 recordings with segment-local MFA TextGrids, preserving the original word count,

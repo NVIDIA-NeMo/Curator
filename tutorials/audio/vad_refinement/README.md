@@ -1,5 +1,10 @@
 # Refine aligned words with Silero and Sortformer
 
+For audio with transcripts but no word alignment, use
+[Alignment with refinement](ALIGNMENT_WITH_REFINEMENT.md): Curator MFA batch
+alignment, physical NeMo tar shards, then Silero/Sortformer refinement. It also
+accepts existing NeMo tarred input and supports separate CPU/GPU worker commands.
+
 This recipe refines forced-alignment word boundaries with two independent speech detectors:
 
 - Silero VAD;
@@ -471,6 +476,7 @@ ruff format --check tutorials/audio/vad_refinement tests/tutorials/audio/vad_ref
 ruff check tutorials/audio/vad_refinement tests/tutorials/audio/vad_refinement
 python -m pytest -o addopts= \
   --confcutdir=tests/tutorials/audio/vad_refinement \
+  --ignore=tests/tutorials/audio/vad_refinement/integration \
   tests/tutorials/audio/vad_refinement -q
 ```
 
@@ -541,8 +547,10 @@ inside row boundaries by default.
 The upstream regression tests are under `tests/tutorials/audio/vad_refinement`.
 
 Run these commands from a Curator source checkout. The recipe is not included in
-the installed Curator wheel and does not register a new `ProcessingStage`.
-It consumes existing forced alignments; it does not run MFA or infer transcripts.
+the installed Curator wheel.
+The single-session refinement command consumes existing forced alignments; it
+does not run MFA or infer transcripts. The separate alignment-with-refinement
+entry point runs the bundled MFA batch stage on supplied transcripts first.
 Each manifest row uses a full, isolated speaker-channel recording. Sortformer
 posteriors are reduced by the maximum across speakers into binary speech
 activity, so this recipe does not assign speaker identities to mixed recordings.
