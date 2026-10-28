@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import errno
 import fcntl
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
@@ -97,7 +98,10 @@ class TestUTMOSFilterStage:
         with (tmp_path / ".utmos.lock").open("a") as released_lock:
             fcntl.flock(released_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
 
-    def test_failed_github_load_uses_local_hub_cache(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize("read_only", [False, True])
+    def test_local_hub_cache_loading(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, read_only: bool
+    ) -> None:
         cached_repo = tmp_path / "tarepan_SpeechMOS_v1.2.0"
         cached_repo.mkdir()
         (cached_repo / "hubconf.py").write_text(
@@ -109,6 +113,15 @@ class TestUTMOSFilterStage:
             "    return Predictor()\n"
         )
         load = torch.hub.load
+        if read_only:
+            original_open = type(tmp_path).open
+
+            def open_cache_file(path: Path, *args: object, **kwargs: object) -> object:
+                if path.name == ".utmos.lock":
+                    raise OSError(errno.EROFS, "Read-only file system")
+                return original_open(path, *args, **kwargs)
+
+            monkeypatch.setattr(type(tmp_path), "open", open_cache_file)
 
         def load_with_failed_github(repo: str, *args: object, **kwargs: object) -> object:
             if kwargs.get("source") != "local":
@@ -130,9 +143,9 @@ class TestUTMOSFilterStage:
 
             assert stage._model is not None
             assert not stage._model_failed
-            assert load_model.call_count == 2
+            assert load_model.call_count == (1 if read_only else 2)
             assert load_model.call_args.args[0] == str(cached_repo)
-            assert "original checkpoint load failure" in "".join(messages)
+            assert ("cache is not writable" if read_only else "original checkpoint load failure") in "".join(messages)
         finally:
             logger.remove(sink)
 

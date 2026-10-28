@@ -60,6 +60,10 @@ def audio_requirements() -> list[Requirement]:
 
 def check_audio() -> None:
     """Check real imports and local decoding without downloads or GPU inference."""
+    if shutil.which("ffmpeg") is None:
+        msg = "ffmpeg executable not found on PATH (required by ResampleAudioStage)."
+        raise RuntimeError(msg)
+
     # Optional runtime imports must run only inside the environment being checked.
     import numpy as np
     import onnx
@@ -185,9 +189,17 @@ def install_audio() -> None:
             msg = "uv is required to preserve Curator's existing dependency overrides during audio installation."
             raise RuntimeError(msg)
         pip = [sys.executable, "-m", "pip", "install", "--upgrade-strategy", "only-if-needed"]
-        # Use only the matching PyTorch index for TorchCodec, not PyPI's newer CUDA default.
+        # An installed wrong-CUDA wheel can satisfy the series; replace it from the matching index.
         subprocess.run(  # noqa: S603
-            [*pip, "--no-deps", "--index-url", f"https://download.pytorch.org/whl/{flavor}", codec], check=True
+            [
+                *pip,
+                "--force-reinstall",
+                "--no-deps",
+                "--index-url",
+                f"https://download.pytorch.org/whl/{flavor}",
+                codec,
+            ],
+            check=True,
         )
         subprocess.run(  # noqa: S603
             [

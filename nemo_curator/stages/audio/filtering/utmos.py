@@ -33,6 +33,7 @@ Example:
     )
 """
 
+import errno
 import fcntl
 import math
 from dataclasses import KW_ONLY, dataclass, field
@@ -68,16 +69,26 @@ _VALID_ACTIONS = {"filter", "annotate"}
 def _load_utmos_predictor() -> torch.nn.Module:
     hub_dir = Path(torch.hub.get_dir())
     hub_dir.mkdir(parents=True, exist_ok=True)
+    repo, ref = _UTMOS_REPO.rsplit(":", 1)
+    cached_repo = hub_dir / f"{repo.replace('/', '_')}_{ref.replace('/', '_')}"
     # Different stages and workers share Torch Hub's non-atomic extraction directory.
-    with (hub_dir / ".utmos.lock").open("a") as lock:
+    try:
+        lock_file = (hub_dir / ".utmos.lock").open("a")
+    except OSError as exc:
+        if exc.errno not in {errno.EROFS, errno.EACCES}:
+            raise
+        # Use pre-staged code directly; GitHub loading can try to update the cache.
+        logger.warning(f"UTMOS cache is not writable; loading pre-staged local model at {cached_repo}")
+        return torch.hub.load(
+            str(cached_repo), _UTMOS_ENTRYPOINT, trust_repo=True, source="local", skip_validation=True
+        )
+    with lock_file as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         try:
             return torch.hub.load(
                 _UTMOS_REPO, _UTMOS_ENTRYPOINT, trust_repo=True, force_reload=False, skip_validation=True
             )
         except Exception:  # noqa: BLE001
-            repo, ref = _UTMOS_REPO.rsplit(":", 1)
-            cached_repo = hub_dir / f"{repo.replace('/', '_')}_{ref.replace('/', '_')}"
             logger.opt(exception=True).warning(f"UTMOS initial load failed; trying local cache at {cached_repo}")
             return torch.hub.load(
                 str(cached_repo), _UTMOS_ENTRYPOINT, trust_repo=True, source="local", skip_validation=True
