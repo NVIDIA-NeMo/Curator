@@ -79,10 +79,9 @@ def train_projection(
             print(f"Projection epoch {epoch + 1}/{epochs}: loss={losses[-1]:.6f}, elapsed={elapsed:.1f}s", flush=True)
     model.eval()
     with torch.no_grad():
-        projected = F.normalize(model(inputs.to(device)), dim=1)
-        annotations = F.normalize(targets.to(device), dim=1)
-        similarities = annotations @ projected.T
-        recall = _recall_torch(similarities, k=min(config.eval_recall_k, count))
+        projected = torch.cat([model(inputs[i : i + batch_size].to(device)) for i in range(0, count, batch_size)])
+        projected, annotations = F.normalize(projected, dim=1), F.normalize(targets.to(device), dim=1)
+        recall = _recall_torch(annotations, projected, k=min(config.eval_recall_k, count), chunk=batch_size)
     state_dict_path = None
     if config.save_weights_path:
         config.save_weights_path.parent.mkdir(parents=True, exist_ok=True)
@@ -162,11 +161,17 @@ def _bias_loss(projected: Any, modalities: list[str], scale: bool) -> Any:
     return torch.stack(losses).mean()
 
 
-def _recall_torch(similarities: Any, k: int) -> dict[str, float]:
-    """Retrieval recall@k from an (annotation x raw) similarity matrix, computed on the training device."""
+def _recall_torch(annotations: Any, projected: Any, k: int, chunk: int) -> dict[str, float]:
+    """Retrieval recall@k between matching rows, scoring `chunk` queries at a time so memory stays O(chunk x N)."""
     import torch
 
-    targets = torch.arange(similarities.shape[0], device=similarities.device).unsqueeze(1)
-    a2r = float((similarities.topk(k, dim=1).indices == targets).any(dim=1).float().mean().cpu())
-    r2a = float((similarities.T.topk(k, dim=1).indices == targets).any(dim=1).float().mean().cpu())
+    def recall(queries: Any, keys: Any) -> float:
+        hits = 0
+        for start in range(0, len(queries), chunk):
+            top = (queries[start : start + chunk] @ keys.T).topk(k, dim=1).indices
+            targets = torch.arange(start, start + len(top), device=top.device).unsqueeze(1)
+            hits += int((top == targets).any(dim=1).sum())
+        return hits / len(queries)
+
+    a2r, r2a = recall(annotations, projected), recall(projected, annotations)
     return {"annotation_to_raw": a2r, "raw_to_annotation": r2a, "average": (a2r + r2a) / 2.0}

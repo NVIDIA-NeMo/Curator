@@ -32,6 +32,7 @@ from omnifuse_tutorial.data import (
     expert_file,
     load_records,
     make_batch,
+    raw_text,
     task_records,
     with_records,
     write_json,
@@ -225,7 +226,8 @@ class DatablendRankingStage(_Stage):
         projected_path, blend = self.config.run_dir / "projection" / "projected_embeddings.npy", self.config.datablend
         if not projected_path.exists():
             raise FileNotFoundError(f"Missing {projected_path}. Run 3_project.py first.")
-        query = EEEBackend(self.config.eee, self.config.runtime).embed_query(blend.query, "text-based")
+        anchor = json.loads(projected_path.with_name("model.json").read_text(encoding="utf-8"))["anchor_expert"]
+        query = EEEBackend(self.config.eee, self.config.runtime).embed_query(blend.query, anchor)
         ranked = []
         for index, (record, projected) in enumerate(zip(task_records(task), np.load(projected_path))):
             row = {
@@ -234,6 +236,7 @@ class DatablendRankingStage(_Stage):
                 "pool": record["pool"],
                 "modality": record["modality"],
                 "raw_path": record["raw_path"],
+                "raw_text": raw_text(record),
                 "annotation": record.get("sns_annotation") or record.get("annotation"),
                 "original_annotation": record.get("annotation"),
                 "source_index": index,

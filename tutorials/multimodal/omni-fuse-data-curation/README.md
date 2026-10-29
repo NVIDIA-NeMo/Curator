@@ -247,8 +247,10 @@ outputs/<experiment_id>/projection/annotation_embeddings.npy
 python 4_datablend.py --config configs/omni_fuse_hybrid.yaml
 ```
 
-The datablend stage embeds the query through the text-based expert and ranks
-projected records by cosine similarity:
+The datablend stage embeds the query with the projection's anchor expert
+(`text-based`, or the first configured expert without it) and ranks projected
+records by cosine similarity. Text rows also export `raw_text`, the SNS-refined
+text that was embedded; `raw_path` still points at the original file:
 
 ```text
 outputs/<experiment_id>/datablend/datablend_ranked.jsonl

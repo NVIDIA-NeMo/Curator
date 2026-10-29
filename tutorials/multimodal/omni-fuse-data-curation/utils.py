@@ -61,7 +61,7 @@ def validate_inputs(config: ExperimentConfig) -> dict[str, Any]:
     video_forward = config.sns.direction in {"forward", "bidirectional"} and any(
         pool.modality == "video" for pool in config.data_pools
     )
-    if video_forward and not config.sns.cg_detr_checkpoint.exists():
+    if config.sns.enabled and video_forward and not config.sns.cg_detr_checkpoint.exists():
         missing.append(str(config.sns.cg_detr_checkpoint))
     if missing:
         raise RuntimeError("Missing required API keys or local assets: " + ", ".join(missing))
