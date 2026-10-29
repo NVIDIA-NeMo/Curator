@@ -123,7 +123,8 @@ def test_image_mentions():
     source = '<![%\n\n;[\n\n<!--\n\n<!EN <img src="broken.gif"'
     found, flags = scan("![keep](a.jpg)\n" + source, "https://e.test/page")
     assert urls(found) == {"https://e.test/a.jpg"}
-    assert flags["html_fallback_errors"] == 1
+    # Python patch releases differ in whether this malformed declaration raises.
+    assert flags["html_fallback_errors"] in {0, 1}
     assert flags["uncovered_html_tags"] == 1
     assert resolve_url("/a.jpg", None)[1] == "missing_page_base"
     assert resolve_url("https://example.org:bad/a.jpg", None)[1] == "invalid_url"
@@ -208,3 +209,17 @@ def test_batch_diagnostics():
     assert batch._metadata == {"source_files": ["input.parquet"]}
     empty = DocumentBatch(dataset_name="test", data=batch.data.slice(0, 0))
     assert stage.process(empty)._metadata["image_reference_diagnostics"] == {"html_attribute_counts": {}}
+
+
+def test_fallback_exception_keeps_other_mentions(monkeypatch: pytest.MonkeyPatch):
+    from nemo_curator.stages.interleaved.image_references import ImageTags
+
+    def fail_feed(_self: object, _data: str) -> None:
+        msg = "malformed declaration"
+        raise ValueError(msg)
+
+    monkeypatch.setattr(ImageTags, "feed", fail_feed)
+    rows, flags = scan('![keep](a.jpg) <img src="broken.gif"', "https://e.test/page")
+    assert urls(rows) == {"https://e.test/a.jpg"}
+    assert flags["html_fallback_errors"] == 1
+    assert flags["uncovered_html_tags"] == 1
