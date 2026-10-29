@@ -45,7 +45,7 @@ class _ReadContext:
 
     tar_path: str
     member_names: set[str]
-    member_info: dict[str, tarfile.TarInfo]
+    member_info: dict[str, tarfile.TarInfo] | None
     storage_options: dict[str, object]
     byte_cache: dict[str, bytes | None]
 
@@ -434,7 +434,8 @@ class InterleavedWebdatasetReaderStage(BaseInterleavedReader):
                 read_ctx = _ReadContext(
                     tar_path=tar_path,
                     member_names=member_names,
-                    member_info={m.name: m for m in members},
+                    # Compressed TAR offsets address the decompressed stream, not the stored object.
+                    member_info={m.name: m for m in members} if tf.fileobj is fobj else None,
                     storage_options=self._storage_options,
                     byte_cache={},
                 )
