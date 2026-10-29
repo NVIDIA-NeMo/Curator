@@ -717,8 +717,8 @@ def test_full_agent_export_retry_and_discovery(tmp_path: Path) -> None:
     import pickle
 
     verbs = pytest.importorskip("nemo_curator.stages.audio.audio_agent.verbs")
+    runtime = pytest.importorskip("nemo_curator.stages.audio.audio_agent._verb_runtime")
     from nemo_curator.stages.audio.audio_agent.index import get_index
-
     from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
     from nemo_curator.stages.audio.io.extract_segments import SegmentExtractionStage
 
@@ -758,7 +758,7 @@ def test_full_agent_export_retry_and_discovery(tmp_path: Path) -> None:
             return RayDataStageAdapter(replacement)._process_batch_internal({"item": tasks})["item"]
 
     stage = ManifestGroupExportStage(output_dir=str(tmp_path / "export"), write_timeline=True)
-    assert verbs._run_pipeline([stage], RetryingExecutor()) == tasks
+    assert runtime._run_pipeline([stage], RetryingExecutor()) == tasks
     assert (tmp_path / "export" / "a.txt").read_text().splitlines() == ["0", "1"]
     assert (tmp_path / "export" / "timeline.txt").read_text().splitlines() == ["a: 0", "a: 1"]
 

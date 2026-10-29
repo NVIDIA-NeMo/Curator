@@ -988,3 +988,82 @@ def test_conditional_tensor_writes_seed_residency_only_when_reachable(tmp_path: 
         [_ReachabilityGatedTensorProducer(), _ReachabilityGatedTensorProducer(), sink],
     )
     assert self_enabling.ok, self_enabling.summary()
+
+
+@pytest.mark.parametrize("nested", [False, True])
+@pytest.mark.parametrize("reemit", [False, True])
+def test_rebuild_can_conditionally_copy_a_guaranteed_input(nested: bool, reemit: bool) -> None:
+    scope = "segment_data_keys" if nested else "data_keys"
+    spec = IOSpec(**{scope: ["probe_key"]})
+    producer = _ContractStage(StageContract(writes=spec))
+    rebuild = _ContractStage(
+        StageContract(
+            writes=IOSpec(data_keys=["audio_filepath"]),
+            preserves_upstream_keys=False,
+            conditional_writes=[
+                ConditionalWrite(writes=spec, requires_keys=["probe_key"], condition="input is non-null")
+            ]
+            if reemit
+            else [],
+        )
+    )
+    consumer = _ContractStage(StageContract(reads=spec))
+    report = validate_pipeline([producer, rebuild, consumer])
+
+    assert report.ok is reemit
+    assert any(issue.code == ("conditional_read" if reemit else "unsatisfied_reads") for issue in report.issues)
+    assert "probe_key" not in validate_pipeline([producer, rebuild]).produced_keys
+
+
+@pytest.mark.parametrize("removal", ["removes_keys", "invalidates_keys"])
+def test_explicit_removal_still_blocks_conditional_copies(removal: str) -> None:
+    spec = IOSpec(data_keys=["probe_key"])
+    producer = _ContractStage(StageContract(writes=spec))
+    rebuild = _ContractStage(
+        StageContract(
+            **{removal: ["probe_key"]},
+            preserves_upstream_keys=False,
+            conditional_writes=[
+                ConditionalWrite(writes=spec, requires_keys=["probe_key"], condition="runtime branch")
+            ],
+        )
+    )
+    report = validate_pipeline([producer, rebuild, _ContractStage(StageContract(reads=spec))])
+    assert not report.ok
+
+
+@pytest.mark.parametrize("scope", ["task", "segment"])
+@pytest.mark.parametrize("conditional", [False, True])
+def test_prior_write_invalidation_retracts_only_the_selected_scope(scope: str, conditional: bool) -> None:
+    replaced = IOSpec(data_keys=["owned_score"]) if scope == "task" else IOSpec(segment_data_keys=["owned_score"])
+    stage = _ConfiguredContractStage(
+        StageContract(
+            invalidates_prior_writes=replaced,
+            writes=IOSpec() if conditional else replaced,
+            conditional_writes=[ConditionalWrite(writes=replaced)] if conditional else [],
+        )
+    )
+    consumer = _ConfiguredContractStage(StageContract(reads=replaced))
+    report = validate_pipeline(
+        [stage, consumer],
+        initial_keys={"owned_score", "unrelated"},
+        initial_segment_keys={"owned_score", "unrelated"},
+    )
+
+    assert report.ok
+    assert any(issue.code == "conditional_read" for issue in report.issues) is conditional
+    assert "unrelated" in report.produced_keys
+    assert "owned_score" in report.produced_keys
+    other_scope = (
+        IOSpec(segment_data_keys=["owned_score", "unrelated"])
+        if scope == "task"
+        else IOSpec(data_keys=["owned_score", "unrelated"])
+    )
+    assert not validate_pipeline(
+        [stage, _ConfiguredContractStage(StageContract(reads=other_scope))],
+        initial_keys={"owned_score", "unrelated"},
+        initial_segment_keys={"owned_score", "unrelated"},
+    ).issues
+    assert stage.describe().to_dict()["invalidates_prior_writes"][
+        "data_keys" if scope == "task" else "segment_data_keys"
+    ] == ["owned_score"]

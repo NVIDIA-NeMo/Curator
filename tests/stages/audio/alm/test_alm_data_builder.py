@@ -274,8 +274,16 @@ class TestALMDataBuilder:
             ],
             **seed,
         )
-        assert not dropped.ok
-        assert any(issue.code == "key_removed_upstream" for issue in dropped.issues)
+        assert dropped.ok
+        assert dropped.keys_ok
+        assert any(
+            issue.code == "conditional_read" and issue.stage_index == 1 and "audio_filepath" in issue.message
+            for issue in dropped.issues
+        )
+        producer = validate_pipeline(
+            [ALMDataBuilderStage(drop_fields_top_level="words,segments,audio_filepath")], **seed
+        )
+        assert "audio_filepath" not in producer.produced_keys
 
 
 class TestALMDataBuilderIntegration:

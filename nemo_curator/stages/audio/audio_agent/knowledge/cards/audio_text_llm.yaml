@@ -1,0 +1,90 @@
+stage_id: AudioTextLLMStage
+category: text_norm
+summary: "Send transcript text to a shared chat-completions server for independent text operations, entity recovery or limited language verification."
+tags: []
+model_id: null
+deterministic: false
+domain: {language: "served model/prompt-dependent; language verification uses Curator's finite code/name vocabulary", style: "text associated with audio rows"}
+resource:
+  cpus: 1.0
+  gpu_mem_gb: 0.0
+  gpu_optional: false
+  bound: io
+  throughput_hint: "Network/model-server bound; each worker limits concurrent requests. These local resources exclude the server's GPUs, KV cache and model memory."
+use_cases:
+  good_for:
+    - "Prompt-driven ITN/TN or text annotations using an already deployed chat model."
+    - "Concurrent independent annotations over the same input transcript."
+    - "Reference-assisted entity recovery with explicit normalized/reference prompt fields."
+  avoid_for:
+    - "Audio transcription or spoken-language identification: no audio samples are sent."
+    - "Treating generated text or heuristic guard acceptance as an independently verified reference."
+    - "Parallel operations that consume one another's outputs."
+params_of_note:
+  endpoint: "Required API base URL, commonly http://host:port/v1. The client calls chat.completions, not the Responses API; the server must expose a compatible chat endpoint."
+  model_name: "Required served model identity. The stage does not launch the server or load weights."
+  prompt: "Required nonblank prompt unless operations is supplied. In text/language_id modes, {text} creates one interpolated user message; otherwise use system plus input-as-user. Entity recovery instead sends prompt verbatim as system and formats user_prompt."
+  text_key: "Input transcript, default text. Normal text/language_id modes require a string; blank input is retained without an RPC."
+  output_text_key: "Default processed_text. Use distinct output fields when the original transcript/reference must survive; a single operation may overwrite its input key."
+  mode: "text (default), recover_entities, or language_id. Each mode has different fallback and audit semantics."
+  user_prompt: "Required nonblank template for recover_entities; format fields are {ground_truth} and {normalized}."
+  ground_truth_key: "Default granary_v1_prediction. Entity recovery sends a request only when both reference and normalized input are nonblank strings; its accuracy is not verified."
+  language_key: "Default source_lang. Supplies prompt substitution and expected language for verification. {language} falls back to English when missing/blank; {language_rules} instead requires a known configured rule."
+  language_rules: "Mapping of lowercase language codes to prompt rules. Required with {language_rules}; a row missing a matching rule raises."
+  validation_mode: "none by default. itn/tn apply rewrite heuristics and can retain the original input after rejecting a response; recover_entities bypasses these guards."
+  generation_config: "GenerationConfig or mapping; defaults include max_tokens=2048, temperature=0, seed=0, top_p=0.95. Only stream=false and n=1 are supported; model/server support for other fields varies."
+  operations: "Nonempty list of independent text-mode operation mappings. Parent prompt must be empty; names/outputs must be distinct and no operation may consume an operation output."
+  max_concurrent_requests: "Default 16 simultaneous requests per worker. More actors multiply endpoint load; this is not a server-wide concurrency limit."
+  request_timeout_s: "Default 120 seconds per client request attempt. A separate batch deadline accounts for concurrency waves, wrapper/SDK retries and backoff, so a batch can take much longer."
+  max_retries: "Default 3 wrapper retries for retryable failures; underlying SDK retries also contribute to time and request count."
+  num_workers_override: "Optional positive actor cap, useful for limiting total load on a shared server."
+  skip_if_output_exists: "Default false. When true, output-key presence alone reuses the existing value, including empty text; a prompt/model change does not invalidate it."
+  skip_me_key: "Default _skipme. Existing truthy reasons suppress generation. Language verification may add a reason but never clears an existing one."
+  notes_key: "Default additional_notes; each operation writes an outcome under its configured name. Give sequential operations distinct names to preserve their audit history."
+param_dependencies:
+  operations: "All operations share endpoint, model, credentials and concurrency settings, and support text mode only. Put dependent transforms or special modes in separate stages."
+  validation_mode: "itn rejects word-count growth and novel Latin tokens except built-in allowed forms. tn checks newly introduced English markers and Latin-script drift. Both reject excessive deletion above the configured input-length floor."
+  user_prompt: "Entity recovery formats {ground_truth} from ground_truth_key and {normalized} from text_key; it removes think/fence wrappers and falls back on cleaned-empty output."
+semantic_facts:
+  processed_text:
+    meaning: "The response's first choice content, or the retained input after a configured rewrite/recovery fallback. In language_id mode it contains textual language labels, not a transcript."
+    unit: "string; output may be empty"
+    provenance: "Remote chat model, optional mode-specific cleanup, and configured heuristic guards."
+    scope: "One task and operation; parallel operations have separate fields."
+    propagation: "Original tasks, order, audio and task metadata survive. Existing skip/output-reuse paths may retain old output or produce an empty output without a request."
+    counterexamples:
+      - "validation_mode=none retains empty or truncated content; the stage does not reject a finish_reason of length."
+      - "A successful rewrite guard does not establish semantic equivalence, reference accuracy or correct entity recovery."
+  additional_notes:
+    meaning: "Operation outcome such as applied, unchanged, skipped or fallback, plus language-verification notes where applicable."
+    provenance: "Local handling of responses and skip/guard branches."
+    scope: "Task-local audit mapping keyed by operation name."
+    propagation: "Existing mapping entries survive; repeated use of the same operation name overwrites its earlier note."
+    counterexamples:
+      - "An applied note reports local processing, not independent quality verification."
+  _skipme:
+    meaning: "Existing rejection or a language-verification rejection added for a known expected language and a nonempty unparseable/mismatched single-language prediction."
+    provenance: "Existing task state or the finite Curator language parser."
+    scope: "Task-level routing flag."
+    propagation: "Rows are retained. Flagged normal text/language_id rows keep existing output or write empty text; flagged entity-recovery rows retain normalized input."
+    counterexamples:
+      - "A multilingual prediction is retained even if its listed languages omit the expected language."
+      - "Unknown source languages and empty language predictions receive notes without this verification rejecting them."
+presets:
+  guarded_itn: {validation_mode: itn}
+  guarded_tn: {validation_mode: tn}
+comparison:
+  choose_when: "Use for model-driven text operations with an existing server and reviewed prompt. AudioLIDInferenceStage classifies audio; this stage's language_id mode reasons only about transcript text."
+  known_limitations: "No general truth/translation detector, strict multilingual gate, input-token truncation, or exact replay guarantee across remote model/server changes."
+caveats:
+  - "The presets select guards only: endpoint, model and an appropriate prompt still need configuration. The ITN/TN guards are heuristic and can both reject useful rewrites and accept meaning-changing ones."
+  - "Defaults temperature=0 and seed=0 do not guarantee identical text across server/model versions or implementations."
+  - "A batch waits for responses before applying operation outputs. Request failures propagate after retries; pending requests are cancelled and the worker's client/event loop is reset on failure or teardown."
+  - "Use a synchronous worker thread; calling from a running event loop or concurrently on one stage instance is unsupported."
+  - "Normal text transforms preserve row count. To exclude flagged rows, use an explicit downstream policy, taking any sink's source-row completeness requirements into account."
+notes:
+  - "Dynamo supports a chat-completions frontend, but the chosen server/model must support the supplied generation settings: https://docs.nvidia.com/dynamo/latest/reference/components/frontend-configuration"
+  - "Implementation: nemo_curator/stages/audio/text_filtering/audio_text_llm.py and language_utils.py; client behavior: nemo_curator/models/client/. Examples: tutorials/audio/granary_v2/text_pipeline/text_pipeline.yaml."
+  - "No model quality, language-coverage, GPU-memory or throughput measurement is supplied by this generic wrapper; consult the actual served model's documentation."
+verified: {params: mechanical, tags: mechanical, resource: mechanical, domain: best_guess, use_cases: best_guess, comparison: best_guess, semantic_facts: mechanical, presets: mechanical}
+provenance: {model_card_url: null, card_version: 2, last_validated: "2026-10-26"}
