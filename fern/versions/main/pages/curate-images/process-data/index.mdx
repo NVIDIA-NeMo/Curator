@@ -55,3 +55,89 @@ ImageNSFWFilterStage nsfw_score
 </Card>
 
 </Cards>
+
+
+## Image diagnostics without filtering
+
+`ImageDiagnosticsStage` annotates each image's metadata with dimensions, sharpness,
+and QR coverage. It keeps every image and preserves batch order. Install the
+`image_cpu` extra and supply native-resolution `uint8` RGB arrays in `image_data`.
+
+```python
+from nemo_curator.stages.image.diagnostics import ImageDiagnosticsStage
+
+stage = ImageDiagnosticsStage(metrics=("sharpness", "qr"))
+stage.setup()
+annotated_batch = stage.process(image_batch)
+```
+
+| Metadata field | Meaning |
+| --- | --- |
+| `image_width`, `image_height` | Decoded pixel dimensions. |
+| `image_sharpness_score` | Grayscale Laplacian variance (`CV_64F`, kernel size 1). |
+| `image_qr_area_ratio` | Detected QR quadrilateral area divided by image area, capped at 1. |
+| `image_sharpness_status`, `image_qr_status` | `ok`, `compute_error`, or `decode_error`. Failed measurements are null. |
+
+QR detection does not require decoding the QR text. No detections gives zero;
+overlapping quadrilaterals can double-count area before the cap. Sharpness depends
+on resolution and texture; it is not a universal quality score.
+
+The input decoder controls frame selection, orientation, and transparency. The
+optional `decode_image_rgb(encoded_bytes)` helper selects frame zero, applies
+EXIF orientation, composites transparency over white, and returns RGB pixels
+without resizing. Record that policy and library versions when comparing scores.
+
+
+The stage uses a fresh `cv2.QRCodeDetectorAruco` for each image. This avoids
+crashes observed with the older `QRCodeDetector` on web images. Both use
+`detectMulti`, but they can find different regions: record the detector with the
+scoring recipe, and do not mix their scores as one reproducible measurement.
+
+Request only the measurements you need: `metrics=("sharpness",)` skips QR
+construction and detection; `metrics=()` records dimensions only. Set
+`remove_image_data=True` when later stages need metadata rather than pixels.
+Unrequested metadata is preserved.
+
+## Batched model scores without filtering
+
+`ImageScoringStage` runs a caller-supplied predictor once per inference batch.
+The factory loads the model once per worker; its callable accepts a list of image
+arrays and returns one finite scalar per array. Preprocessing, device, precision,
+and score scaling belong to that predictor. Curator owns worker scheduling.
+
+```python
+from nemo_curator.backends.ray_data import RayDataExecutor
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.image.scoring import ImageScoringStage
+from nemo_curator.stages.resources import Resources
+from my_model import load_predictor  # Returns a callable: image arrays -> scores.
+
+scoring = ImageScoringStage(
+    predictor_factory=load_predictor,
+    score_field="quality_score",
+    status_field="quality_status",
+    model_inference_batch_size=128,
+    remove_image_data=True,
+).with_(resources=Resources(cpus=1, gpus=1), num_workers=1)
+
+Pipeline("image-scores", stages=[scoring]).run(
+    executor=RayDataExecutor(), initial_tasks=image_batches
+)
+```
+
+Match the resource request to the predictor; CPU predictors can use the default
+CPU allocation. Supply reasonably sized `ImageBatch` tasks so the streaming
+executor can overlap input preparation and inference. Inference batches never
+cross task boundaries. Missing pixels retain their image and receive a null score
+with `decode_error`; model exceptions, invalid cardinality, and nonfinite outputs
+fail the task for retry. Successful scores have status `ok`.
+
+For reproducible scores, pin preprocessing, model weights, library versions,
+precision, and inference batch size. Changing the batch size or execution device
+can change floating-point outputs even with the same weights. Compare complete
+pipeline throughput and score parity before changing either; warm inference
+throughput alone excludes decoding, input transfer, and startup costs.
+
+Use `remove_image_data=True` at the last pixel-consuming stage to avoid collecting
+large image arrays back to the driver. The stage keeps all other metadata and
+never applies a score threshold.
