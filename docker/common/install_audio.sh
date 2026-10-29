@@ -32,6 +32,9 @@ fi
 if [ "${1:-}" = --check ]; then
     exit 1
 fi
-bash "$script_dir/install_ffmpeg.sh"
+# Python-only repairs do not require the combined installer's video capabilities.
+if ! bash "$script_dir/install_ffmpeg.sh" --check-audio; then
+    bash "$script_dir/install_ffmpeg.sh"
+fi
 bash "$script_dir/install_openfst.sh"
 exec "$PYTHON" "$script_dir/_install_audio.py"

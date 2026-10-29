@@ -40,6 +40,10 @@ bash docker/common/install_audio.sh --check
 The installer prepares shared FFmpeg, installs the audio requirements declared
 by this checkout, and selects a TorchCodec series and PyTorch wheel index matching
 the installed Torch and CUDA build (or CPU build). It requires `uv` and does not reinstall Curator.
+Python dependency repairs reuse FFmpeg when its audio capabilities already pass
+`install_ffmpeg.sh --check-audio`; unrelated video capabilities are not required.
+If audio capabilities are missing, the fallback installs the combined audio/video
+FFmpeg build and requires root access.
 It constrains installed Torch, TorchAudio, TorchVision, Numba, FSSpec, Transformers,
 and Hugging Face Hub versions; NumPy must satisfy the installed Numba's bounds.
 It retains Curator's existing uv override exceptions only when they match the
