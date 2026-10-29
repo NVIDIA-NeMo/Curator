@@ -104,12 +104,15 @@ def _render_page(doc: Any, page_num: int, base_scale: float, max_size: tuple[int
                 page.close()
 
 
-def render_pdf_pages(
+def render_pdf_pages(  # noqa: PLR0913
     pdf_bytes: bytes,
     dpi: int = 300,
     max_pages: int = DEFAULT_MAX_PAGES,
     max_size: tuple[int, int] | None = (1664, 2048),
-) -> list[Image.Image]:
+    keep_failed: bool = False,
+    *,
+    page_indices: list[int] | None = None,
+) -> list[Image.Image | None]:
     """Render PDF pages to PIL images using pypdfium2.
 
     Follows the same pattern as NeMo-Retriever to avoid two pdfium pitfalls:
@@ -124,6 +127,11 @@ def render_pdf_pages(
     Nemotron-Parse processor size).  This bounds the bitmap size regardless of
     how large the PDF page dimensions are, eliminating decompression-bomb
     errors downstream and keeping render time predictable.
+
+    With ``keep_failed``, a page that fails to render is returned as ``None``.
+    When ``page_indices`` is unset, list indexes stay equal to physical page
+    indexes. When it is set, results follow the requested order and callers
+    retain the supplied indexes alongside them.
     """
     import pypdfium2 as pdfium
 
@@ -132,9 +140,10 @@ def render_pdf_pages(
     try:
         doc = pdfium.PdfDocument(pdf_bytes)
         base_scale = dpi / 72.0
-        for page_num in range(min(len(doc), max_pages)):
+        indexes = range(min(len(doc), max_pages)) if page_indices is None else page_indices
+        for page_num in indexes:
             img = _render_page(doc, page_num, base_scale, max_size)
-            if img is not None:
+            if img is not None or keep_failed:
                 images.append(img)
     except Exception as e:  # noqa: BLE001
         # Encrypted and truncated PDFs fail here, in PdfDocument(). Callers treat
@@ -344,6 +353,23 @@ def interleave_floaters(
     return result
 
 
+def build_metadata_row(sample_id: str, url: str, pdf_name: str, num_pages: int) -> dict[str, Any]:
+    """Return the document-level metadata row, which always sits at position -1."""
+    return {
+        "sample_id": sample_id,
+        "position": -1,
+        "modality": "metadata",
+        "content_type": "application/json",
+        "text_content": json.dumps({"url": url, "pdf_name": pdf_name, "num_pages": num_pages}),
+        "binary_content": None,
+        "source_ref": None,
+        "url": url,
+        "page_number": None,
+        "pdf_name": pdf_name,
+        "element_class": None,
+    }
+
+
 def build_interleaved_rows(  # noqa: PLR0913
     sample_id: str,
     url: str,
@@ -353,6 +379,8 @@ def build_interleaved_rows(  # noqa: PLR0913
     proc_size: tuple[int, int] = (2048, 1664),
     reorder_floaters: bool = True,
     min_crop_px: int = DEFAULT_MIN_CROP_PX,
+    *,
+    page_numbers: list[int] | None = None,
 ) -> list[dict[str, Any]]:
     """Convert Nemotron-Parse page outputs into interleaved-schema rows.
 
@@ -366,25 +394,13 @@ def build_interleaved_rows(  # noqa: PLR0913
         reorder_floaters: If True, re-insert Pictures/Captions in reading order
             (needed for v1.1).  If False, preserve raw model output order (v1.2+).
         min_crop_px: Minimum pixel dimension for image crops.
+        page_numbers: PDF page index of each image. Defaults to ``0..n-1``.
     """
-    rows: list[dict[str, Any]] = [
-        {
-            "sample_id": sample_id,
-            "position": -1,
-            "modality": "metadata",
-            "content_type": "application/json",
-            "text_content": json.dumps({"url": url, "pdf_name": pdf_name, "num_pages": len(page_images)}),
-            "binary_content": None,
-            "source_ref": None,
-            "url": url,
-            "page_number": None,
-            "pdf_name": pdf_name,
-            "element_class": None,
-        }
-    ]
+    rows: list[dict[str, Any]] = [build_metadata_row(sample_id, url, pdf_name, len(page_images))]
 
     position = 0
-    for page_num, (page_img, raw_output) in enumerate(zip(page_images, page_outputs, strict=True)):
+    numbers = range(len(page_images)) if page_numbers is None else page_numbers
+    for page_num, page_img, raw_output in zip(numbers, page_images, page_outputs, strict=True):
         canvas = build_canvas(page_img, proc_size)
         elements = parse_nemotron_output(raw_output)
 
