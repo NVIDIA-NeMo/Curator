@@ -89,12 +89,22 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           submodules: recursive
+      - name: Report storage before cleanup
+        run: bash .github/scripts/report_disk_usage.sh
       - name: Free up disk space on Ubuntu
         run: |
+          # CPU tests do not use these preinstalled SDKs and toolchains.
           sudo rm -rf /usr/share/dotnet
           sudo rm -rf /opt/ghc
           sudo rm -rf /usr/local/share/boost
-          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /usr/share/swift
+          sudo rm -rf /usr/local/share/powershell
+          sudo rm -rf "${AGENT_TOOLSDIRECTORY:?}"
+          sudo apt-get clean
+      - name: Report storage after cleanup
+        if: ${{ !cancelled() }}
+        run: bash .github/scripts/report_disk_usage.sh
       - name: Install system dependencies for audio tests
         if: matrix.folder == 'stages-audio'
         run: |
@@ -110,6 +120,9 @@ jobs:
       - name: Run CPU tests (Python 3.13)
         timeout-minutes: 40
         run: bash tests/L0_Unit_Test_CPU.sh "${{ matrix.folder }}" 3.13
+      - name: Report storage after CPU tests
+        if: ${{ !cancelled() }}
+        run: bash .github/scripts/report_disk_usage.sh
 
       - name: Generate report
         id: check
