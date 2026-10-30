@@ -16,6 +16,8 @@
 
 from __future__ import annotations
 
+import errno
+import fcntl
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
@@ -28,7 +30,7 @@ from loguru import logger
 from nemo_curator.stages.audio._agent._agent_registry import static_contract
 from nemo_curator.stages.audio._agent._conformance import assert_agent_ready, assert_residency_consumption
 from nemo_curator.stages.audio._agent._planning import validate_pipeline
-from nemo_curator.stages.audio.filtering.utmos import UTMOSFilterStage
+from nemo_curator.stages.audio.filtering.utmos import UTMOSFilterStage, _load_utmos_predictor
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
@@ -73,7 +75,77 @@ def _stage(*, mode: str = "task", scorable: bool = True, input_residency: str = 
 
 
 class TestUTMOSFilterStage:
-    def test_failed_github_load_uses_local_hub_cache(self, tmp_path: Path) -> None:
+    def test_unexpected_cache_lock_error_propagates(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        original_open = type(tmp_path).open
+        error = OSError(errno.EIO, "Cache I/O error")
+
+        def open_cache_file(path: Path, *args: object, **kwargs: object) -> object:
+            if path.name == ".utmos.lock":
+                raise error
+            return original_open(path, *args, **kwargs)
+
+        monkeypatch.setattr(type(tmp_path), "open", open_cache_file)
+        with (
+            patch("torch.hub.get_dir", return_value=str(tmp_path)),
+            patch("torch.hub.load") as load_model,
+            pytest.raises(OSError, match="Cache I/O error") as caught,
+        ):
+            _load_utmos_predictor()
+
+        assert caught.value is error
+        load_model.assert_not_called()
+
+    def test_failed_download_and_cache_are_tolerated_only_by_node_setup(self, tmp_path: Path) -> None:
+        with (
+            patch("torch.hub.get_dir", return_value=str(tmp_path)),
+            patch("torch.cuda.is_available", return_value=False),
+            patch("torch.hub.load", side_effect=RuntimeError("Model unavailable")) as load_model,
+        ):
+            stage = UTMOSFilterStage()
+            stage.setup_on_node()
+            assert load_model.call_count == 2
+            assert not stage._model_failed
+
+            with pytest.raises(RuntimeError, match="UTMOS model failed to load"):
+                stage.setup()
+            assert stage._model is None
+            assert stage._model_failed
+            assert load_model.call_count == 4
+
+            with pytest.raises(RuntimeError, match="UTMOS model failed to load"):
+                stage.setup()
+            assert load_model.call_count == 4
+
+        with (tmp_path / ".utmos.lock").open("a") as released_lock:
+            fcntl.flock(released_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+    def test_node_and_worker_setup_lock_shared_hub_cache(self, tmp_path: Path) -> None:
+        model = _mock_model(4.0)
+        model.to.return_value = model
+
+        def load_under_lock(*_args: object, **_kwargs: object) -> MagicMock:
+            with (tmp_path / ".utmos.lock").open("a") as competing_lock, pytest.raises(BlockingIOError):
+                fcntl.flock(competing_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return model
+
+        with (
+            patch("torch.hub.get_dir", return_value=str(tmp_path)),
+            patch("torch.cuda.is_available", return_value=False),
+            patch("torch.hub.load", side_effect=load_under_lock) as load_model,
+        ):
+            stage = UTMOSFilterStage()
+            stage.setup_on_node()
+            stage.setup()
+
+        assert load_model.call_count == 2
+        assert stage._model is model
+        with (tmp_path / ".utmos.lock").open("a") as released_lock:
+            fcntl.flock(released_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+    @pytest.mark.parametrize("read_only", [False, True])
+    def test_local_hub_cache_loading(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, read_only: bool
+    ) -> None:
         cached_repo = tmp_path / "tarepan_SpeechMOS_v1.2.0"
         cached_repo.mkdir()
         (cached_repo / "hubconf.py").write_text(
@@ -85,6 +157,15 @@ class TestUTMOSFilterStage:
             "    return Predictor()\n"
         )
         load = torch.hub.load
+        if read_only:
+            original_open = type(tmp_path).open
+
+            def open_cache_file(path: Path, *args: object, **kwargs: object) -> object:
+                if path.name == ".utmos.lock":
+                    raise OSError(errno.EROFS, "Read-only file system")
+                return original_open(path, *args, **kwargs)
+
+            monkeypatch.setattr(type(tmp_path), "open", open_cache_file)
 
         def load_with_failed_github(repo: str, *args: object, **kwargs: object) -> object:
             if kwargs.get("source") != "local":
@@ -106,9 +187,9 @@ class TestUTMOSFilterStage:
 
             assert stage._model is not None
             assert not stage._model_failed
-            assert load_model.call_count == 2
+            assert load_model.call_count == (1 if read_only else 2)
             assert load_model.call_args.args[0] == str(cached_repo)
-            assert "original checkpoint load failure" in "".join(messages)
+            assert ("cache is not writable" if read_only else "original checkpoint load failure") in "".join(messages)
         finally:
             logger.remove(sink)
 
