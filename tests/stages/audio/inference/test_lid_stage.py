@@ -443,13 +443,13 @@ def test_metadata_extraction_runner_three_model_topology_is_representable() -> N
         **common,
     )
     canary = AudioLIDInferenceStage(
-        adapter_target="nemo_curator.models.audio.lid.indic_canary.IndicCanaryLIDAdapter",
-        model_id="IndicCanaryLangID",
+        adapter_target="nemo_curator.models.audio.lid.indic_transcribe.IndicTranscribeLIDAdapter",
+        model_id="IndicTranscribeLangID",
         tag="secondary",
         max_duration_sec=40.0,
         num_workers_override=1,
         adapter_kwargs={
-            "engine_dir": "/models/indic_canary",
+            "engine_dir": "/models/indic_transcribe",
             "model_batch_size": 16,
             "kv_cache_free_gpu_memory_fraction": 0.1,
             "cross_kv_cache_fraction": 0.1,
@@ -474,7 +474,7 @@ def test_metadata_extraction_runner_three_model_topology_is_representable() -> N
 
     assert [(stage.model_id, stage.tag, stage.num_workers()) for stage in (speechbrain, canary, whisper)] == [
         ("SpeechBrainLangID", "primary", 2),
-        ("IndicCanaryLangID", "secondary", 1),
+        ("IndicTranscribeLangID", "secondary", 1),
         ("WhisperLangID", "tertiary", 2),
     ]
     assert all(stage.inputs() == ([], ["waveform", "sample_rate"]) for stage in (speechbrain, canary, whisper))

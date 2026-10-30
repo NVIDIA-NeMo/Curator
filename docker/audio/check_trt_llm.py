@@ -40,7 +40,7 @@ def main() -> None:
         print("Build checks passed; native TensorRT-LLM still requires the GPU smoke check.")
         return
 
-    from nemo_curator.stages.audio.inference.indic_canary_trtllm_runtime import _require_tensorrt_llm
+    from nemo_curator.stages.audio.inference.indic_transcribe_trtllm_runtime import _require_tensorrt_llm
 
     _require_tensorrt_llm()
     from cuda.bindings import runtime as cuda_runtime
@@ -56,11 +56,11 @@ def main() -> None:
         "nemo_curator.models.asr.indic_parakeet_rnnt_tensorrt",
         "nemo_curator.stages.audio.metrics.wer",
         "nemo_curator.stages.audio.preprocessing.indic_asr",
-        "nemo_curator.stages.audio.inference.indic_canary",
+        "nemo_curator.stages.audio.inference.indic_transcribe",
         "nemo_curator.stages.audio.inference.lid.stage",
         "nemo_curator.stages.audio.inference.parakeet",
         "nemo_curator.models.audio.lid.speechbrain",
-        "nemo_curator.models.audio.lid.indic_canary",
+        "nemo_curator.models.audio.lid.indic_transcribe",
         "nemo_curator.models.audio.lid.whisper",
         "nemo_curator.stages.audio.text_filtering",
         "nemo_curator.config.run",
