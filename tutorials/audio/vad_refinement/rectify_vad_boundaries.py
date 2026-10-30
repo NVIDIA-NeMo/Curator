@@ -20,6 +20,7 @@ import argparse
 import json
 import math
 import os
+import warnings
 from bisect import bisect_right
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass, field
@@ -508,6 +509,47 @@ def _safe_segment_name(row: dict[str, Any], source_path: Path) -> str:
     return safe or "segment"
 
 
+def _check_alignment_timing(row: dict[str, Any], source_path: Path) -> None:
+    """Keep audio duration separate from the protected annotation extent."""
+    offset, duration = _row_time_bounds(row, context="Alignment timing")
+    grid = read_textgrid(source_path)
+    mfa_duration = float(grid.maxTime)
+    words = _marked_words(source_path)
+    if not math.isfinite(mfa_duration) or mfa_duration <= 0:
+        msg = f"Invalid MFA TextGrid duration in {source_path}: {mfa_duration}"
+        raise ValueError(msg)
+    if any(not math.isfinite(float(value)) or float(value) < 0 for word in words for value in word[:2]):
+        msg = f"Invalid MFA word boundary in {source_path}"
+        raise ValueError(msg)
+    annotation_duration = max(duration, mfa_duration, *(float(word[1]) for word in words))
+    row.update(mfa_duration=mfa_duration, annotation_duration=annotation_duration)
+    details = f"manifest duration={duration:.17g}s, MFA duration={mfa_duration:.17g}s"
+    mismatch = not math.isclose(duration, mfa_duration, rel_tol=0, abs_tol=1e-9)
+    if row.get("audio_filepath"):
+        if row.get("audio_num_frames") is None or row.get("audio_sample_rate") is None:
+            import soundfile as sf
+
+            info = sf.info(str(row["audio_filepath"]))
+            row.update(audio_num_frames=info.frames, audio_sample_rate=info.samplerate)
+        frames, sample_rate = row["audio_num_frames"], row["audio_sample_rate"]
+        if any(
+            isinstance(value, bool) or not isinstance(value, Integral) or value <= 0 for value in (frames, sample_rate)
+        ):
+            msg = f"Invalid audio sample-count metadata for {row['audio_filepath']}"
+            raise ValueError(msg)
+        audio_duration = frames / sample_rate
+        row["audio_duration"] = audio_duration
+        details += f", audio={frames} frames/{sample_rate}Hz={audio_duration:.17g}s, offset={offset:.17g}s"
+        mismatch |= offset + annotation_duration > audio_duration + 1e-9
+    if mismatch:
+        warnings.warn(
+            f"Alignment duration mismatch in {source_path}: {details}. "
+            "Preserving MFA timestamps and annotation extent; audio samples and manifest duration are unchanged.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+
+
 def refine_textgrid_boundaries(
     row: dict[str, Any],
     predictions: VADPredictions,
@@ -518,6 +560,8 @@ def refine_textgrid_boundaries(
     source_path, words = _textgrid_source(row)
     output_path = output_path or source_path.with_name(f"{source_path.stem}_vad_refined.TextGrid")
     offset, duration = _row_time_bounds(row, context="TextGrid refinement")
+    _check_alignment_timing(row, source_path)
+    duration = float(row["annotation_duration"])
     silero = _local_intervals(predictions.silero, offset, duration)
     sortformer = _local_intervals(predictions.secondary, offset, duration)
     consensus, atomic_regions = atomic_vote_consensus(
@@ -549,6 +593,18 @@ def refine_textgrid_boundaries(
         "consensus_components": len(consensus),
         "anchored_components": len(anchored_components),
         "discarded_unanchored_components": len(consensus) - len(anchored_components),
+        "timing": {
+            key: row[key]
+            for key in (
+                "duration",
+                "mfa_duration",
+                "annotation_duration",
+                "audio_num_frames",
+                "audio_sample_rate",
+                "audio_duration",
+            )
+            if key in row
+        },
     }
     return output_path, word_changes, vote_audit
 
@@ -773,9 +829,13 @@ def process_manifest(
         for speaker_id, value in predictions.items()
     }
     output_rows: list[dict[str, Any]] = []
+    audio_timing: dict[str, dict[str, Any]] = {}
     for index, source_row in enumerate(rows):
         row = dict(source_row)
         speaker_id = str(row["speaker_id"])
+        audio_key = str(source_paths[speaker_id])
+        if audio_key in audio_timing:
+            row.update(audio_timing[audio_key])
         source_grid = Path(str(row["mfa_textgrid"]))
         segment_name = _safe_segment_name(row, source_grid)
         output_path = segment_grid_dir / f"{index:06d}_{segment_name}_vad_refined.TextGrid"
@@ -784,6 +844,9 @@ def process_manifest(
             predictions[speaker_id],
             output_path=output_path,
         )
+        audio_timing[audio_key] = {
+            key: row[key] for key in ("audio_num_frames", "audio_sample_rate", "audio_duration") if key in row
+        }
         row["vad_refined_textgrid"] = str(refined_path.resolve())
         row["rttm_textgrid"] = str(refined_path.resolve())
         row["speech_intervals_source"] = "constrained_equal_weight_atomic_vote"

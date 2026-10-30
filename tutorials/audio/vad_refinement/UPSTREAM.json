@@ -3,15 +3,15 @@
   "version": "0.2.0",
   "revision": "53329a018a049ec7fcf1d189f649df74557d9612",
   "license": "Apache-2.0",
-  "adaptation": "Curator package imports, NeMo frame metadata compatibility, finite timeline validation, input-data overlap rejection, collision-safe RTTM paths, row-clipped SegLST defaults and midpoint division of shared MFA gaps. Atomic voting is unchanged; word projection preserves MFA and shares continuous gaps equally. TextGrid parsing preserves floating-point timestamps and RTTM serialization retains 17 significant digits.",
+  "adaptation": "Curator package imports, NeMo frame metadata compatibility, finite timeline validation, input-data overlap rejection, collision-safe RTTM paths, row-clipped SegLST defaults and midpoint division of shared MFA gaps. Atomic voting is unchanged; word projection preserves MFA and shares continuous gaps equally. TextGrid parsing preserves floating-point timestamps and RTTM serialization retains 17 significant digits. Review fixes keep the requested decimal precision without stripping trailing zeros, warn on audio/MFA duration differences while retaining annotation extent and persisted pre-MFA sample-count metadata, reject unmatched SegLST words, retain partial diagnostic reports with failure status, and preserve short pauses consistently in baseline/refined exports.",
   "files": {
     "rectify_vad_boundaries.py": {
       "upstream_sha256": "0cedb577d45f9fa51a1d343918e50c8dc2849a4ba3b2715dfb42803b356fc124",
-      "ported_sha256": "20d2e0b06edee82fbd7ef7dbec708d272647cfab7255ad0819cbde37ad408b77"
+      "ported_sha256": "e5858ece3eb02ae33eadbf31b8cf1c68c0d32fb99e62f5bc68e9aaf41c29815b"
     },
     "textgrid_rttm.py": {
       "upstream_sha256": "4d26369bfa7242a8398ecaf5de24da85a268c8e565ff00b711c60deb25f374c5",
-      "ported_sha256": "35eb4ee0f2f765aa90c138712d47c05eae3b6805b3aab0ec458cf92a75517278"
+      "ported_sha256": "9b96247397fcabcceac7c1fb166c3ba8db7a2de36960c1bf7828e432c5c56c10"
     },
     "sound_expert_intervals.py": {
       "upstream_sha256": "375baf8e42ae3a67408749adeb3283ae1b2a6532e813b3b84accb0367b4ea9de",
@@ -19,11 +19,11 @@
     },
     "build_seglst_variants.py": {
       "upstream_sha256": "c6e85e29df069df7aef90bc4cf07ae5b2f624b644f004dc9cd4c99c7dfdf313d",
-      "ported_sha256": "d8d6998030899371d445636672e59154e01391e28018c4011e520975c7f8ad6a"
+      "ported_sha256": "0df2abe47a107f7633401e22962996f0c26face77c9f040f704c8e3f4d3f96f7"
     },
     "filter_segments_by_vad_agreement.py": {
       "upstream_sha256": "61777a13da7785b8ae3557a54ae794afaa124439bf5026bffb2a8af95a3e6c86",
-      "ported_sha256": "9c59db844c602c2729ddbf8b460ce893ff009abb4fcac745836df2e18cc6a587"
+      "ported_sha256": "b42c2793fedc71c7f84357d9fb070afaccacdc2c34984143a4ee000769f3ba30"
     }
   },
   "verification": "sound_expert_intervals module AST and atomic_vote_consensus match upstream exactly. Other modules include the documented import, validation, precision, output-path and midpoint-projection adaptations."

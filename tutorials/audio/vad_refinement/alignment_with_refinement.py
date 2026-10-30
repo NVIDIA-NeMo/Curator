@@ -20,6 +20,7 @@ from tutorials.audio.vad_refinement.rectify_vad_boundaries import (
     SileroSortformerVADDetector,
     SortformerVADConfig,
     VADConfig,
+    _check_alignment_timing,
     _marked_words,
     _validate_projection,
     _write_json,
@@ -84,9 +85,7 @@ def _validate_alignment(row: dict[str, Any]) -> None:
     if row["offset"] != 0.0:
         msg = "Sharded alignment must use clip-local timestamps (offset=0)"
         raise ValueError(msg)
-    if float(words[0][0]) < 0 or float(words[-1][1]) > duration + 1e-9:
-        msg = f"Word alignment exceeds clip duration for {row['segment_id']}"
-        raise ValueError(msg)
+    _check_alignment_timing(row, Path(row["mfa_textgrid"]))
 
 
 def input_tasks(
@@ -200,6 +199,9 @@ def align_tasks(  # noqa: C901, PLR0913
                     audio_filepath=str(clip_path.resolve()),
                     offset=0.0,
                     duration=len(data["waveform"]) / int(data["sampling_rate"]),
+                    audio_num_frames=len(data["waveform"]),
+                    audio_sample_rate=int(data["sampling_rate"]),
+                    audio_duration=len(data["waveform"]) / int(data["sampling_rate"]),
                 )
                 task.data.clear()
                 task.data.update(row)

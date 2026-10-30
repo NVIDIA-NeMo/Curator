@@ -16,6 +16,7 @@ import json
 import math
 import os
 import sys
+import wave
 from itertools import pairwise
 from pathlib import Path
 from types import SimpleNamespace
@@ -58,6 +59,14 @@ def _write_textgrid(path: Path, words: list[tuple[float, float, str]], duration:
         tier.add(start, end, word)
     textgrid.append(tier)
     textgrid.write(str(path))
+
+
+def _write_audio(path: Path, *, frames: int = 160000) -> None:
+    with wave.open(str(path), "wb") as stream:
+        stream.setnchannels(1)
+        stream.setsampwidth(2)
+        stream.setframerate(16000)
+        stream.writeframes(b"\x00\x00" * frames)
 
 
 def test_atomic_vote_uses_last_shared_vad_boundary() -> None:
@@ -169,6 +178,63 @@ def test_atomic_vote_never_contracts_textgrid(tmp_path: Path) -> None:
     assert changes == []
 
 
+@pytest.mark.parametrize("word_end", [2.4000625, 2.4000005, 2.5])
+def test_mfa_word_past_manifest_duration_warns_and_is_preserved(tmp_path: Path, word_end: float) -> None:
+    source = tmp_path / "segment.TextGrid"
+    output = tmp_path / "refined.TextGrid"
+    _write_textgrid(source, [(0.2, word_end, "protected")], word_end)
+    original = source.read_bytes()
+    audio = tmp_path / "audio.wav"
+    _write_audio(audio, frames=38400)
+    row = {"offset": 0.0, "duration": 2.4, "mfa_textgrid": str(source), "audio_filepath": str(audio)}
+
+    with pytest.warns(RuntimeWarning, match=r"Alignment duration mismatch.*38400 frames/16000Hz"):
+        _, changes, audit = refine_textgrid_boundaries(
+            row, VADPredictions(silero=(), secondary=()), output_path=output
+        )
+
+    assert source.read_bytes() == original
+    assert refinement._marked_words(output) == [[0.2, word_end, "protected"]]
+    assert refinement.read_textgrid(output).maxTime == word_end
+    assert changes == []
+    assert row["duration"] == 2.4
+    assert audit["timing"]["audio_duration"] == 2.4
+    assert audit["timing"]["mfa_duration"] == word_end
+    assert audit["timing"]["annotation_duration"] == word_end
+
+
+def test_mfa_word_at_manifest_end_is_preserved(tmp_path: Path) -> None:
+    source = tmp_path / "segment.TextGrid"
+    _write_textgrid(source, [(0.2, 2.4, "protected")], 2.4)
+    row = {"offset": 0.0, "duration": 2.4, "mfa_textgrid": str(source)}
+
+    output, changes, _ = refine_textgrid_boundaries(row, VADPredictions(silero=(), secondary=()))
+
+    assert refinement._marked_words(output) == [[0.2, 2.4, "protected"]]
+    assert changes == []
+
+
+def test_duration_check_uses_persisted_sample_counts_without_audio_io(tmp_path: Path) -> None:
+    grid = tmp_path / "words.TextGrid"
+    _write_textgrid(grid, [(0.2, 2.400063, "protected")], 2.400063)
+    row = {
+        "offset": 0.0,
+        "duration": 2.4000625,
+        "mfa_textgrid": str(grid),
+        "audio_filepath": str(tmp_path / "unavailable.wav"),
+        "audio_num_frames": 38401,
+        "audio_sample_rate": 16000,
+        "audio_duration": 2.4,
+    }
+
+    with pytest.warns(RuntimeWarning, match=r"38401 frames/16000Hz"):
+        output, _, audit = refine_textgrid_boundaries(row, VADPredictions(silero=(), secondary=()))
+
+    assert row["audio_duration"] == 38401 / 16000
+    assert audit["timing"]["audio_duration"] == row["audio_duration"]
+    assert refinement._marked_words(output) == [[0.2, 2.400063, "protected"]]
+
+
 def test_atomic_vote_requires_both_vads_outside_words() -> None:
     words: list[list[float | str]] = [
         [0.1, 0.4, "first"],
@@ -240,7 +306,7 @@ def test_manifest_rejects_path_traversal_session_id(tmp_path: Path) -> None:
 
 def test_pipeline_writes_non_destructive_outputs(tmp_path: Path) -> None:
     audio = tmp_path / "speaker.wav"
-    audio.touch()
+    _write_audio(audio)
     textgrid_path = tmp_path / "segment.TextGrid"
     _write_textgrid(
         textgrid_path,
@@ -390,7 +456,7 @@ def test_session_and_speaker_rttms_cannot_overwrite_each_other(
     for index, name in enumerate(audio_names):
         audio = tmp_path / f"speaker-{index}" / name
         audio.parent.mkdir()
-        audio.touch()
+        _write_audio(audio)
         textgrid = tmp_path / f"words-{index}.TextGrid"
         _write_textgrid(textgrid, [(0.2, 0.4, "word")], 1.0)
         inputs.extend((audio, textgrid))
@@ -553,7 +619,7 @@ def test_mfa_words_and_rttm_survive_empty_vad_support(
     sortformer: tuple[tuple[float, float], ...],
 ) -> None:
     audio = tmp_path / "audio.wav"
-    audio.touch()
+    _write_audio(audio)
     grid = tmp_path / "words.TextGrid"
     words = [(0.1, 0.3, "first"), (0.7, 0.9, "second")]
     _write_textgrid(grid, words, 1.0)
@@ -628,7 +694,7 @@ def test_word_projection_splits_only_shared_continuous_components_at_mfa_midpoin
 @pytest.mark.parametrize("bounds", [(0.1000068, 0.9000032), (0.100001, 0.100002)])
 def test_precise_mfa_words_survive_textgrid_and_rttm_round_trips(tmp_path: Path, bounds: tuple[float, float]) -> None:
     audio = tmp_path / "audio.wav"
-    audio.touch()
+    _write_audio(audio)
     grid = tmp_path / "precise.TextGrid"
     _write_textgrid(grid, [(*bounds, "protected")], 1.0)
     manifest = tmp_path / "input.jsonl"

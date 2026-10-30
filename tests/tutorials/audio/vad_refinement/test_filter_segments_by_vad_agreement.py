@@ -220,6 +220,78 @@ def test_manifest_scoring_reads_legacy_audit_and_filters_by_bad_ratio(tmp_path: 
     assert event_score.report_rows[0]["event_interval_source"] == "sound_expert_event_intervals"
 
 
+@pytest.mark.parametrize("bad_audit", [None, "{", "[]"])
+@pytest.mark.parametrize("failed_sessions", [("a",), ("b",), ("c",), ("a", "b", "c")])
+def test_cli_keeps_successful_reports_when_an_audit_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, bad_audit: str | None, failed_sessions: tuple[str, ...]
+) -> None:
+    grid = tmp_path / "words.TextGrid"
+    _write_textgrid(grid, [(0.0, 0.5, "hello")])
+    manifests = []
+    for name in ("a", "b", "c"):
+        session = tmp_path / name
+        session.mkdir()
+        manifest = session / "segments.jsonl"
+        manifest.write_text(
+            json.dumps(
+                {
+                    "session_id": name,
+                    "speaker_id": "speaker",
+                    "audio_filepath": "audio.wav",
+                    "offset": 0.0,
+                    "duration": 1.0,
+                    "text": "hello",
+                    "mfa_textgrid": str(grid),
+                    "vad_refined_textgrid": str(grid),
+                }
+            )
+            + "\n"
+        )
+        manifests.append(manifest)
+        audit = session / "audit.json"
+        if name not in failed_sessions:
+            audit.write_text(
+                json.dumps(
+                    {
+                        "speakers": {
+                            "speaker": {
+                                "silero_raw_intervals": [[0, 0.5]],
+                                "sortformer_raw_intervals": [[0, 0.5]],
+                            }
+                        }
+                    }
+                )
+            )
+        elif bad_audit is not None:
+            audit.write_text(bad_audit)
+    output = tmp_path / "reports"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "vad-filter-segments",
+            *(arg for p in manifests for arg in ("--manifest", str(p))),
+            "--output-dir",
+            str(output),
+        ],
+    )
+
+    assert filter_main() == 1
+
+    reports = [json.loads(line) for line in (output / "segment_frame_agreement.jsonl").read_text().splitlines()]
+    assert [row["session_id"] for row in reports] == [name for name in ("a", "b", "c") if name not in failed_sessions]
+    summary = json.loads((output / "frame_agreement_summary.json").read_text())
+    assert summary["complete"] is False
+    assert len(summary["errors"]) == len(failed_sessions)
+    assert {error["manifest"] for error in summary["errors"]} == {
+        str(manifest.resolve()) for manifest in manifests if manifest.parent.name in failed_sessions
+    }
+    assert [entry["session_id"] for entry in summary["manifests"]] == [
+        name for name in ("a", "b", "c") if name not in failed_sessions
+    ]
+    assert (output / "bad_ratio_distribution.csv").is_file()
+
+
 @pytest.mark.parametrize("max_bad_ratio", [None, 0.25])
 def test_cli_reports_problem_files_and_filters_only_with_explicit_threshold(
     tmp_path: Path,

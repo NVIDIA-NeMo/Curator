@@ -59,7 +59,7 @@ def merge_with_pause_threshold(
 def speech_intervals_from_rows(
     rows: list[dict[str, Any]],
     *,
-    maximum_pause: float = 0.2,
+    maximum_pause: float = 0.0,
 ) -> dict[str, tuple[tuple[float, float], ...]]:
     """Map non-empty TextGrid word intervals onto each full speaker recording."""
     by_speaker: dict[str, list[tuple[float, float]]] = defaultdict(list)
@@ -73,7 +73,7 @@ def speech_intervals_from_rows(
         textgrid = read_textgrid(path)
         words = textgrid.getFirst("words")
         offset = float(row["offset"])
-        duration = float(row["duration"])
+        duration = max(float(row["duration"]), float(textgrid.maxTime), float(row.get("annotation_duration", 0)))
         segment_end = offset + duration
         for interval in words.intervals:
             mark = interval.mark.strip().casefold()
@@ -140,6 +140,7 @@ def _write_textgrid(
     *,
     xmax: float,
 ) -> None:
+    xmax = max(xmax, *(end for _, end, _ in words)) if words else xmax
     intervals: list[tuple[float, float, str]] = []
     previous_end = 0.0
     for start, end, word in sorted(words):
@@ -200,7 +201,7 @@ def write_combined_textgrids(
     primary_by_speaker: dict[str, list[tuple[float, float, str]]] = defaultdict(list)
     fallback_by_speaker: dict[str, list[tuple[float, float, str]]] = defaultdict(list)
     xmax = max(
-        (float(row["offset"]) + float(row["duration"]) for row in rows),
+        (float(row["offset"]) + max(float(row["duration"]), float(row.get("annotation_duration", 0))) for row in rows),
         default=0.01,
     )
     for row in rows:
@@ -245,7 +246,7 @@ def write_refined_textgrids(
     """Combine segment-level VAD-refined TextGrids per recording and session."""
     refined_by_speaker: dict[str, list[tuple[float, float, str]]] = defaultdict(list)
     xmax = max(
-        (float(row["offset"]) + float(row["duration"]) for row in rows),
+        (float(row["offset"]) + max(float(row["duration"]), float(row.get("annotation_duration", 0))) for row in rows),
         default=0.01,
     )
     for row in rows:

@@ -10,6 +10,7 @@ from typing import ClassVar
 import numpy as np
 import pytest
 import soundfile as sf
+from textgrid import IntervalTier, TextGrid
 
 from tutorials.audio.vad_refinement import alignment_with_refinement as pipeline
 from tutorials.audio.vad_refinement.rectify_vad_boundaries import VADPredictions, _marked_words
@@ -62,6 +63,10 @@ for transcript in corpus.rglob('*.txt'):
         self.stage.setup()
 
     def process_batch(self, tasks: list) -> list:
+        for task in tasks:
+            assert task.data["audio_num_frames"] == sf.info(task.data["audio_filepath"]).frames
+            assert task.data["audio_sample_rate"] == task.data["sampling_rate"]
+            assert task.data["audio_duration"] == task.data["duration"]
         return self.stage.process_batch(tasks)
 
 
@@ -104,6 +109,7 @@ def test_montreal_tar_refinement_roundtrip_after_relocation(tmp_path: Path) -> N
     assert len({row["segment_id"] for row in rows}) == 2
     assert all(row["offset"] == 0 and row["source_offset"] == 0.5 for row in rows)
     assert all(row["duration"] == 1.0 for row in rows)
+    assert all(row["audio_num_frames"] == 16000 and row["audio_sample_rate"] == 16000 for row in rows)
     samples, _ = sf.read(rows[0]["audio_filepath"])
     np.testing.assert_array_equal(samples, np.full(16000, 0.25))
     originals = [_marked_words(Path(row["mfa_textgrid"])) for row in rows]
@@ -143,6 +149,46 @@ def test_missing_mfa_output_prevents_publishing_aligned_batch(tmp_path: Path) ->
             pipeline.input_tasks(None, source), root, AlignerFixture(root / "grids", missing=True), batch_size=1
         )
     assert not list((root / "aligned").glob("*.jsonl"))
+
+
+def test_mfa_duration_mismatch_survives_tar_reader_and_exports(tmp_path: Path) -> None:
+    from tutorials.audio.vad_refinement.build_seglst_variants import build_variants
+    from tutorials.audio.vad_refinement.rectify_vad_boundaries import read_rttm
+    from tutorials.audio.vad_refinement.textgrid_rttm import read_textgrid
+
+    source = _input_manifest(tmp_path / "inputs", count=1)
+    root = tmp_path / "work"
+    aligned = pipeline.align_tasks(
+        pipeline.input_tasks(None, source), root, AlignerFixture(root / "grids"), batch_size=1
+    )
+    (original_row,) = pipeline.read_rows(aligned[0])
+    grid_path = Path(original_row["mfa_textgrid"])
+    end = 1.000001
+    grid = TextGrid(minTime=0, maxTime=end)
+    tier = IntervalTier(name="words", minTime=0, maxTime=end)
+    tier.add(0.1, end, "protected")
+    grid.append(tier)
+    grid.write(str(grid_path))
+    original_grid = grid_path.read_bytes()
+
+    with pytest.warns(RuntimeWarning, match="Alignment duration mismatch"):
+        pipeline.pack_shards(aligned, root / "shards", records_per_shard=1)
+    with pytest.warns(RuntimeWarning, match="Alignment duration mismatch"):
+        outputs = pipeline.refine_shards(root / "shards", root / "refined", DetectorFixture())
+
+    (row,) = pipeline.read_rows(outputs[0])
+    assert row["duration"] == 1.0
+    assert row["audio_num_frames"] == sf.info(row["audio_filepath"]).frames == 16000
+    assert row["audio_duration"] == 1.0
+    assert row["mfa_duration"] == row["annotation_duration"] == end
+    assert grid_path.read_bytes() == original_grid
+    assert _marked_words(Path(row["vad_refined_textgrid"]))[-1][1] == end
+    assert read_textgrid(Path(row["vad_refined_textgrid"])).maxTime == end
+    rttm = next(Path(row["vad_refined_textgrid"]).parents[2].glob("rttm/*_vad_refined.rttm"))
+    assert max(z for intervals in read_rttm(rttm)[1].values() for _, z in intervals) == end
+    variants = build_variants(outputs[0], outputs[0], rttm, root / "seglst", precision=6)
+    for key in ("mfa_seglst", "vad_refined_seglst"):
+        assert json.loads(Path(variants[key]).read_text())[-1]["end_time"] == "1.000001"
 
 
 def test_supplied_transcript_is_not_replaced(tmp_path: Path) -> None:

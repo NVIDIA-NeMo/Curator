@@ -189,7 +189,9 @@ TextGrid reads preserve the input floating-point timestamps instead of the
 TextGrid library's default five-decimal rounding. RTTM output retains 17
 significant digits so serialization does not shrink protected MFA intervals or
 round short speech intervals to zero. SegLST's explicit `--precision` option
-still controls the decimal precision of that transcript-segment export.
+still controls the decimal precision of that transcript-segment export. Timestamp
+strings keep exactly that many decimal places without stripping trailing zeros:
+`10.000` at precision 3 and `10` at precision 0.
 
 ## Input manifest
 
@@ -220,6 +222,30 @@ Example:
 
 TextGrid times are segment-local. Detector intervals are recording-global and are localized
 internally using `offset`.
+
+MFA duration differences produce a warning rather than truncation or failure.
+The recipe checks the recording duration using audio frame count / sample rate
+and retains these values as `audio_num_frames`, `audio_sample_rate` and
+`audio_duration`. The sharded recipe captures the actual clip sample count and
+sample rate before passing the clip to MFA and persists them in the manifest.
+Subsequent timing checks use those values without reopening the audio header.
+For older manifests without these fields, the single-session recipe reads the
+header once per speaker recording and reuses its metadata for subsequent segments.
+`mfa_duration` preserves the source TextGrid duration;
+`annotation_duration` covers the manifest segment and all protected MFA words.
+The original `duration` remains unchanged for audio reading and physical shards.
+Refined TextGrid, RTTM and SegLST exports retain the annotation extent even when
+it exceeds the manifest duration or the audio end. No audio samples are added.
+Warnings include all available durations and the segment offset, so substantial
+differences can be reviewed without losing annotations. For a segment within a
+long recording, the check compares its global end to the recording duration;
+it does not treat the rest of the recording as part of the segment.
+
+SegLST export reports an input-data error if an aligned word overlaps none of
+the output fragments when splitting a segment. It does not silently drop that
+word. Both baseline and refined exports preserve short pauses by default;
+the baseline no longer merges gaps up to 0.2 seconds. Python callers can still
+request pause merging explicitly with `maximum_pause`.
 
 Offsets, durations and segment ends must be finite; offsets must be
 non-negative and durations positive. Boolean times are rejected. Segment windows
@@ -354,6 +380,11 @@ tool or exclude rows based on agreement scores.
 
 Start with a diagnostic-only run. This reads the existing TextGrids and detector
 intervals from the audit; it does not rerun neural inference or require a cluster.
+
+If a manifest has a missing or corrupt audit, the tool continues with the other
+manifests and saves their reports. The summary lists failed manifests under
+`errors` and sets `complete` to `false`; the command returns a nonzero exit status.
+An incomplete report must not be interpreted as a successful check of the entire dataset.
 
 ```bash
 python -m tutorials.audio.vad_refinement.filter_segments_by_vad_agreement \

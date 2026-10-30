@@ -690,13 +690,15 @@ def main() -> int:
     report_rows: list[dict[str, Any]] = []
     total_counts: Counter[str] = Counter()
     manifest_summaries: list[dict[str, Any]] = []
+    errors: list[dict[str, str]] = []
     for completed, manifest_path in enumerate(manifests, start=1):
-        audit_path = resolve_audit_path(manifest_path)
-        score = score_manifest(
-            manifest_path,
-            audit_path,
-            config,
-        )
+        try:
+            audit_path = resolve_audit_path(manifest_path)
+            score = score_manifest(manifest_path, audit_path, config)
+        except (OSError, ValueError, TypeError, KeyError, AttributeError) as exc:
+            errors.append({"manifest": str(manifest_path.resolve()), "error": f"{type(exc).__name__}: {exc}"})
+            print(f"[{completed}/{len(manifests)}] Failed {manifest_path}: {exc}")
+            continue
         report_rows.extend(score.report_rows)
         total_counts.update(score.counts)
         filtered_path: Path | None = None
@@ -729,6 +731,8 @@ def main() -> int:
         config,
         manifests=manifest_summaries,
     )
+    summary["errors"] = errors
+    summary["complete"] = not errors
     _write_json(
         summary_path,
         summary,
@@ -737,7 +741,7 @@ def main() -> int:
     print(f"Report: {report_path}")
     print(f"Summary: {summary_path}")
     print(f"Distribution: {distribution_path}")
-    return 0
+    return 1 if errors else 0
 
 
 if __name__ == "__main__":

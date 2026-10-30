@@ -88,6 +88,7 @@ def _segment_intervals(
 ) -> list[Interval]:
     reference_start = float(row["offset"])
     reference_end = reference_start + float(row["duration"])
+    reference_end = max(reference_end, reference_start + float(row.get("annotation_duration", 0)))
     matching = [
         (start, end)
         for start, end in intervals.get(str(row["speaker_id"]), [])
@@ -142,8 +143,14 @@ def _piece_texts(
             max(0.0, min(piece_end, word_end) - max(piece_start, word_start)) for piece_start, piece_end in pieces
         ]
         best_index = max(range(len(pieces)), key=overlaps.__getitem__)
-        if overlaps[best_index] > 0:
-            groups[best_index].append(word)
+        if overlaps[best_index] <= 0:
+            msg = (
+                f"Input data error: aligned word {word!r} at [{word_start}, {word_end}] "
+                f"does not overlap any SegLST fragment for segment {row.get('segment_id', row.get('offset'))!r}. "
+                "Check the alignment and speech intervals; the word will not be silently discarded."
+            )
+            raise ValueError(msg)
+        groups[best_index].append(word)
     if any(groups):
         return [" ".join(words) if words else None for words in groups]
     longest_index = max(
@@ -154,8 +161,7 @@ def _piece_texts(
 
 
 def _format_time(value: float, precision: int) -> str:
-    rendered = f"{value:.{precision}f}".rstrip("0").rstrip(".")
-    return rendered if "." in rendered else f"{rendered}.0"
+    return f"{value:.{precision}f}"
 
 
 def build_seglst_from_intervals(
@@ -172,7 +178,17 @@ def build_seglst_from_intervals(
     """Build SegLST rows while retaining internal silence gaps."""
     aliases = speaker_aliases or {}
     entries: list[tuple[float, int, int, dict[str, str]]] = []
-    for index, row in enumerate(rows):
+    for index, source_row in enumerate(rows):
+        row = dict(source_row)
+        aligned_words = _aligned_words(row, textgrid_key)
+        if aligned_words:
+            row = {
+                **row,
+                "annotation_duration": max(
+                    float(row.get("annotation_duration", 0)),
+                    max(end for _, end, _ in aligned_words) - float(row["offset"]),
+                ),
+            }
         pieces = _segment_intervals(
             row,
             intervals,
