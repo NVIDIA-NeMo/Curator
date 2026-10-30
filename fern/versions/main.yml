@@ -498,6 +498,9 @@ navigation:
               - page: Long-Form Audio Cutting for ALM Pretraining
                 path: ./main/pages/curate-audio/tutorials/audio-pretrain.mdx
                 slug: audio-pretrain
+              - page: Refine Word Boundaries with VAD
+                path: ./main/pages/curate-audio/tutorials/vad-refinement.mdx
+                slug: vad-refinement
               - page: ReadSpeech Tutorial
                 path: ./main/pages/curate-audio/tutorials/readspeech.mdx
                 slug: readspeech
