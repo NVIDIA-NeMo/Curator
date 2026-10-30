@@ -1,0 +1,99 @@
+# ============================================================
+# General
+# ============================================================
+n_jobs: 8
+stage: 0
+samplerate: 16000
+seed: null
+
+output_dir: null   # required — set via CLI
+data_dir: null     # shared dataset prep dir (stage 1); falls back to output_dir if null
+rir_dir: null      # shared RIR dir (stage 3); falls back to output_dir if null
+hydra:
+  run:
+    dir: ${output_dir}
+
+# ============================================================
+# Meeting parameters
+# ============================================================
+n_meetings: 1000
+duration: 60
+min_max_spk: [2, 4]
+max_concurrent_speakers: 4
+
+# ============================================================
+# Source data
+# ============================================================
+manifest_dir: null  # required — set via CLI
+manifest_prefix: librispeech
+dset_splits:
+  - cutset_train-clean-100
+  - cutset_train-clean-360
+  - cutset_train-other-500
+exclude_speakers: null
+split_fa_factor: 0.2
+max_utt_duration: 20
+min_utt_duration: 0.0
+min_spk_utt: 5
+drop_without_align: true
+
+# ============================================================
+# Gain
+# ============================================================
+base_gain: [-35, -8]
+rel_gain: [-12, +5]
+
+# ============================================================
+# Noise augmentation
+# ============================================================
+add_noise: false
+noise_folders: null
+noise_rel_gain: [-20, -3]
+noise_probability_global: 0.5
+multi_noise_sampling: true
+filter_noise_len: 2.0
+
+# ============================================================
+# Reverberation (RIR)
+# ============================================================
+reverberate: false
+reverb_prob: 0.5
+n_rirs: 5000
+n_pos_rirs: 50
+rt60: [0.1, 0.7]
+room_sz: [5, 10]
+room_ceiling: [3, 5]
+delta_dist: 0.5
+use_rand_ism: false
+rand_disp: 0.0
+max_position_change: 0.5
+mic_type: single
+circular:
+  diameter: [0.08, 0.085]
+  n_mics: 8
+  center_mic: false
+
+# ============================================================
+# Other augmentation
+# ============================================================
+speed_perturb: false
+speed_perturb_range: [0.95, 1.05]
+use_fir: false
+
+# ============================================================
+# Turn-taking (HMM)
+# ============================================================
+use_markov: false
+hmm_fit_transitions_to: null
+hmm_params:
+  p_ind: [0.25, 0.25, 0.25, 0.25]
+boost_overlap_factor: null
+
+# ============================================================
+# Output options
+# ============================================================
+save_cutset: true
+save_spk: false
+save_anechoic: false
+save_rttm: false
+save_nemo_manifest: false

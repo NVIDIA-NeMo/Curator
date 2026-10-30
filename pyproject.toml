@@ -17,6 +17,7 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
+exclude = ["*.__pycache__"]
 include = [
     "nemo_curator",
     "nemo_curator.*",
@@ -24,6 +25,10 @@ include = [
 
 [tool.setuptools.package-data]
 "nemo_curator.stages.text.experimental.translation" = ["prompts/*.yaml"]
+"nemo_curator._vendor.fastmss" = [
+    "LICENSE", "NOTICE", "CITATION.cff", "UPSTREAM.json", "README.md", "requirements.txt",
+    "download_prep_oto.sh", "preprocessing/*.sh", "recipes/*.yaml", "recipes/**/*.yaml", "recipes/**/*.sh",
+]
 
 [tool.setuptools.dynamic]
 version = { attr = "nemo_curator.package_info.__version__" }
@@ -423,8 +428,12 @@ nixl-cu12 = { index = "pypi" }
 [tool.coverage.paths]
 source = ["nemo_curator", "/opt/Curator/nemo_curator", "/home/runner/work/Curator/Curator/nemo_curator"]
 
+[tool.coverage.run]
+omit = ["*/_vendor/*"]
+
 [tool.ruff]
 line-length = 119
+extend-exclude = ["nemo_curator/_vendor/fastmss"]
 [tool.ruff.lint]
 select = ["ALL"]
 ignore = [
