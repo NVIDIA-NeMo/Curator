@@ -14,7 +14,7 @@ flowchart TD
     vad --> sed["CNN14 TensorRT: sound-event probabilities"]
     sed --> events["Label sound events"]
     events --> speechbrain["SpeechBrain: primary language prediction"]
-    speechbrain --> canary["Indic Canary: secondary language prediction"]
+    speechbrain --> canary["Indic Transcribe: secondary language prediction"]
     canary --> whisper["Whisper: tertiary language prediction"]
     whisper --> select["Select language; retain rejection reasons"]
     select --> audio["Write speech clips as Opus"]
@@ -82,7 +82,7 @@ versions when comparing runs; use that same immutable image for both executors.
 ### Supply the private model inputs and open the container
 
 Obtain the reference eight-speaker Sortformer checkpoint and the compatible
-Indic Canary engine bundle from their owners. They have no public download
+Indic Transcribe engine bundle from their owners. They have no public download
 in this tutorial. A public four-speaker checkpoint changes the workload, and a
 Canary `.nemo` alone does not replace its engine bundle. The hashes below identify
 the previously validated H100 bundle; a different bundle needs its own validation.
@@ -90,7 +90,7 @@ Fresh Canary conversion is not established by this recipe. The separate
 [Indic ASR conversion notes](../indic_asr/README.md#canary) describe its external
 converter and required source checkpoint.
 
-Arrange the supplied inputs as `sortformer.nemo` and `indic_canary/` inside one
+Arrange the supplied inputs as `sortformer.nemo` and `indic_transcribe/` inside one
 directory. On EOS this may be an existing verified model directory, mounted
 read-only. Set `GRANARY_MODEL_INPUTS` to its absolute host path. Use a fresh work
 directory; it holds all generated models, samples, outputs, and logs. Optional
@@ -165,13 +165,13 @@ from pathlib import Path
 
 files = {
     'sortformer.nemo': '909cca86055c03bc19b28322e47544d749ebe2481e701ca5b066d223b7026d47',  # pragma: allowlist secret
-    'indic_canary/decoder/config.json': 'abf6061369df404bd4462aec2b1fe5ef6b1dffbb0864ba2dfd0ed735eda054bf',  # pragma: allowlist secret
-    'indic_canary/decoder/rank0.engine': 'acb96e0eb0fe97aa4e5cf1bd78647c63a24c2d80b37a8fb415cc3396bfe4d690',  # pragma: allowlist secret
-    'indic_canary/decoder/vocab.json': '2ba7e804f6b6e9c88a767065267e90705a19a4f6da808604d54927999e036bee',  # pragma: allowlist secret
-    'indic_canary/encoder/config.json': 'f6d1a8e1c207926ff58c8513603a8321e185e10f941c7b278dba73d576601df0',  # pragma: allowlist secret
-    'indic_canary/encoder/encoder.plan': '1259c33761a2fd7e59bdb496100b19c84371eab4981df89aac4bee4f095f4eb3',  # pragma: allowlist secret
-    'indic_canary/preprocessor/config.json': '6254bbdaf52a70c1c2d64ffb7ec6c3a98538f5624e7ac805bc4b6507c203bc29',  # pragma: allowlist secret
-    'indic_canary/preprocessor/mel_basis.pt': '44595c30a2fe50ed073567ff0b009310696487dc67a2842d9bfa695af49d8868',  # pragma: allowlist secret
+    'indic_transcribe/decoder/config.json': 'abf6061369df404bd4462aec2b1fe5ef6b1dffbb0864ba2dfd0ed735eda054bf',  # pragma: allowlist secret
+    'indic_transcribe/decoder/rank0.engine': 'acb96e0eb0fe97aa4e5cf1bd78647c63a24c2d80b37a8fb415cc3396bfe4d690',  # pragma: allowlist secret
+    'indic_transcribe/decoder/vocab.json': '2ba7e804f6b6e9c88a767065267e90705a19a4f6da808604d54927999e036bee',  # pragma: allowlist secret
+    'indic_transcribe/encoder/config.json': 'f6d1a8e1c207926ff58c8513603a8321e185e10f941c7b278dba73d576601df0',  # pragma: allowlist secret
+    'indic_transcribe/encoder/encoder.plan': '1259c33761a2fd7e59bdb496100b19c84371eab4981df89aac4bee4f095f4eb3',  # pragma: allowlist secret
+    'indic_transcribe/preprocessor/config.json': '6254bbdaf52a70c1c2d64ffb7ec6c3a98538f5624e7ac805bc4b6507c203bc29',  # pragma: allowlist secret
+    'indic_transcribe/preprocessor/mel_basis.pt': '44595c30a2fe50ed073567ff0b009310696487dc67a2842d9bfa695af49d8868',  # pragma: allowlist secret
 }
 
 def check(path, expected):
@@ -303,7 +303,7 @@ The completed layout is:
 ├── sed.plan.json
 ├── speechbrain/          # Pinned complete snapshot
 ├── whisper.pt
-└── indic_canary/
+└── indic_transcribe/
     ├── encoder/encoder.plan
     ├── encoder/config.json
     ├── decoder/config.json
@@ -455,7 +455,7 @@ those rows as accepted language-labeled training data without reviewing them.
    receives the number of overlapping diarization speakers.
 4. **SED:** run CNN14 through TensorRT, then label individual sound classes
    at probability threshold 0.5. This labels clips; it does not filter them.
-5. **Language identification:** run SpeechBrain, Indic Canary, and Whisper on
+5. **Language identification:** run SpeechBrain, Indic Transcribe, and Whisper on
    each eligible segment. They inspect up to the first 10, 40, and 30 seconds,
    respectively; clips below one second have no model language prediction.
 6. **Language selection:** accept Whisper's English prediction; otherwise

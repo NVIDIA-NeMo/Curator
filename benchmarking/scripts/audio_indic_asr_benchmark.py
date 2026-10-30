@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Benchmark the production Hindi Indic Canary + Parakeet recovery pipeline."""
+"""Benchmark the production Hindi Indic Transcribe + Parakeet recovery pipeline."""
 
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ from loguru import logger
 from omegaconf import OmegaConf
 
 from nemo_curator.config.run import create_executor_from_yaml, create_pipeline_from_yaml, create_ray_client_from_yaml
-from nemo_curator.stages.audio.inference.indic_canary_trtllm_runtime import _require_tensorrt_llm
+from nemo_curator.stages.audio.inference.indic_transcribe_trtllm_runtime import _require_tensorrt_llm
 
 _PIPELINE_CONFIG = Path(__file__).resolve().parents[2] / "tutorials/audio/granary_v2/indic_asr/pipeline.yaml"
 EXPECTED_NUM_ROWS = 216_164
@@ -217,7 +217,7 @@ def _require_files(root: Path, relative_paths: tuple[str, ...], label: str) -> N
 
 
 def _preflight_runtime_and_models(
-    indic_canary_engine_dir: Path,
+    indic_transcribe_engine_dir: Path,
     parakeet_tensorrt_engine_dir: Path,
 ) -> None:
     if sys.version_info[:2] != (3, 12):
@@ -238,7 +238,7 @@ def _preflight_runtime_and_models(
         "nemo_curator.models.asr.indic_parakeet_rnnt_tensorrt",
     ):
         importlib.import_module(module)
-    _require_files(indic_canary_engine_dir, CANARY_REQUIRED_FILES, "Indic Canary engine")
+    _require_files(indic_transcribe_engine_dir, CANARY_REQUIRED_FILES, "Indic Transcribe engine")
     _require_files(parakeet_tensorrt_engine_dir, PARAKEET_ENGINE_REQUIRED_FILES, "Indic Parakeet TensorRT bundle")
     logger.info(f"Indic ASR Python: {sys.executable}")
     for package_name in ("torch", "torchaudio", "tensorrt", "tensorrt-llm", "nemo-toolkit", "transformers"):
@@ -363,7 +363,7 @@ def _validate_output_manifest(output_manifest: Path, inventory: InputInventory) 
 def run_audio_indic_asr_benchmark(  # noqa: PLR0913
     benchmark_results_path: str,
     input_manifest: str,
-    indic_canary_engine_dir: str,
+    indic_transcribe_engine_dir: str,
     parakeet_tensorrt_engine_dir: str,
     regex_yaml: str,
     hall_phrases: str,
@@ -381,7 +381,7 @@ def run_audio_indic_asr_benchmark(  # noqa: PLR0913
     benchmark_path = Path(benchmark_results_path)
     scratch_dir = benchmark_path / "scratch" / "audio_indic_asr_input"
     output_manifest = benchmark_path / "results" / "audio_indic_asr_output.jsonl"
-    canary_path = Path(indic_canary_engine_dir)
+    canary_path = Path(indic_transcribe_engine_dir)
     parakeet_engine = Path(parakeet_tensorrt_engine_dir)
     regex_path = Path(regex_yaml)
     phrases_path = Path(hall_phrases)
@@ -396,7 +396,7 @@ def run_audio_indic_asr_benchmark(  # noqa: PLR0913
     cfg = OmegaConf.load(_PIPELINE_CONFIG)
     cfg.dataset_dir = str(Path(input_manifest).resolve().parent)
     cfg.output_path = str(output_manifest.resolve())
-    cfg.indic_canary_engine_dir = str(canary_path.resolve())
+    cfg.indic_transcribe_engine_dir = str(canary_path.resolve())
     cfg.parakeet_tensorrt_engine_dir = str(parakeet_engine.resolve())
     cfg.regex_yaml = str(regex_path.resolve())
     cfg.hall_phrases = str(phrases_path.resolve())
@@ -457,7 +457,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--benchmark-results-path", required=True)
     parser.add_argument("--input-manifest", required=True)
-    parser.add_argument("--indic-canary-engine-dir", required=True)
+    parser.add_argument("--indic-transcribe-engine-dir", required=True)
     parser.add_argument("--parakeet-tensorrt-engine-dir", required=True)
     parser.add_argument("--regex-yaml", required=True)
     parser.add_argument("--hall-phrases", required=True)

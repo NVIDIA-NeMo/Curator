@@ -136,7 +136,7 @@ def _require_tensorrt_llm() -> None:
             return
 
     msg = (
-        "tensorrt_llm is required for Indic Canary ASR but could not be loaded. "
+        "tensorrt_llm is required for Indic Transcribe ASR but could not be loaded. "
         "Use the Python 3.12 / Linux x86_64 image built with "
         "docker/audio/Dockerfile.trt_llm, then run "
         "python docker/audio/check_trt_llm.py on a compatible GPU. "
@@ -157,7 +157,7 @@ def engine_max_batch_size(encoder_config: dict[str, Any], decoder_config: dict[s
     decoder_limit = int(decoder_config["max_batch_size"])
     if encoder_limit < 1 or decoder_limit < 1:
         msg = (
-            f"Indic Canary engine batch limits must both be positive; encoder={encoder_limit}, decoder={decoder_limit}"
+            f"Indic Transcribe engine batch limits must both be positive; encoder={encoder_limit}, decoder={decoder_limit}"
         )
         raise ValueError(msg)
     return min(encoder_limit, decoder_limit)

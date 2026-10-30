@@ -1,7 +1,7 @@
 # Indic Granary ASR Pipeline
 
 Run the Indic Granary automatic speech recognition (ASR) pipeline on two
-Hindi audio clips. Both models transcribe each valid clip: Indic Canary
+Hindi audio clips. Both models transcribe each valid clip: Indic Transcribe
 provides the primary transcript and Parakeet provides a recovery candidate.
 The pipeline checks both transcripts, selects and cleans the final text,
 and measures word error rate (WER) against a reference transcript.
@@ -12,7 +12,7 @@ The same eleven stages run in this order with either executor:
 flowchart TD
     read["1. ManifestReader<br/>Read each clip's path, metadata, and reference text"]
     prepare["2. PrepareIndicASRInputStage<br/>Load mono 16 kHz audio; validate Hindi, duration, and reference"]
-    canary["3. InferenceIndicCanaryStage<br/>Generate the primary transcript with TensorRT + TensorRT-LLM"]
+    canary["3. InferenceIndicTranscribeStage<br/>Generate the primary transcript with TensorRT + TensorRT-LLM"]
     primary_check["4. WhisperHallucinationStage — primary<br/>Flag suspicious repetition, phrases, word length, or character rate"]
     parakeet["5. InferenceParakeetStage<br/>Generate a recovery candidate with TensorRT + NeMo/PyTorch RNN-T"]
     recovery_check["6. WhisperHallucinationStage — recovery<br/>Check Parakeet's text; a passing candidate can clear Canary's flag"]
@@ -58,7 +58,7 @@ ASR engine bundles.
 Reuse this image for subsequent runs. Do not run `uv sync` inside it:
 that would replace the inference environment.
 
-Before opening the container, supply compatible Indic Canary and Hindi
+Before opening the container, supply compatible Indic Transcribe and Hindi
 Parakeet engine bundles in the [model-file layout](#model-files) below.
 The tutorial downloads audio, not models. If you have the matching source
 checkpoints, see [building bundles](#building-model-bundles-optional).
@@ -123,7 +123,7 @@ python nemo_curator/config/run.py \
   --config-path ../../tutorials/audio/granary_v2/indic_asr \
   --config-name pipeline \
   dataset_dir=/data/indic_asr \
-  indic_canary_engine_dir=/models/indic_canary \
+  indic_transcribe_engine_dir=/models/indic_transcribe \
   parakeet_tensorrt_engine_dir=/models/parakeet \
   output_path=/outputs/indic_asr_xenna.jsonl \
   2>&1 | tee /outputs/indic_asr_xenna.log
@@ -144,7 +144,7 @@ python nemo_curator/config/run.py \
   --config-path ../../tutorials/audio/granary_v2/indic_asr \
   --config-name pipeline \
   dataset_dir=/data/indic_asr \
-  indic_canary_engine_dir=/models/indic_canary \
+  indic_transcribe_engine_dir=/models/indic_transcribe \
   parakeet_tensorrt_engine_dir=/models/parakeet \
   backend=ray_data output_path=/outputs/indic_asr_ray_data.jsonl \
   2>&1 | tee /outputs/indic_asr_ray_data.log
@@ -253,7 +253,7 @@ be mounted as `/models` inside the container:
 
 ```text
 /models/
-├── indic_canary/
+├── indic_transcribe/
 │   ├── encoder/encoder.plan
 │   ├── encoder/config.json
 │   ├── decoder/config.json
@@ -301,7 +301,7 @@ docker run --rm --gpus all --ipc=host \
 The builder writes `encoder.plan`, `metadata.json`, and `model.nemo` under
 `indic-asr-work/engines/parakeet` on the host. That directory must be absent or
 empty; existing bundles are not overwritten. Once the Canary bundle is also
-under `indic-asr-work/engines/indic_canary`, use the absolute path to
+under `indic-asr-work/engines/indic_transcribe`, use the absolute path to
 `indic-asr-work/engines` as the model directory in step 1.
 
 `INDIC_PARAKEET_RNNT_TENSORRT_ENCODER_PARITY_PASSED` means the encoder's
@@ -311,10 +311,10 @@ contain an RNN-T encoder, decoder, and joint network.
 #### Canary
 
 The Canary converter is not in this checkout. Use the
-[pinned reference converter](https://github.com/nithinraok/Curator/blob/1e2d639946f28dfd289a0a9456480385d4480c28/scripts/audio/indic_canary_trtllm_conversion/build_engine.py)
-and follow its [setup instructions](https://github.com/nithinraok/Curator/blob/1e2d639946f28dfd289a0a9456480385d4480c28/scripts/audio/indic_canary_trtllm_conversion/README.md#setup)
+[pinned reference converter](https://github.com/nithinraok/Curator/blob/1e2d639946f28dfd289a0a9456480385d4480c28/scripts/audio/indic_transcribe_trtllm_conversion/build_engine.py)
+and follow its [setup instructions](https://github.com/nithinraok/Curator/blob/1e2d639946f28dfd289a0a9456480385d4480c28/scripts/audio/indic_transcribe_trtllm_conversion/README.md#setup)
 in a separate build environment. The Granary inference image does not include
-the required Indic Canary NeMo fork with `CanaryMultilingualTokenizer`.
+the required Indic Transcribe NeMo fork with `CanaryMultilingualTokenizer`.
 Obtain that fork and the matching `.nemo` checkpoint from the checkpoint
 producer. The converter's setup does not identify a published commit for this
 custom fork; a stock NeMo checkout cannot replace it.
@@ -323,9 +323,9 @@ Run from the conversion directory, replacing all three paths:
 
 ```bash
 python build_engine.py \
-  --nemo_model_path /absolute/path/to/indic-canary.nemo \
-  --nemo_repo_path /absolute/path/to/indic-canary-NeMo \
-  --engine_dir /absolute/path/to/engines/indic_canary \
+  --nemo_model_path /absolute/path/to/indic-transcribe.nemo \
+  --nemo_repo_path /absolute/path/to/indic-transcribe-NeMo \
+  --engine_dir /absolute/path/to/engines/indic_transcribe \
   --dtype bfloat16 --max_batch_size 64 --max_beam_width 4 \
   --max_audio_seconds 40 --max_prompt_tokens 10
 ```
@@ -409,7 +409,7 @@ Fields not mentioned stay unchanged; entries in `additional_notes` accumulate.
 | --- | --- |
 | 1. `ManifestReaderStage.process()` | Reads the manifest into an `AudioTask`, keeping the original fields and relative audio path. |
 | 2. `PrepareIndicASRInputStage.process()` | Resolves the audio path and loads mono 16 kHz audio into `waveform` (float32, `[1, 195840]`). Moves `text` to `reference_text=R` and `granary_v1_prediction=R`; initializes `_skipme=""` and model notes. |
-| 3. `InferenceIndicCanaryStage` → `ASRStage.process_batch()` / `assemble()` | Runs the TensorRT encoder and TensorRT-LLM decoder with four beams, at most 347 new tokens, and `pnc=false`. Adds `primary_model_prediction=P` and `asr_language="hi"`; keeps the waveform. |
+| 3. `InferenceIndicTranscribeStage` → `ASRStage.process_batch()` / `assemble()` | Runs the TensorRT encoder and TensorRT-LLM decoder with four beams, at most 347 new tokens, and `pnc=false`. Adds `primary_model_prediction=P` and `asr_language="hi"`; keeps the waveform. |
 | 4. `WhisperHallucinationStage.process()` — primary | Checks for suspicious repetition, long words, known phrases, and excessive character rate. Adds `WhisperHallucination_primary="passed"` to the notes; leaves `P` unchanged. |
 | 5. `InferenceParakeetStage` → `ASRStage.process_batch()` / `assemble()` | Runs the TensorRT encoder and NeMo/PyTorch RNN-T decoder. Adds `fallback_model_prediction=F` and removes the waveform. Parakeet runs even though the primary check passed. |
 | 6. `WhisperHallucinationStage.process()` — recovery | Checks `F` and adds `WhisperHallucination_asr="passed"`. A valid fallback can clear a primary hallucination flag; this row needs no recovery. |
@@ -426,7 +426,7 @@ without needing recovery, a regex edit, or an abbreviation join.
 ### Final output: verbatim
 
 ```json
-{"audio_filepath": "/data/indic_asr/audio/10003386135529782184.wav", "audio_item_id": "fleurs_hi_in_validation_1602_10003386135529782184", "source_lang": "hi", "duration": 12.24, "sampling_rate": 16000, "dataset": "google/fleurs", "dataset_revision": "70bb2e84b976b7e960aa89f1c648e09c59f894dd", "license": "CC-BY-4.0", "additional_notes": {"primary_model": "indic_canary", "recovery_model": "parakeet_riva", "WhisperHallucination_primary": "passed", "WhisperHallucination_asr": "passed", "SelectBestPrediction": "used primary"}, "granary_v1_prediction": "मेजरकेन खाना, भूमध्य सागर में समान क्षेत्रों की तरह, रोटी, सब्जियों और मांस (विशेष रूप से सूअर का मांस) पर आधारित है, और जैतून के तेल का उपयोग करता है।", "reference_text": "मेजरकेन खाना, भूमध्य सागर में समान क्षेत्रों की तरह, रोटी, सब्जियों और मांस (विशेष रूप से सूअर का मांस) पर आधारित है, और जैतून के तेल का उपयोग करता है।", "_skipme": "", "primary_model_prediction": "मेजर किनखाना भूमध्य सागर में सामान्य क्षेत्रों की तरह रोटी सब्जियों और मांस विशेष रूप से सुअर का मांस पर आधारित है और जैतून के तेल का उपयोग करता है", "asr_language": "hi", "fallback_model_prediction": "मेजर किनखाना भूमध्यसागर में समान क्षेत्रों की तरह रोटी, सब्जियों और मांस विशेषरूप से सूअर का मांस पर आधारित है, और जैतून के तेल का उपयोग करता है।", "best_prediction": "मेजर किनखाना भूमध्य सागर में सामान्य क्षेत्रों की तरह रोटी सब्जियों और मांस विशेष रूप से सुअर का मांस पर आधारित है और जैतून के तेल का उपयोग करता है", "best_prediction_source": "primary", "cleaned_text": "मेजर किनखाना भूमध्य सागर में सामान्य क्षेत्रों की तरह रोटी सब्जियों और मांस विशेष रूप से सुअर का मांस पर आधारित है और जैतून के तेल का उपयोग करता है", "abbreviated_text": "मेजर किनखाना भूमध्य सागर में सामान्य क्षेत्रों की तरह रोटी सब्जियों और मांस विशेष रूप से सुअर का मांस पर आधारित है और जैतून के तेल का उपयोग करता है", "wer_pct": 33.3333}
+{"audio_filepath": "/data/indic_asr/audio/10003386135529782184.wav", "audio_item_id": "fleurs_hi_in_validation_1602_10003386135529782184", "source_lang": "hi", "duration": 12.24, "sampling_rate": 16000, "dataset": "google/fleurs", "dataset_revision": "70bb2e84b976b7e960aa89f1c648e09c59f894dd", "license": "CC-BY-4.0", "additional_notes": {"primary_model": "indic_transcribe", "recovery_model": "parakeet_riva", "WhisperHallucination_primary": "passed", "WhisperHallucination_asr": "passed", "SelectBestPrediction": "used primary"}, "granary_v1_prediction": "मेजरकेन खाना, भूमध्य सागर में समान क्षेत्रों की तरह, रोटी, सब्जियों और मांस (विशेष रूप से सूअर का मांस) पर आधारित है, और जैतून के तेल का उपयोग करता है।", "reference_text": "मेजरकेन खाना, भूमध्य सागर में समान क्षेत्रों की तरह, रोटी, सब्जियों और मांस (विशेष रूप से सूअर का मांस) पर आधारित है, और जैतून के तेल का उपयोग करता है।", "_skipme": "", "primary_model_prediction": "मेजर किनखाना भूमध्य सागर में सामान्य क्षेत्रों की तरह रोटी सब्जियों और मांस विशेष रूप से सुअर का मांस पर आधारित है और जैतून के तेल का उपयोग करता है", "asr_language": "hi", "fallback_model_prediction": "मेजर किनखाना भूमध्यसागर में समान क्षेत्रों की तरह रोटी, सब्जियों और मांस विशेषरूप से सूअर का मांस पर आधारित है, और जैतून के तेल का उपयोग करता है।", "best_prediction": "मेजर किनखाना भूमध्य सागर में सामान्य क्षेत्रों की तरह रोटी सब्जियों और मांस विशेष रूप से सुअर का मांस पर आधारित है और जैतून के तेल का उपयोग करता है", "best_prediction_source": "primary", "cleaned_text": "मेजर किनखाना भूमध्य सागर में सामान्य क्षेत्रों की तरह रोटी सब्जियों और मांस विशेष रूप से सुअर का मांस पर आधारित है और जैतून के तेल का उपयोग करता है", "abbreviated_text": "मेजर किनखाना भूमध्य सागर में सामान्य क्षेत्रों की तरह रोटी सब्जियों और मांस विशेष रूप से सुअर का मांस पर आधारित है और जैतून के तेल का उपयोग करता है", "wer_pct": 33.3333}
 ```
 
 </details>
