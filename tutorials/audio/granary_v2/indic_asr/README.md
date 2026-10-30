@@ -311,8 +311,8 @@ contain an RNN-T encoder, decoder, and joint network.
 #### Canary
 
 The Canary converter is not in this checkout. Use the
-[pinned reference converter](https://github.com/nithinraok/Curator/blob/1e2d639946f28dfd289a0a9456480385d4480c28/scripts/audio/indic_transcribe_trtllm_conversion/build_engine.py)
-and follow its [setup instructions](https://github.com/nithinraok/Curator/blob/1e2d639946f28dfd289a0a9456480385d4480c28/scripts/audio/indic_transcribe_trtllm_conversion/README.md#setup)
+[pinned reference converter](https://github.com/nithinraok/Curator/blob/1e2d639946f28dfd289a0a9456480385d4480c28/scripts/audio/indic_canary_trtllm_conversion/build_engine.py)
+and follow its [setup instructions](https://github.com/nithinraok/Curator/blob/1e2d639946f28dfd289a0a9456480385d4480c28/scripts/audio/indic_canary_trtllm_conversion/README.md#setup)
 in a separate build environment. The Granary inference image does not include
 the required Indic Transcribe NeMo fork with `CanaryMultilingualTokenizer`.
 Obtain that fork and the matching `.nemo` checkpoint from the checkpoint
