@@ -223,3 +223,11 @@ def test_fallback_exception_keeps_other_mentions(monkeypatch: pytest.MonkeyPatch
     assert urls(rows) == {"https://e.test/a.jpg"}
     assert flags["html_fallback_errors"] == 1
     assert flags["uncovered_html_tags"] == 1
+
+
+def test_large_entity_encoded_tag_preserves_following_image():
+    encoded = '<img src&equals;"data&colon;image&sol;jpeg&semi;base64&comma;' + "A" * 330_000 + '">'
+    rows, diagnostics = scan(encoded + '<img src="https://e.test/next.jpg">', "https://e.test/")
+    assert urls(rows) == {"https://e.test/next.jpg"}
+    assert len(rows) == 1
+    assert diagnostics["html_attribute_counts"] == {"src": 1}

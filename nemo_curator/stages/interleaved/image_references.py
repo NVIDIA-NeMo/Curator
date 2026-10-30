@@ -254,7 +254,8 @@ def _html_references(text: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     attribute_counts = Counter()
     for tag_name, markup, tag_start in tags:
         first_row = len(rows)
-        attributes = list(ATTR.finditer(markup))
+        # No attribute can match without "="; avoid quadratic scans of encoded data tags.
+        attributes = list(ATTR.finditer(markup)) if "=" in markup else []
         declared_type = next(
             (
                 next(v for v in a.groups()[1:] if v is not None).strip().lower()
