@@ -14,6 +14,8 @@
 
 import os
 import re
+import subprocess
+import sys
 
 import pandas as pd
 import pytest
@@ -920,6 +922,24 @@ class TestHeuristicFilters:
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
+
+    def test_repeatingtopngrams_tie_is_hash_seed_independent(self) -> None:
+        doc = " ".join(["a b c"] * 4 + ["longer words here"] * 4 + [f"w{i}" for i in range(40)])
+        code = (
+            "from nemo_curator.stages.text.filters.heuristic.repetition import RepeatingTopNGramsFilter\n"
+            f"print(RepeatingTopNGramsFilter(n=3).score_document({doc!r}))"
+        )
+        scores = {
+            subprocess.run(  # noqa: S603
+                [sys.executable, "-c", code],
+                env={**os.environ, "PYTHONHASHSEED": str(seed)},
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+            for seed in range(8)
+        }
+        assert len(scores) == 1
 
     def test_repeatingduplicatengrams(self) -> None:
         dataset = list_to_dataset(["a a b b a a b b", "totally fine", "a a a a this should be fine as well"])
