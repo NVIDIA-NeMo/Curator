@@ -148,6 +148,30 @@ class TestUrlRemover:
 
         assert expected_results == actual_results, f"Expected: {expected_results}, but got: {actual_results}"
 
+    @pytest.mark.parametrize(
+        ("text", "expected"),
+        [
+            ("See the docs (https://docs.nvidia.com/curator) for details.", "See the docs () for details."),
+            ("Links: https://a.com, https://b.com, and www.c.com.", "Links: , , and ."),
+            ('He said "https://x.com/a" twice.', 'He said "" twice.'),
+            ("[link](https://x.com/page) text", "[link]() text"),
+            ("Is it https://x.com/a? Yes: https://x.com/b!", "Is it ? Yes: !"),
+            # A closing bracket that matches an opening one in the URL is part of the URL.
+            ("Wiki: https://en.wikipedia.org/wiki/Python_(programming_language) is long.", "Wiki:  is long."),
+            ("(see https://en.wikipedia.org/wiki/Mercury_(planet))", "(see )"),
+            ("Query https://x.com/search?q=a&b=c#top, then", "Query , then"),
+            ("He said \u201chttps://x.com/a\u201d twice.", "He said \u201c\u201d twice."),
+            ("\u8bbf\u95ee https://x.com/a\u3002", "\u8bbf\u95ee \u3002"),
+            ("\u89c1\uff08https://x.com/b\uff09\u3002", "\u89c1\uff08\uff09\u3002"),
+        ],
+    )
+    def test_keeps_punctuation_after_urls(self, text: str, expected: str) -> None:
+        assert UrlRemover().modify_document(text) == expected
+
+    def test_long_run_of_closing_brackets(self) -> None:
+        brackets = ")" * 100_000
+        assert UrlRemover().modify_document(f"see https://x.com/a{brackets} now") == f"see {brackets} now"
+
 
 class TestLineRemover:
     def test_remove_exact_match(self) -> None:
