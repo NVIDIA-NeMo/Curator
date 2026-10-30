@@ -46,19 +46,18 @@ def _wait_for_ray_cleanup() -> None:
         logger.info(f"SHM usage after cleanup wait: {shm['summary']}")
 
 
-def _start_ray_client_with_log_level(client: RayClient, log_level: str | None) -> None:
-    """Let child processes inherit the entry log level without changing subsequent entries."""
-    previous_level = os.environ.get("RAY_DATA_LOG_LEVEL")
-    if log_level is not None:
-        os.environ["RAY_DATA_LOG_LEVEL"] = log_level
+def _start_ray_client_with_environment(client: RayClient, environment: dict[str, str]) -> None:
+    """Apply entry overrides during startup, preserving other changes such as RAY_ADDRESS."""
+    previous = {name: os.environ.get(name) for name in environment}
+    os.environ.update(environment)
     try:
         client.start()
     finally:
-        if log_level is not None:
-            if previous_level is None:
-                os.environ.pop("RAY_DATA_LOG_LEVEL", None)
+        for name, value in previous.items():
+            if value is None:
+                os.environ.pop(name, None)
             else:
-                os.environ["RAY_DATA_LOG_LEVEL"] = previous_level
+                os.environ[name] = value
 
 
 def setup_ray_cluster_and_env(  # noqa: PLR0913
@@ -69,12 +68,16 @@ def setup_ray_cluster_and_env(  # noqa: PLR0913
     object_store_size: int | None = None,
     include_dashboard: bool = True,
     ray_data_log_level: str | None = None,
+    environment: dict[str, str] | None = None,
 ) -> tuple[RayClient, Path]:
-    """Start Ray with the entry's Ray Data log level inherited by cluster processes.
+    """Start Ray with the entry's environment inherited by cluster processes.
 
-    Restore the runner's logging environment after startup, leaving RAY_ADDRESS
+    Restore the runner's overridden environment after startup, leaving RAY_ADDRESS
     available for the benchmark subprocess. Return the client and temp directory.
     """
+    startup_environment = dict(environment or {})
+    if ray_data_log_level is not None:
+        startup_environment["RAY_DATA_LOG_LEVEL"] = ray_data_log_level
     # Create a short temp dir to avoid Unix socket path length limits
     short_temp_path = Path(f"/tmp/ray_{uuid.uuid4().hex[:8]}")  # noqa: S108
     short_temp_path.mkdir(parents=True, exist_ok=True)
@@ -115,7 +118,7 @@ def setup_ray_cluster_and_env(  # noqa: PLR0913
         )
 
         try:
-            _start_ray_client_with_log_level(client, ray_data_log_level)
+            _start_ray_client_with_environment(client, startup_environment)
             _ensure_ray_client_process_started(client, ray_client_start_timeout_s, ray_client_start_poll_interval_s)
             responsive = True
         except Exception:

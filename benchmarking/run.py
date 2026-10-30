@@ -282,7 +282,9 @@ def run_entry(  # noqa: PLR0913
             create_or_overwrite_dir(directory)
         ensure_dir(logs_path)
 
-        startup_env, _ = build_subprocess_environment(entry, session_entry_path, path_resolver, dataset_resolver)
+        startup_env, configured_env_names = build_subprocess_environment(
+            entry, session_entry_path, path_resolver, dataset_resolver
+        )
         ray_client, ray_temp_dir = setup_ray_cluster_and_env(
             num_cpus=ray_num_cpus,
             num_gpus=ray_num_gpus,
@@ -290,6 +292,7 @@ def run_entry(  # noqa: PLR0913
             ray_log_path=logs_path / "ray.log",
             object_store_size=None if entry.object_store_size == "default" else entry.object_store_size,
             ray_data_log_level=startup_env.get("RAY_DATA_LOG_LEVEL"),
+            environment={name: startup_env[name] for name in configured_env_names},
         )
 
         # Prepopulate <session_entry_path>/params.json with entry params.
