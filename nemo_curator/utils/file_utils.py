@@ -165,18 +165,6 @@ def _split_files_as_per_blocksize(
     return partitions
 
 
-def _gather_extention(path: str) -> str:
-    """
-    Gather the extension of a given path.
-    Args:
-        path: The path to get the extension from.
-    Returns:
-        The extension of the path.
-    """
-    name = posixpath.basename(path.rstrip("/"))
-    return posixpath.splitext(name)[1][1:].casefold()
-
-
 def _gather_file_records(  # noqa: PLR0913
     path: str,
     recurse_subdirectories: bool,
@@ -229,7 +217,7 @@ def _gather_file_records(  # noqa: PLR0913
             entries = []
 
         for raw_path, raw_size in entries:
-            if (allowed_exts is None) or (_gather_extention(raw_path) in allowed_exts):
+            if (allowed_exts is None) or any(raw_path.casefold().endswith(f".{ext}") for ext in allowed_exts):
                 records.append((normalize(raw_path), -1 if include_size and raw_size is None else raw_size))
 
     return records

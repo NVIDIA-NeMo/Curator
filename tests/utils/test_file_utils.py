@@ -178,6 +178,41 @@ class TestGetAllFilePathsUnder:
         expected_files = [str(f[0]) for f in files_to_create]
         assert sorted(result) == sorted(expected_files)
 
+    @pytest.mark.parametrize(
+        ("keep_extensions", "expected_names"),
+        [
+            ([".jsonl"], ["shard.jsonl"]),
+            ([".jsonl.gz"], ["UPPER.JSONL.GZ", "shard.jsonl.gz"]),
+            (["JSONL.GZ"], ["UPPER.JSONL.GZ", "shard.jsonl.gz"]),
+            ([".warc.gz"], ["seg.warc.gz"]),
+            ([".warc.wet.gz"], ["seg.warc.wet.gz"]),
+            ([".tar", ".tar.gz", ".tgz"], ["shard.tar.gz", "shard.tgz"]),
+            ([".gz"], ["UPPER.JSONL.GZ", "seg.warc.gz", "seg.warc.wet.gz", "shard.jsonl.gz", "shard.tar.gz"]),
+            (["GZ"], ["UPPER.JSONL.GZ", "seg.warc.gz", "seg.warc.wet.gz", "shard.jsonl.gz", "shard.tar.gz"]),
+            ([], []),
+        ],
+    )
+    def test_multi_part_extension_filtering(
+        self, tmp_path: Path, keep_extensions: list[str], expected_names: list[str]
+    ):
+        """Test that extensions match the end of the file name at a dot, ignoring case."""
+        root = tmp_path / "data"
+        names = [
+            "shard.jsonl",
+            "shard.jsonl.gz",
+            "UPPER.JSONL.GZ",
+            "seg.warc.gz",
+            "seg.warc.wet.gz",
+            "shard.tar.gz",
+            "shard.tgz",
+        ]
+        for name in names:
+            _write_test_file(root / name)
+
+        result = get_all_file_paths_under(str(root), keep_extensions=keep_extensions)
+
+        assert result == sorted(str(root / name) for name in expected_names)
+
     def test_empty_directory(self, tmp_path: Path):
         """Test with empty directory."""
         empty_dir = tmp_path / "empty"
