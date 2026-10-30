@@ -84,11 +84,13 @@ def test_mid_copy_failure_does_not_publish_partial_archive(tmp_path: Path, monke
 
 @pytest.mark.parametrize(("parent_level", "entry_level"), [(None, "INFO"), ("WARNING", "DEBUG"), ("WARNING", None)])
 @pytest.mark.parametrize("fail_start", [False, True])
+@pytest.mark.parametrize("configured_address", [None, "", "other-cluster:6379"])
 def test_cluster_start_inherits_environment_and_restores_parent(
     monkeypatch: pytest.MonkeyPatch,
     parent_level: str | None,
     entry_level: str | None,
     fail_start: bool,
+    configured_address: str | None,
 ) -> None:
     if parent_level is None:
         monkeypatch.delenv("RAY_DATA_LOG_LEVEL", raising=False)
@@ -99,6 +101,8 @@ def test_cluster_start_inherits_environment_and_restores_parent(
     monkeypatch.delenv("BENCHMARK_NEW", raising=False)
     monkeypatch.setenv("BENCHMARK_EMPTY", "")
     environment = {"BENCHMARK_EXISTING": "entry", "BENCHMARK_NEW": "new", "BENCHMARK_EMPTY": "set"}
+    if configured_address is not None:
+        environment["RAY_ADDRESS"] = configured_address
     if entry_level is not None:
         environment["RAY_DATA_LOG_LEVEL"] = entry_level
     observed = []
@@ -107,6 +111,7 @@ def test_cluster_start_inherits_environment_and_restores_parent(
         """Capture the environment inherited by a real child process at Ray startup."""
 
         def start(self) -> None:
+            assert "RAY_ADDRESS" not in os.environ
             observed.append(
                 json.loads(
                     subprocess.check_output(  # noqa: S603

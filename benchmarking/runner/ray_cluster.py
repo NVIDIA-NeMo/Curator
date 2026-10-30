@@ -48,6 +48,8 @@ def _wait_for_ray_cleanup() -> None:
 
 def _start_ray_client_with_environment(client: RayClient, environment: dict[str, str]) -> None:
     """Apply entry overrides during startup, preserving other changes such as RAY_ADDRESS."""
+    # RayClient uses this key to skip startup and publishes the fresh cluster's address through it.
+    environment = {name: value for name, value in environment.items() if name != "RAY_ADDRESS"}
     previous = {name: os.environ.get(name) for name in environment}
     os.environ.update(environment)
     try:

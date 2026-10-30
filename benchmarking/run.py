@@ -158,6 +158,9 @@ def build_subprocess_environment(
     """Return the full subprocess environment and the configured names safe to consider for value logging."""
     entry_environment = {}
     for name, value in entry.environment.items():
+        # The runner owns the cluster address; entry settings must not redirect its subprocess.
+        if name == "RAY_ADDRESS":
+            continue
         resolved_value = entry.substitute_reserved_placeholders(value, session_entry_path, dataset_resolver)
         resolved_value = entry.substitute_container_or_host_paths(resolved_value, path_resolver)
         entry_environment[name] = resolved_value
