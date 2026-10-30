@@ -97,7 +97,18 @@ class OCRNemotronV2Stage(ProcessingStage[ImageSampleTask[OCRData], ImageSampleTa
             snapshot_download(repo_id=_HF_REPO_ID)
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
-        from nemotron_ocr.inference.pipeline_v2 import NemotronOCRV2
+        try:
+            from nemotron_ocr.inference.pipeline_v2 import NemotronOCRV2
+        except ModuleNotFoundError as e:
+            if e.name not in {"nemotron_ocr", "nemotron_ocr.inference", "nemotron_ocr.inference.pipeline_v2"}:
+                raise
+            msg = (
+                "Nemotron OCR v2 is not installed. Build the Curator Dockerfile with "
+                "--build-arg PYTHON_VERSION=3.12 --build-arg INSTALL_NEMOTRON_OCR=true "
+                "and verify it on every worker. See "
+                "https://docs.nvidia.com/nemo/curator/latest/curate-text/synthetic/nemotron-ocr"
+            )
+            raise ImportError(msg) from e
 
         model_dir = self._resolve_model_dir()
         logger.info(f"{self.name}: loading model from {model_dir}")

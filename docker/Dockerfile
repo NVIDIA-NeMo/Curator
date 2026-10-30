@@ -25,6 +25,8 @@ FROM nvidia/cuda:${CUDA_VER}-cudnn-devel-${LINUX_VER} AS cuda
 FROM cuda AS build
 
 ARG CURATOR_ENV=ci
+ARG PYTHON_VERSION=3.13
+ARG INSTALL_NEMOTRON_OCR=false
 ENV CURATOR_ENVIRONMENT=${CURATOR_ENV}
 
 ENV NVIDIA_PRODUCT_NAME="NeMo Curator"
@@ -41,9 +43,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     vim && \
     add-apt-repository -y ppa:deadsnakes/ppa && \
     apt-get update && apt-get install -y --no-install-recommends \
-    python3.13 \
-    python3.13-dev \
-    python3.13-venv \
+    python${PYTHON_VERSION} \
+    python${PYTHON_VERSION}-dev \
+    python${PYTHON_VERSION}-venv \
     python-is-python3 && \
     apt-get install -y --only-upgrade gnupg libunbound8 openssl libssl3t64 && \
     apt-get clean && \
@@ -81,7 +83,7 @@ ENV UV_PROJECT_ENVIRONMENT=/opt/venv
 ENV UV_CACHE_DIR=/opt/uv_cache
 ENV PATH="$UV_PROJECT_ENVIRONMENT/bin:$PATH"
 ENV UV_LINK_MODE=copy
-RUN uv venv ${UV_PROJECT_ENVIRONMENT} --python /usr/bin/python3.13 --system-site-packages --seed
+RUN uv venv ${UV_PROJECT_ENVIRONMENT} --python /usr/bin/python${PYTHON_VERSION} --system-site-packages --seed
 
 FROM build AS nemo_curator_dep
 
@@ -117,11 +119,16 @@ RUN if [ -n "${CURATOR_EXTRA}" ]; then \
 # GIT_LFS_SKIP_SMUDGE=1: clone source only, model weights are mounted at runtime
 # TORCH_CUDA_ARCH_LIST: compile for SM 8.0/8.6/8.9/9.0 to cover A100, A10, RTX Ada, H100
 ARG NEMOTRON_OCR_REV=86cacb0467fa4f7ce54342fdb250825e0d928ae7
-RUN uv pip install hatchling ninja editables && \
+RUN if [ "${INSTALL_NEMOTRON_OCR}" = "true" ]; then \
+    test "${PYTHON_VERSION}" = "3.12" || { echo "Nemotron OCR requires --build-arg PYTHON_VERSION=3.12" >&2; exit 1; }; \
+    uv pip install hatchling ninja editables && \
+    uv pip freeze --exclude-editable > /tmp/ocr-constraints.txt && \
     GIT_LFS_SKIP_SMUDGE=1 git clone https://huggingface.co/nvidia/nemotron-ocr-v2 /tmp/nemotron-ocr-src && \
     git -C /tmp/nemotron-ocr-src checkout "${NEMOTRON_OCR_REV}" && \
-    TORCH_CUDA_ARCH_LIST="8.0;8.6;8.9;9.0" uv pip install --no-build-isolation /tmp/nemotron-ocr-src/nemotron-ocr && \
-    rm -rf /tmp/nemotron-ocr-src
+    TORCH_CUDA_ARCH_LIST="8.0;8.6;8.9;9.0" uv pip install --no-build-isolation \
+        --constraint /tmp/ocr-constraints.txt /tmp/nemotron-ocr-src/nemotron-ocr && \
+    rm -rf /tmp/nemotron-ocr-src /tmp/ocr-constraints.txt; \
+    fi
 
 COPY . /opt/Curator
 
