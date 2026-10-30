@@ -21,9 +21,9 @@ import pytest
 import torch
 
 from nemo_curator.models.audio.lid.base import AudioLIDResult
-from nemo_curator.models.audio.lid.indic_canary import (
+from nemo_curator.models.audio.lid.indic_transcribe import (
     _DEFAULT_RUNTIME_CLASS_PATH,
-    IndicCanaryLIDAdapter,
+    IndicTranscribeLIDAdapter,
     _language_code_from_special_token,
     _resolve_runtime_class,
     _validate_engine_dir,
@@ -77,14 +77,14 @@ def test_engine_validation_lists_all_missing_required_files(tmp_path: Path) -> N
 def test_complete_engine_bundle_passes_node_prefetch(tmp_path: Path) -> None:
     engine_dir = _engine_bundle(tmp_path)
 
-    IndicCanaryLIDAdapter(engine_dir=str(engine_dir)).download_weights_on_node()
+    IndicTranscribeLIDAdapter(engine_dir=str(engine_dir)).download_weights_on_node()
 
 
-def test_default_runtime_reuses_the_shared_indic_canary_runtime() -> None:
+def test_default_runtime_reuses_the_shared_indic_transcribe_runtime() -> None:
     runtime_class = _resolve_runtime_class(_DEFAULT_RUNTIME_CLASS_PATH)
 
     assert runtime_class.__name__ == "CanaryTRTLLM"
-    assert runtime_class.__module__ == "nemo_curator.stages.audio.inference.indic_canary_trtllm_runtime"
+    assert runtime_class.__module__ == "nemo_curator.stages.audio.inference.indic_transcribe_trtllm_runtime"
 
 
 class _Runtime:
@@ -110,7 +110,7 @@ class _Runtime:
 
 def test_injected_runtime_loads_lazily_and_filters_candidates(tmp_path: Path) -> None:
     engine_dir = _engine_bundle(tmp_path)
-    adapter = IndicCanaryLIDAdapter(
+    adapter = IndicTranscribeLIDAdapter(
         engine_dir=str(engine_dir),
         runtime_class=_Runtime,
         candidate_languages=[" HI "],
@@ -138,7 +138,7 @@ def test_injected_runtime_loads_lazily_and_filters_candidates(tmp_path: Path) ->
 
 def test_failed_candidate_filter_keeps_runtime_reachable_for_cleanup(tmp_path: Path) -> None:
     engine_dir = _engine_bundle(tmp_path)
-    adapter = IndicCanaryLIDAdapter(
+    adapter = IndicTranscribeLIDAdapter(
         engine_dir=str(engine_dir),
         runtime_class=_Runtime,
         candidate_languages=["not-a-canary-language"],
@@ -157,8 +157,8 @@ def test_failed_candidate_filter_keeps_runtime_reachable_for_cleanup(tmp_path: P
     assert runtime.closed
 
 
-def _loaded_adapter(*, candidate_languages: list[str] | None = None) -> IndicCanaryLIDAdapter:
-    adapter = IndicCanaryLIDAdapter(engine_dir="unused", candidate_languages=candidate_languages)
+def _loaded_adapter(*, candidate_languages: list[str] | None = None) -> IndicTranscribeLIDAdapter:
+    adapter = IndicTranscribeLIDAdapter(engine_dir="unused", candidate_languages=candidate_languages)
     adapter._model = _Runtime(Path("unused"))
     adapter._language_by_token_id = adapter._collect_language_token_ids()
     return adapter
@@ -214,7 +214,7 @@ def test_identify_batch_preserves_short_rows_and_truncates_long_rows() -> None:
 
 @pytest.mark.parametrize("lengths", [(0,), (0, 16_000, 0)])
 def test_zero_minimum_duration_preserves_empty_rows(lengths: tuple[int, ...]) -> None:
-    adapter = IndicCanaryLIDAdapter(engine_dir="unused", min_duration_sec=0)
+    adapter = IndicTranscribeLIDAdapter(engine_dir="unused", min_duration_sec=0)
     adapter._model = _Runtime(Path("unused"))
     prediction = AudioLIDResult("hi", 1.0)
     with patch.object(adapter, "_identify_waveforms", return_value=[prediction]) as identify:
@@ -289,7 +289,7 @@ def test_identify_batch_respects_engine_capacity_and_runtime_contract() -> None:
 
 
 def test_default_duration_floor_matches_the_reference_stage_and_engine_profile() -> None:
-    adapter = IndicCanaryLIDAdapter(engine_dir="unused")
+    adapter = IndicTranscribeLIDAdapter(engine_dir="unused")
 
     assert adapter.min_duration_sec == 1.0
     assert adapter.min_samples == 16_000
@@ -297,7 +297,7 @@ def test_default_duration_floor_matches_the_reference_stage_and_engine_profile()
 
 @pytest.mark.parametrize("num_gpus", [0, 2, -1, True])
 def test_load_requires_exactly_one_gpu(tmp_path: Path, num_gpus: object) -> None:
-    adapter = IndicCanaryLIDAdapter(engine_dir=str(_engine_bundle(tmp_path)), runtime_class=_Runtime)
+    adapter = IndicTranscribeLIDAdapter(engine_dir=str(_engine_bundle(tmp_path)), runtime_class=_Runtime)
 
     with pytest.raises(ValueError, match="exactly 1"):
         adapter.load_model(num_gpus=num_gpus)  # type: ignore[arg-type]

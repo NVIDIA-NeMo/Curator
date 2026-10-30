@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""CPU-only unit tests for the vendored Indic Canary TensorRT-LLM runtime."""
+"""CPU-only unit tests for the vendored Indic Transcribe TensorRT-LLM runtime."""
 
 import json
 import sys
@@ -25,7 +25,7 @@ import numpy as np
 import pytest
 import torch
 
-from nemo_curator.stages.audio.inference import indic_canary_trtllm_runtime as runtime
+from nemo_curator.stages.audio.inference import indic_transcribe_trtllm_runtime as runtime
 
 
 def _write_decoder_bundle(tmp_path: Path, *, prompt_format: str = "canary2", country_codes: bool = True) -> Path:

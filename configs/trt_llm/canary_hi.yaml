@@ -1,0 +1,32 @@
+
+engine_dir: /workspace/indic_transcribe/engine_bfloat16/
+precision: bf16
+
+language_code: hi-IN
+dataset_name: Kathbath
+
+test_base_dir: /src/Curator/datasets/test_sets/tar/hi-IN/${language_code}
+manifest_path: ${test_base_dir}/${dataset_name}.json
+output_dir: /src/Curator/results/indic_transcribe/${precision}/${language_code}
+output_path: ${output_dir}/${dataset_name}.json
+
+stages:
+
+  - _target_: nemo_curator.stages.audio.io.benchmark_reader.BenchmarkReader
+    manifest_path: ${manifest_path}
+
+  - _target_: nemo_curator.stages.audio.inference.indic_transcribe.InferenceIndicTranscribeStage
+    engine_dir: ${engine_dir}
+    num_beams: 4
+    max_new_tokens: 246
+    batch_size: 64
+    pnc: false
+    source_lang_key: language
+    waveform_key: waveform
+    sample_rate_key: sampling_rate
+    pred_text_key: pred_text
+    language_key: pred_lang
+    notes_key: additional_notes
+  
+  - _target_: nemo_curator.stages.audio.io.benchmark_reader.BenchmarkWriterStage
+    output_path: ${output_path}

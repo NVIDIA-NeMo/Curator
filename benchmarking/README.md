@@ -828,7 +828,7 @@ Both executor modes consume this byte-identical retained cohort and also require
 the production-compatible model artifacts to be staged at:
 
 ```text
-{model_weights_path}/audio_indic_asr/indic_canary_trtllm/engine_bfloat16_64_new
+{model_weights_path}/audio_indic_asr/indic_transcribe_trtllm/engine_bfloat16_64_new
 {model_weights_path}/audio_indic_asr/parakeet_indic_trt/encoder_fp16_b1_o8_m16_f8_o800_m4001
 ```
 
@@ -862,7 +862,7 @@ dedicated image, from `/opt/Curator`, run:
 python benchmarking/scripts/audio_indic_asr_benchmark.py \
   --benchmark-results-path=/results/indic_asr_xenna \
   --input-manifest=/datasets/audio_indic_asr_parakeet_hindi_531h_35376a11/manifest.jsonl \
-  --indic-canary-engine-dir=/model_weights/audio_indic_asr/indic_canary_trtllm/engine_bfloat16_64_new \
+  --indic-transcribe-engine-dir=/model_weights/audio_indic_asr/indic_transcribe_trtllm/engine_bfloat16_64_new \
   --parakeet-tensorrt-engine-dir=/model_weights/audio_indic_asr/parakeet_indic_trt/encoder_fp16_b1_o8_m16_f8_o800_m4001 \
   --regex-yaml=tutorials/audio/granary_v2/indic_asr/regex.yaml \
   --hall-phrases=tutorials/audio/whisper_hallucination/phrases.txt \
