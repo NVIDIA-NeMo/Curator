@@ -205,8 +205,10 @@ class PerExtensionFilter(DocumentFilter):
     def __init__(self, lang: str, extension: str, metadata_file: str = "code_meta.csv"):
         self._metadata_file = metadata_file
         self._lang = lang
-        self._extension = extension
-        self._ext_to_filter = self._load_filter_csv(metadata_file, lang)
+        # The metadata file lists extensions without the leading dot, e.g. "py"
+        self._extension = extension.removeprefix(".") if extension is not None else None
+        # Rows are keyed by the metadata file's language format, which score_document also looks up
+        self._ext_to_filter = self._load_filter_csv(metadata_file, self._language_format_from_dataset(lang))
         self._name = "per_extension_filter"
 
     def _load_filter_csv(self, path: str, language: str | None = None) -> dict:
