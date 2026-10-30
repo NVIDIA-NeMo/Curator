@@ -15,6 +15,7 @@
 # limitations under the License.
 
 import re
+from collections.abc import Callable, Iterator
 from contextlib import suppress
 from pathlib import Path
 from typing import Literal
@@ -532,6 +533,107 @@ class TestKMeansReadFitWriteStage:
         decoded_embeddings = stored_embeddings.view(cp.float16) if stored_dtype == cp.uint16 else stored_embeddings
         cp.testing.assert_allclose(decoded_embeddings, embeddings, rtol=1e-3, atol=1e-3)
         cp.testing.assert_allclose(output["l2_dist_to_cent"].values, [0.0, (0.6**2 + 0.2**2) ** 0.5])
+
+    @pytest.mark.parametrize(
+        ("rows", "write_kwargs"),
+        [(128, {}), (128, {"max_file_size": "32 KiB"}), (12_000, {"row_group_size_rows": 5000})],
+    )
+    def test_partitioned_writer_rotates_nested_data_and_releases_files(
+        self, make_stage: Callable[..., "KMeansReadFitWriteStage"], rows: int, write_kwargs: dict[str, str | int]
+    ) -> None:
+        stage = make_stage(write_kwargs={"compression": None, **write_kwargs})
+        embeddings = cp.random.RandomState(42).random_sample((rows, 512)).astype(cp.float32)
+        frame = cudf.DataFrame({"id": cp.arange(rows), "centroid": cp.arange(rows) % 2})
+        stage._set_output_embeddings(frame, embeddings)
+
+        for batch in range(3):
+            frame["id"] = cp.arange(rows) + batch * rows
+            stage._write_partitioned_frame(frame, f"task_{batch}.parquet")
+            open_outputs = [
+                fd for fd in Path("/proc/self/fd").iterdir() if fd.resolve().is_relative_to(stage.output_path)
+            ]
+            assert not open_outputs, "Completed frames must release their Parquet file descriptors"
+
+        output = cudf.read_parquet(stage.output_path).sort_values("id", ignore_index=True)
+        cp.testing.assert_array_equal(output["id"].values, cp.arange(3 * rows))
+        cp.testing.assert_array_equal(output["centroid"].astype("int32").values, cp.arange(3 * rows) % 2)
+        cp.testing.assert_array_equal(get_array_from_df(output, "embeddings"), cp.tile(embeddings, (3, 1)))
+        output_files = list(Path(stage.output_path).glob("centroid=*/*.parquet"))
+        if "max_file_size" in write_kwargs:
+            assert len(output_files) > 6, "Nested embedding bytes must contribute to file rotation"
+        else:
+            assert len(output_files) == 6
+            assert {path.name for path in output_files} == {f"task_{batch}.parquet" for batch in range(3)}
+        if "row_group_size_rows" in write_kwargs:
+            assert cudf.io.parquet.read_parquet_metadata(str(output_files[0]))[1] == 2
+
+    @pytest.mark.parametrize("fail_after_frames", [False, True])
+    def test_prediction_consolidates_frames_and_releases_files(
+        self, make_stage: Callable, fail_after_frames: bool
+    ) -> None:
+        stage = make_stage()
+        stage.kmeans.predict.side_effect = [cp.asarray([0, 0]), cp.asarray([0, 1]), cp.asarray([1, 1])]
+
+        def frames(*_) -> Iterator["cudf.DataFrame"]:
+            for index in range(3):
+                yield cudf.DataFrame({"id": [2 * index, 2 * index + 1], "embeddings": [[1.0, 0.0], [0.0, 1.0]]})
+            if fail_after_frames:
+                msg = "reader failed"
+                raise RuntimeError(msg)
+
+        stage._iter_parquet_frames = frames
+        if fail_after_frames:
+            with pytest.raises(RuntimeError, match="reader failed"):
+                stage._predict_write_parquet([], [], "task", stage.kmeans.cluster_centers_)
+        else:
+            rows, times = stage._predict_write_parquet([], [], "task", stage.kmeans.cluster_centers_)
+            assert rows == 6
+            assert times["write"] > 0
+        assert not [fd for fd in Path("/proc/self/fd").iterdir() if fd.resolve().is_relative_to(stage.output_path)]
+        paths = list(Path(stage.output_path).glob("centroid=*/*.parquet"))
+        assert len(paths) == 2
+        assert {path.name for path in paths} == {"task.parquet"}
+        result = cudf.read_parquet(stage.output_path).sort_values("id", ignore_index=True)
+        cp.testing.assert_array_equal(result["id"].values, cp.arange(6))
+        cp.testing.assert_array_equal(result["centroid"].astype("int32").values, [0, 0, 0, 1, 1, 1])
+        cp.testing.assert_array_equal(get_array_from_df(result, "embeddings"), cp.tile(cp.eye(2), (3, 1)))
+
+    @pytest.mark.parametrize("fail_after_frames", [False, True])
+    def test_prediction_bounds_writers_and_cleans_staging(
+        self, make_stage: Callable, monkeypatch: pytest.MonkeyPatch, fail_after_frames: bool
+    ) -> None:
+        import nemo_curator.stages.deduplication.semantic.kmeans as module
+
+        monkeypatch.setattr(module, "_MAX_OPEN_CENTROID_FILES", 4)
+        stage = make_stage(n_clusters=8)
+        stage.kmeans.cluster_centers_ = cp.tile(cp.eye(2, dtype=cp.float32), (4, 1))
+        stage.kmeans.predict.side_effect = [cp.arange(8, dtype=cp.int32)] * 12
+
+        def frames(*_) -> Iterator["cudf.DataFrame"]:
+            for index in range(12):
+                yield cudf.DataFrame({"id": cp.arange(8) + index * 8, "embeddings": [[1.0, 0.0]] * 8})
+            if fail_after_frames:
+                msg = "reader failed"
+                raise RuntimeError(msg)
+
+        stage._iter_parquet_frames = frames
+        if fail_after_frames:
+            with pytest.raises(RuntimeError, match="reader failed"):
+                stage._predict_write_parquet([], [], "task", stage.kmeans.cluster_centers_)
+            assert not list(Path(stage.output_path).glob("centroid=*/*.parquet"))
+        else:
+            rows, _ = stage._predict_write_parquet([], [], "task", stage.kmeans.cluster_centers_)
+            assert rows == 96
+            paths = list(Path(stage.output_path).glob("centroid=*/*.parquet"))
+            assert len(paths) == 8
+            result = cudf.read_parquet(stage.output_path).sort_values("id", ignore_index=True)
+            cp.testing.assert_array_equal(result["id"].values, cp.arange(96))
+            cp.testing.assert_array_equal(result["centroid"].astype("int32").values, cp.tile(cp.arange(8), 12))
+            cp.testing.assert_array_equal(
+                get_array_from_df(result, "embeddings"), cp.tile(cp.asarray([[1.0, 0.0]]), (96, 1))
+            )
+        assert not list(Path(stage.output_path).glob(".kmeans-staging-*"))
+        assert not [fd for fd in Path("/proc/self/fd").iterdir() if fd.resolve().is_relative_to(stage.output_path)]
 
     @pytest.mark.parametrize("bad_fraction", [0.0, -0.001, 1.001])
     def test_fit_data_fraction_validation(self, tmp_path: Path, bad_fraction: float) -> None:

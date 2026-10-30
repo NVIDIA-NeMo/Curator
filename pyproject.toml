@@ -98,13 +98,13 @@ inference_server = [
 
 # Installs CPU + GPU text curation modules
 deduplication_cuda12 = [
-    "cudf-cu12==26.8.*",
-    "cudf-streaming-cu12==26.8.*",
-    "cuml-cu12==26.8.*",
-    "pylibcugraph-cu12==26.8.*",
-    "pylibraft-cu12==26.8.*",
-    "raft-dask-cu12==26.8.*",
-    "rapidsmpf-cu12==26.8.*",
+    "cudf-cu12==26.10.*",
+    "cudf-streaming-cu12==26.10.*",
+    "cuml-cu12==26.10.*",
+    "pylibcugraph-cu12==26.10.*",
+    "pylibraft-cu12==26.10.*",
+    "raft-dask-cu12==26.10.*",
+    "rapidsmpf-cu12==26.10.*",
 ]
 
 audio_common = [
