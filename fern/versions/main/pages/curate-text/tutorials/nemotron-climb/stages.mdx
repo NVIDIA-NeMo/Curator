@@ -83,7 +83,7 @@ The default `--output-filetype parquet` produces partitioned files in `computed_
 
 **Completion and restart check**
 
-Confirm output files are readable and contain all three selected fields. The tutorial scripts call `pipeline.run()` without a checkpoint directory. To make embedding resumable after an interruption, pass a durable checkpoint path when invoking the pipeline, for example `pipeline.run(checkpoint_path="/data/climb/checkpoints/stage1")`. See [Resumable Processing](/reference/infra/resumable-processing) for checkpoint behavior and recovery. If a run leaves an incomplete output directory and you are not using checkpoints, move or remove that directory and rerun stage 1. Generated IDs include each batch task ID and can change on a new run, so rerun all dependent stages rather than combining old and new stage 1 outputs.
+Confirm output files are readable and contain all three selected fields. The tutorial scripts call `pipeline.run()` without a checkpoint directory. To make embedding resumable after an interruption, start a Ray cluster with `RayClient().start()` and pass a durable checkpoint path when invoking the pipeline, for example `pipeline.run(checkpoint_path="/data/climb/checkpoints/stage1")`. The checkpoint directory must be on a filesystem that supports memory-mapped I/O, such as local disk or Lustre — not NFS. See [Resumable Processing](/reference/infra/resumable-processing) for checkpoint behavior and recovery. If a run leaves an incomplete output directory and you are not using checkpoints, move or remove that directory and rerun stage 1. Generated IDs include each batch task ID and can change on a new run, so rerun all dependent stages rather than combining old and new stage 1 outputs.
 
 ## 2. Cluster Embeddings
 
