@@ -31,9 +31,9 @@ class Slicer(DocumentModifier):
         """
         Args:
             left (Union[int, str], optional): If the provided value is an int, slice the string from this index (inclusive).
-                If the provided value is a str, slice the string from the first occurence of this substring.
+                If the provided value is a str, slice the string from the first occurrence of this substring.
             right (Union[int, str], optional): If the provided value is an int, slice the string to this index (exclusive).
-                If the provided value is a str, slice the string to the last occurence of this substring. If None,
+                If the provided value is a str, slice the string to the last occurrence of this substring. If None,
                 right is set to the length of the string.
             include_left (bool): Only used if `left` is a string. If True, the value of `left` is included in the
                 slicing result. Defaults to False.
