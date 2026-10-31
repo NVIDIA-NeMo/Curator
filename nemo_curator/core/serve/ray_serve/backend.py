@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import os
+import time
 from typing import TYPE_CHECKING, Any
 
 from loguru import logger
@@ -86,13 +87,24 @@ class RayServeBackend(InferenceBackend):
             )
 
         app = build_openai_app(build_args)
-        # ``serve.run()`` does not accept ``http_options`` and would otherwise
+        # Ray's deployment APIs do not accept ``http_options`` and would otherwise
         # default to port 8000, so the controller must be started explicitly.
         serve.start(http_options={"port": server.port}, logging_config=logging_config)
 
         try:
-            serve.run(app, name=server.name, blocking=False, logging_config=logging_config)
-            server._wait_for_healthy()
+            deadline = time.monotonic() + server.health_check_timeout_s
+            logger.info(
+                f"Submitting Ray Serve application '{server.name}' with a {server.health_check_timeout_s}s startup deadline"
+            )
+            # ``serve.run(blocking=False)`` still waits for application readiness;
+            # submit without Ray's waits so Curator owns the startup deadline.
+            serve.run_many(
+                [serve.RunTarget(target=app, name=server.name, logging_config=logging_config)],
+                blocking=False,
+                wait_for_ingress_deployment_creation=False,
+                wait_for_applications_running=False,
+            )
+            server._wait_for_healthy(deadline=deadline)
         except Exception:
             self._cleanup_failed_deploy()
             raise
