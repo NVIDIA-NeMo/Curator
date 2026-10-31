@@ -224,6 +224,10 @@ Only `"parquet"` and `"jsonl"` are supported by these deduplication workflows. O
 
 For a single directory string, file discovery includes all nested subdirectories. For workflows that accept a list of input paths, each listed directory is scanned only at its top level; list individual files or directories when you do not want recursive discovery. Extension filtering also applies when an input path names a file directly.
 
+<Note>
+Before running a workflow, verify the input path, selected format, and expected discovered files. Extension filtering excludes files with nonmatching suffixes. If discovery finds no matching files, Curator logs a warning and emits no tasks, so successful completion alone does not confirm that input was processed.
+</Note>
+
 <Tabs>
 <Tab title="JSONL defaults">
 
