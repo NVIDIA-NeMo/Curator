@@ -70,6 +70,22 @@ def get_word_splitter(language: str) -> Callable[[str], list[str]]:
         return default_splitter
 
 
+def get_word_separator(language: str) -> str:
+    """
+    Return the string that separates consecutive words in text of the given language.
+
+    Chinese and Japanese words are written without spaces between them, so the words
+    returned by the splitter from ``get_word_splitter`` are adjacent in the original text.
+    For all other languages, words are assumed to be separated by a single space.
+
+    Args:
+        language (str): An ISO 639-1 language code.
+    Returns:
+        The separator to use when reconstructing text from consecutive words.
+    """
+    return "" if language.lower() in ("zh", "ja") else " "
+
+
 def get_paragraphs(document: str) -> list[str]:
     # Split the document into paragraphs.
     # A paragraph is defined as a sequence of lines

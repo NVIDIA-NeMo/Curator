@@ -17,6 +17,7 @@ from nemo_curator.stages.text.utils.text_utils import (
     get_ngrams,
     get_paragraphs,
     get_sentences,
+    get_word_separator,
     get_word_splitter,
 )
 
@@ -146,6 +147,7 @@ class RepeatingTopNGramsFilter(DocumentFilter):
         self._cutoff = max_repeating_ngram_ratio
         self._max_ratio = 1.0
         self._word_splitter = get_word_splitter(lang)
+        self._word_separator = get_word_separator(lang)
         self._name = f"repeating_top_{n}grams"
 
     def score_document(self, text: str) -> float:
@@ -162,7 +164,7 @@ class RepeatingTopNGramsFilter(DocumentFilter):
         counts = {ngram: {"freq": 0, "num_chars": sum(len(word) for word in ngram)} for ngram in unique_ngrams}
         for ngram in ngrams:
             counts[ngram]["freq"] += 1
-        most_frqnt_ngram = " ".join(max(counts, key=lambda x: counts[x]["freq"]))
+        most_frqnt_ngram = self._word_separator.join(max(counts, key=lambda x: counts[x]["freq"]))
         # Find the number of characters the most frequent ngram
         # contributes to the document
         nchar = len(text)
@@ -191,6 +193,7 @@ class RepeatingDuplicateNGramsFilter(DocumentFilter):
         self._cutoff = max_repeating_duplicate_ngram_ratio
         self._max_ratio = 1.0
         self._word_splitter = get_word_splitter(lang)
+        self._word_separator = get_word_separator(lang)
         self._name = f"repeating_dup_{n}gram"
 
     def score_document(self, text: str) -> float:
@@ -211,9 +214,9 @@ class RepeatingDuplicateNGramsFilter(DocumentFilter):
             if counts[ngram] > 1:
                 # Count the number of characters in this ngram that haven't been counted already
                 duplicated_ngrams = sum(len(gram) for gram in ngram[overlapping_ngrams:])
-                # Count the spaces between the ngrams
-                nspaces = min(self._n - overlapping_ngrams, self._n - 1)
-                duplicated_nchar += duplicated_ngrams + nspaces
+                # Count the separators between the ngrams
+                nseparators = min(self._n - overlapping_ngrams, self._n - 1)
+                duplicated_nchar += duplicated_ngrams + nseparators * len(self._word_separator)
                 overlapping_ngrams = self._n
             overlapping_ngrams = max(overlapping_ngrams - 1, 0)
 
