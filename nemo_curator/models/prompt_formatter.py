@@ -29,6 +29,7 @@ _RAW_VIDEO_CHANNEL_COUNTS = {1, 3, 4}
 VARIANT_MAPPING: dict[str, str] = {
     "qwen2.5": "Qwen/Qwen2.5-VL-7B-Instruct",
     "qwen3": "Qwen/Qwen3-VL-8B-Instruct",
+    "qwen3.5": "Qwen/Qwen3.5-9B",
     **_NEMOTRON_VARIANTS_INFO,
     "nemotron-3-nano-omni": _NEMOTRON_3_NANO_OMNI_HF_ID,
 }
@@ -80,7 +81,7 @@ class PromptFormatter:
                 - "multi_modal_data": Dictionary containing processed "video" inputs
 
         """
-        if self.prompt_variant in {"qwen2.5", "qwen3"}:
+        if self.prompt_variant in {"qwen2.5", "qwen3", "qwen3.5"}:
             return self._generate_qwen_inputs(prompt, video_inputs, override_text_prompt, fps)
 
         if self.prompt_variant.startswith("nemotron"):
@@ -99,10 +100,14 @@ class PromptFormatter:
         """Generate inputs for Qwen models."""
         message = self._create_qwen_message(prompt)
         if self.text_prompt is None or override_text_prompt:
+            template_kwargs: dict[str, Any] = {}
+            if self.prompt_variant == "qwen3.5":
+                template_kwargs["enable_thinking"] = False
             self.text_prompt = self.processor.apply_chat_template(
                 message,
                 tokenize=False,
                 add_generation_prompt=True,
+                **template_kwargs,
             )
         video_data = video_inputs
         if video_inputs is not None:
