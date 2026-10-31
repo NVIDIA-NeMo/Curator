@@ -77,6 +77,8 @@ class CustomDownloader(DocumentDownloader):
             return False, str(e)
 ```
 
+`download_dir` must be local unless the subclass sets `supports_remote_download_dir = True`. Then it can be an fsspec URL such as `s3://bucket/dir`, with `storage_options` passed to `DocumentDownloader.__init__`, and `_download_to_path` still writes to a local staging path that the base class uploads.
+
 #### Document Iterator (`iterator.py`)
 
 ```python
