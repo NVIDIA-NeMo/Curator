@@ -5,7 +5,7 @@
   },
   "text": {
     "extras": ["text_cuda12", "lance"],
-    "paths": ["tests/stages/text", "tests/pipelines/test_per_stage_runtime_env.py"]
+    "paths": ["tests/stages/text"]
   },
   "image": {
     "extras": ["image_cuda12"],
