@@ -81,7 +81,7 @@ class SymbolsToWordsFilter(DocumentFilter):
         for w in words:
             word = w.strip()
             # Checks if the word is an elipsis or consists mostly of symbols.
-            symbol_ratio = len(regex_hash.findall(word)) / len(word)
+            symbol_ratio = word.count('#') / len(word)
             if word in ellipsis_marks or symbol_ratio > 0.5:  # noqa: PLR2004
                 num_symbol_words += 1
         return num_symbol_words / len(words) if words else 1.0
