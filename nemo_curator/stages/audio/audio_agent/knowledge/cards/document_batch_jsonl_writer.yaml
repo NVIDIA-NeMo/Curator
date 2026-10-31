@@ -1,0 +1,27 @@
+stage_id: DocumentBatchJsonlWriterStage
+category: export
+summary: "Write every row of a DocumentBatch to one JSONL manifest."
+tags: [sink, writes_disk]
+model_id: null
+domain: {language: any, style: any}
+constraints: {}
+resource:
+  cpus: 1.0
+  gpu_mem_gb: 0.0
+  gpu_optional: false
+  bound: io
+  throughput_hint: "single-worker append of DocumentBatch rows to JSONL"
+use_cases:
+  good_for: ["the terminal JSONL sink after AudioToDocumentStage", "writing sanitized DocumentBatch rows"]
+  avoid_for: ["AudioTask input (use ManifestWriterStage when task data is already serializable)", "mid-pipeline"]
+composition:
+  typical_upstream: [AudioToDocumentStage]
+  typical_downstream: []
+params_of_note:
+  output_path: "path to the output JSONL manifest"
+notes:
+  - "Accepts DocumentBatch only and emits one JSONL line per DataFrame row."
+  - "Ordinary Pipeline.run() appends to existing output, including across reruns. Explicit prepare_on_driver reserves and replaces output before workers start; callers must finalize or abort that reservation. The agent coordinates this lifecycle."
+  - "Requires one writer worker because appends are not locked. Executor checkpoint resume is unsupported (is_resumable=False). Local and fsspec cloud paths are supported."
+verified: {params: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess}
+provenance: {model_card_url: null, card_version: 2, last_validated: "2026-10-19"}

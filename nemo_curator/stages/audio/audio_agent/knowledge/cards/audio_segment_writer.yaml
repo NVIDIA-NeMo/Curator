@@ -1,0 +1,80 @@
+stage_id: AudioSegmentWriterStage
+category: export
+summary: "Materialize resident 16 kHz mono segments as Opus files, replace their path/identity/duration, and pass JSON-safe rows onward."
+tags: [writes_disk, sanitizes_output]
+model_id: null
+domain: {language: any, style: "resident segment audio and no-speech audit rows"}
+resource:
+  cpus: 1.0
+  gpu_mem_gb: 0.0
+  gpu_optional: false
+  bound: io
+  throughput_hint: "CPU Opus encoding plus one atomic local file publication per segment; no measured throughput or compression ratio."
+use_cases:
+  good_for:
+    - "Materializing VAD/fan-out segments before an ordinary metadata manifest sink."
+    - "Retaining language, event and speaker audit fields while removing resident/transient audio."
+    - "Passing no-speech audit rows onward without creating a clip."
+  avoid_for:
+    - "Reading/cutting source files from timestamps: the intended audio must already be resident."
+    - "Encoding other rates/stereo or preserving source PCM losslessly."
+    - "NeMo receipt/done-marker output requiring the separate NeMoSpeechWriterStage protocol."
+composition:
+  typical_upstream: [VADSegmentationStage, SelectAudioLanguageStage]
+  typical_downstream: [ManifestWriterStage]
+params_of_note:
+  output_dir: "Required nonempty local directory shared by executor nodes; expanded/resolved at writing, with clips below audio/."
+  waveform_key: "Default waveform. Requires a nonempty finite mono waveform; this stage does not downmix, resample or slice by start/end fields."
+  sample_rate_key: "Default sample_rate; must equal 16000 Hz for encoded rows. A vad_empty row does not require resident audio or this rate."
+  audio_filepath_key: "Default audio_filepath; input source reference, replaced with the absolute encoded path after success."
+  original_file_key: "Default original_file; preferred source identity when present, otherwise audio_filepath_key. Preserved as recording provenance."
+  audio_item_id_key: "Default audio_item_id; replaced for encoded segments with the full source/interval/PCM hash identity."
+  duration_key: "Default duration; encoded rows receive resident PCM sample count /16000 before encoding. Audit rows retain inherited duration."
+  start_ms_key: "Default start_ms; included in output identity, not used to cut the waveform."
+  end_ms_key: "Default end_ms; included in output identity, not used to cut the waveform."
+  vad_empty_key: "Default vad_empty. True retains the source path and inherited audit metadata without writing a clip."
+  read_error_key: "Default read_error. Any truthy value raises before writing, including when vad_empty is also true."
+param_dependencies:
+  waveform_key: "VAD/fan-out must already supply segment-local samples and matching rate. Resampling elsewhere is insufficient unless this stage receives the converted waveform."
+  output_dir: "Setup requires soundfile/libsndfile Ogg Opus encoding support; this writer has no ffmpeg fallback."
+  audio_item_id_key: "Every configurable task-data key must be distinct and nonempty; generated segment identity is not the original parent ID."
+semantic_facts:
+  audio_filepath:
+    meaning: "Absolute path to the materialized Opus clip, or the original source reference for a vad_empty audit row."
+    unit: "path string"
+    provenance: "Resident samples written atomically; filenames hash source reference, start/end metadata and little-endian float32 PCM content."
+    scope: "One emitted task's resident segment."
+    propagation: "The same task survives with the new path and original_file provenance; audit rows survive without a new file."
+    counterexamples:
+      - "Changing start_ms/end_ms without changing waveform changes identity, but does not change the encoded samples."
+      - "A retained row with vad_empty=true does not represent an extracted audio file."
+  duration:
+    meaning: "For encoded rows, resident sample count divided by 16000; for vad_empty rows, inherited source/audit duration."
+    unit: "seconds"
+    provenance: "Pre-encode PCM length, not a probe of the lossy output container."
+    scope: "Current segment or inherited audit row, selected by vad_empty."
+    propagation: "Encoded rows replace a parent duration; start/end provenance and other ordinary metadata remain."
+    counterexamples:
+      - "An audit row's inherited duration must not be counted as newly encoded speech."
+  retained_metadata:
+    meaning: "Ordinary JSON-safe fields such as VAD timing, speaker counts, RTTM paths, SED events, LID decisions and notes."
+    provenance: "Upstream task data."
+    scope: "Inherited field scope; this writer does not recompute parent annotations for the clip."
+    propagation: "Removes configured waveform, SED framewise data, resampled path, num_samples, is_mono and whole-recording diar_segments fields. Other retained fields must serialize with finite JSON values."
+    counterexamples:
+      - "A parent-level speaker count or RTTM path retained on a child is not a newly computed clip-level diarization result."
+      - "sanitizes_output removes known transient fields, not every unknown tensor/object."
+caveats:
+  - "LID rejection flags do not suppress writing; use an explicit downstream acceptance policy if needed."
+  - "The segment ID binds input identity and PCM, not compressed bytes. Repeated writes can encode again; this is not the NeMo ownership/receipt resume system."
+  - "Publication uses a temporary file followed by replace. Failed encoding/publication leaves the input task uncommitted and removes the temporary file; there is no corpus-wide transaction."
+  - "Opus is lossy, and decoder playback rates can differ from the working 16000 Hz metadata. Do not use this stage for bit-preserving archival output."
+notes:
+  - "For ordinary ManifestWriterStage output, rows continue after file creation; this stage is not a terminal sink and does not create manifests, shard receipts or done markers."
+  - "Ogg/Opus capability depends on the installed libsndfile build: https://libsndfile.github.io/libsndfile/formats.html . Python soundfile documentation: https://python-soundfile.readthedocs.io/en/latest/ ."
+  - "Opus clock/playback background: https://opus-codec.org/docs/opusfile_api-0.12/group__stream__info.html . The duration stored here describes the input PCM, not a promise about decoded sample counts."
+  - "Implementation: nemo_curator/stages/audio/io/write_audio.py; behavioral evidence: tests/stages/audio/io/test_write_audio.py; example composition: tutorials/audio/granary_v2/metadata/pipeline.yaml."
+comparison:
+  choose_when: "Use for file materialization plus a pass-through metadata row. SegmentExtractionStage reads source files and slice/timestamp schemas; NeMoSpeechWriterStage consumes rows into a shard receipt/finalization protocol."
+verified: {params: mechanical, tags: mechanical, resource: best_guess, domain: best_guess, use_cases: best_guess, comparison: best_guess, semantic_facts: mechanical}
+provenance: {model_card_url: null, card_version: 2, last_validated: "2026-10-26"}

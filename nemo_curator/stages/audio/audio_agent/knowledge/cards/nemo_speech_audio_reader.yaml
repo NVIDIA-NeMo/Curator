@@ -1,0 +1,75 @@
+stage_id: NeMoSpeechAudioReader
+category: ingest
+summary: "Discover physical NeMo manifest/tar shards and decode each source row into mono audio or a row-local error placeholder."
+tags: [writes_disk, fanout]
+model_id: null
+domain: {language: any, style: "NeMo JSONL corpora with per-file or tarred audio"}
+resource:
+  gpu_mem_gb: 0.0
+  gpu_optional: false
+  bound: io
+  throughput_hint: "Decomposes into discovery plus CPU decoding. Each reader materializes a whole shard's manifest rows and output tasks; memory depends on shard size and decoded audio."
+use_cases:
+  good_for:
+    - "Starting a pipeline from NeMo nemo/nemo_tarred input_cfg entries while preserving source-row identity."
+    - "Supplying resident, offset-aware cut audio and shard metadata for downstream processing and NeMoSpeechWriterStage."
+    - "Restarting unchanged artifact-driven work from validated done markers."
+  avoid_for:
+    - "Plain arbitrary JSONL pass-through, a raw audio directory, Lhotse cuts/Shar input, or training-time weighted sampling."
+    - "Assuming keep_waveform=false avoids audio decoding or makes the reader metadata-only."
+composition:
+  typical_downstream: [AudioLIDInferenceStage, NeMoSpeechWriterStage]
+params_of_note:
+  yaml_path: "NeMo configuration file; provide this or input_cfg. Accepted forms are a nonempty list of entries/groups, or a mapping containing an input_cfg list."
+  input_cfg: "Inline resolved configuration takes precedence over yaml_path. Entries support only type=nemo or nemo_tarred, manifest_filepath, optional tarred_audio_filepaths, corpus, language and shard_key_prefix."
+  corpus_filter: "Optional exact corpus-label selection before shard expansion; an empty list applies no restriction."
+  language_filter: "Optional exact input_cfg language-label selection before expansion. This does not inspect spoken language or row-level source_lang."
+  output_dir: "Absolute shared local output root; required in default done_markers mode. Use the same root as NeMoSpeechWriterStage to retain source registrations and restart state together."
+  resume_mode: "done_markers by default; checkpoint delegates scheduling to Pipeline.run(checkpoint_path=...). The two source scheduling authorities cannot be combined."
+  cleanup_partial: "Default true. For incomplete done-marker shards, remove partial JSONL, row receipts and legacy progress before replay; retain Opus and ownership records."
+  max_audio_duration_sec: "Default 43200 seconds (12 hours), not a safe memory budget. A row/cut above the limit becomes read_error plus audio_too_long; None or nonpositive disables the check."
+  keep_waveform: "Default true retains a 1-D mono float32 NumPy waveform. False still loads/downmixes audio and computes decoded fields, then omits storing the waveform."
+  reader_workers: "Optional reader-actor cap; discovery and reading remain separate execution stages."
+  audio_filepath_key: "Default audio_filepath; preserves the manifest reference, which may be relative, a tar member, or a whole recording containing an offset cut."
+  original_file_key: "Default original_file; successful non-tar reads use the resolved recording path, while tarred and placeholder rows may retain a raw manifest/member reference."
+  sample_rate_key: "Default sample_rate; successful decoded audio also writes sampling_rate_key, with both in Hz."
+  source_lang_key: "Default source_lang; preserves an existing row/cut-custom value, otherwise fills a nonempty input_cfg language. The reader does not perform LID."
+param_dependencies:
+  input_cfg: "nemo_tarred requires tarred_audio_filepaths with the same expanded shard count as manifest_filepath; nemo rejects a tar path. Type may be inferred from tar-path presence."
+  output_dir: "Completed markers bind output-manifest row count/hash and source-row completion counts, not the current recipe, model weights or input contents. Use a fresh output lifecycle when changing work."
+  waveform_key: "For LID or another resident consumer, configure matching waveform/rate keys and keep_waveform=true. Reloading audio_filepath ignores the resident cut and can fail for tar members."
+  resume_mode: "With checkpoint mode output_dir may be omitted, but providing the writer's root also registers shards that later produce no receipts."
+semantic_facts:
+  decoded_audio:
+    meaning: "Successful source rows carry mono audio, decoded rate/channel count and cut duration; the resident waveform represents the row's decoded offset/duration cut."
+    unit: "float32 NumPy [samples], rates in Hz and duration in seconds"
+    provenance: "NeMo/Lhotse adapter decoding with downmixing; no resampling."
+    scope: "One original manifest row, not necessarily a whole recording."
+    propagation: "Manifest/custom fields are retained with configured output-key mappings. New downstream tasks must preserve _metadata and stage-performance lineage."
+    counterexamples:
+      - "A retained audio_filepath can describe the original recording while waveform contains only its cut."
+      - "read_error rows do not guarantee decoded audio, rate or duration; copied manifest fields are not decode evidence."
+  shard_identity:
+    meaning: "_shard_key identifies the logical shard, _shard_input_id identifies its original row, and _shard_total records source row count."
+    unit: "task metadata; input ID is the source row-index string"
+    provenance: "Physical shard discovery and the original manifest ordering, including row-local placeholders."
+    scope: "Original source rows, carried unchanged through downstream fan-out."
+    propagation: "Required by NeMoSpeechWriterStage. Preserve at least one output/placeholder per original row for complete source accounting."
+    counterexamples:
+      - "A generic metadata manifest does not restore framework task IDs and this shard protocol for safe writer resume."
+      - "A completion marker cannot independently prove that every intended fan-out child was produced."
+caveats:
+  - "Invalid JSON/non-object rows, empty shards, invalid configuration, lost/duplicate tar row identity, and systemic iterator/storage failures can raise. Placeholders cover handled row-local construction/decode, missing-cut and duration-limit cases."
+  - "The default 12-hour limit and streaming backend do not make a shard memory-bounded. keep_waveform=false reduces retained outputs, not decode work."
+  - "Done-marker mode can skip an existing shard after input/config changes because it checks output integrity only; it also does not revalidate every referenced audio file before skipping."
+  - "Only nemo and nemo_tarred are implemented here. NeMo training dataloaders support additional input formats and sampling options that this wrapper does not inherit."
+notes:
+  - "Entry example: {type: nemo, manifest_filepath: /data/demo/train.jsonl, corpus: demo, language: hi}. Corpus must occur exactly once as a manifest path component unless the entry sets shard_key_prefix."
+  - "This composite expands to NeMoSpeechDiscoveryStage and NeMoSpeechReaderStage; prefer it as the user-facing source instead of separately adding both inner stages."
+  - "Requires the installed NeMo/Lhotse reader stack and suitable source access. Manifests use fsspec; audio/tar credentials and protocol support remain backend-dependent. Outputs require shared POSIX-style paths, not object-store URLs."
+  - "Underlying input-format reference: https://docs.nvidia.com/nemo-framework/user-guide/latest/nemotoolkit/asr/datasets.html#lhotse-dataloading . Curator-specific limits are defined by nemo_curator/stages/audio/io/nemo_speech_reader.py."
+  - "Behavioral evidence: tests/stages/audio/io/test_nemo_speech_reader.py, including real offset and tarred reads; writer/finalization examples are in tests/stages/audio/io/test_nemo_speech_writer.py."
+comparison:
+  choose_when: "Use for NeMo audio decoding plus shard provenance. ManifestReader passes JSONL metadata without decoding; NeMoSpeechDiscoveryStage alone only enumerates shards."
+verified: {params: mechanical, tags: mechanical, resource: best_guess, domain: best_guess, use_cases: best_guess, comparison: best_guess, semantic_facts: mechanical}
+provenance: {model_card_url: null, card_version: 2, last_validated: "2026-10-26"}
