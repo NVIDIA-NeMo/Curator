@@ -26,7 +26,9 @@ python tutorials/eval/llm_judge/run_llm_judge.py \
   --output-format jsonl
 ```
 
-The bundled [text_extraction_qwen_gemma_judges.yaml](cc_extract_example/text_extraction_qwen_gemma_judges.yaml) runs the same extraction rubrics with both Qwen and Gemma, and as bundled uses **8 GPUs** (two models, each `num_replicas: 4` × `tensor_parallel_size: 1`). Use it when you want to compare model agreement; update the model paths, `num_replicas`/`tensor_parallel_size` per model, and other serving settings for your hardware before running it.
+The bundled [text_extraction_qwen_gemma_judges_8xh100.yaml](cc_extract_example/text_extraction_qwen_gemma_judges_8xh100.yaml) runs the same extraction rubrics with both Qwen and Gemma, and as bundled uses **8 GPUs** (two models, each `num_replicas: 4` × `tensor_parallel_size: 1`) with concurrency settings (`num_workers`, `max_num_seqs`, `max_parallel_requests`) tuned for an 8xH100 node. Use it when you want to compare model agreement; update the model paths, `num_replicas`/`tensor_parallel_size` per model, and other serving settings for your hardware before running it.
+
+The bundled [text_extraction_qwen_gemma_judges_4xgb200.yaml](cc_extract_example/text_extraction_qwen_gemma_judges_4xgb200.yaml) was tuned for a 4xGB200 node.
 
 Use `--checkpoint-path output/judge_checkpoint` to write Curator checkpoint metadata to a durable location. It is useful for normal pipeline recovery, but you should still inspect input and output counts after a run.
 
@@ -156,7 +158,7 @@ execution:
                 5: Excellent.
 ```
 
-Each entry under a stage's `judges:` list is one LLM call per input row, regardless of how many `scores:` it defines — all scores for a judge are returned together in that single call's structured response. Call count scales with the number of judge entries (summed across every stage) and the number of input rows; stage names and `scores:` count do not affect it. For example, `cc_extract_example/text_extraction_qwen_judge.yaml` has 2 judges (2 calls/row), and `cc_extract_example/text_extraction_qwen_gemma_judges.yaml` runs the same rubrics through two models via YAML anchors, giving 4 judges (4 calls/row).
+Each entry under a stage's `judges:` list is one LLM call per input row, regardless of how many `scores:` it defines — all scores for a judge are returned together in that single call's structured response. Call count scales with the number of judge entries (summed across every stage) and the number of input rows; stage names and `scores:` count do not affect it. For example, `cc_extract_example/text_extraction_qwen_judge.yaml` has 2 judges (2 calls/row), and `cc_extract_example/text_extraction_qwen_gemma_judges_8xh100.yaml` runs the same rubrics through two models via YAML anchors, giving 4 judges (4 calls/row).
 
 `alias` is the name judges use to select a served model. `model` is the model identifier or local weights path. `served_model_name` is the API name exposed by Dynamo/vLLM and is useful when it differs from the local path.
 
@@ -230,7 +232,7 @@ The example supports `eq`, `ne`, `gt`, `gte`, `lt`, `lte`, `in`, and `not_in`. M
 
 Running the same rubric through multiple LLMs turns judge agreement into a signal, not just a sanity check: where the models agree, the record is likely easy and the score can be trusted with less scrutiny; where they disagree, look into why before trusting the rubric or filter at scale. A disagreement can mean the record is genuinely ambiguous or hard to score — evidence for a human-in-the-loop or an `unresolved`-style rubric option — or it can mean the prompt or rubric wording is too vague or underspecified for a model to apply consistently, which calls for tightening the prompt rather than trusting either score.
 
-The writer emits one or more JSONL/Parquet part files under `--output-path`; load the whole directory with your preferred JSON/Parquet tooling (for example `pandas.read_json(..., lines=True)` per part file, concatenated). Running `text_extraction_qwen_gemma_judges.yaml` writes a column per judge — `qwen3_8_27b_text_extraction_judgment` and `gemma_3_27b_text_extraction_judgment` — each holding the nested `{score_name: {"score": ..., "reasoning": ...}}` structure from [Output shape](#output-shape). Pull each judge's `quality.score` into its own column, subtract the two to get a per-row agreement diff, and sort by the absolute difference to surface the largest disagreements.
+The writer emits one or more JSONL/Parquet part files under `--output-path`; load the whole directory with your preferred JSON/Parquet tooling (for example `pandas.read_json(..., lines=True)` per part file, concatenated). Running `text_extraction_qwen_gemma_judges_8xh100.yaml` writes a column per judge — `qwen3_8_27b_text_extraction_judgment` and `gemma_3_27b_text_extraction_judgment` — each holding the nested `{score_name: {"score": ..., "reasoning": ...}}` structure from [Output shape](#output-shape). Pull each judge's `quality.score` into its own column, subtract the two to get a per-row agreement diff, and sort by the absolute difference to surface the largest disagreements.
 
 Read both `reasoning` fields on a disagreement to tell the two causes apart: differing-but-reasonable justifications point to a genuinely hard record, while justifications that latch onto different aspects of the same instructions point to a vague prompt. The same pattern extends to comparing two rubrics on one model, or checking a filter threshold before committing to it.
 

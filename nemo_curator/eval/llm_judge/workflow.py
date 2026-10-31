@@ -422,9 +422,11 @@ class LLMJudgeWorkflow(WorkflowBase):
         inference_server: InferenceServer | None = None
         start_time = time.time()
         try:
+            serve_start_time = time.time()
             inference_server = _start_inference_server(
                 self.config, self.config["models"], config_path=self.config_path
             )
+            serve_startup_s = time.time() - serve_start_time
             judge_stages = self._build_judge_stages(endpoint=inference_server.endpoint)
             pipeline = build_pipeline(
                 input_path=self.input_path,
@@ -435,7 +437,9 @@ class LLMJudgeWorkflow(WorkflowBase):
                 language_filter_stage=language_filter_stage,
                 files_per_partition=self.files_per_partition,
             )
+            pipeline_start_time = time.time()
             output_tasks = pipeline.run(executor=executor, checkpoint_path=self.checkpoint_path)
+            pipeline_time_s = time.time() - pipeline_start_time
         except Exception as e:
             logger.error(f"LLM judge pipeline failed: {e}")
             raise
@@ -446,4 +450,10 @@ class LLMJudgeWorkflow(WorkflowBase):
         execution_time = time.time() - start_time
         workflow_result.add_pipeline_tasks("llm_judge", output_tasks)
         workflow_result.add_metadata("total_time", execution_time)
+        # Server startup (loading + health-checking every configured model) is a fixed
+        # one-time cost that dominates short benchmark runs; expose it separately from
+        # pipeline_time_s so callers can report steady-state throughput instead of an
+        # average depressed by amortizing startup over a small row count.
+        workflow_result.add_metadata("serve_startup_s", serve_startup_s)
+        workflow_result.add_metadata("pipeline_time_s", pipeline_time_s)
         return workflow_result
