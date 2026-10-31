@@ -1,0 +1,5 @@
+nemo_toolkit[asr]>=2.7.2
+nvidia-ml-py
+num2words>=0.5.12
+numpy
+textgrid
