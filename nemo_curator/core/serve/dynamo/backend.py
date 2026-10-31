@@ -523,7 +523,7 @@ class DynamoBackend(InferenceBackend):
             backend_cfg.event_plane,
         ]
         if router_mode:
-            python_args.extend(["--router-mode", router_mode])
+            python_args.extend(["--router-mode", router_mode.replace("_", "-")])
         if router_mode == "kv":
             python_args.append("--router-kv-events" if router_kv_events else "--no-router-kv-events")
         python_args.extend(engine_kwargs_to_cli_flags(self._frontend_router_kwargs(router.router_kwargs)))

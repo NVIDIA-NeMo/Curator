@@ -151,6 +151,10 @@ _DISAGG_NIXL_PORT_SEED = 20097
 
 def dynamo_runtime_env(model_config: DynamoVLLMModelConfig) -> dict[str, Any]:
     """Merge the user's ``runtime_env`` with the Dynamo-vLLM package pin."""
+    # An explicit interpreter already provides dependencies; Ray cannot combine
+    # py_executable with an automatically installed uv environment.
+    if model_config.runtime_env.get("py_executable"):
+        return dict(model_config.runtime_env)
     return BaseModelConfig.merge_runtime_envs(DYNAMO_VLLM_RUNTIME_ENV, model_config.runtime_env or None)
 
 
@@ -158,6 +162,8 @@ def merge_model_runtime_envs(models: list[DynamoVLLMModelConfig]) -> dict[str, A
     """Merge every model's ``runtime_env`` onto the Dynamo-vLLM pin for the shared frontend actor."""
     envs = [m.runtime_env for m in models if m.runtime_env]
     user_merged = reduce(BaseModelConfig.merge_runtime_envs, envs) if envs else None
+    if user_merged and user_merged.get("py_executable"):
+        return user_merged
     return BaseModelConfig.merge_runtime_envs(DYNAMO_VLLM_RUNTIME_ENV, user_merged)
 
 

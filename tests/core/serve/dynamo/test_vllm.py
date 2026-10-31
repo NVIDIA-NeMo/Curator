@@ -426,3 +426,11 @@ def test_dynamo_runtime_env_matches_base_environment() -> None:
     assert dynamo_vllm.DYNAMO_VLLM_RUNTIME_ENV["uv"]["packages"] == expected_packages
     assert "https://pypi.nvidia.com" not in dynamo_vllm._ACTOR_VENV_UV_OPTIONS
     assert "--prerelease" not in dynamo_vllm._ACTOR_VENV_UV_OPTIONS
+
+
+def test_preinstalled_runtime_reaches_worker_and_frontend_without_uv() -> None:
+    runtime_env = {"py_executable": "/opt/dynamo-pdf/bin/python", "env_vars": {"VLLM_CACHE_ROOT": "/cache/vllm"}}
+    model = DynamoVLLMModelConfig(model_identifier="pdf", runtime_env=runtime_env)
+    assert dynamo_vllm.dynamo_runtime_env(model) == runtime_env
+    assert dynamo_vllm.merge_model_runtime_envs([model]) == runtime_env
+    assert "uv" in dynamo_vllm.dynamo_runtime_env(DynamoVLLMModelConfig(model_identifier="default"))
