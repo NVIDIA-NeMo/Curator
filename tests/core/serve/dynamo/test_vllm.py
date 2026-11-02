@@ -71,6 +71,29 @@ def test_aggregated_model_uses_exact_kv_events(router_mode: str, router_kv_event
 
 
 class TestLaunchReplicas:
+    def test_fractional_bundle_and_actor_reservations_match(self, captured_spawn: list[dict[str, Any]]) -> None:
+        mc = DynamoVLLMModelConfig(model_identifier="generic-model", num_replicas=8, gpu_fraction=0.5)
+        with (
+            mock.patch.object(dynamo_vllm, "build_replica_pg", return_value=object()) as build,
+            mock.patch.object(dynamo_vllm, "get_free_port_in_bundle", return_value=24567),
+        ):
+            _, _, entries = dynamo_vllm.launch_replicas(
+                mc,
+                base_env={},
+                namespace="test",
+                request_plane="tcp",
+                event_plane="nats",
+                runtime_dir="/tmp/rt",  # noqa: S108
+                actor_name_prefix="fractional_test",
+                router_mode="round_robin",
+                router_kv_events=False,
+                topology=[{"node_id": "n1", "num_gpus": 4, "is_head": False}],
+            )
+        assert len(captured_spawn) == build.call_count == len(entries) == 8
+        assert all(call.args[0].bundles == [{"CPU": 1, "GPU": 0.5}] for call in build.call_args_list)
+        assert all(spawn["num_gpus"] == 0.5 for spawn in captured_spawn)
+        assert all(entry["gpus_per_node"] == 1 and entry["gpu_reservation_per_node"] == 0.5 for entry in entries)
+
     @staticmethod
     def _launch(
         model_config: DynamoVLLMModelConfig,

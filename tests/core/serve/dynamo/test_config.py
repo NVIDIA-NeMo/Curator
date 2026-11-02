@@ -46,6 +46,16 @@ class TestDynamoRouterConfig:
 
 
 class TestDynamoVLLMModelConfig:
+    @pytest.mark.parametrize("fraction", [0, -0.5, 1.1, float("nan"), float("inf"), True])
+    def test_invalid_gpu_fraction(self, fraction: float) -> None:
+        with pytest.raises(ValueError, match="gpu_fraction"):
+            DynamoVLLMModelConfig(model_identifier="m", gpu_fraction=fraction)
+
+    @pytest.mark.parametrize("kwargs", [{"mode": "disagg"}, {"engine_kwargs": {"tensor_parallel_size": 2}}])
+    def test_fractional_reservation_requires_aggregated_tp1(self, kwargs: dict) -> None:
+        with pytest.raises(ValueError, match="Fractional GPU reservations"):
+            DynamoVLLMModelConfig(model_identifier="m", gpu_fraction=0.5, **kwargs)
+
     def test_post_init(self) -> None:
         # num_replicas must be >= 1 on the model (unlike DynamoRoleConfig which allows 0)
         with pytest.raises(ValueError, match="num_replicas must be >= 1"):

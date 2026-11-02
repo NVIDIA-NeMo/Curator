@@ -125,7 +125,7 @@ class ManagedSubprocess:
         pg: PlacementGroup,
         bundle_index: int,
         *,
-        num_gpus: int,
+        num_gpus: float,
         command: list[str] | None = None,
         python_args: list[str] | None = None,
         runtime_dir: str | None = None,

@@ -397,7 +397,7 @@ class DynamoBackend(InferenceBackend):
                 total_needed += num_prefill * prefill_tp + num_decode * decode_tp
             else:
                 tp_size = model_config.engine_kwargs.get("tensor_parallel_size", 1)
-                total_needed += model_config.num_replicas * tp_size
+                total_needed += model_config.num_replicas * tp_size * model_config.gpu_fraction
         check_total_gpu_capacity(total_needed, ignore_head_node=ignore_ray_head_node())
 
     # ------------------------------------------------------------------

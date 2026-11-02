@@ -296,6 +296,9 @@ def launch_replicas(  # noqa: PLR0913
     model_name = model_config.resolved_model_name
     component = model_name_to_component(model_name)
     spec = plan_replica_bundle_shape(tp_size, _topology=topology)
+    if model_config.gpu_fraction != 1:
+        # TP ranks still see one device; only the Ray reservation is fractional.
+        spec.bundles[0]["GPU"] = model_config.gpu_fraction
 
     replica_pgs: list[PlacementGroup] = []
     worker_actors: list[ManagedSubprocess] = []
@@ -341,6 +344,7 @@ def launch_replicas(  # noqa: PLR0913
                 "replica": replica_index,
                 "nnodes": spec.nnodes,
                 "gpus_per_node": spec.per_node_gpus,
+                "gpu_reservation_per_node": spec.bundles[0]["GPU"],
                 "multi_node": spec.is_multi_node,
                 "master_addr": master_addr,
             }
@@ -436,7 +440,7 @@ def _launch_vllm_worker(  # noqa: PLR0913
         label,
         pg,
         node_rank,
-        num_gpus=spec.per_node_gpus,
+        num_gpus=spec.bundles[node_rank]["GPU"],
         python_args=python_args,
         runtime_dir=runtime_dir,
         actor_name_prefix=actor_name_prefix,
