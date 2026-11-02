@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
 """Run the uncapped DC10K Parse 3.5 pipeline on the best warm Dynamo topology.
 
 Model/Dynamo startup is measured separately.  The one-second GPU sampler and
@@ -9,35 +10,40 @@ returns, so neither metric includes model startup or shutdown.
 from __future__ import annotations
 
 import argparse
-import csv
-from datetime import UTC, datetime
 import json
 import os
-from pathlib import Path
-import statistics
+import signal
 import subprocess
 import sys
-import threading
 import time
+from dataclasses import replace
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import TYPE_CHECKING
 
+from benchmark_run import GPUSampler, summarize_gpus
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from nemo_curator.backends.ray_data import RayDataExecutor
+    from nemo_curator.core.serve.server import InferenceServer
+    from nemo_curator.pipeline import Pipeline
 
 CURATOR_ROOT = Path(__file__).resolve().parents[3]
 GPU_INDEXES = tuple(range(8))
-FIELDS = ("timestamp_utc", "gpu_index", "gpu_uuid", "utilization_gpu_pct", "memory_used_mib", "power_draw_w")
 
 
 def ensure_cuda13_python(args: argparse.Namespace) -> None:
     """Select the CUDA 13 venv and actor image without a shell wrapper."""
-    desired = (args.python or args.curator_root / ".venv-parse35-cuda13/bin/python").resolve()
+    desired = Path(os.path.abspath(args.python or args.curator_root / ".venv-parse35-cuda13/bin/python"))
     if not desired.is_file():
-        raise FileNotFoundError(
-            f"Python interpreter not found: {desired}. Pass --python or create "
-            "Curator's .venv-parse35-cuda13 environment."
-        )
+        msg = f"Python interpreter not found: {desired}. Pass --python or create Curator's .venv-parse35-cuda13 environment."
+        raise FileNotFoundError(msg)
     os.environ["NEMO_CURATOR_DYNAMO_CUDA_TAG"] = args.cuda_tag
     os.environ["PATH"] = str(desired.parent) + os.pathsep + os.environ.get("PATH", "")
-    if Path(sys.executable).resolve() != desired:
-        os.execve(
+    if Path(os.path.abspath(sys.executable)) != desired:
+        os.execve(  # noqa: S606
             str(desired),
             [str(desired), str(Path(__file__).resolve()), *sys.argv[1:]],
             os.environ,
@@ -67,49 +73,105 @@ def run_both(args: argparse.Namespace) -> None:
     for mode in ("off", "on"):
         run_dir = args.output_root / f"{args.run_name}-eager-{mode}"
         if run_dir.exists():
-            raise FileExistsError(f"Refusing to overwrite existing run: {run_dir}")
+            msg = f"Refusing to overwrite existing run: {run_dir}"
+            raise FileExistsError(msg)
         log_path = args.output_root / f"{args.run_name}-eager-{mode}.command.log"
         print(f"Running eager mode {mode}; log: {log_path}", flush=True)
-        with log_path.open("w", encoding="utf-8") as log:
-            subprocess.run(
+        with log_path.open("x", encoding="utf-8") as log:
+            process = subprocess.Popen(  # noqa: S603
                 child_command(mode),
-                check=True,
                 stdout=log,
                 stderr=subprocess.STDOUT,
                 env=os.environ.copy(),
             )
+            try:
+                if process.wait() != 0:
+                    raise subprocess.CalledProcessError(process.returncode, process.args)
+            finally:
+                if process.poll() is None:
+                    process.terminate()
+                    try:
+                        process.wait(timeout=120)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait(timeout=5)
 
 
-def sample_gpus(stop: threading.Event, destination: Path) -> None:
-    query = "index,uuid,utilization.gpu,memory.used,power.draw"
-    with destination.open("w", newline="") as stream:
-        writer = csv.DictWriter(stream, fieldnames=FIELDS)
-        writer.writeheader()
-        while True:
-            sampled_at = datetime.now(UTC).isoformat()
-            result = subprocess.run(
-                ["nvidia-smi", f"--query-gpu={query}", "--format=csv,noheader,nounits"],
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-            for line in result.stdout.splitlines():
-                index, uuid, utilization, memory, power = (value.strip() for value in line.split(","))
-                if int(index) in GPU_INDEXES:
-                    writer.writerow(dict(zip(FIELDS, (sampled_at, index, uuid, utilization, memory, power), strict=True)))
-            stream.flush()
-            if stop.wait(1.0):
-                return
+def execute_run(  # noqa: PLR0913
+    server: InferenceServer,
+    pipeline_factory: Callable[[], Pipeline],
+    executor: RayDataExecutor,
+    *,
+    run_dir: Path,
+    topology: dict,
+    compute_metrics: Callable,
+    count_pdfs: Callable,
+) -> None:
+    """Measure the pipeline and clean up even if startup or construction fails."""
+    gpu_csv = run_dir / "gpu-samples.csv"
+    sampler = GPUSampler(gpu_csv, set(GPU_INDEXES))
+    started_utc = finished_utc = None
+    started = None
+    elapsed = startup_seconds = 0.0
+    exit_code = 1
+    error = None
+    output_tasks = []
+    cleanup_errors = []
+    try:
+        startup_started = time.perf_counter()
+        server.start()
+        startup_seconds = time.perf_counter() - startup_started
+        pipeline = pipeline_factory()
+        started_utc = datetime.now(UTC)
+        started = time.perf_counter()
+        sampler.start()
+        output_tasks = pipeline.run(executor)
+        exit_code = 0
+    except BaseException as exc:
+        error = f"{type(exc).__name__}: {exc}"
+        raise
+    finally:
+        if started is not None:
+            elapsed = time.perf_counter() - started
+            finished_utc = datetime.now(UTC)
+        try:
+            sampler.stop()
+        except RuntimeError as exc:
+            cleanup_errors.append(str(exc))
+        try:
+            # A signal during start() can leave a backend before _started becomes true.
+            if not server._started and server._backend_impl is not None:
+                server._backend_impl.stop()
+            server.stop()
+        except Exception as exc:  # noqa: BLE001
+            cleanup_errors.append(f"Server cleanup failed: {exc}")
+        if cleanup_errors:
+            exit_code = 1
+        summary = {
+            "schema": "curator.parse35.dynamo-pipeline-only.v1",
+            "exit_code": exit_code,
+            "error": error,
+            "cleanup_errors": cleanup_errors,
+            "started_utc": started_utc.isoformat() if started_utc else None,
+            "finished_utc": finished_utc.isoformat() if finished_utc else None,
+            "inference_server_startup_seconds_excluded": startup_seconds,
+            "pipeline_elapsed_seconds": elapsed,
+            "num_pdfs_processed": count_pdfs(output_tasks) if output_tasks else 0,
+            **(compute_metrics(output_tasks, elapsed, len(GPU_INDEXES), 16) if output_tasks else {}),
+            **summarize_gpus(gpu_csv, set(GPU_INDEXES), started_utc=started_utc, finished_utc=finished_utc),
+            "topology": topology,
+        }
+        (run_dir / "run-summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+        if cleanup_errors and error is None:
+            raise RuntimeError("; ".join(cleanup_errors))
 
 
 def main() -> None:
-    cli = argparse.ArgumentParser(
-        description="Run DC10K through Curator's managed Dynamo Parse 3.5 pipeline."
-    )
+    cli = argparse.ArgumentParser(description="Run DC10K through Curator's managed Dynamo Parse 3.5 pipeline.")
     cli.add_argument("--eager-mode", choices=("on", "off", "both"), default="both")
     cli.add_argument("--curator-root", type=Path, default=CURATOR_ROOT)
     cli.add_argument("--python", type=Path)
-    cli.add_argument("--cuda-tag", default="cu130")
+    cli.add_argument("--cuda-tag", choices=("cu129", "cu130"), default="cu130")
     cli.add_argument("--manifest", type=Path, required=True)
     cli.add_argument("--pdf-dir", type=Path, required=True)
     cli.add_argument("--model-path", type=Path, required=True)
@@ -120,6 +182,11 @@ def main() -> None:
         help="Output prefix; choose a new value for each reproduction.",
     )
     cli_args = cli.parse_args()
+    if Path(cli_args.run_name).name != cli_args.run_name or cli_args.run_name in {".", ".."}:
+        cli.error("--run-name must be a directory name without path separators")
+    for path in (cli_args.manifest, cli_args.pdf_dir, cli_args.model_path):
+        if not path.exists():
+            cli.error(f"Input path does not exist: {path}")
     ensure_cuda13_python(cli_args)
     if cli_args.eager_mode == "both":
         run_both(cli_args)
@@ -129,30 +196,21 @@ def main() -> None:
     run_dir = cli_args.output_root / f"{cli_args.run_name}-eager-{cli_args.eager_mode}"
     output_dir = run_dir / "output"
     if run_dir.exists():
-        raise FileExistsError(f"Refusing to overwrite existing run: {run_dir}")
+        msg = f"Refusing to overwrite existing run: {run_dir}"
+        raise FileExistsError(msg)
     run_dir.mkdir(parents=True)
     output_dir.mkdir()
 
     curator = cli_args.curator_root.resolve()
+    sys.path.insert(0, str(curator))
     sys.path.insert(0, str(curator / "tutorials/interleaved/nemotron_parse_pdf"))
     sys.path.insert(0, str(curator / "benchmarking/scripts"))
 
-    import dataclasses
-
-    import nemo_curator.core.serve.dynamo.backend as dynamo_backend
-    import nemo_curator.core.serve.dynamo.vllm as dynamo_vllm
-    from nemo_curator.backends.ray_data import RayDataExecutor
-    from nemo_curator.stages.interleaved.pdf.nemotron_parse import create_nemotron_parse_inference_server
     from nemotron_parse_pdf_benchmark import _compute_pdf_parse_metrics, _count_unique_pdfs
     from pipeline_utils import create_nemotron_parse_pdf_argparser, create_nemotron_parse_pdf_pipeline
 
-    # Two schedulers per B200 was the best tested Dynamo active-pipeline
-    # topology. Ray must reserve half a physical GPU for each actor.
-    original_plan = dynamo_vllm.plan_replica_bundle_shape
-    dynamo_vllm.plan_replica_bundle_shape = lambda tp_size, **kwargs: dataclasses.replace(
-        original_plan(tp_size, **kwargs), bundles=[{"CPU": 1, "GPU": 0.5}], per_node_gpus=0.5
-    )
-    dynamo_backend.DynamoBackend._validate_gpu_requirements = lambda *args, **kwargs: None
+    from nemo_curator.backends.ray_data import RayDataExecutor
+    from nemo_curator.stages.interleaved.pdf.nemotron_parse import create_nemotron_parse_inference_server
 
     engine_kwargs = {
         "distributed_executor_backend": "uni",
@@ -182,18 +240,28 @@ def main() -> None:
     parser = create_nemotron_parse_pdf_argparser()
     args = parser.parse_args(
         [
-            "--manifest", str(cli_args.manifest.resolve()),
-            "--pdf-dir", str(cli_args.pdf_dir.resolve()),
-            "--output-dir", str(output_dir),
-            "--dataset-name", f"{cli_args.run_name}-eager-{cli_args.eager_mode}",
-            "--model-path", str(cli_args.model_path.resolve()),
-            "--parse-mode", "single",
-            "--inference-batch-size", "4",
-            "--client-num-workers", "16",
-            "--pdfs-per-task", "16",
-            "--dpi", "300",
-            "--max-pages", "1000000",
-            "--executor", "ray-data",
+            "--manifest",
+            str(cli_args.manifest.resolve()),
+            "--pdf-dir",
+            str(cli_args.pdf_dir.resolve()),
+            "--output-dir",
+            str(output_dir),
+            "--dataset-name",
+            f"{cli_args.run_name}-eager-{cli_args.eager_mode}",
+            "--model-path",
+            str(cli_args.model_path.resolve()),
+            "--parse-mode",
+            "single",
+            "--inference-batch-size",
+            "4",
+            "--client-num-workers",
+            "16",
+            "--pdfs-per-task",
+            "16",
+            "--dpi",
+            "300",
+            "--max-pages",
+            "1000000",
         ]
     )
 
@@ -205,74 +273,35 @@ def main() -> None:
         engine_kwargs=engine_kwargs,
         request_timeout_s=300.0,
         health_check_timeout_s=1800,
+        nemotron_parse_path=str(cli_args.model_path.resolve()),
     )
 
-    startup_started = time.perf_counter()
-    server.start()
-    startup_seconds = time.perf_counter() - startup_started
-    pipeline = create_nemotron_parse_pdf_pipeline(
-        args,
-        inference_server_endpoint=server.endpoint,
-        inference_server_model_name="nemotron-parse",
-        inference_server_client_num_workers=16,
-    )
-    executor = RayDataExecutor()
+    server.models = [replace(model, gpu_fraction=0.5) for model in server.models]
+    server.name = f"parse35-b200-{cli_args.run_name}-{cli_args.eager_mode}"
 
-    gpu_csv = run_dir / "gpu-samples.csv"
-    stop = threading.Event()
-    sampler = threading.Thread(target=sample_gpus, args=(stop, gpu_csv), daemon=True)
-    started_utc = datetime.now(UTC)
-    started = time.perf_counter()
-    sampler.start()
-    exit_code = 0
-    error = None
-    output_tasks = []
-    try:
-        output_tasks = pipeline.run(executor)
-    except BaseException as exc:
-        exit_code = 1
-        error = f"{type(exc).__name__}: {exc}"
-        raise
-    finally:
-        elapsed = time.perf_counter() - started
-        stop.set()
-        sampler.join()
-        finished_utc = datetime.now(UTC)
-        server.stop()
-
-        with gpu_csv.open(newline="") as stream:
-            samples = list(csv.DictReader(stream))
-        per_gpu = {}
-        for index in GPU_INDEXES:
-            values = [float(row["utilization_gpu_pct"]) for row in samples if int(row["gpu_index"]) == index]
-            per_gpu[str(index)] = {
-                "samples": len(values),
-                "mean_utilization_pct": statistics.fmean(values) if values else None,
-                "min_utilization_pct": min(values) if values else None,
-                "max_utilization_pct": max(values) if values else None,
-            }
-        values = [float(row["utilization_gpu_pct"]) for row in samples]
-        metrics = (
-            _compute_pdf_parse_metrics(output_tasks, elapsed, len(GPU_INDEXES), 16) if output_tasks else {}
+    def pipeline_factory() -> Pipeline:
+        return create_nemotron_parse_pdf_pipeline(
+            args,
+            inference_server_endpoint=server.endpoint,
+            inference_server_model_name="nemotron-parse",
+            inference_server_client_num_workers=16,
         )
-        summary = {
-            "schema": "curator.parse35.dynamo-pipeline-only.v1",
-            "exit_code": exit_code,
-            "error": error,
-            "started_utc": started_utc.isoformat(),
-            "finished_utc": finished_utc.isoformat(),
-            "inference_server_startup_seconds_excluded": startup_seconds,
-            "pipeline_elapsed_seconds": elapsed,
-            "num_pdfs_processed": _count_unique_pdfs(output_tasks) if output_tasks else 0,
-            **metrics,
-            "sample_interval_seconds": 1,
-            "gpu_sample_rows": len(samples),
-            "mean_gpu_utilization_pct": statistics.fmean(values) if values else None,
-            "per_gpu": per_gpu,
-            "topology": topology,
-        }
-        (run_dir / "run-summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+
+    execute_run(
+        server,
+        pipeline_factory,
+        RayDataExecutor(),
+        run_dir=run_dir,
+        topology=topology,
+        compute_metrics=_compute_pdf_parse_metrics,
+        count_pdfs=_count_unique_pdfs,
+    )
 
 
 if __name__ == "__main__":
+
+    def interrupted(signum: int, _frame: object) -> None:
+        raise SystemExit(128 + signum)
+
+    signal.signal(signal.SIGTERM, interrupted)
     main()

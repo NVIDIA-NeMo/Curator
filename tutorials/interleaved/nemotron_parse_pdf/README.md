@@ -107,6 +107,17 @@ The pipeline supports three input formats selected by a mutually exclusive flag:
 | `--zip-base-dir PATH` | CC-MAIN-style numbered zip archives |
 | `--jsonl-base-dir PATH` | GitHub-style JSONL with base64-encoded PDFs |
 
+For a page-level subset, add `selected_page_indices` to a manifest entry:
+
+```json
+{"file_name": "document.pdf", "selected_page_indices": [0, 4, 12]}
+```
+
+Use a nonempty list of unique, nonnegative integers. The values identify physical
+pages in the original PDF, starting at zero. Explicit selection replaces the
+first-`--max-pages` selection for that entry and keeps the original page numbers.
+With served Parse 3.5, failed selected pages retain error rows.
+
 ## Output schema
 
 Each row in the output parquet is one **document element** in reading order:
@@ -190,6 +201,7 @@ it with the selected CUDA build.
 ```bash
 hf download nvidia/Nemotron-3.5-Parse --revision 62cb1e4ba153d113ff64aaf2be6e068c377cf53c \
     --local-dir /path/to/nemotron-parse
+uv pip install --no-deps /path/to/nemotron-parse
 NEMO_CURATOR_DYNAMO_CUDA_TAG=cu130 python tutorials/interleaved/nemotron_parse_pdf/main.py \
     --manifest manifest.jsonl --pdf-dir /path/to/pdfs --output-dir /path/to/output \
     --model-path /path/to/nemotron-parse \
@@ -204,15 +216,23 @@ NEMO_CURATOR_DYNAMO_CUDA_TAG=cu130 python tutorials/interleaved/nemotron_parse_p
 
 Use `--executor xenna` to run the same pipeline on Xenna. A page that fails to render
 or parse is written as one `text` row with `materialize_error` set, which the tutorial
-writer keeps with `on_materialize_error="warn"`. See the
+writer keeps with `on_materialize_error="warn"`. A response with no decoded blocks
+also becomes an error row. The served path recovers missing or timed-out render
+results with smaller page windows: the initial attempt has a 60-second timeout,
+then recovery shares a 120-second budget and uses at most seven attempts including
+the initial attempt. Unrecovered pages keep their physical page numbers and error
+rows. The default v1.2 path keeps its single render attempt. See the
 [Nemotron Parse PDF guide](../../../fern/versions/main/pages/curate-text/load-data/nemotron-parse-pdf.mdx)
 for serving limits and parser behavior.
 
 ## Reproducing the Parse 3.5 serving benchmarks
 
-These scripts preserve the CUDA 13 Dynamo and direct-vLLM workflows used for
-the B200 experiments. They intentionally refuse to overwrite existing result
-directories.
+These scripts preserve fixed eight-GPU B200 workflows for CUDA 13 Dynamo and
+direct vLLM. Their replica counts, FlashAttention 3 settings, and memory budgets
+are B200 experiment settings, not portable defaults. These recipes are untested
+on RTX GPUs. Use the parameterized `main.py` entry point for another topology
+and validate its dependencies, memory headroom, output coverage, and failures.
+The benchmark launchers refuse to overwrite existing result directories.
 
 ### Included files
 
@@ -233,11 +253,11 @@ directories.
 - A CUDA 13 Python environment containing Curator's PDF dependencies, vLLM,
   Dynamo, Ray, `aiohttp`, and the model's Python dependencies.
 - Dynamo's `etcd` and NATS executables on `PATH` for managed-Dynamo runs.
-- `nvidia-smi` and `curl` on `PATH`.
+- Linux with Bash, `setsid`, `nvidia-smi`, and `curl` on `PATH`.
 - A local Nemotron Parse 3.5 model directory.
 - A JSONL PDF manifest and the corresponding PDF root.
-- Eight visible GPUs for the preserved 16-replica topology. Adjust the loops,
-  ports, and replica count together when reproducing on different hardware.
+- All eight physical GPU indexes 0–7 assigned to the experiment for the preserved
+  16-replica topology. The shell launchers target those indexes explicitly.
 
 The shell launchers derive `CURATOR_ROOT` from their location and default
 `PYTHON` to `${CURATOR_ROOT}/.venv-parse35-cuda13/bin/python`. Set either value
@@ -262,7 +282,12 @@ python tutorials/interleaved/nemotron_parse_pdf/run_dynamo_uncapped.py \
 Use `--eager-mode off` or `--eager-mode on` for one mode. The runner sets
 `NEMO_CURATOR_DYNAMO_CUDA_TAG=cu130`, starts 16 half-GPU replicas, excludes
 server startup from pipeline throughput, and samples all eight GPUs once per
-second. A unique `--run-name` is required for every repeat.
+second. It uses the experimental `DynamoVLLMModelConfig.gpu_fraction=0.5`
+reservation with normal GPU capacity checks; the Ray fraction does not reserve
+VRAM. The B200 profile uses 16 HTTP workers, four concurrent requests per worker,
+16 PDFs per task, and an effectively uncapped page limit. It sets
+`gpu_memory_utilization=0.45` and an 8-GiB KV cache per replica. A unique
+`--run-name` without path separators is required for every repeat.
 
 ### Direct vLLM: eight-GPU corpus
 
@@ -336,7 +361,11 @@ The Dynamo summary reports server startup separately and measures GPU
 utilization only around `pipeline.run()`. The direct launchers start vLLM before
 invoking `benchmark_run.py`, so their recorded interval also excludes model
 startup. Both paths include PDF rendering, inference, postprocessing, and
-output writing in the measured pipeline interval.
+output writing in the measured pipeline interval. These are pipeline-window
+utilization measurements; use a separate whole-job monitor to include model
+startup and shutdown. Compare the reported timestamps and per-GPU sample counts,
+and keep idle gaps inside the measured interval. Sampling or command failures
+remain visible in `run-summary.json` instead of producing a successful timing.
 
 The launchers trap normal exit and signals and terminate the processes they
 start. After an interrupted Dynamo run, verify that no experiment-owned etcd,

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
 set -euo pipefail
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 CURATOR_ROOT=${CURATOR_ROOT:-$(cd -- "${SCRIPT_DIR}/../../.." && pwd)}
@@ -9,21 +10,54 @@ ROOT=${ROOT:?set ROOT to the benchmark output root}
 RUN_DIR=${ROOT}/direct-r16-m45-s96-t8192-p16-w36-c64-nemotron-parse-pdf
 MODEL=${MODEL:?set MODEL to the Nemotron Parse 3.5 model directory}
 PROXY=${PROXY:-${SCRIPT_DIR}/round_robin_proxy.py}
-mkdir -p "${ROOT}/server-logs"
+SERVER_LOG_DIR=${ROOT}/server-logs/$(basename -- "${RUN_DIR}")
+mkdir -p "${SERVER_LOG_DIR}"
+
+for command in curl setsid nvidia-smi; do command -v "${command}" >/dev/null; done
+[[ -x "${PYTHON}" && -d "${MODEL}" && -f "${PROXY}" ]]
+: "${PDF_DIR:?set PDF_DIR}"
+[[ -d "${PDF_DIR}" ]]
+gpu_count=$(nvidia-smi --query-gpu=index --format=csv,noheader | wc -l)
+if [[ "${gpu_count}" -ne 8 ]]; then
+  echo "This B200 reproduction profile requires eight assigned GPUs" >&2
+  exit 1
+fi
+"${PYTHON}" -c 'import aiohttp; import vllm'
+"${PYTHON}" - <<'CHECK_PORTS'
+import socket
+for port in (8000, *range(8101, 8117)):
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", port))
+CHECK_PORTS
+ : "${MANIFEST:?set MANIFEST}"
+[[ -f "${MANIFEST}" && ! -e "${RUN_DIR}" ]]
 
 pids=()
 cleanup() {
   for pid in "${pids[@]:-}"; do
-    kill "${pid}" 2>/dev/null || true
+    kill -- "-${pid}" 2>/dev/null || true
   done
+  local deadline=$((SECONDS + 10))
+  while (( SECONDS < deadline )); do
+    local running=0
+    for pid in "${pids[@]}"; do
+      if kill -0 -- "-${pid}" 2>/dev/null; then running=1; fi
+    done
+    if (( running == 0 )); then break; fi
+    sleep 0.1
+  done
+  for pid in "${pids[@]}"; do kill -KILL -- "-${pid}" 2>/dev/null || true; done
   wait 2>/dev/null || true
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+declare -A replica_pids
 
 launch_replica() {
   local gpu=$1
   local port=$2
-  CUDA_VISIBLE_DEVICES="${gpu}" VLLM_WORKER_MULTIPROC_METHOD=spawn \
+  setsid env CUDA_VISIBLE_DEVICES="${gpu}" VLLM_WORKER_MULTIPROC_METHOD=spawn \
     "${PYTHON}" -m vllm.entrypoints.openai.api_server \
       --model "${MODEL}" \
       --served-model-name nemotron-parse \
@@ -36,20 +70,26 @@ launch_replica() {
       --max-num-batched-tokens 8192 \
       --attention-config '{"flash_attn_version":3}' \
       --no-enable-log-requests \
-      >"${ROOT}/server-logs/gpu${gpu}-port${port}.log" 2>&1 &
+      >"${SERVER_LOG_DIR}/gpu${gpu}-port${port}.log" 2>&1 &
   pids+=("$!")
+  replica_pids["${port}"]=$!
 }
 
 wait_for_replica() {
   local port=$1
   local deadline=$((SECONDS + 300))
-  until curl --fail --silent "http://127.0.0.1:${port}/health" >/dev/null; do
+  until curl --fail --silent --max-time 2 "http://127.0.0.1:${port}/health" >/dev/null; do
+    if ! kill -0 "${replica_pids[${port}]}" 2>/dev/null; then
+      echo "Replica on port ${port} exited before readiness" >&2
+      return 1
+    fi
     if (( SECONDS >= deadline )); then
       echo "Replica on port ${port} did not become healthy" >&2
       return 1
     fi
     sleep 2
   done
+  kill -0 "${replica_pids[${port}]}" 2>/dev/null
   echo "Replica ${port} healthy"
 }
 
@@ -73,11 +113,21 @@ proxy_args=()
 for port in {8101..8116}; do
   proxy_args+=(--upstream "http://127.0.0.1:${port}")
 done
-"${PYTHON}" "${PROXY}" --listen-port 8000 "${proxy_args[@]}" \
-  >"${ROOT}/server-logs/proxy.log" 2>&1 &
+setsid "${PYTHON}" "${PROXY}" --listen-port 8000 "${proxy_args[@]}" \
+  >"${SERVER_LOG_DIR}/proxy.log" 2>&1 &
 pids+=("$!")
-until curl --silent "http://127.0.0.1:8000/health" >/dev/null; do sleep 1; done
+proxy_pid=$!
+proxy_deadline=$((SECONDS + 30))
+until curl --fail --silent --max-time 2 "http://127.0.0.1:8000/health" >/dev/null; do
+  if ! kill -0 "${proxy_pid}" 2>/dev/null || (( SECONDS >= proxy_deadline )); then
+    echo "Proxy failed to become healthy; see ${SERVER_LOG_DIR}/proxy.log" >&2
+    exit 1
+  fi
+  sleep 1
+done
 
+kill -0 "${proxy_pid}" 2>/dev/null
+cd "${CURATOR_ROOT}"
 "${PYTHON}" tutorials/interleaved/nemotron_parse_pdf/benchmark_run.py \
   --run-dir "${RUN_DIR}" \
   --gpu-index 0 --gpu-index 1 --gpu-index 2 --gpu-index 3 \
