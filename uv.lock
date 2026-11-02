@@ -6150,7 +6150,7 @@ requires-dist = [
     { name = "torchvision", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux' and extra == 'image-cpu') or (platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'image-cpu')", index = "https://download.pytorch.org/whl/cu129" },
     { name = "torchvision", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux' and extra == 'video-cpu') or (platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'video-cpu')", index = "https://download.pytorch.org/whl/cu129" },
     { name = "trafilatura", marker = "extra == 'text-cpu'", specifier = "==2.0.0" },
-    { name = "transformers" },
+    { name = "transformers", specifier = ">=4.56.0,<5.0" },
     { name = "transformers", marker = "extra == 'audio-common'", specifier = ">=4.57.6,<5.0" },
     { name = "vllm", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and sys_platform != 'linux' and extra == 'math-cuda12'", specifier = ">=0.13" },
     { name = "vllm", marker = "platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'math-cuda12'", specifier = ">=0.13", index = "https://wheels.vllm.ai/0.22.0/cu129" },
