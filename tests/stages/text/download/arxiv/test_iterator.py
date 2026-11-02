@@ -273,3 +273,26 @@ class TestSafeExtract:
             pytest.raises(ValueError, match="Absolute symlink target not allowed"),
         ):
             tar_safe_extract(tar, str(extraction_dir))
+
+    def test_tar_safe_extract_relative_symlink_in_subdirectory(self, tmp_path: Path) -> None:
+        """Test that symlink targets are resolved relative to the symlink's own directory."""
+        tar_path = tmp_path / "nested_symlink.tar"
+
+        with tarfile.open(tar_path, "w") as tar:
+            data = io.BytesIO(b"content\n")
+            file_tarinfo = tarfile.TarInfo(name="main.tex")
+            file_tarinfo.size = len(data.getbuffer())
+            tar.addfile(file_tarinfo, fileobj=data)
+
+            symlink_tarinfo = tarfile.TarInfo(name="sub/link.tex")
+            symlink_tarinfo.type = tarfile.SYMTYPE
+            symlink_tarinfo.linkname = "../main.tex"
+            tar.addfile(symlink_tarinfo)
+
+        extraction_dir = tmp_path / "extraction"
+        extraction_dir.mkdir()
+
+        with tarfile.open(tar_path, "r") as tar:
+            tar_safe_extract(tar, str(extraction_dir))
+
+        assert (extraction_dir / "sub" / "link.tex").read_text() == "content\n"

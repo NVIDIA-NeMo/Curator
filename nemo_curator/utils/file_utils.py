@@ -477,7 +477,9 @@ def tar_safe_extract(tar: tarfile.TarFile, path: str) -> None:
             if os.path.isabs(member.linkname):
                 msg = f"Absolute symlink target not allowed: {member.name} -> {member.linkname}"
                 raise ValueError(msg)
-            if not _is_safe_path(member.linkname, path):
+            # Symlink targets are relative to the link's directory; hard link targets are archive member names
+            link_base = os.path.dirname(member.name) if member.issym() else ""
+            if not _is_safe_path(os.path.join(link_base, member.linkname), path):
                 msg = f"Symlink target outside extraction directory: {member.name} -> {member.linkname}"
                 raise ValueError(msg)
 
