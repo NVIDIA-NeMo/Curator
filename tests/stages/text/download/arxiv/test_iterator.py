@@ -296,3 +296,34 @@ class TestSafeExtract:
             tar_safe_extract(tar, str(extraction_dir))
 
         assert (extraction_dir / "sub" / "link.tex").read_text() == "content\n"
+
+    def test_tar_safe_extract_prevents_symlink_through_earlier_symlink(self, tmp_path: Path) -> None:
+        """Test that a link whose directory is an earlier symlink cannot escape the extraction directory."""
+        tar_path = tmp_path / "chained_symlink.tar"
+
+        with tarfile.open(tar_path, "w") as tar:
+            dir_link = tarfile.TarInfo(name="d")
+            dir_link.type = tarfile.SYMTYPE
+            dir_link.linkname = "."
+            tar.addfile(dir_link)
+
+            escaping_link = tarfile.TarInfo(name="d/link")
+            escaping_link.type = tarfile.SYMTYPE
+            escaping_link.linkname = "../victim.txt"
+            tar.addfile(escaping_link)
+
+            data = io.BytesIO(b"pwned\n")
+            file_tarinfo = tarfile.TarInfo(name="d/link")
+            file_tarinfo.size = len(data.getbuffer())
+            tar.addfile(file_tarinfo, fileobj=data)
+
+        extraction_dir = tmp_path / "extraction"
+        extraction_dir.mkdir()
+
+        with (
+            tarfile.open(tar_path, "r") as tar,
+            pytest.raises(ValueError, match="Symlink target outside extraction directory"),
+        ):
+            tar_safe_extract(tar, str(extraction_dir))
+
+        assert not (tmp_path / "victim.txt").exists()
