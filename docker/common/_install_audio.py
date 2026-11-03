@@ -22,6 +22,7 @@ not permission to upgrade the Curator-under-test.
 
 import argparse
 import contextlib
+import platform
 import shutil
 import subprocess
 import sys
@@ -170,6 +171,16 @@ def install_audio() -> None:
         raise RuntimeError(msg)
     codec = f"torchcodec~={series}.0"
     flavor = "cu" + torch.version.cuda.replace(".", "") if torch.version.cuda else "cpu"
+    index_url = "https://pypi.org/simple"
+    reinstall = []
+    if platform.machine() == "aarch64":
+        index_url = f"https://download.pytorch.org/whl/{flavor}"
+        reinstall = ["--reinstall-package", "torchcodec"]
+    else:
+        # Match pyproject.toml: CUDA Torch does not require CUDA audio decoding on x86.
+        with contextlib.suppress(PackageNotFoundError):
+            if Version(version("torchcodec")).local not in (None, "cpu"):
+                reinstall = ["--reinstall-package", "torchcodec"]
     project = tomllib.loads((Path(__file__).resolve().parents[2] / "pyproject.toml").read_text())
     requirements = [str(requirement) for requirement in audio_requirements() if requirement.name != "torchcodec"]
 
@@ -188,7 +199,7 @@ def install_audio() -> None:
         if uv is None:
             msg = "uv is required to preserve Curator's existing dependency overrides during audio installation."
             raise RuntimeError(msg)
-        # An installed wrong-CUDA wheel can satisfy the series; replace it from the matching index.
+        # Preserve compatible CPU wheels; replace CUDA builds when changing wheel sources.
         subprocess.run(  # noqa: S603
             [
                 uv,
@@ -199,9 +210,8 @@ def install_audio() -> None:
                 sys.executable,
                 "--no-deps",
                 "--index-url",
-                f"https://download.pytorch.org/whl/{flavor}",
-                "--reinstall-package",
-                "torchcodec",
+                index_url,
+                *reinstall,
                 codec,
             ],
             check=True,
