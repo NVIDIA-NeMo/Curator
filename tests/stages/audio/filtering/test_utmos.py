@@ -532,3 +532,21 @@ def test_utmos_consumes_file_and_waveform_residencies(tmp_path: Path) -> None:
             data={"waveform": torch.zeros(1, 32), "sample_rate": 16000},
         ),
     )
+
+
+@pytest.mark.parametrize("mode", ["task", "segments"])
+def test_rescoring_unscorable_input_retracts_the_owned_score(mode: str) -> None:
+    stage = UTMOSFilterStage(mode=mode, action="annotate", input_residency="file", score_key="owned_score")
+    row = {"audio_filepath": "/missing/source.wav", "owned_score": 4.0, "unrelated": "retained"}
+    data = row if mode == "task" else {"segments": [row], "owned_score": 99.0}
+    task = AudioTask(data=data)
+
+    assert stage.process(task) is task
+    output = task.data if mode == "task" else task.data["segments"][0]
+    assert "owned_score" not in output
+    assert output["unrelated"] == "retained"
+    if mode == "segments":
+        assert task.data["owned_score"] == 99.0
+    invalidation = stage.describe().invalidates_prior_writes
+    assert invalidation.data_keys == (["owned_score"] if mode == "task" else [])
+    assert "owned_score" in (invalidation.segment_data_keys if mode == "segments" else invalidation.data_keys)
