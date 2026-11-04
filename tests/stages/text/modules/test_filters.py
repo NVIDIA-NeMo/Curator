@@ -921,6 +921,21 @@ class TestHeuristicFilters:
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
 
+    def test_repeatingtopngrams_deterministic_tiebreak(self) -> None:
+        """score_document must be deterministic when two n-grams tie on frequency.
+
+        Regression test for #2539: without a deterministic tie-breaker,
+        max() over a dict picks whichever key comes first in iteration
+        order, which depends on PYTHONHASHSEED.
+        """
+        filt = RepeatingTopNGramsFilter(n=2)
+        # "ab ab cd cd" has two 2-grams each appearing twice: ("ab","ab") and ("cd","cd").
+        # With the fix, the longer-character n-gram wins the tie (both 4 chars here,
+        # so lexicographic order decides). The score must be stable across calls.
+        text = "ab ab cd cd ef gh"
+        scores = [filt.score_document(text) for _ in range(50)]
+        assert len(set(scores)) == 1, f"Non-deterministic scores: {set(scores)}"
+
     def test_repeatingduplicatengrams(self) -> None:
         dataset = list_to_dataset(["a a b b a a b b", "totally fine", "a a a a this should be fine as well"])
         filters = ScoreFilter(RepeatingDuplicateNGramsFilter())
