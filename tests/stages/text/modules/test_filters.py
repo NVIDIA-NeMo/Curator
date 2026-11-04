@@ -505,6 +505,18 @@ class TestHeuristicFilters:
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
 
+    def test_symbolswords_multi_hash(self) -> None:
+        """Multi-character hash words like ## and ### must count as symbol words.
+
+        Regression test for #2517: regex_hash used '#+' which counted
+        runs rather than characters, so '##' scored 0.5 and '###' 0.33,
+        both failing the > 0.5 threshold.
+        """
+        filt = SymbolsToWordsFilter()
+        assert filt.score_document("### ### ### ###") == 1.0
+        assert filt.score_document("## Installation\nRun the script") > 0.1
+        assert filt.score_document("# one two three four five") > 0.1
+
     def test_symbolswords_zh_with_spaces(self) -> None:
         dataset = list_to_dataset(["我用 Python 写代码。", "... ... 标题"])
         filters = ScoreFilter(SymbolsToWordsFilter(lang="zh"))

@@ -77,4 +77,4 @@ regex_alphanum = re.compile("[a-zA-Z0-9\n?!,.]")
 # `;`, etc., so matches bled past the URL into surrounding HTML/punctuation.
 regex_url = re.compile(r"https?://(?:[A-Za-z0-9$\-_@.&+/:=?#~]|[!*\(\),]|(?:%[0-9A-Fa-f]{2}))+")
 regex_paren = re.compile(r"{|}|⟨|⟩|\[|\]|\(|\)")
-regex_hash = re.compile("#+")
+regex_hash = re.compile("#")
