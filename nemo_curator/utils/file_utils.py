@@ -472,14 +472,25 @@ def tar_safe_extract(tar: tarfile.TarFile, path: str) -> None:
             msg = f"Device files not allowed: {member.name}"
             raise ValueError(msg)
 
-        # For symlinks, check that the target is also safe
+        # For symlinks and hard links, check that the target is also safe
         if member.issym() or member.islnk():
             if os.path.isabs(member.linkname):
                 msg = f"Absolute symlink target not allowed: {member.name} -> {member.linkname}"
                 raise ValueError(msg)
-            if not _is_safe_path(member.linkname, path):
-                msg = f"Symlink target outside extraction directory: {member.name} -> {member.linkname}"
-                raise ValueError(msg)
+            if member.issym():
+                # Symlink targets are relative to the link's parent directory.
+                # Resolve relative to the link's parent within the archive,
+                # then check the result stays inside the extraction root.
+                link_parent = os.path.dirname(member.name)
+                resolved = os.path.normpath(os.path.join(link_parent, member.linkname))
+                if not _is_safe_path(resolved, path):
+                    msg = f"Symlink target outside extraction directory: {member.name} -> {member.linkname}"
+                    raise ValueError(msg)
+            else:
+                # Hard link targets are relative to the archive root
+                if not _is_safe_path(member.linkname, path):
+                    msg = f"Hard link target outside extraction directory: {member.name} -> {member.linkname}"
+                    raise ValueError(msg)
 
         # Extract the member
         tar.extract(member, path)
