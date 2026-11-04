@@ -16,7 +16,8 @@ import re
 
 from nemo_curator.stages.text.modifiers.doc_modifier import DocumentModifier
 
-URL_REGEX = re.compile(r"https?://\S+|www\.\S+", flags=re.IGNORECASE)
+_RAW_URL = re.compile(r"(?:https?://|www\.)\S+", flags=re.IGNORECASE)
+_TRAIL_PUNCT = re.compile(r'[.,;:!?\)\]\}>"\']+$')
 
 
 class UrlRemover(DocumentModifier):
@@ -28,4 +29,26 @@ class UrlRemover(DocumentModifier):
         super().__init__()
 
     def modify_document(self, text: str) -> str:
-        return URL_REGEX.sub("", text)
+        parts: list[str] = []
+        last = 0
+        for m in _RAW_URL.finditer(text):
+            url = m.group(0)
+            clean = _TRAIL_PUNCT.sub("", url)
+            # Restore closing parens that balance opens inside the URL
+            # (e.g. Wikipedia URLs like .../Python_(programming_language))
+            if clean != url:
+                removed = url[len(clean):]
+                opens = clean.count("(") - clean.count(")")
+                i = 0
+                while opens > 0 and i < len(removed):
+                    if removed[i] == ")":
+                        clean += ")"
+                        opens -= 1
+                        i += 1
+                    else:
+                        break
+            parts.append(text[last:m.start()])
+            parts.append(url[len(clean):])
+            last = m.end()
+        parts.append(text[last:])
+        return "".join(parts)

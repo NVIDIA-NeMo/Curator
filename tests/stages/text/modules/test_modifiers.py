@@ -148,6 +148,23 @@ class TestUrlRemover:
 
         assert expected_results == actual_results, f"Expected: {expected_results}, but got: {actual_results}"
 
+    def test_trailing_punctuation_preserved(self) -> None:
+        """Punctuation after a URL must not be consumed by the URL match.
+
+        Regression test for #2518.
+        """
+        remover = UrlRemover()
+        assert remover.modify_document("See (https://docs.nvidia.com/curator) here.") == "See () here."
+        assert remover.modify_document("Links: https://a.com, https://b.com.") == "Links: , ."
+        assert remover.modify_document('[link](https://x.com/page) text') == "[link]() text"
+        assert remover.modify_document('He said "https://x.com/a" twice.') == 'He said "" twice.'
+
+    def test_balanced_parens_in_url(self) -> None:
+        """URLs with balanced parentheses like Wikipedia should be fully removed."""
+        remover = UrlRemover()
+        result = remover.modify_document("https://en.wikipedia.org/wiki/Python_(programming_language) is great")
+        assert result == " is great"
+
 
 class TestLineRemover:
     def test_remove_exact_match(self) -> None:
