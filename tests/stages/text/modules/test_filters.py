@@ -14,6 +14,8 @@
 
 import os
 import re
+import subprocess
+import sys
 
 import pandas as pd
 import pytest
@@ -921,20 +923,30 @@ class TestHeuristicFilters:
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
 
-    def test_repeatingtopngrams_deterministic_tiebreak(self) -> None:
-        """score_document must be deterministic when two n-grams tie on frequency.
+    def test_repeatingtopngrams_tie_prefers_longer_ngram(self) -> None:
+        """A frequency tie goes to the longer n-gram, not to set iteration order (#2539)."""
+        # ("a", "b") and ("ccc", "ddd") both occur twice; removing "ccc ddd" drops 14 of 23 characters.
+        text = "a b a b ccc ddd ccc ddd"
+        assert RepeatingTopNGramsFilter(n=2).score_document(text) == pytest.approx(14 / 23)
 
-        Regression test for #2539: without a deterministic tie-breaker,
-        max() over a dict picks whichever key comes first in iteration
-        order, which depends on PYTHONHASHSEED.
-        """
-        filt = RepeatingTopNGramsFilter(n=2)
-        # "ab ab cd cd" has two 2-grams each appearing twice: ("ab","ab") and ("cd","cd").
-        # With the fix, the longer-character n-gram wins the tie (both 4 chars here,
-        # so lexicographic order decides). The score must be stable across calls.
-        text = "ab ab cd cd ef gh"
-        scores = [filt.score_document(text) for _ in range(50)]
-        assert len(set(scores)) == 1, f"Non-deterministic scores: {set(scores)}"
+    def test_repeatingtopngrams_score_independent_of_hash_seed(self) -> None:
+        """The score must not depend on PYTHONHASHSEED, which can differ between Ray workers (#2539)."""
+        probe = (
+            "from nemo_curator.stages.text.filters.heuristic.repetition import RepeatingTopNGramsFilter\n"
+            "print(RepeatingTopNGramsFilter(n=2).score_document('a b a b ccc ddd ccc ddd'))"
+        )
+        scores = set()
+        # Seeds 0 and 2 iterate the tied n-grams in different orders.
+        for seed in ("0", "2"):
+            result = subprocess.run(  # noqa: S603 - fixed probe under the test interpreter
+                [sys.executable, "-c", probe],
+                env={**os.environ, "PYTHONHASHSEED": seed},
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            scores.add(result.stdout.strip().splitlines()[-1])
+        assert len(scores) == 1, f"Scores differ across hash seeds: {scores}"
 
     def test_repeatingduplicatengrams(self) -> None:
         dataset = list_to_dataset(["a a b b a a b b", "totally fine", "a a a a this should be fine as well"])
