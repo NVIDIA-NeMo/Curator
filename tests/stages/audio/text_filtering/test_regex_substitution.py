@@ -341,3 +341,39 @@ def test_rejects_invalid_inline_rules(rules: object, error: type[Exception], mes
 def test_requires_exactly_one_rules_source(regex_params_yaml: str, rules: list[dict[str, str]] | None) -> None:
     with pytest.raises(ValueError, match="exactly one of regex_params_yaml or rules"):
         RegexSubstitutionStage(regex_params_yaml=regex_params_yaml, rules=rules)
+
+
+_GRANARY_REGEX_YAML = (
+    Path(__file__).resolve().parents[4] / "tutorials" / "audio" / "granary_v2" / "indic_asr" / "regex.yaml"
+)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "mình cũng biết mà",  # vi: ũ U+0169
+        "nghĩ về chuyện cũ",  # vi: ĩ U+0129 and ũ
+        "một bác sĩ giỏi",  # vi: ĩ
+        "NOËL",  # fr: Ë U+00CB
+        "AOÛT",  # fr: Û U+00DB
+        "MAÏS",  # fr: Ï U+00CF
+    ],
+)
+def test_production_whitelist_preserves_covered_language_letters(text: str) -> None:
+    """Letters absent from the whitelist are silently replaced by a space.
+
+    Ĩĩ/Ũũ and the uppercase Ë/Ï/Û were missing, so correct predictions lost them
+    mid-word: "cũng" became "c ng" and "NOËL" became "NO L". Both languages are
+    in the rule file's declared coverage, so a covered letter must survive intact.
+    """
+    stage = RegexSubstitutionStage(
+        regex_params_yaml=str(_GRANARY_REGEX_YAML),
+        text_key="pred_text",
+        output_text_key="cleaned_text",
+    )
+    stage.setup()
+    task = AudioTask(data={"pred_text": text})
+
+    stage.process(task)
+
+    assert task.data["cleaned_text"] == text
