@@ -394,69 +394,103 @@ def _make_tar_bytes(members: list[dict]) -> bytes:
 class TestTarSafeExtract:
     """Regression tests for symlink/hardlink path-traversal checks."""
 
-    def test_safe_symlink_in_subdirectory(self, tmp_path):
+    def test_safe_symlink_in_subdirectory(self, tmp_path: Path):
         """A symlink whose target resolves inside the extraction root is allowed."""
-        data = _make_tar_bytes([
-            {"name": "subdir/data.txt", "kind": "file", "data": b"hello"},
-            {"name": "subdir/link.txt", "kind": "symlink", "target": "data.txt"},
-        ])
+        data = _make_tar_bytes(
+            [
+                {"name": "subdir/data.txt", "kind": "file", "data": b"hello"},
+                {"name": "subdir/link.txt", "kind": "symlink", "target": "data.txt"},
+            ]
+        )
         with tarfile.open(fileobj=io.BytesIO(data)) as tf:
             tar_safe_extract(tf, str(tmp_path))
         assert (tmp_path / "subdir" / "link.txt").is_symlink()
         assert (tmp_path / "subdir" / "link.txt").read_text() == "hello"
 
-    def test_symlink_escape_via_parent_traversal(self, tmp_path):
+    def test_symlink_escape_via_parent_traversal(self, tmp_path: Path):
         """A symlink that escapes the extraction root via ../ must be rejected."""
-        data = _make_tar_bytes([
-            {"name": "subdir/evil.txt", "kind": "symlink", "target": "../../etc/passwd"},
-        ])
-        with tarfile.open(fileobj=io.BytesIO(data)) as tf:
-            with pytest.raises(ValueError, match="Symlink target outside extraction directory"):
-                tar_safe_extract(tf, str(tmp_path))
+        data = _make_tar_bytes(
+            [
+                {"name": "subdir/evil.txt", "kind": "symlink", "target": "../../etc/passwd"},
+            ]
+        )
+        with tarfile.open(fileobj=io.BytesIO(data)) as tf, pytest.raises(ValueError, match="Symlink target outside"):
+            tar_safe_extract(tf, str(tmp_path))
 
-    def test_symlink_shallow_escape(self, tmp_path):
+    def test_symlink_shallow_escape(self, tmp_path: Path):
         """A top-level symlink pointing to ../ must be rejected."""
-        data = _make_tar_bytes([
-            {"name": "escape.txt", "kind": "symlink", "target": "../secret"},
-        ])
-        with tarfile.open(fileobj=io.BytesIO(data)) as tf:
-            with pytest.raises(ValueError, match="Symlink target outside extraction directory"):
-                tar_safe_extract(tf, str(tmp_path))
+        data = _make_tar_bytes(
+            [
+                {"name": "escape.txt", "kind": "symlink", "target": "../secret"},
+            ]
+        )
+        with tarfile.open(fileobj=io.BytesIO(data)) as tf, pytest.raises(ValueError, match="Symlink target outside"):
+            tar_safe_extract(tf, str(tmp_path))
 
-    def test_deep_nested_safe_symlink(self, tmp_path):
+    def test_deep_nested_safe_symlink(self, tmp_path: Path):
         """A symlink in a deep path that stays inside the root is allowed."""
-        data = _make_tar_bytes([
-            {"name": "a/b/c/real.txt", "kind": "file", "data": b"deep"},
-            {"name": "a/b/c/link.txt", "kind": "symlink", "target": "../../../a/b/c/real.txt"},
-        ])
+        data = _make_tar_bytes(
+            [
+                {"name": "a/b/c/real.txt", "kind": "file", "data": b"deep"},
+                {"name": "a/b/c/link.txt", "kind": "symlink", "target": "../../../a/b/c/real.txt"},
+            ]
+        )
         with tarfile.open(fileobj=io.BytesIO(data)) as tf:
             tar_safe_extract(tf, str(tmp_path))
         assert (tmp_path / "a" / "b" / "c" / "link.txt").read_text() == "deep"
 
-    def test_absolute_symlink_target_rejected(self, tmp_path):
+    def test_absolute_symlink_target_rejected(self, tmp_path: Path):
         """A symlink with an absolute target path must be rejected."""
-        data = _make_tar_bytes([
-            {"name": "abs.txt", "kind": "symlink", "target": "/etc/passwd"},
-        ])
-        with tarfile.open(fileobj=io.BytesIO(data)) as tf:
-            with pytest.raises(ValueError, match="Absolute symlink target"):
-                tar_safe_extract(tf, str(tmp_path))
+        data = _make_tar_bytes(
+            [
+                {"name": "abs.txt", "kind": "symlink", "target": "/etc/passwd"},
+            ]
+        )
+        with tarfile.open(fileobj=io.BytesIO(data)) as tf, pytest.raises(ValueError, match="Absolute symlink target"):
+            tar_safe_extract(tf, str(tmp_path))
 
-    def test_safe_hardlink(self, tmp_path):
+    def test_safe_hardlink(self, tmp_path: Path):
         """A hard link whose target is inside the archive root is allowed."""
-        data = _make_tar_bytes([
-            {"name": "original.txt", "kind": "file", "data": b"content"},
-            {"name": "link.txt", "kind": "hardlink", "target": "original.txt"},
-        ])
+        data = _make_tar_bytes(
+            [
+                {"name": "original.txt", "kind": "file", "data": b"content"},
+                {"name": "link.txt", "kind": "hardlink", "target": "original.txt"},
+            ]
+        )
         with tarfile.open(fileobj=io.BytesIO(data)) as tf:
             tar_safe_extract(tf, str(tmp_path))
         assert (tmp_path / "link.txt").read_text() == "content"
 
-    def test_hardlink_escape_rejected(self, tmp_path):
+    def test_hardlink_escape_rejected(self, tmp_path: Path):
         """A hard link targeting outside the archive root must be rejected."""
-        data = _make_tar_bytes([
-            {"name": "evil.txt", "kind": "hardlink", "target": "../outside.txt"},
-        ])
-        with tarfile.open(fileobj=io.BytesIO(data)) as tf:
-            with pytest.raises(ValueError, match="Hard link target outside extraction directory"):
-                tar_safe_extract(tf, str(tmp_path))
+        data = _make_tar_bytes(
+            [
+                {"name": "evil.txt", "kind": "hardlink", "target": "../outside.txt"},
+            ]
+        )
+        with tarfile.open(fileobj=io.BytesIO(data)) as tf, pytest.raises(ValueError, match="Hard link target outside"):
+            tar_safe_extract(tf, str(tmp_path))
+
+    def test_chained_symlink_escape_rejected(self, tmp_path: Path):
+        """A symlink inside an extracted symlinked directory must not escape the root."""
+        data = _make_tar_bytes(
+            [
+                {"name": "a", "kind": "symlink", "target": "."},
+                {"name": "a/link", "kind": "symlink", "target": "../secret"},
+            ]
+        )
+        with tarfile.open(fileobj=io.BytesIO(data)) as tf, pytest.raises(ValueError, match="Symlink target outside"):
+            tar_safe_extract(tf, str(tmp_path))
+
+    def test_member_path_through_symlink_rejected(self, tmp_path: Path):
+        """A member path that leaves the root through an extracted symlink must be rejected."""
+        out = tmp_path / "out"
+        data = _make_tar_bytes(
+            [
+                {"name": "a", "kind": "symlink", "target": "."},
+                {"name": "a/../escaped.txt", "kind": "file", "data": b"x"},
+            ]
+        )
+        with tarfile.open(fileobj=io.BytesIO(data)) as tf, pytest.raises(ValueError, match="Path traversal attempt"):
+            tar_safe_extract(tf, str(out))
+        assert not (tmp_path / "escaped.txt").exists()
