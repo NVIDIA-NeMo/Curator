@@ -16,39 +16,41 @@ import re
 
 from nemo_curator.stages.text.modifiers.doc_modifier import DocumentModifier
 
-_RAW_URL = re.compile(r"(?:https?://|www\.)\S+", flags=re.IGNORECASE)
-_TRAIL_PUNCT = re.compile(r'[.,;:!?\)\]\}>"\']+$')
+URL_REGEX = re.compile(r"https?://\S+|www\.\S+", flags=re.IGNORECASE)
+
+# Characters that belong to the surrounding text when they end a URL match.
+_TRAILING_PUNCTUATION = frozenset(".,;:!?'\">")
+_CLOSING_BRACKETS = {")": "(", "]": "[", "}": "{"}
+
+
+def _url_length(url: str) -> int:
+    """Return the length of ``url`` without trailing punctuation from the surrounding text.
+
+    A closing bracket is kept when it balances an opening bracket inside the URL, as in
+    ``https://en.wikipedia.org/wiki/Python_(programming_language)`` or ``http://[::1]``.
+    """
+    opened = {opener: url.count(opener) for opener in _CLOSING_BRACKETS.values()}
+    closed = {closer: url.count(closer) for closer in _CLOSING_BRACKETS}
+    end = len(url)
+    while end > 0:
+        char = url[end - 1]
+        if char in _CLOSING_BRACKETS:
+            if closed[char] <= opened[_CLOSING_BRACKETS[char]]:
+                break
+            closed[char] -= 1
+        elif char not in _TRAILING_PUNCTUATION:
+            break
+        end -= 1
+    return end
 
 
 class UrlRemover(DocumentModifier):
     """
-    Removes all URLs in a document.
+    Removes all URLs in a document, keeping punctuation that follows them.
     """
 
     def __init__(self):
         super().__init__()
 
     def modify_document(self, text: str) -> str:
-        parts: list[str] = []
-        last = 0
-        for m in _RAW_URL.finditer(text):
-            url = m.group(0)
-            clean = _TRAIL_PUNCT.sub("", url)
-            # Restore closing parens that balance opens inside the URL
-            # (e.g. Wikipedia URLs like .../Python_(programming_language))
-            if clean != url:
-                removed = url[len(clean):]
-                opens = clean.count("(") - clean.count(")")
-                i = 0
-                while opens > 0 and i < len(removed):
-                    if removed[i] == ")":
-                        clean += ")"
-                        opens -= 1
-                        i += 1
-                    else:
-                        break
-            parts.append(text[last:m.start()])
-            parts.append(url[len(clean):])
-            last = m.end()
-        parts.append(text[last:])
-        return "".join(parts)
+        return URL_REGEX.sub(lambda match: match.group(0)[_url_length(match.group(0)) :], text)

@@ -156,7 +156,7 @@ class TestUrlRemover:
         remover = UrlRemover()
         assert remover.modify_document("See (https://docs.nvidia.com/curator) here.") == "See () here."
         assert remover.modify_document("Links: https://a.com, https://b.com.") == "Links: , ."
-        assert remover.modify_document('[link](https://x.com/page) text') == "[link]() text"
+        assert remover.modify_document("[link](https://x.com/page) text") == "[link]() text"
         assert remover.modify_document('He said "https://x.com/a" twice.') == 'He said "" twice.'
 
     def test_balanced_parens_in_url(self) -> None:
@@ -164,6 +164,20 @@ class TestUrlRemover:
         remover = UrlRemover()
         result = remover.modify_document("https://en.wikipedia.org/wiki/Python_(programming_language) is great")
         assert result == " is great"
+        assert remover.modify_document("See https://en.wikipedia.org/wiki/Python_(programming_language).") == "See ."
+        assert remover.modify_document("see https://example.com/a_(b.) now") == "see  now"
+
+    def test_ipv6_host_brackets(self) -> None:
+        """The closing bracket of an IPv6 host belongs to the URL."""
+        remover = UrlRemover()
+        assert remover.modify_document("http://[::1]") == ""
+        assert remover.modify_document("Try http://[::1]:8080/x.") == "Try ."
+
+    def test_long_punctuation_run(self) -> None:
+        """Long punctuation runs are handled in linear time."""
+        remover = UrlRemover()
+        assert remover.modify_document("https://example.com/" + "." * 20_000 + "a") == ""
+        assert remover.modify_document("https://example.com" + "." * 20_000) == "." * 20_000
 
 
 class TestLineRemover:
