@@ -72,7 +72,13 @@
 - {"pattern": "♩", "repl": " "}
 - {"pattern": "♭", "repl": " "}
 - {"pattern": '\|', "repl": " "}
-- {"pattern": ";", "repl": ","}
+# Greek question mark U+037E is canonically ';'. In Greek ';' IS the question
+# mark, so it is kept there, Latin '?' is unified to it, and the ano teleia
+# (U+0387 / U+00B7, the Greek semicolon) becomes a comma. Everywhere else ';' -> ','.
+- {"pattern": "\u037E", "repl": ";"}
+- {"pattern": '\?', "repl": ";", "langs": ["el"]}
+- {"pattern": "[\u0387\u00B7]", "repl": ",", "langs": ["el"]}
+- {"pattern": ";", "repl": ",", "exclude_langs": ["el"]}
 
 # Bracketed content removal
 - {"pattern": '\[[^\]]*\]', "repl": ""}

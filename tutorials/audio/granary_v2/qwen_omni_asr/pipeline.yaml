@@ -187,7 +187,11 @@ stages:
     - {"pattern": "♩", "repl": " "}
     - {"pattern": "♭", "repl": " "}
     - {"pattern": '\|', "repl": " "}
-    - {"pattern": ";", "repl": ","}
+    # Greek: keep ';' (question mark), unify '?' to it, ano teleia -> ','. Others: ';' -> ','.
+    - {"pattern": "\u037E", "repl": ";"}
+    - {"pattern": '\?', "repl": ";", "langs": ["el"]}
+    - {"pattern": "[\u0387\u00B7]", "repl": ",", "langs": ["el"]}
+    - {"pattern": ";", "repl": ",", "exclude_langs": ["el"]}
     - {"pattern": '\[[^\]]*\]', "repl": ""} # delete content inside []
     - {"pattern": ' ?\([^\)]+\)', "repl": ""} # delete content inside ()
     - {"pattern": ' ?{[^}]+}', "repl": ""} # delete content inside {}
