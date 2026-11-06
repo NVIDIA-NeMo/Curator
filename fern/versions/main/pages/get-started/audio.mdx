@@ -17,15 +17,51 @@ Use this quickstart to run NeMo Curator on a FLEURS audio dataset and inspect tr
 
 Prepare the following environment before running the audio pipeline:
 
-- Python 3.11, 3.12, or 3.13 on x86_64 Linux. Ubuntu 20.04 or 22.04 is recommended.
+- Python 3.11, 3.12, or 3.13 on x86_64 or aarch64 Linux. Ubuntu 20.04 or 22.04 is recommended.
 - `packaging` 22.0 or later and Git.
 - `uv` for package management.
 - An `ffmpeg` executable on `PATH` for stages that resample or convert audio. The Python extras do not install it; audio workflows are easiest to reproduce in a [locally built container with FFmpeg](/reference/infra/container-environments#add-ffmpeg-for-audio-or-video). For Python package installs, refer to [FFmpeg installation options](/get-started/installation#install-ffmpeg-for-audio-and-video-source-installs).
 - An NVIDIA Volta-class or newer GPU with compute capability 7.0 or later and CUDA 12 is recommended for ASR inference; the example also supports CPU execution.
 
 <Warning>
-Audio curation requires x86_64 Linux. The `audio_cpu` and `audio_cuda12` extras omit dependencies for arm64/aarch64, including NeMo ASR and diarization. Use an amd64 host or container for ASR, diarization, and tagging workflows.
+On aarch64, `audio_cuda12` uses ONNX Runtime's CPU provider for workflows such as SIGMOS; it does not provide CUDA ONNX inference. NeMo ASR, Pyannote, WhisperX, TorchCodec, and NeMo text processing are included on both Linux architectures. Pynini has no ARM wheel: the Dockerfile and audio installer build its OpenFst prerequisites with `docker/common/install_openfst.sh`; run that script before a source installation of the audio extras on ARM. OpenAI Whisper, SpeechBrain, and Qwen ASR remain gated to x86-only. Check the individual dependency markers before selecting a workflow.
 </Warning>
+
+### Complete and Check an Existing Audio Environment
+
+From a Curator source checkout, run the maintained audio dependency installer
+inside the environment where Curator is already installed:
+
+```bash
+bash docker/common/install_audio.sh
+bash docker/common/install_audio.sh --check
+```
+
+The installer prepares shared FFmpeg, installs the audio requirements declared
+by this checkout, and selects a TorchCodec series and PyTorch wheel index matching
+the installed Torch and CUDA build (or CPU build). It requires `uv` and does not reinstall Curator.
+Python dependency repairs reuse FFmpeg when its audio capabilities already pass
+`install_ffmpeg.sh --check-audio`; unrelated video capabilities are not required.
+If audio capabilities are missing, the fallback installs the combined audio/video
+FFmpeg build and requires root access.
+It constrains installed Torch, TorchAudio, TorchVision, Numba, FSSpec, Transformers,
+and Hugging Face Hub versions; NumPy must satisfy the installed Numba's bounds.
+It retains Curator's existing uv override exceptions only when they match the
+installed versions, including the Torch override required by WhisperX.
+If those constraints conflict with the requested audio dependencies, installation
+fails rather than replacing the inference stack. Such older-image conflicts need
+separate validation; successful dependency resolution alone does not establish
+compatibility.
+
+`--check` never installs packages. It checks NeMo ASR, WhisperX, and WER stage imports,
+verifies a NeMo text-normalization rewrite,
+executes a small ONNX Runtime CPU model, and decodes generated FLAC and both
+16-bit and float WAV files through TorchCodec and Pyannote. A Pyannote decoder
+warning therefore cannot count as a successful check. Model downloads, GPU model
+inference, and full benchmark correctness are not covered by these probes.
+
+Benchmark environment setup discovers this installer automatically. Run only
+one installer/setup process at a time in a shared environment.
 
 ## Quickstart Steps
 

@@ -33,6 +33,8 @@ Example:
     )
 """
 
+import errno
+import fcntl
 import math
 from dataclasses import KW_ONLY, dataclass, field
 from pathlib import Path
@@ -62,6 +64,35 @@ _UTMOS_ENTRYPOINT = "utmos22_strong"
 _UTMOS_TARGET_SR = 16000
 _VALID_MODES = {"task", "segments", "auto"}
 _VALID_ACTIONS = {"filter", "annotate"}
+
+
+def _load_utmos_predictor() -> torch.nn.Module:
+    hub_dir = Path(torch.hub.get_dir())
+    hub_dir.mkdir(parents=True, exist_ok=True)
+    repo, ref = _UTMOS_REPO.rsplit(":", 1)
+    cached_repo = hub_dir / f"{repo.replace('/', '_')}_{ref.replace('/', '_')}"
+    # Different stages and workers share Torch Hub's non-atomic extraction directory.
+    try:
+        lock_file = (hub_dir / ".utmos.lock").open("a")
+    except OSError as exc:
+        if exc.errno not in {errno.EROFS, errno.EACCES}:
+            raise
+        # Use pre-staged code directly; GitHub loading can try to update the cache.
+        logger.warning(f"UTMOS cache is not writable; loading pre-staged local model at {cached_repo}")
+        return torch.hub.load(
+            str(cached_repo), _UTMOS_ENTRYPOINT, trust_repo=True, source="local", skip_validation=True
+        )
+    with lock_file as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            return torch.hub.load(
+                _UTMOS_REPO, _UTMOS_ENTRYPOINT, trust_repo=True, force_reload=False, skip_validation=True
+            )
+        except Exception:  # noqa: BLE001
+            logger.opt(exception=True).warning(f"UTMOS initial load failed; trying local cache at {cached_repo}")
+            return torch.hub.load(
+                str(cached_repo), _UTMOS_ENTRYPOINT, trust_repo=True, source="local", skip_validation=True
+            )
 
 
 def _load_waveform_tensor(  # noqa: PLR0913 (complexity accepted: keyword-only residency/key knobs mirror the stage fields)
@@ -254,13 +285,7 @@ class UTMOSFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None
     ) -> None:
         try:
-            torch.hub.load(
-                _UTMOS_REPO,
-                _UTMOS_ENTRYPOINT,
-                trust_repo=True,
-                force_reload=False,
-                skip_validation=True,
-            )
+            _load_utmos_predictor()
         except Exception:  # noqa: BLE001
             logger.opt(exception=True).warning("UTMOS repo pre-download in setup_on_node failed.")
 
@@ -286,29 +311,11 @@ class UTMOSFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         device = torch.device(f"cuda:{torch.cuda.current_device()}" if torch.cuda.is_available() else "cpu")
 
         try:
-            predictor = torch.hub.load(
-                _UTMOS_REPO,
-                _UTMOS_ENTRYPOINT,
-                trust_repo=True,
-                force_reload=False,
-                skip_validation=True,
-            )
-        except Exception:  # noqa: BLE001
-            repo, ref = _UTMOS_REPO.rsplit(":", 1)
-            cached_repo = Path(torch.hub.get_dir()) / f"{repo.replace('/', '_')}_{ref.replace('/', '_')}"
-            logger.opt(exception=True).warning(f"UTMOS initial load failed; trying local cache at {cached_repo}")
-            try:
-                predictor = torch.hub.load(
-                    str(cached_repo),
-                    _UTMOS_ENTRYPOINT,
-                    trust_repo=True,
-                    source="local",
-                    skip_validation=True,
-                )
-            except Exception as e:  # noqa: BLE001
-                logger.error(f"UTMOS model unavailable (download and cache both failed): {e}")
-                self._model_failed = True
-                return
+            predictor = _load_utmos_predictor()
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"UTMOS model unavailable (download and cache both failed): {e}")
+            self._model_failed = True
+            return
 
         predictor = predictor.to(device)
         predictor.eval()

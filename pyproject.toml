@@ -108,12 +108,13 @@ deduplication_cuda12 = [
 ]
 
 audio_common = [
-    # ASR/diarization stack pulls x86_64-only transitives (kaldialign cp313, torchcodec) — gate to x86_64 Linux
+    # ASR and diarization wheels are available on both supported Linux architectures.
     "pyloudnorm",
-    "nemo_toolkit[asr]>=2.7.2; platform_machine == 'x86_64' and platform_system != 'Darwin'",
+    "wget",
+    "nemo_toolkit[asr]>=2.7.2; platform_system == 'Linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",
     "soundfile>=0.12.0",
     "torchaudio",
-    "torchcodec; platform_machine == 'x86_64' and platform_system != 'Darwin'",
+    "torchcodec; platform_system == 'Linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",
     "onnx>=1.19.0",
     "silero-vad",
     "librosa",
@@ -123,10 +124,13 @@ audio_common = [
     "speechbrain>=1.1.0,<2.0; platform_machine == 'x86_64' and platform_system != 'Darwin'",
     "transformers>=4.57.6,<5.0",
     "accelerate>=1.12.0",
-    "nemo_text_processing; platform_machine == 'x86_64' and platform_system != 'Darwin'",  # pulls pynini, which ships x86_64-only wheels and fails to build on aarch64
+    # ARM builds Pynini from source after docker/common/install_openfst.sh.
+    "nemo_text_processing; platform_system == 'Linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",
     "opencc-python-reimplemented",
-    "pyannote-audio>=4.0.0; platform_machine == 'x86_64' and platform_system != 'Darwin'",
-    "whisperx>=3.8.4; platform_machine == 'x86_64' and platform_system != 'Darwin'",
+    "pyannote-audio>=4.0.0; platform_system == 'Linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",
+    "whisperx>=3.8.4; platform_system == 'Linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",
+    "ctranslate2>=4.8.4; platform_system == 'Linux' and platform_machine == 'aarch64'", # Use a verified ARM cp313 wheel; locked 4.7.1 has none.
+    "kaldialign>=0.12.0; platform_system == 'Linux' and platform_machine == 'aarch64' and python_version >= '3.13'", # The older locked release has no ARM cp313 wheel.
 ]
 audio_cpu = [
     "nemo_curator[audio_common]",
@@ -139,6 +143,7 @@ audio_cuda12 = [
     "nemo_curator[cuda12]",
     "nvidia-cudnn-cu12",
     "onnxruntime-gpu>=1.20.1,<1.24; platform_machine == 'x86_64'",
+    "onnxruntime>=1.20.1,<1.24; platform_system == 'Linux' and platform_machine == 'aarch64'", # SIGMOS supports CPU inference when CUDA provider wheels are unavailable.
     # Do not use qwen-asr[vllm], whose vLLM 0.14.0 pin conflicts with Curator's shared vLLM version.
     "qwen-asr==0.0.6; platform_machine == 'x86_64' and platform_system != 'Darwin'",
     "qwen-omni-utils>=0.0.9",
@@ -374,7 +379,7 @@ override-dependencies = [
     "torch==2.11.0; sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')", # Match vLLM's CUDA requirements; Linux resolves to cu129 via tool.uv.sources
     "torchaudio==2.11.0; sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')", # Match torch==2.11.0
     "torchvision==0.26.0; sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')", # Match torch==2.11.0
-    "torchcodec~=0.11.0; platform_machine == 'x86_64' and platform_system != 'Darwin'", # TorchCodec 0.11 matches torch 2.11; TorchCodec does not declare a torch dependency, so enforce the ABI-compatible series across direct and transitive requirements; satisfies pyannote-audio's >=0.7.0 floor; x86_64-only since aarch64 lacks wheels
+    "torchcodec~=0.11.0; platform_system == 'Linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')", # TorchCodec 0.11 matches the torch 2.11 override on both architectures.
     "nixl-cu12>=0.10.0; platform_system == 'Linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",  # Use the CUDA 12 backend on both supported Linux architectures.
     "xgrammar>=0.1.32", # Override vllm's ==0.1.29 pin to address CVE GHSA-7rgv-gqhr-fxg3 (DoS via multi-layer nesting)
     "pandas>=3.0.0, <= 3.0.4", # Override data-designers constraint of <3
@@ -412,7 +417,10 @@ torchvision = [
     { index = "pypi", marker = "sys_platform == 'darwin' or (platform_machine != 'x86_64' and platform_machine != 'aarch64')" },
 ]
 torchcodec = [
-    { index = "pypi", extra = "audio-common" },
+    # PyPI's ARM wheel requires CUDA 13; match our ARM Torch/CUDA 12.9 stack instead.
+    # Keep x86 on PyPI so CPU installs do not acquire native CUDA requirements.
+    { index = "pytorch", marker = "sys_platform == 'linux' and platform_machine == 'aarch64'" },
+    { index = "pypi", marker = "sys_platform != 'linux' or platform_machine != 'aarch64'" },
 ]
 vllm = [
     { index = "vllm-cu129", marker = "sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')" },
