@@ -437,9 +437,9 @@ def _is_safe_path(path: str, base_path: str) -> bool:
     Returns:
         True if the path is safe, False otherwise
     """
-    # Normalize paths to handle different path separators and resolve '..' components
-    full_path = os.path.normpath(os.path.join(base_path, path))
-    base_path = os.path.normpath(base_path)
+    # Resolve symlinks already on disk (e.g. extracted earlier from the same archive) as well as '..' components
+    full_path = os.path.realpath(os.path.join(base_path, path))
+    base_path = os.path.realpath(base_path)
 
     # Check if the resolved path is within the base directory
     return os.path.commonpath([full_path, base_path]) == base_path
@@ -477,7 +477,9 @@ def tar_safe_extract(tar: tarfile.TarFile, path: str) -> None:
             if os.path.isabs(member.linkname):
                 msg = f"Absolute symlink target not allowed: {member.name} -> {member.linkname}"
                 raise ValueError(msg)
-            if not _is_safe_path(member.linkname, path):
+            # Symlink targets are relative to the link's directory; hard link targets are archive member names
+            link_base = os.path.dirname(member.name) if member.issym() else ""
+            if not _is_safe_path(os.path.join(link_base, member.linkname), path):
                 msg = f"Symlink target outside extraction directory: {member.name} -> {member.linkname}"
                 raise ValueError(msg)
 
