@@ -162,7 +162,9 @@ class RepeatingTopNGramsFilter(DocumentFilter):
         counts = {ngram: {"freq": 0, "num_chars": sum(len(word) for word in ngram)} for ngram in unique_ngrams}
         for ngram in ngrams:
             counts[ngram]["freq"] += 1
-        most_frqnt_ngram = " ".join(max(counts, key=lambda x: counts[x]["freq"]))
+        # Break frequency ties by character count, then lexicographically, so the score
+        # does not depend on set iteration order (and thus on PYTHONHASHSEED).
+        most_frqnt_ngram = " ".join(max(counts, key=lambda x: (counts[x]["freq"], counts[x]["num_chars"], x)))
         # Find the number of characters the most frequent ngram
         # contributes to the document
         nchar = len(text)
