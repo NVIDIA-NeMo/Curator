@@ -140,8 +140,8 @@ _CHATTERBOX_NATIVE_SR = 24000
 # generation-algorithm change). This invalidates every existing cache entry
 # by changing the filename hash, forcing regeneration instead of silently
 # reusing stale audio.
-_CACHE_SCHEMA_VERSION = 1
-_REFERENCE_PREPROCESSING_SCHEMA_VERSION = 1
+_CACHE_SCHEMA_VERSION = 2
+_REFERENCE_PREPROCESSING_SCHEMA_VERSION = 2
 
 
 class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
@@ -436,41 +436,43 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
 
     def _process_audio_with_rttm(self, audio_filepath: str, rttm_filepath: str) -> str:  # noqa: C901, PLR0912
         """Strip silences using RTTM speech segments, up to max_reference_duration."""
-        if not os.path.exists(rttm_filepath):
-            return audio_filepath
-
         try:
             audio, sr = ta.load(audio_filepath)
 
             speech_segments: list[tuple[float, float]] = []
             audio_duration = audio.shape[1] / sr
-            with open(rttm_filepath, encoding="utf-8") as f:
-                for line_number, line in enumerate(f, start=1):
-                    parts = line.strip().split()
-                    _min_rttm_fields = 5
-                    if len(parts) >= _min_rttm_fields and parts[0] == "SPEAKER":
-                        try:
-                            start = float(parts[3])
-                            dur = float(parts[4])
-                        except ValueError:
-                            logger.warning(
-                                f"Skipping malformed RTTM record {rttm_filepath}:{line_number}: invalid start/duration"
-                            )
-                            continue
-                        if not (math.isfinite(start) and math.isfinite(dur)) or start < 0 or dur <= 0:
-                            logger.warning(
-                                f"Skipping malformed RTTM record {rttm_filepath}:{line_number}: start and duration must be finite, start >= 0, duration > 0"
-                            )
-                            continue
-                        if start >= audio_duration:
-                            logger.warning(
-                                f"Skipping out-of-bounds RTTM record {rttm_filepath}:{line_number}: start {start} is beyond {audio_duration:.3f}s audio"
-                            )
-                            continue
-                        speech_segments.append((start, min(start + dur, audio_duration)))
+            rttm_lines = []
+            if os.path.exists(rttm_filepath):
+                with open(rttm_filepath, encoding="utf-8") as f:
+                    rttm_lines = f.readlines()
+            for line_number, line in enumerate(rttm_lines, start=1):
+                parts = line.strip().split()
+                _min_rttm_fields = 5
+                if len(parts) >= _min_rttm_fields and parts[0] == "SPEAKER":
+                    try:
+                        start = float(parts[3])
+                        dur = float(parts[4])
+                    except ValueError:
+                        logger.warning(
+                            f"Skipping malformed RTTM record {rttm_filepath}:{line_number}: invalid start/duration"
+                        )
+                        continue
+                    if not (math.isfinite(start) and math.isfinite(dur)) or start < 0 or dur <= 0:
+                        logger.warning(
+                            f"Skipping malformed RTTM record {rttm_filepath}:{line_number}: start and duration must be finite, start >= 0, duration > 0"
+                        )
+                        continue
+                    if start >= audio_duration:
+                        logger.warning(
+                            f"Skipping out-of-bounds RTTM record {rttm_filepath}:{line_number}: start {start} is beyond {audio_duration:.3f}s audio"
+                        )
+                        continue
+                    speech_segments.append((start, min(start + dur, audio_duration)))
 
             if not speech_segments:
-                return audio_filepath
+                if audio_duration <= self.max_reference_duration:
+                    return audio_filepath
+                speech_segments = [(0.0, audio_duration)]
 
             speech_segments.sort()
             chunks: list[torch.Tensor] = []
@@ -561,7 +563,7 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
         # identically for the same speaker.
         files = sorted(
             self._speaker_audio_map[chosen],
-            key=lambda f: self._stable_index(f"{chosen}::{f}", 2**32),
+            key=lambda f: self._stable_index(f"{chosen}::{os.path.relpath(f, self.reference_voices_dataset)}", 2**32),
         )
 
         chunks: list[torch.Tensor] = []
@@ -713,7 +715,7 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
             self.conversation_exaggeration[conversation_id] = lo + frac * (hi - lo)
         return self.conversation_exaggeration[conversation_id]
 
-    def _generate_turn_audio(self, text: str, reference_wav: str, conversation_id: str) -> np.ndarray:
+    def _generate_turn_audio(self, text: str, reference_wav: str, conversation_id: str) -> np.ndarray | None:
         """Run ChatterboxTTS inference for a single turn.
 
         The model always synthesises at its own native rate (``self.model.sr``,
@@ -748,9 +750,9 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
                 wav = self._normalize_audio(wav)
 
             return wav.squeeze(0).cpu().numpy()
-        except Exception as e:  # noqa: BLE001 -- graceful fallback: any failure yields silence
+        except Exception as e:  # noqa: BLE001 -- caller emits an uncached silence placeholder
             logger.error(f"TTS generation failed: {e}")
-            return np.zeros(self.sample_rate * 2)
+            return None
 
     def _normalize_audio(self, wav: torch.Tensor) -> torch.Tensor:
         """RMS-based normalisation with clipping protection."""
@@ -954,7 +956,13 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
                         audio_data, audio_sr = cached
                     else:
                         audio_data = self._generate_turn_audio(text, reference_wav, conversation_id)
-                        self._publish_cache_entry(audio_path, audio_data, manifest)
+                        if audio_data is None:
+                            # Keep failed outputs immutable without caching a transient failure.
+                            stem = os.path.splitext(audio_path)[0]
+                            audio_path = f"{stem}.failed-{uuid.uuid4().hex}.wav"
+                            sf.write(audio_path, np.zeros(self.sample_rate * 2), self.sample_rate)
+                        else:
+                            self._publish_cache_entry(audio_path, audio_data, manifest)
                         # Report metadata from the published artifact, just as cache hits do.
                         audio_data, audio_sr = sf.read(audio_path)
             except Exception as e:  # noqa: BLE001 -- isolate a bad reference/record to one task
@@ -967,6 +975,8 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
             task.data["audio_filepath"] = audio_path
             task.data["duration"] = duration
             task.data["reference_voice"] = ref_id
+            task.data.pop("waveform", None)
+            task.data.pop("sample_rate", None)
             output_tasks.append(task)
 
             logger.info(f"[TTS] {conversation_id[:8]}/{speaker}: {duration:.2f}s -> {filename}")

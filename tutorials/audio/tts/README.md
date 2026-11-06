@@ -8,6 +8,10 @@ This tutorial runs the `ChatterboxTTSStage` over a JSONL manifest of conversatio
 
 Each cached `<hash>.wav` is written alongside a `<hash>.json` sidecar recording every setting that affected it (language, voice, sampling params, etc.). A cache hit is only trusted if the sidecar matches the current run's settings exactly, so changing any generation setting (e.g. switching `language`) always produces fresh audio instead of silently reusing a previous, differently-configured run's file. Cache entries are written atomically, so a crash mid-write can never leave a corrupt file that looks like a valid cache hit.
 
+If inference fails, the stage writes a separate two-second silence placeholder. These placeholders are not cached, so rerunning the turn retries synthesis while preserving the earlier placeholder file. The stage removes stale input waveforms held in memory so downstream stages read the new speech file.
+
+Reference clips are limited to `max_reference_duration` even without usable RTTM records, and moving an unchanged MLS dataset preserves the selected reference audio.
+
 The tutorial uses the generic YAML runner in `nemo_curator/config/run.py`; no
 tutorial-specific Python runner is needed. The YAML selects the executor
 backend and, for Xenna, its execution mode; the generic runner constructs that

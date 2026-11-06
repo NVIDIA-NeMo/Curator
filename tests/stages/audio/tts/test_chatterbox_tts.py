@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import multiprocessing
 import os
+import shutil
 import sys
 import types
 from typing import TYPE_CHECKING
@@ -31,6 +32,7 @@ import torch
 from filelock import FileLock, Timeout
 
 from nemo_curator.backends.ray_data.adapter import RayDataStageAdapter
+from nemo_curator.stages.audio.common.duration import GetAudioDurationStage
 from nemo_curator.stages.audio.tts.chatterbox_tts import (
     _CHATTERBOX_MODEL_REVISION,
     _ENGLISH_MODEL_FILES,
@@ -480,6 +482,24 @@ class TestChatterboxTTSStage:
         assert path1 == path2
         assert stage.model.generate.call_count == calls_before
 
+    @pytest.mark.parametrize("cached", [False, True])
+    def test_downstream_duration_uses_generated_audio(self, output_dir: str, ref_dataset: str, cached: bool) -> None:
+        with patch.object(ChatterboxTTSStage, "_load_model", _inject_model):
+            stage = _build_stage(output_dir, ref_dataset)
+            stage.setup()
+            if cached:
+                stage.process_batch([_make_task()])
+            task = _make_task(waveform=torch.zeros(1, 160000), sample_rate=16000)
+            result = stage.process_batch([task])[0]
+
+        expected_duration = sf.info(result.data["audio_filepath"]).duration
+        duration_stage = GetAudioDurationStage(input_residency="auto")
+        duration_stage.setup()
+        duration_stage.process(result)
+        assert result.data["duration"] == pytest.approx(expected_duration)
+        assert "waveform" not in result.data
+        assert "sample_rate" not in result.data
+
     def test_process_batch_concurrent_cache_misses_use_one_artifact(self, output_dir: str, ref_dataset: str) -> None:
         context = multiprocessing.get_context("spawn")
         release_generation = context.Event()
@@ -582,6 +602,21 @@ class TestChatterboxTTSStage:
         audio, sr = sf.read(out_path)
         assert len(audio) / sr == pytest.approx(1.0, abs=0.05)
 
+    @pytest.mark.parametrize("rttm_contents", [None, "", "SPEAKER d 1 nan 1.0\n"])
+    def test_reference_duration_limit_without_usable_rttm(
+        self, output_dir: str, ref_dataset: str, tmp_path: Path, rttm_contents: str | None
+    ) -> None:
+        stage = _build_stage(output_dir, ref_dataset, max_reference_duration=1.0)
+        stage._init_temp_dir()
+        wav_path = os.path.join(ref_dataset, "wavs", "dialog001", "spk_A.wav")
+        rttm_path = tmp_path / "optional.rttm"
+        if rttm_contents is not None:
+            rttm_path.write_text(rttm_contents)
+
+        processed = stage._process_audio_with_rttm(wav_path, str(rttm_path))
+
+        assert sf.info(processed).duration == pytest.approx(1.0)
+
     def test_get_reference_audio_mls_falls_back_on_errors(self, output_dir: str, ref_dataset_mls: str) -> None:
         with patch.object(ChatterboxTTSStage, "_load_model", _inject_model):
             stage = _build_stage(output_dir, ref_dataset_mls, language="es")
@@ -605,6 +640,25 @@ class TestChatterboxTTSStage:
 
         audio, sr = sf.read(out_path)
         assert len(audio) / sr == pytest.approx(3.0, abs=0.05)
+
+    def test_mls_reference_is_unchanged_after_dataset_move(
+        self, output_dir: str, ref_dataset_mls: str, tmp_path: Path
+    ) -> None:
+        relocated = shutil.copytree(ref_dataset_mls, tmp_path / "relocated")
+        with patch.object(ChatterboxTTSStage, "_load_model", _inject_model):
+            stages = [
+                _build_stage(output_dir, root, language="es", max_reference_duration=3.0)
+                for root in (ref_dataset_mls, str(relocated))
+            ]
+            for stage in stages:
+                stage.setup()
+            for index in range(12):
+                references = [stage._assign_reference("Alice", f"conv-{index}") for stage in stages]
+                assert references[0][1] == references[1][1]
+                assert stages[0]._reference_content_hash("Alice", f"conv-{index}") == stages[
+                    1
+                ]._reference_content_hash("Alice", f"conv-{index}")
+                np.testing.assert_array_equal(sf.read(references[0][0])[0], sf.read(references[1][0])[0])
 
     def test_get_reference_audio_mls_resamples_mixed_rate_segments(self, output_dir: str, tmp_path: Path) -> None:
         mls_root = tmp_path / "mls_mixed_rate"
@@ -650,6 +704,23 @@ class TestChatterboxTTSStage:
 
         audio, _sr = sf.read(result.data["audio_filepath"])
         assert np.allclose(audio, 0.0)
+
+    def test_failed_generation_is_retried_without_replacing_failure_audio(
+        self, output_dir: str, ref_dataset: str
+    ) -> None:
+        with patch.object(ChatterboxTTSStage, "_load_model", _inject_model):
+            stage = _build_stage(output_dir, ref_dataset)
+            stage.setup()
+            stage.model.generate.side_effect = RuntimeError("temporary GPU OOM")
+            failed = stage.process_batch([_make_task()])[0]
+            failed_path = failed.data["audio_filepath"]
+            stage.model = _fake_model()
+            retried = stage.process_batch([_make_task()])[0]
+
+        assert stage.model.generate.call_count == 1
+        assert retried.data["audio_filepath"] != failed_path
+        assert not np.allclose(sf.read(retried.data["audio_filepath"])[0], 0.0)
+        assert np.allclose(sf.read(failed_path)[0], 0.0)
 
     def test_normalize_audio_returns_silence_unchanged(self, output_dir: str, ref_dataset: str) -> None:
         stage = _build_stage(output_dir, ref_dataset)
