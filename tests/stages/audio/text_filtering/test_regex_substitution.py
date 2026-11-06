@@ -362,7 +362,9 @@ _GRANARY_REGEX_YAML = (
         "προϋπόθεση ταΐζω",  # el: ϋ U+03CB, ΐ U+0390
         "ΠΡΟΫΠΟΘΕΣΗ ΤΑΪΖΩ",  # el: Ϋ U+03AB, Ϊ U+03AA
         "naţiune Ţara",  # ro: legacy cedilla ţ U+0163, Ţ U+0162
+        "Α΄ Παγκόσμιος Πόλεμος",  # el: numeral sign/keraia ΄ U+0384
         "тя ѝ каза",  # bg: ѝ U+045D
+        "Ѝ и ѐ",  # bg: Ѝ U+040D, ѐ U+0450
         "ĳsje",  # nl: ĳ U+0133
         "人々は時々",  # ja: 々 U+3005
         "二〇二四年",  # zh/ja: 〇 U+3007
@@ -388,3 +390,30 @@ def test_production_whitelist_preserves_covered_language_letters(text: str) -> N
     stage.process(task)
 
     assert task.data["cleaned_text"] == text
+
+
+def _whitelist_patterns(node: object) -> list[str]:
+    """Collect every character-whitelist pattern (a negated class replaced by a space)."""
+    if isinstance(node, dict):
+        found = [p for v in node.values() for p in _whitelist_patterns(v)]
+        pattern = node.get("pattern")
+        if isinstance(pattern, str) and pattern.startswith("[^") and node.get("repl") == " ":
+            found.append(pattern)
+        return found
+    if isinstance(node, list):
+        return [p for v in node for p in _whitelist_patterns(v)]
+    return []
+
+
+def test_qwen_omni_whitelist_matches_production_rule_file() -> None:
+    """qwen_omni_asr/pipeline.yaml carries an inline copy of the whitelist.
+
+    The copy silently missed the letter fixes made to indic_asr/regex.yaml, so the
+    Qwen-Omni path kept stripping them. Both copies must stay identical.
+    """
+    qwen_yaml = _GRANARY_REGEX_YAML.parents[1] / "qwen_omni_asr" / "pipeline.yaml"
+    production = _whitelist_patterns(yaml.safe_load(_GRANARY_REGEX_YAML.read_text(encoding="utf-8")))
+    inline = _whitelist_patterns(yaml.safe_load(qwen_yaml.read_text(encoding="utf-8")))
+
+    assert len(production) == 1
+    assert inline == production
