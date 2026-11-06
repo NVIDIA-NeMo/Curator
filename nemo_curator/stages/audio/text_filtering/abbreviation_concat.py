@@ -25,31 +25,36 @@ from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
+# Uppercase letters only. Spelled-out abbreviations are uppercase in ASR output,
+# while lowercase single letters are function words: fr "il y a" / "à l'",
+# pt "é o", ru "и в", it "e a". Allowing lowercase joined those into non-words
+# ("il ya", "àl'", "éo", "ив") and also glued a real abbreviation to the next
+# function word ("S N C F à l'heure" -> "SNCFàl'heure").
 _LANG_CHAR_CLASS: dict[str, str] = {
-    "en": r"[A-Za-z]",
-    "nl": r"[A-Za-z]",
-    "de": r"[A-Za-zÄÖÜäöüß]",
-    "fr": r"[A-Za-zÀ-ÖØ-öø-ÿ]",
-    "es": r"[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]",
-    "it": r"[A-Za-zÀÈÉÌÒÓÙàèéìòóù]",
-    "pt": r"[A-Za-zÀ-ÖØ-öø-ÿ]",
-    "pl": r"[A-Za-zĄĆĘŁŃÓŚŹŻąćęłńóśźż]",
-    "cs": r"[A-Za-zÁČĎÉĚÍŇÓŘŠŤÚŮÝŽáčďéěíňóřšťúůýž]",
-    "sk": r"[A-Za-zÁÄČĎÉÍĽĻŇÓÔŔŠŤÚÝŽáäčďéíľļňóôŕšťúýž]",
-    "sv": r"[A-Za-zÅÄÖåäö]",
-    "no": r"[A-Za-zÆØÅæøå]",
-    "da": r"[A-Za-zÆØÅæøå]",
-    "fi": r"[A-Za-zÄÖÅäöå]",
-    "hu": r"[A-Za-zÁÉÍÓÖŐÚÜŰáéíóöőúüű]",
-    "ro": r"[A-Za-zĂÂÎȘȚăâîșț]",
-    "hr": r"[A-Za-zČĆĐŠŽčćđšž]",
-    "sl": r"[A-Za-zČŠŽčšž]",
-    "ru": r"[А-ЯЁа-яё]",  # noqa: RUF001
-    "bg": r"[А-Яа-я]",  # noqa: RUF001
-    "uk": r"[А-ЯҐЄІЇа-яґєії]",  # noqa: RUF001
-    "sr": r"[А-ЯЂЈЉЊЋЏа-яђјљњћџ]",  # noqa: RUF001
-    "mk": r"[А-Яа-яѓѕѝ]",  # noqa: RUF001
-    "el": r"[Α-Ωα-ω]",  # noqa: RUF001
+    "en": r"[A-Z]",
+    "nl": r"[A-Z]",
+    "de": r"[A-ZÄÖÜ]",
+    "fr": r"[A-ZÀ-ÖØ-Þ]",
+    "es": r"[A-ZÁÉÍÓÚÜÑ]",
+    "it": r"[A-ZÀÈÉÌÒÓÙ]",
+    "pt": r"[A-ZÀ-ÖØ-Þ]",
+    "pl": r"[A-ZĄĆĘŁŃÓŚŹŻ]",
+    "cs": r"[A-ZÁČĎÉĚÍŇÓŘŠŤÚŮÝŽ]",
+    "sk": r"[A-ZÁÄČĎÉÍĽĻŇÓÔŔŠŤÚÝŽ]",
+    "sv": r"[A-ZÅÄÖ]",
+    "no": r"[A-ZÆØÅ]",
+    "da": r"[A-ZÆØÅ]",
+    "fi": r"[A-ZÄÖÅ]",
+    "hu": r"[A-ZÁÉÍÓÖŐÚÜŰ]",
+    "ro": r"[A-ZĂÂÎȘȚ]",
+    "hr": r"[A-ZČĆĐŠŽ]",
+    "sl": r"[A-ZČŠŽ]",
+    "ru": r"[А-ЯЁ]",  # noqa: RUF001
+    "bg": r"[А-Я]",  # noqa: RUF001
+    "uk": r"[А-ЯҐЄІЇ]",  # noqa: RUF001
+    "sr": r"[А-ЯЂЈЉЊЋЏ]",  # noqa: RUF001
+    "mk": r"[А-ЯЃЅЍ]",  # noqa: RUF001
+    "el": r"[Α-Ω]",  # noqa: RUF001
 }
 _LANG_PARTICLES: dict[str, frozenset[str]] = {
     "en": frozenset({"a"}),

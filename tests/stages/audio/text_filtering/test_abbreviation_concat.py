@@ -42,7 +42,7 @@ from nemo_curator.tasks import AudioTask
         ("A Is", "en", "A Is"),
         ("a A P I", "en", "a API"),
         ("A P I a", "en", "API a"),
-        ("D N a and R N a", "en", "DNa and RNa"),
+        ("D N a and R N a", "en", "DN a and RN a"),
         ("I I and A A", "en", "I I and A A"),
         ("x I and A x", "en", "x I and A x"),
         ("I'm A B", "en", "I'm AB"),
@@ -63,8 +63,8 @@ from nemo_curator.tasks import AudioTask
         ("A B I\u2019s", "en", "ABI\u2019s"),
         ("A A Is", "en", "A A Is"),
         ("a A Is", "en", "a A Is"),
-        ("a a B", "en", "a aB"),
-        ("B a a", "en", "Ba a"),
+        ("a a B", "en", "a a B"),
+        ("B a a", "en", "B a a"),
         ("A B bs", "en", "AB bs"),
         ("a bs", "en", "a bs"),
         ("А Б В", "ru", "АБВ"),  # noqa: RUF001
@@ -73,6 +73,23 @@ from nemo_curator.tasks import AudioTask
         ("Α Β Γ", "el", "ΑΒΓ"),  # noqa: RUF001
         ("Α Β Γs", "el", "ΑΒΓs"),  # noqa: RUF001
         ("a cat sat nearby", "en", "a cat sat nearby"),
+        # Lowercase single letters are function words, never abbreviations.
+        ("il y a deux ans", "fr", "il y a deux ans"),
+        ("il n'y a pas", "fr", "il n'y a pas"),
+        ("il va à l'école", "fr", "il va à l'école"),
+        ("il y a d'autres", "fr", "il y a d'autres"),
+        ("la S N C F à l'heure", "fr", "la SNCF à l'heure"),
+        ("de A à Z", "fr", "de A à Z"),
+        ("l'O N U", "fr", "l'ONU"),
+        ("o azoto é o elemento", "pt", "o azoto é o elemento"),
+        ("questa è l'unica", "it", "questa è l'unica"),
+        ("A y B", "es", "A y B"),
+        ("i w stawie", "pl", "i w stawie"),
+        ("a v rámci", "cs", "a v rámci"),
+        ("mi s a părut", "ro", "mi s a părut"),
+        ("и в том числе", "ru", "и в том числе"),
+        ("і в червоношкірих", "uk", "і в червоношкірих"),  # noqa: RUF001
+        ("one p m in Chicago", "en", "one p m in Chicago"),
     ],
 )
 def test_concat_abbreviations(text: str, language: str, expected: str) -> None:
@@ -85,7 +102,7 @@ def test_concat_abbreviations(text: str, language: str, expected: str) -> None:
     ("text", "expected"),
     [
         ("A P I and G P U", ["API", "GPU"]),
-        ("a A P I", ["a API"]),
+        ("a A P I", ["API"]),
         ("A P Is", ["APIs"]),
         ("A P Xs", ["APX"]),
         ("A B Is", ["AB I"]),
@@ -106,7 +123,7 @@ def test_stage_records_changed_abbreviations() -> None:
     AbbreviationConcatStage().process(task)
 
     assert task.data["text"] == "a API"
-    assert task.data["additional_notes"]["AbbreviationConcat"] == "applied (a   A P I -> a API)"
+    assert task.data["additional_notes"]["AbbreviationConcat"] == "applied (A P I -> API)"
 
 
 def test_stage_preserves_skipped_rows() -> None:
