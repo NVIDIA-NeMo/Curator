@@ -18,6 +18,7 @@ from typing import Any, Literal
 
 from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.deduplication.fuzzy.banding import CURATOR_MINHASH_BAND_FIELD_PREFIX
 from nemo_curator.stages.deduplication.fuzzy.lsh.lsh import LSHActor
 from nemo_curator.stages.deduplication.fuzzy.utils import CURATOR_DEFAULT_MINHASH_FIELD
 from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
@@ -42,7 +43,12 @@ class LSHStage(ProcessingStage[FileGroupTask, FileGroupTask]):
     id_field
         Name of the ID field in input data.
     minhash_field
-        Name of the minhash field in input data.
+        Name of the minhash field in raw input data.
+    input_format
+        Whether input contains raw signatures, precomputed band columns, or should be
+        detected automatically from the Parquet schema.
+    band_field_prefix
+        Prefix used for precomputed band columns.
     output_path
         Base path to write output files.
     read_kwargs
@@ -92,9 +98,14 @@ class LSHStage(ProcessingStage[FileGroupTask, FileGroupTask]):
     bands_per_iteration: int = 5  # number of bands to process in each iteration
     total_nparts: int | None = None
     use_async_memory: bool = True
+    input_format: Literal["auto", "raw", "banded"] = "auto"
+    band_field_prefix: str = CURATOR_MINHASH_BAND_FIELD_PREFIX
 
     def __post_init__(self):
         super().__init__()
+        if self.input_format not in ("auto", "raw", "banded"):
+            msg = "input_format must be 'auto', 'raw', or 'banded'"
+            raise ValueError(msg)
 
         self.read_kwargs = self.read_kwargs if self.read_kwargs is not None else {}
         self.write_kwargs = self.write_kwargs if self.write_kwargs is not None else {}
@@ -102,6 +113,8 @@ class LSHStage(ProcessingStage[FileGroupTask, FileGroupTask]):
 
         self.actor_kwargs = {
             "num_bands": self.num_bands,
+            "input_format": self.input_format,
+            "band_field_prefix": self.band_field_prefix,
             "minhashes_per_band": self.minhashes_per_band,
             "id_field": self.id_field,
             "minhash_field": self.minhash_field,

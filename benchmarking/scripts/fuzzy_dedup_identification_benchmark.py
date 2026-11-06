@@ -36,6 +36,7 @@ def run_duplicate_identification_benchmark(  # noqa: PLR0913
     output_path: str,
     input_filetype: str = "jsonl",
     bands_per_iteration: int = 20,  # Number of bands to shuffle concurrently during LSH. Higher values have higher memory pressure but can reduce runtime
+    minhash_output_format: Literal["raw", "banded"] = "banded",
     text_field: str = "text",
     input_blocksize: str = "1.5GiB",
     lsh_num_output_partitions: int | None = None,
@@ -61,6 +62,7 @@ def run_duplicate_identification_benchmark(  # noqa: PLR0913
         output_path=output_path,
         input_filetype=input_filetype,
         bands_per_iteration=bands_per_iteration,
+        minhash_output_format=minhash_output_format,
         text_field=text_field,
         input_blocksize=input_blocksize,
         lsh_num_output_partitions=lsh_num_output_partitions,
@@ -121,6 +123,12 @@ def main() -> int:
     parser.add_argument("--input-filetype", default="jsonl", choices=["jsonl", "parquet"], help="Input filetype")
     parser.add_argument(
         "--bands-per-iteration", type=int, default=20, help="Bands per iteration (for LSH deduplication)"
+    )
+    parser.add_argument(
+        "--minhash-output-format",
+        choices=["raw", "banded"],
+        default="banded",
+        help="MinHash cache layout; banded enables per-iteration Parquet column projection during LSH",
     )
     parser.add_argument("--text-field", default="text", help="Text field to use for duplicate identification")
     parser.add_argument(
