@@ -618,7 +618,8 @@ def test_filter_preserves_interleaved_ordering_with_noninterleaved_row_order() -
     assert out_df["position"].tolist() == [-1, 0, 1, 2, 3, 4]
 
 
-def test_filter_drops_orphaned_metadata_rows() -> None:
+@pytest.mark.parametrize("preserve_metadata_only_samples", [False, True])
+def test_filter_drops_orphaned_metadata_rows(preserve_metadata_only_samples: bool) -> None:
     """When all content rows for a sample are filtered out, the metadata row must also be removed."""
 
     class _DropAllSample2Content(BaseInterleavedFilterStage):
@@ -653,7 +654,10 @@ def test_filter_drops_orphaned_metadata_rows() -> None:
         dataset_name="d",
         data=pa.Table.from_pylist(rows, schema=INTERLEAVED_SCHEMA),
     )
-    stage = _DropAllSample2Content(drop_invalid_rows=False)
+    stage = _DropAllSample2Content(
+        drop_invalid_rows=False,
+        preserve_metadata_only_samples=preserve_metadata_only_samples,
+    )
     result = stage.process(task)
     out_df = result.to_pandas()
 
@@ -1033,8 +1037,21 @@ def test_iter_materialized_bytes_empty_mask() -> None:
     assert list(stage.iter_materialized_bytes(task, df, empty_mask)) == []
 
 
-def test_annotate_metadata_only_rows() -> None:
-    """Metadata-only rows are orphans and must all be dropped."""
+@pytest.mark.parametrize(
+    ("drop_invalid_rows", "preserve_metadata_only_samples", "expected_sample_ids"),
+    [
+        pytest.param(False, False, [], id="default-non-dropping-filter-removes-orphans"),
+        pytest.param(True, False, [], id="strict-row-validation-removes-orphans"),
+        pytest.param(False, True, ["s1", "s2"], id="explicitly-preserve-metadata-only-samples"),
+        pytest.param(True, True, ["s1", "s2"], id="preservation-is-independent-of-row-validation"),
+    ],
+)
+def test_annotate_metadata_only_rows(
+    drop_invalid_rows: bool,
+    preserve_metadata_only_samples: bool,
+    expected_sample_ids: list[str],
+) -> None:
+    """Metadata-only samples survive only when the stage explicitly opts in."""
 
     class _KeepAllContent(BaseInterleavedFilterStage):
         name: str = "keep_all"
@@ -1068,9 +1085,54 @@ def test_annotate_metadata_only_rows() -> None:
         dataset_name="d",
         data=pa.Table.from_pylist(rows, schema=INTERLEAVED_SCHEMA),
     )
-    stage = _KeepAllContent(drop_invalid_rows=False)
+    stage = _KeepAllContent(
+        drop_invalid_rows=drop_invalid_rows,
+        preserve_metadata_only_samples=preserve_metadata_only_samples,
+    )
     out_df = stage.process(task).to_pandas()
-    assert len(out_df) == 0
+    assert out_df["sample_id"].tolist() == expected_sample_ids
+
+
+def test_metadata_only_sample_survives_non_dropping_aspect_and_blur_filters() -> None:
+    from nemo_curator.stages.interleaved.filter.blur_filter import InterleavedBlurFilterStage
+
+    rows = [
+        {
+            "sample_id": "blank",
+            "position": -1,
+            "modality": "metadata",
+            "content_type": "application/json",
+            "text_content": None,
+            "binary_content": None,
+            "source_ref": None,
+            "materialize_error": None,
+        }
+    ]
+    task = InterleavedBatch(
+        dataset_name="d",
+        data=pa.Table.from_pylist(rows, schema=INTERLEAVED_SCHEMA),
+    )
+    stages = [
+        InterleavedAspectRatioFilterStage(
+            min_aspect_ratio=0.0,
+            max_aspect_ratio=float("inf"),
+            drop_invalid_rows=False,
+            preserve_metadata_only_samples=True,
+        ),
+        InterleavedBlurFilterStage(
+            score_threshold=0.0,
+            drop_invalid_rows=False,
+            preserve_metadata_only_samples=True,
+        ),
+    ]
+
+    for stage in stages:
+        task = stage.process(task)
+
+    out_df = task.to_pandas()
+    assert out_df[["sample_id", "position", "modality"]].to_dict("records") == [
+        {"sample_id": "blank", "position": -1, "modality": "metadata"}
+    ]
 
 
 def test_aspect_ratio_filter_no_image_rows() -> None:
