@@ -1,0 +1,103 @@
+stage_id: NeMoSpeechWriterStage
+category: export
+summary: "Persist per-task Opus/manifest receipts as a terminal sink; finalize complete source shards explicitly on the driver."
+tags: [writes_disk, sink, sanitizes_output, is_filter]
+model_id: null
+domain: {language: any, style: "AudioTasks carrying NeMo source-shard provenance"}
+resource:
+  cpus: 1.0
+  gpu_mem_gb: 0.0
+  gpu_optional: false
+  bound: io
+  throughput_hint: "Per-row encoding, content/ownership validation and atomic receipts; finalization scans and sorts shard receipts. Disk usage depends on audio and fan-out; no measured expansion bound."
+use_cases:
+  good_for:
+    - "Durable NeMo shard output with stable source accounting, restart receipts and explicit completion markers."
+    - "Persisting fan-out clips while preserving original recording offsets."
+    - "Manifest-only output when the original source reference is already usable."
+  avoid_for:
+    - "A pass-through metadata checkpoint or a pipeline that needs output tasks after this stage."
+    - "Generic manifest resume that loses framework task IDs or private shard metadata."
+    - "Filtering away original source rows before a completeness-checked shard sink."
+composition:
+  typical_upstream: [NeMoSpeechAudioReader]
+params_of_note:
+  output_dir: "Required absolute path on a shared POSIX-style filesystem, visible at the same path to every worker; object-store URLs are unsupported."
+  target_sample_rate: "Default 16000 Hz. save_audio=true requires this exact input rate; no resampling is performed. Manifest-only mode does not enforce this rate."
+  waveform_key: "Default waveform. Required for non-placeholder audio-writing rows; NumPy/tensor input is normalized to contiguous mono float32."
+  sample_rate_key: "Default sample_rate; sampling_rate_key is the fallback alias, then target_sample_rate if neither is supplied."
+  save_audio: "Default true encodes Opus. False writes source-reference rows without copying/encoding audio; original_file_key is preferred over audio_filepath_key."
+  writer_concurrency: "Default 1 stateless writer actor; workers still need shared filesystem visibility."
+  output_audio_filepath_key: "Optional preset/recorded path relative to output_dir; must be a safe .opus path below the current shard directory."
+  duration_sec_key: "Default duration_sec. When this key exists it takes precedence over duration_key, including a null value; a resolved null uses waveform samples/rate, or zero without waveform. Supplied duration is not independently recomputed."
+  duration_key: "Default duration; reported seconds used for successful fallback and read_error placeholders."
+  start_ms_key: "Default start_ms; child's start relative to the input playback offset, in milliseconds."
+  end_ms_key: "Default end_ms; child's end relative to the inherited source base, in milliseconds."
+  offset_key: "Default offset; input-reference playback offset in seconds."
+  original_offset_key: "Default original_offset; source-recording base offset in seconds, preferred for preserved provenance."
+  vad_empty_key: "Default vad_empty; retained placeholder has empty audio path and zero duration."
+  read_error_key: "Default read_error; retained placeholder has empty audio path and the reported duration."
+param_dependencies:
+  output_dir: "Use the reader's root so source registration exists even for shards that produce no receipts. Keep this artifact lifecycle separate when source/model/policy changes."
+  waveform_key: "With save_audio=true, resample upstream and retain the resulting waveform/rate pair. File paths alone are not loaded by the writer."
+  save_audio: "Manifest-only mode does not turn a tar member into a standalone file; validate portability of the selected original reference and its playback offset."
+  output_audio_filepath_key: "Custom task keys rename inputs only; persisted NeMo schema keys and receipt/shard protocol names remain canonical."
+semantic_facts:
+  persisted_row:
+    meaning: "A receipt for one consumed source task or fan-out child; finalization turns selected receipts into the shard JSONL."
+    unit: "one receipt/output slot, not necessarily one original recording"
+    provenance: "Task data plus a deterministic framework task ID, or explicit stable _metadata['_shard_output_id'] when that ID is missing/has random ancestry, and _shard_key/_shard_total/_shard_input_id metadata."
+    scope: "One output child with original source-row lineage."
+    propagation: "The sink returns no tasks. Known audio/transient fields are omitted; supported arrays/tensors and ordinary nested metadata are converted for JSON."
+    counterexamples:
+      - "Pipeline completion alone does not publish shard manifests or done markers; call finalize_nemo_speech_output after writers finish."
+      - "A generic metadata checkpoint does not restore deterministic task IDs and shard lineage for safe sink resume."
+  audio_filepath:
+    meaning: "For saved audio, a path relative to the shard manifest's parent; for manifest-only output, the preferred original reference; empty for placeholders."
+    unit: "path string"
+    provenance: "Saved Opus file or original_file_key/audio_filepath_key in manifest-only mode."
+    scope: "Persisted row's playable clip/reference."
+    propagation: "output_audio_filepath_key on the consumed task instead uses a path relative to output_dir. These two path bases can differ for nested shard keys."
+    counterexamples:
+      - "A tar member retained by save_audio=false is not automatically portable outside its original archive."
+      - "Opus is lossy; retaining a path/working rate does not mean preserving the original PCM or decoder playback sample rate."
+  duration:
+    meaning: "Successful row uses duration_sec when that key exists, otherwise duration. A resolved null falls back to waveform samples/rate or zero without waveform; rounded to four decimals. vad_empty is zero; read_error retains reported duration."
+    unit: "seconds"
+    provenance: "Task-reported duration has precedence over a waveform-derived fallback."
+    scope: "Persisted row; not independently verified source or encoded-container duration."
+    propagation: "Upstream stages must update duration when their waveform changes."
+    counterexamples:
+      - "A stale parent duration can survive on a child unless the producer corrects it; the sink does not always measure it again."
+  offsets:
+    meaning: "Saved clips reset playback offset to zero when an offset is present; original_offset/original_end retain source-relative positions."
+    unit: "manifest offsets in seconds; task start_ms/end_ms inputs in milliseconds"
+    provenance: "Input offset plus child start; source provenance prefers inherited original_offset before adding the child interval."
+    scope: "Playback location versus source-recording location."
+    propagation: "Canonical source provenance survives remapped task input keys."
+    counterexamples:
+      - "Reapplying original_offset when playing an already saved clip would skip part of that clip."
+  completed_shard:
+    meaning: "Finalizer validated receipts/owned Opus and found that the unique receipt input-ID count equals the registered source-row total. Correct source coverage depends on preserved reader lineage."
+    provenance: "Registered source-row count and selected success/placeholder receipts; registration does not store an independently checked set of expected row IDs."
+    scope: "Source-row coverage of a shard, not an independently known expected fan-out-child count."
+    propagation: "Writes <shard_key>.jsonl and its versioned .jsonl.done marker after validation. Multiple outputs per source can produce more rows than the source total."
+    counterexamples:
+      - "Dropping all outputs for any original row prevents finalization."
+      - "A marker cannot detect an absent intended child if another child already represents that source row."
+caveats:
+  - "Invoke nemo_curator.stages.audio.io.nemo_speech_writer.finalize_nemo_speech_output once on the driver after a successful run with writers quiescent. Concurrent writers/finalizers sharing the root are unsupported."
+  - "Retries are exact replay: stable slots bind source/output identity, PCM and receipt metadata. Changed content or metadata in the same slot can raise; a durable success outranks a later placeholder."
+  - "The finalizer validates all registered shards before publication begins, but publishes each manifest/marker sequentially. Atomic file replacement does not imply one cross-shard transaction."
+  - "Non-audio LID skip reasons do not create writer placeholders or prevent encoding. Preserve appropriate audit outputs when a rejection policy must coexist with source-row completeness."
+  - "Encoding requires runtime Ogg/Opus support in soundfile/libsndfile, or ffmpeg with libopus plus ffprobe. The writer checks actual capabilities rather than assuming package-version support."
+notes:
+  - "Normal artifacts include Opus below shard-specific audio paths, hidden row/ownership/registration state under .nemo_curator/, and finalized shard JSONL/done files. Do not treat receipts alone as final user manifests."
+  - "Distinct source paths/slots are collision-checked, and existing Opus is reused only when content ownership and audio validation agree. These checks are not a general changed-dataset cache."
+  - "Unsupported metadata objects still raise; waveform omission and array/tensor conversion do not make every arbitrary Python object serializable."
+  - "Codec references: https://libsndfile.github.io/libsndfile/formats.html and https://opus-codec.org/docs/opusfile_api-0.12/group__stream__info.html . Opus timestamps use a 48 kHz clock; working sample-rate metadata does not promise the same decoder output rate."
+  - "Implementation/finalizer: nemo_curator/stages/audio/io/nemo_speech_writer.py; path/state helpers are adjacent. Behavioral evidence: tests/stages/audio/io/test_nemo_speech_writer.py, including retry order, source completeness, corruption and atomic publication."
+comparison:
+  choose_when: "Use for NeMo shard receipts/completion. AudioSegmentWriterStage materializes files and passes rows onward without this shard protocol; ManifestWriterStage writes ordinary metadata manifests."
+verified: {params: mechanical, tags: mechanical, resource: best_guess, domain: best_guess, use_cases: best_guess, comparison: best_guess, semantic_facts: mechanical}
+provenance: {model_card_url: null, card_version: 2, last_validated: "2026-10-26"}

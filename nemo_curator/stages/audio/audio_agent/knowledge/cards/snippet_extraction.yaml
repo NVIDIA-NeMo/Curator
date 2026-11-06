@@ -1,0 +1,34 @@
+stage_id: SnippetExtractionStage
+category: alm
+summary: "Slice source audio per the snippet plan, mono-resample, and write snippets into a tar."
+tags: [writes_disk, fanout]   # real snippets plus origin stubs for sources with no surviving snippets
+model_id: null
+domain: {language: any, style: any}
+constraints: {}
+resource:
+  cpus: 1.0
+  gpu_mem_gb: 0.0
+  gpu_optional: false
+  bound: io
+  throughput_hint: "reads slices + encodes + writes to tar (disk-bound)"
+use_cases:
+  good_for: ["materializing planned ALM snippets as mono audio inside a tar shard"]
+  avoid_for: ["non-ALM pipelines"]
+composition:
+  typical_upstream: [SnippetCutPlannerStage, SnippetRepetitionFilterStage]
+  typical_downstream: [SnippetManifestWriterStage, PretrainMetricsAggregatorStage]
+params_of_note:
+  output_dir: "required output directory created during setup; output_audio_tar_path independently controls the tar destination"
+  output_audio_tar_path: "required final tar destination; workers write sibling shards for driver finalization"
+  target_sample_rate: "resample target for snippets (default 16000)"
+  output_format: "encoded audio format inside the tar (default flac)"
+  dry_run: "emit planned snippet records without reading or writing audio/tar; paths and durations are planned, not verified artifacts"
+param_dependencies:
+  output_dir: "requires the snippet plan from SnippetCutPlannerStage"
+notes:
+  - "Reads only the [start,end] slice from each source file, channel-averages to mono, resamples with torchaudio, encodes in-memory (soundfile), and appends to the tar."
+  - "Each real child has snippet_id, duration in seconds, snippet-relative segments, and audio_filepath set to the tar-member basename, not a standalone filesystem path. Do not send that field directly to a file reader."
+  - "A source with no surviving snippets emits one origin stub: snippet_id=None, audio_filepath=None, duration=0, segments=[]. Keep it for metrics; it is not an audio deliverable."
+  - "Agent recipes require this stage, SnippetManifestWriterStage, and PretrainMetricsAggregatorStage together and coordinate preparation/finalization. Custom pipelines must call prepare_audio_pretrain_outputs before execution and finalize_audio_pretrain_outputs after success to publish the merged bundle."
+verified: {params: mechanical, tags: best_guess, resource: best_guess, use_cases: best_guess, domain: best_guess}
+provenance: {model_card_url: null, card_version: 2, last_validated: "2026-10-19"}
