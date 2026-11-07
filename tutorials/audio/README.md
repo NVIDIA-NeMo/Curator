@@ -49,6 +49,7 @@ python nemo_curator/config/run.py \
 
 | I want to... | Tutorial | GPU | Data |
 |---|---|---|---|
+| Generate multi-speaker ASR and diarization training mixtures with FastMSS | [**fastmss/**](fastmss/) | No (CPU-only) | Prepared aligned single-speaker speech; bundled original FastMSS |
 | Transcribe a manifest with NeMo FastConformer through the shared ASR adapter | [**nemo_fastconformer/**](nemo_fastconformer/) | Recommended (1 per ASR actor) | Bundled sample or your own manifest |
 | Curate multilingual ASR data (download, transcribe, filter by WER) | [**fleurs/**](fleurs/) | Yes (~4 GB VRAM) | Auto-downloads from HuggingFace |
 | Transcribe a manifest in-process with Qwen3-Omni and vLLM | [**qwen_omni_inprocess/**](qwen_omni_inprocess/) | Yes (2 per ASR actor) | Bundled sample or your own manifest |

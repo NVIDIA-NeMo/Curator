@@ -1,0 +1,39 @@
+cff-version: 1.2.0
+message: "If you use FastMSS, please cite the paper below."
+title: "FastMSS: fast multi speaker meeting simulation"
+type: software
+authors:
+  - family-names: Polok
+    given-names: Alexander
+  - family-names: Medennikov
+    given-names: Ivan
+  - family-names: Watanabe
+    given-names: Shinji
+  - family-names: Černocký
+    given-names: Jan
+  - family-names: Burget
+    given-names: Lukáš
+  - family-names: Cornell
+    given-names: Samuele
+repository-code: "https://github.com/popcornell/FastMSS"
+license: Apache-2.0
+preferred-citation:
+  type: conference-paper
+  title: "Mind the Gap: Impact of Synthetic Conversational Data on Multi-Talker ASR and Speaker Diarization"
+  authors:
+    - family-names: Polok
+      given-names: Alexander
+    - family-names: Medennikov
+      given-names: Ivan
+    - family-names: Watanabe
+      given-names: Shinji
+    - family-names: Černocký
+      given-names: Jan
+    - family-names: Burget
+      given-names: Lukáš
+    - family-names: Cornell
+      given-names: Samuele
+  collection-title: "Proc. Interspeech 2026"
+  conference:
+    name: "Interspeech 2026"
+  year: 2026

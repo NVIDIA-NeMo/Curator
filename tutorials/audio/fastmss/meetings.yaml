@@ -1,0 +1,26 @@
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# The stage sets FASTMSS_ROOT to the bundled original FastMSS source directory.
+defaults:
+  - default
+  - _self_
+
+hydra:
+  searchpath:
+    - file://${oc.env:FASTMSS_ROOT}/recipes
+
+manifest_dir: ${oc.env:FASTMSS_MANIFEST_DIR}
+manifest_prefix: source
+dset_splits: [train]
+
+n_meetings: 2
+duration: 10
+min_max_spk: [2, 2]
+max_concurrent_speakers: 2
+min_spk_utt: 1
+split_fa_factor: null
+seed: 42
+
+reverberate: false
+add_noise: false

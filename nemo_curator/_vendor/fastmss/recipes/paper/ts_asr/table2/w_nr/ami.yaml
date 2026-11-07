@@ -1,0 +1,71 @@
+n_jobs: 32
+stage: 0
+samplerate: 16000
+
+output_dir: ${oc.env:SIM_OUT_ROOT}/ami/callhome_boosted_w_nr
+hydra: # overrides standard hydra output dir
+  run:
+    dir: ${output_dir}
+
+n_meetings: 7500
+min_max_spk: [2, 5] # min max speakers.
+max_concurrent_speakers: 4 # max number of speakers talking simultaneously (set to null to disable)
+save_anechoic: False # save also anechoic
+save_spk: False # save each speaker stream
+
+duration: 240
+manifest_prefix: ami-ihm
+manifest_dir: ${oc.env:MANIFEST_DIR}/ami
+dset_splits:
+  - cuts_per_segment_train
+split_fa_factor: 0.2
+max_utt_duration: 20
+min_utt_duration: 0.0
+min_spk_utt: 5
+use_markov: False
+
+base_gain: [-35, -8]
+rel_gain: [-12, +5]
+add_noise: True
+noise_rel_gain: [-20, -3]
+speed_perturb: False # this makes generation reaaally slow.
+speed_perturb_range: [0.95, 1.05]
+use_fir: False
+
+# these will be parsed and sampled randomly.
+# probably good to sample based on length of each file.
+# noise_sample_weighted: True
+initial_offset: 2.0
+noise_folders:
+   - ${oc.env:MUSAN_ROOT}
+
+filter_noise_len: 2.0 # remove shorter than 20 seconds
+
+reverberate: True
+n_rirs: 5000
+n_pos_rirs: 50
+rt60: [0.1, 0.7]
+room_sz: [5, 10]
+room_ceiling: [3, 5]
+delta_dist: 0.5  # min distance between walls and among speakers
+use_rand_ism: False
+rand_disp: 0.0 # if save anechoic this should be 0.0 probably
+max_position_change: 0.5  # meters - max distance speaker can move per utterance
+
+save_cutset: True
+drop_without_align: True
+
+mic_type: single
+# todo add multichannel.
+circular: # match AMI
+  diameter: [0.08, 0.085]
+  n_mics: 8
+  center_mic: False
+
+hmm_fit_transitions_to: null
+boost_overlap_factor: 2.0
+noise_probability_global: 0.5
+
+multi_noise_sampling: True # sample multiple noise files and concatenate with cross-fading
+
+reverb_prob: 0.5

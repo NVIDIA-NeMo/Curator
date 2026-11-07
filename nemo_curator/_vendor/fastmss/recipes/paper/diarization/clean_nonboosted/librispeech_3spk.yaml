@@ -1,0 +1,78 @@
+n_jobs: 48
+stage: 0
+samplerate: 16000
+
+output_dir: ${oc.env:SIM_OUT_ROOT}/librispeech/ch_clean/${n_spk}spk_${duration}s_${n_meetings}convs
+data_dir: ${oc.env:SIM_OUT_ROOT}/librispeech  # shared dataset prep dir (stage 1); falls back to output_dir if null
+rir_dir: ${oc.env:SIM_OUT_ROOT}/rirs_${n_rirs}           # shared RIR dir (stage 3); falls back to output_dir if null
+hydra: # overrides standard hydra output dir
+  run:
+    dir: ${output_dir}
+
+n_meetings: 18000
+n_spk: 3
+min_max_spk: ["${n_spk}", "${n_spk}"] # min max speakers.
+max_concurrent_speakers: ${n_spk} # max number of speakers talking simultaneously (set to null to disable)
+save_anechoic: False # save also anechoic
+save_spk: False # save each speaker stream
+
+duration: 120
+manifest_prefix: librispeech
+manifest_dir: ${oc.env:MANIFEST_DIR}/librispeech
+exclude_speakers: ["1259"]   # list of speaker IDs to exclude from source cuts, e.g. ["1234", "5678"]
+dset_splits:
+  - cutset_train-clean-100
+  - cutset_train-clean-360
+  - cutset_train-other-500
+split_fa_factor: 0.2
+max_utt_duration: 20
+min_utt_duration: 0.0
+min_spk_utt: 5
+use_markov: False
+
+
+base_gain: [-35, -8]
+rel_gain: [-12, +5]
+add_noise: False
+noise_probability_global: 0.5
+noise_rel_gain: [-20, -3]
+multi_noise_sampling: True # sample multiple noise files and concatenate with cross-fading
+speed_perturb: False # this makes generation reaaally slow.
+speed_perturb_range: [0.95, 1.05]
+use_fir: False
+
+# these will be parsed and sampled randomly.
+# probably good to sample based on length of each file.
+# noise_sample_weighted: True
+noise_folders:
+  - ${oc.env:MUSAN_ROOT}/noise
+  - ${oc.env:MUSAN_ROOT}/music
+
+filter_noise_len: 2.0 # remove shorter than 20 seconds
+
+reverberate: False
+n_rirs: 5000
+n_pos_rirs: 50
+rt60: [0.1, 0.7]
+room_sz: [5, 10]
+room_ceiling: [3, 5]
+delta_dist: 0.5  # min distance between walls and among speakers
+use_rand_ism: False
+rand_disp: 0.0 # if save anechoic this should be 0.0 probably
+max_position_change: 0.5  # meters - max distance speaker can move per utterance
+reverb_prob: 0.5
+
+save_cutset: True
+drop_without_align: True
+
+mic_type: single
+# todo add multichannel.
+circular: # match AMI
+  diameter: [0.08, 0.085]
+  n_mics: 8
+  center_mic: False
+
+hmm_fit_transitions_to: null
+boost_overlap_factor: null
+save_rttm: true
+save_nemo_manifest: true

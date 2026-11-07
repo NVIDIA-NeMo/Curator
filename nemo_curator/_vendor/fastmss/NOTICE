@@ -1,0 +1,11 @@
+FastMSS
+Copyright 2024-2026 Samuele Cornell and FastMSS contributors
+
+This product includes software developed by Samuele Cornell
+(https://github.com/popcornell/FastMSS) with contributions from
+Alexander Polok (Brno University of Technology) and
+Ivan Medennikov (NVIDIA).
+
+Licensed under the Apache License, Version 2.0.
+If you use FastMSS in your work, please cite the repository
+(see CITATION.cff).
