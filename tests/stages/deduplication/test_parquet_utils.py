@@ -95,6 +95,29 @@ def test_arrow_read_handles_a_mixed_file_list_in_input_order(tmp_path: Path) -> 
     assert table.column("id").to_pylist() == [None, None, 1, 2]
 
 
+@pytest.mark.parametrize("filesystem_kind", ["none", "fsspec", "pyarrow"])
+def test_arrow_read_ignores_conflicting_unselected_columns(tmp_path: Path, filesystem_kind: str) -> None:
+    first = tmp_path / "first.parquet"
+    second = tmp_path / "second.parquet"
+    pq.write_table(pa.table({"text": ["hello"], "payload": [{"name": "a"}], "id": [1], "extra": [1]}), first)
+    pq.write_table(pa.table({"text": ["world"], "payload": [{"name": "b"}], "id": [2], "extra": ["x"]}), second)
+
+    filesystem = {"none": None, "fsspec": fsspec.filesystem("file"), "pyarrow": pafs.LocalFileSystem()}[
+        filesystem_kind
+    ]
+
+    table = read_parquet_with_pyarrow(
+        [str(first), str(second)],
+        columns=["text", "payload.name"],
+        filters=[("id", "==", 2)],
+        filesystem=filesystem,
+        allow_mismatched_pq_schemas=True,
+    )
+
+    assert table.column("text").to_pylist() == ["world"]
+    assert table.column("name").to_pylist() == ["b"]
+
+
 @pytest.mark.parametrize("storage_options", [{}, {"skip_instance_cache": True}])
 def test_local_storage_options_are_used_for_footer_inspection(
     tmp_path: Path, storage_options: dict[str, bool]

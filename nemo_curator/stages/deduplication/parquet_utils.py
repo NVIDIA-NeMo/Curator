@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any
 
 import fsspec
 import pyarrow as pa
+import pyarrow.dataset as ds
 import pyarrow.fs as pafs
 import pyarrow.parquet as pq
 
@@ -110,6 +111,34 @@ def _metadata_has_page_indexed_delta_byte_array(metadata: pq.FileMetaData, colum
     return False
 
 
+def _filter_columns(filters: object) -> set[str]:
+    if not filters:
+        return set()
+    if isinstance(filters, tuple) and filters and isinstance(filters[0], str):
+        return {filters[0]}
+    if isinstance(filters, (list, tuple)):
+        columns: set[str] = set()
+        for item in filters:
+            columns.update(_filter_columns(item))
+        return columns
+    return set()
+
+
+def _schema_columns(columns: Sequence[str] | None, filters: object) -> list[str] | None:
+    if columns is None or isinstance(filters, ds.Expression):
+        return None
+    requested = list(columns)
+    requested.extend(column for column in _filter_columns(filters) if column not in requested)
+    return requested
+
+
+def _project_schema(schema: pa.Schema, columns: list[str] | None) -> pa.Schema:
+    if columns is None:
+        return schema
+    names = {name for column in columns for name in schema.names if name == column or column.startswith(f"{name}.")}
+    return pa.schema([field for field in schema if field.name in names], metadata=schema.metadata)
+
+
 def has_page_indexed_delta_byte_array(
     filepath: str | list[str],
     columns: Sequence[str] | None = None,
@@ -156,10 +185,12 @@ def read_parquet_with_pyarrow(
             and "schema" not in kwargs
             and all(provided_filesystem.get_file_info(path).type == pafs.FileType.File for path in filepath)
         ):
+            requested_columns = _schema_columns(kwargs.get("columns"), kwargs.get("filters"))
             schemas = []
             for path in filepath:
                 with provided_filesystem.open_input_file(path) as file_obj:
-                    schemas.append(pq.ParquetFile(file_obj).schema_arrow)
+                    schema = pq.ParquetFile(file_obj).schema_arrow
+                schemas.append(_project_schema(schema, requested_columns))
             kwargs["schema"] = pa.unify_schemas(schemas)
         return pq.read_table(filepath, filesystem=provided_filesystem, **kwargs)
 
@@ -173,10 +204,12 @@ def read_parquet_with_pyarrow(
         arrow_filesystem = provided_filesystem
 
     if allow_mismatched_pq_schemas and len(paths) > 1 and not is_directory and "schema" not in kwargs:
+        requested_columns = _schema_columns(kwargs.get("columns"), kwargs.get("filters"))
         schemas = []
         for path in paths:
             with filesystem.open(path, "rb") as file_obj:
-                schemas.append(pq.ParquetFile(file_obj).schema_arrow)
+                schema = pq.ParquetFile(file_obj).schema_arrow
+            schemas.append(_project_schema(schema, requested_columns))
         kwargs["schema"] = pa.unify_schemas(schemas)
 
     return pq.read_table(source, filesystem=arrow_filesystem, **kwargs)
