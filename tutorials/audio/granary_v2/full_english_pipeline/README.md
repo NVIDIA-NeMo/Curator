@@ -65,8 +65,8 @@ loader. It overrides the metadata image's expandable-segment allocator with
 `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:False` for vLLM's tensor-parallel
 CUDA memory sharing and graph warm-up. Keep this override when initializing
 the combined runtime. Do not replace it with the text server's Python/Torch environment.
-This combined image and end-to-end GPU execution have not been validated here;
-the individual tutorials' benchmark results do not measure this combined graph.
+The Dockerfile and combined graph have been [validated on EOS](#5-validation).
+The individual tutorials' benchmark results do not measure this combined graph.
 
 On the separate text-serving node, follow the text tutorial's
 [environment setup](../text_pipeline/README.md#1-prepare-the-environment) and
@@ -209,3 +209,29 @@ input; inspect `metadata.jsonl` before changing settings. Nonempty fields and
 successful requests do not establish transcript accuracy or semantic quality.
 Review generated text and `additional_notes` before using the results. Stop the
 separately managed text server after inspection when it is no longer needed.
+
+## 5. Validation
+
+On 2026-11-07, the Dockerfile at `1a06c387` was built and the complete graph was
+run on the same frozen 30,631-recording LibriSpeech cohort (107.763567 hours).
+Each arm used eight H100 80 GB GPUs for audio and a separate eight-H100 text
+server, with 128 requested CPUs, all node RAM and a 90-minute limit per node.
+
+| Executor | Metadata rows | English rows | Flagged English rows | Native process seconds |
+| --- | ---: | ---: | ---: | ---: |
+| Xenna streaming | 38,417 | 38,196 | 44 | 1,555.13 |
+| Ray Data | 38,417 | 38,196 | 45 | 2,673.93 |
+
+Validation checked coverage of every source recording, unique clip IDs, exact
+English selection and preserved paths/offsets, plus all required output fields
+and all nine operation notes on unflagged rows. The three configuration tests
+also passed. Native process time excludes the separate text server's startup.
+All selected clip IDs and offsets matched across executors, but 5,861 raw Qwen
+predictions differed; exact transcript or generated-text parity is not claimed.
+
+These checks do not measure transcript accuracy or full GPU scaling. In the
+Xenna run, one text-serving GPU pair did not show a fully loaded model state;
+four configured replicas do not establish that all four served requests.
+The pinned metadata/vLLM stack also has conflicting dependency declarations:
+`uv pip check` is not clean. The tested graph works with this installed stack;
+other package features and replacement versions require separate validation.
