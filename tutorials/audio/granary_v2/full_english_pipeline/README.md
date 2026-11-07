@@ -61,7 +61,10 @@ still uses the metadata tutorial's bounded builder.
 The [Dockerfile](Dockerfile) preserves the base image's installed package versions
 while adding vLLM 0.15.1 and qwen-omni-utils 0.0.9. It keeps the metadata image's
 NeMo fork, Torch 2.9.1, Transformers 4.57.6, TensorRT engines and CUDA compatibility
-loader. Do not replace it with the text server's Python/Torch environment.
+loader. It overrides the metadata image's expandable-segment allocator with
+`PYTORCH_CUDA_ALLOC_CONF=expandable_segments:False` for vLLM's tensor-parallel
+CUDA memory sharing and graph warm-up. Keep this override when initializing
+the combined runtime. Do not replace it with the text server's Python/Torch environment.
 This combined image and end-to-end GPU execution have not been validated here;
 the individual tutorials' benchmark results do not measure this combined graph.
 

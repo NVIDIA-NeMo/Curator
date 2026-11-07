@@ -13,4 +13,7 @@ RUN uv pip freeze --python /opt/venv/bin/python --exclude-editable > /tmp/granar
         'vllm==0.15.1' 'qwen-omni-utils==0.0.9' \
     && rm /tmp/granary-overrides.txt
 
-ENV VLLM_WORKER_MULTIPROC_METHOD=spawn
+# vLLM tensor-parallel CUDA graphs need CUDA-IPC-compatible allocations.
+# Override the metadata base image's expandable-segment allocator.
+ENV PYTORCH_CUDA_ALLOC_CONF=expandable_segments:False \
+    VLLM_WORKER_MULTIPROC_METHOD=spawn
