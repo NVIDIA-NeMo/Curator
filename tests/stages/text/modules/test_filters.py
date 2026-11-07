@@ -58,6 +58,7 @@ from nemo_curator.stages.text.filters.heuristic.repetition import (
 from nemo_curator.stages.text.filters.histogram import HistogramFilter
 from nemo_curator.stages.text.filters.token import TokenCountFilter
 from nemo_curator.stages.text.utils.constants import regex_url
+from nemo_curator.stages.text.utils.text_utils import get_paragraphs
 from nemo_curator.tasks import DocumentBatch
 
 
@@ -824,16 +825,51 @@ class TestHeuristicFilters:
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
 
     def test_repeatedparagraphs(self) -> None:
-        dataset = list_to_dataset(["", "   ", "\n\n", "totally unique", "half.\n\nhalf."])
+        body = "This is a single paragraph of an ordinary news article with no repetition at all."
+        wrapped_body = "\n\n" + body + "\n\n"
+        dataset = list_to_dataset(["", "   ", "\n\n", "totally unique", wrapped_body, "half.\n\nhalf."])
         filters = ScoreFilter(RepeatedParagraphsFilter())
 
         filtered_data = filters.process(dataset)
 
         expected_data = DocumentBatch(
-            data=pd.DataFrame({"text": ["totally unique"]}),
+            data=pd.DataFrame({"text": ["totally unique", wrapped_body]}),
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
+
+    @pytest.mark.parametrize("cached_paragraphs", [False, True])
+    @pytest.mark.parametrize(
+        ("text", "expected_score", "expected_char_score"),
+        [
+            pytest.param("\n\nunique\n\n", 1.0, 1.0, id="leading-and-trailing-blanks"),
+            pytest.param("first\n\n\n\nsecond\n\n\n\nthird", 1.0, 1.0, id="four-newlines"),
+            pytest.param("first\n\n\n\n\n\nsecond", 1.0, 1.0, id="six-newlines"),
+            pytest.param("first\n\n \t\n\nsecond\n\n \t\n\nthird", 1.0, 9 / 10, id="whitespace-paragraphs"),
+            pytest.param("half.\n\nhalf.", 0.5, 0.5, id="duplicates"),
+            pytest.param("half.\n\n\n\nhalf.", 0.5, 0.5, id="duplicates-with-blanks"),
+            pytest.param("half.\n\n \t\n\nhalf.", 0.5, 7 / 12, id="duplicates-with-whitespace"),
+            pytest.param(" same \n\nsame", 1.0, 1.0, id="preserve-paragraph-text"),
+            pytest.param("half.\n\n\nhalf.", 1.0, 1.0, id="preserve-single-newline"),
+            pytest.param("", 0.0, 0.0, id="empty"),
+            pytest.param(" \t\n\n \r", 0.0, 0.0, id="whitespace-only"),
+        ],
+    )
+    def test_repeatedparagraphs_scores(
+        self, text: str, expected_score: float, expected_char_score: float, cached_paragraphs: bool
+    ) -> None:
+        paragraph_filter = RepeatedParagraphsFilter()
+        char_filter = RepeatedParagraphsByCharFilter()
+        if cached_paragraphs:
+            paragraphs = get_paragraphs(text)
+            paragraph_filter.paragraphs = paragraphs
+            char_filter.paragraphs = paragraphs
+
+        assert char_filter.score_document(text) == pytest.approx(expected_char_score)
+        score = paragraph_filter.score_document(text)
+        assert score == pytest.approx(expected_score)
+        assert paragraph_filter.keep_document(score) is (expected_score >= 0.7)
+        assert char_filter.score_document(text) == pytest.approx(expected_char_score)
 
     def test_repeatedlineschar(self) -> None:
         dataset = list_to_dataset(
