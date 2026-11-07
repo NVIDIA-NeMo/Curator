@@ -1,0 +1,13 @@
+{
+  "repository": "https://github.com/Ssofja/Curator",
+  "branch": "montreal_forced_aligner",
+  "commit": "74cb83a0a364b335833bcb71f27fddacca055535",
+  "source": "nemo_curator/stages/audio/alignment/mfa_alignment.py",
+  "tests": "tests/stages/audio/alignment/test_mfa_alignment.py",
+  "license": "Apache-2.0",
+  "adaptations": [
+    "Declare agent contracts and remappable output keys required by the target Curator framework.",
+    "Expose the stage through the target repository's lazy audio exports.",
+    "Keep source defaults, MFA execution, cache locking and subprocess timeout behavior unchanged."
+  ]
+}
