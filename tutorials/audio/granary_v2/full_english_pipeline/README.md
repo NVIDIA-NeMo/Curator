@@ -68,16 +68,43 @@ the combined runtime. Do not replace it with the text server's Python/Torch envi
 The Dockerfile and combined graph have been [validated on EOS](#5-validation).
 The individual tutorials' benchmark results do not measure this combined graph.
 
-On the separate text-serving node, follow the text tutorial's
-[environment setup](../text_pipeline/README.md#1-prepare-the-environment) and
-[server startup](../text_pipeline/README.md#2-start-the-model-server). Use a
-network-reachable endpoint that every audio worker can access. The server's
-loopback endpoint is only usable on its own host; configure networking and the
-server's advertised address for your deployment. Record the reachable URL as
-`ENGLISH_TEXT_ENDPOINT`, for example `http://text-host:8000/v1`. The combined
-YAML includes the same serving configuration for reference; the shared runner
-does not start it. An existing compatible endpoint can be used with its model
-name supplied as `model_name`.
+On the separate text-serving node, build and enter the text tutorial's
+[driver image](../text_pipeline/README.md#1-prepare-the-environment) **from this
+same checkout**. Use its `/cache` and `/output` mounts, then run:
+
+```bash
+set -euo pipefail
+set +x
+cd /opt/Curator
+source tutorials/audio/granary_v2/full_english_pipeline/runtime.sh text
+python -u tutorials/audio/granary_v2/full_english_pipeline/serve.py \
+  --cache-root /cache/compilation --endpoint-file /output/endpoint.txt \
+  2>&1 | tee /output/server.log
+```
+
+The server downloads the YAML's pinned model snapshot before starting. For an
+already prepared copy of that snapshot, add `--model-dir /absolute/model/path`.
+The checked-in `text-worker-constraints.txt` freezes all 607 effective packages
+in the tested isolated worker. `runtime.sh` applies those constraints before Ray
+starts; `serve.py` explicitly attaches its driver before inspecting the worker,
+checks the complete inventory and Python 3.13.16, then starts the YAML's existing
+`InferenceServer`. The driver still uses the project's locked dependencies;
+do not install the worker's Transformers override into the driver.
+
+Wait for `Ready:` and keep that process running. Use a network-reachable endpoint
+that every audio worker can access. A loopback endpoint is only usable on its own
+host; configure networking and the server's advertised address for your deployment.
+Record the reachable URL as `ENGLISH_TEXT_ENDPOINT`, for example
+`http://text-host:8000/v1`. Press Ctrl-C to stop the server after the audio run.
+The shared pipeline runner does not start the text server.
+
+Both roles source the checked-in `runtime.sh`, which clears inherited distributed
+ranks, selects `/opt/venv`, sets Ray's state-query limits and one native CPU thread,
+and creates a private Ray authentication file removed on shell exit. Audio uses
+`audio-runtime-constraints.txt` for any child-environment installation; text uses
+the complete worker snapshot. These files are the runtime setup used by validation,
+not additional private CI package overrides. Cache locations and offline model
+access may be set for a deployment; they do not change the package constraints.
 
 ## 2. Supply a recording manifest
 
@@ -100,8 +127,8 @@ For public sample audio, use the Qwen tutorial's
 in its dedicated environment. Mount the generated directory at the **same
 absolute path** in the audio container so its manifest paths still resolve.
 These short English recordings exercise the graph; their references are not
-used as segment labels. Follow the metadata tutorial's runtime initialization
-inside the audio container before running TensorRT models.
+used as segment labels. Initialize the audio runtime as shown below before
+running TensorRT models.
 
 ## 3. Run the combined pipeline
 
@@ -125,13 +152,15 @@ docker run --rm -it --gpus all --ipc=host \
   curator-full-english bash
 ```
 
-Inside the container, initialize the runtime using the metadata tutorial's
-[initialization commands](../metadata/README.md#initialize-the-runtime), then:
+Inside the container, initialize the runtime from this same checkout, then run:
 
 ```bash
 set -euo pipefail
 cd /opt/Curator
-export VLLM_WORKER_MULTIPROC_METHOD=spawn
+set +x
+source tutorials/audio/granary_v2/full_english_pipeline/runtime.sh audio
+python docker/audio/check_trt_llm.py
+python -c "import speechbrain, whisper; print('Language-ID imports passed')"
 test ! -e /output/run
 test ! -e /output/pipeline.log
 python nemo_curator/config/run.py \
@@ -211,6 +240,10 @@ Review generated text and `additional_notes` before using the results. Stop the
 separately managed text server after inspection when it is no longer needed.
 
 ## 5. Validation
+
+The following results are historical validation of `1a06c387`, before runtime
+initialization and worker constraints were checked into this tutorial. They do
+not validate the newer setup until it is rerun from its exact pushed commit.
 
 On 2026-11-07, the Dockerfile at `1a06c387` was built and the complete graph was
 run on the same frozen 30,631-recording LibriSpeech cohort (107.763567 hours).
