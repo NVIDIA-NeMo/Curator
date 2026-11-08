@@ -1178,22 +1178,21 @@ in `text`, and an ASR or normalized transcript in `abbreviated_text`. Use
 revision and selection rule alongside the manifest. Human-gold inputs are also
 supported, but identify them as such; do not label copied human text as ASR output.
 
-Follow the [tutorial environment and server instructions](../tutorials/audio/granary_v2/text_pipeline/README.md#1-prepare-the-environment)
-exactly: build its project image from the same checkout, use the same eight-GPU
-node and mounted directories, start its server, and run and check the two bundled
-examples. Place the benchmark cohort at
-`text_processing_data/english/manifest.jsonl` on the host; the container sees it
-read-only at `/data/english/manifest.jsonl`.
+Follow the [tutorial environment instructions](../tutorials/audio/granary_v2/text_pipeline/README.md#1-prepare-the-environment):
+build its project image from the same checkout and use the same eight-GPU node
+and mounted directories. Run and inspect the two bundled examples first. Place
+the benchmark cohort at `text_processing_data/english/manifest.jsonl` on the host;
+the container sees it read-only at `/data/english/manifest.jsonl`.
 
-Keep that container, Ray cluster and server running. In the tutorial's second
-terminal, run these commands sequentially. Both executors use the same endpoint,
-resolved package environment, model weights, `/cache/compilation` and complete
-YAML. Only the cohort size, executor and result paths change from the tutorial.
-Use a fresh benchmark results directory:
+In that container, run the following commands sequentially. Each invocation starts
+the YAML-defined server, runs its complete pipeline and stops serving afterward.
+Both use the same input bytes, model revision and cache. Worker dependencies are
+resolved at startup, so separate invocations do not establish identical effective
+package environments. Use a fresh benchmark results directory:
 
 ```bash
 cd /opt/Curator
-export RAY_ADDRESS=127.0.0.1:6379
+unset RAY_ADDRESS
 set -euo pipefail
 test ! -e /output/benchmarks
 input_sha256=$(sha256sum /data/english/manifest.jsonl | cut -d ' ' -f 1)
@@ -1204,7 +1203,6 @@ python benchmarking/scripts/audio_text_llm_benchmark.py \
   --expected-manifest-sha256="$input_sha256" \
   --output-dir=/output/benchmarks/xenna/output \
   --cache-root=/cache/compilation \
-  --endpoint="$(cat /output/endpoint.txt)" \
   --executor=xenna \
   --benchmark-results-path=/output/benchmarks/xenna
 
@@ -1214,19 +1212,19 @@ python benchmarking/scripts/audio_text_llm_benchmark.py \
   --expected-manifest-sha256="$input_sha256" \
   --output-dir=/output/benchmarks/ray_data/output \
   --cache-root=/cache/compilation \
-  --endpoint="$(cat /output/endpoint.txt)" \
   --executor=ray_data \
   --benchmark-results-path=/output/benchmarks/ray_data
 ```
 
 The shared row count and SHA-256 checks pin both runs to identical input bytes.
-Results appear under `text_processing_output/benchmarks/` on the host. After
-inspecting both runs, follow the tutorial's server shutdown instructions.
+Results appear under `text_processing_output/benchmarks/` on the host.
+`--cache-root` is required for managed serving. `--model-path` selects pre-staged
+weights without changing the served model alias.
 
-The script can also start the same configured server itself when `--endpoint` is
-omitted; `--cache-root` is then required. `--model-path` selects pre-staged weights
-without changing the served model alias. The walkthrough above reuses the tutorial
-server so it cannot resolve a different worker environment between runs.
+For comparisons that require one shared serving environment, provide the same
+externally managed `--endpoint=http://inference-host:8000/v1` to both commands.
+The benchmark leaves that server running; its owner manages startup and shutdown.
+Do not pass `--model-path` with an external endpoint.
 
 ### Outputs and timing
 
@@ -1240,11 +1238,11 @@ written JSONL against the returned tasks. An entirely skipped workload fails val
 The pipeline timer includes reader, all text operations, writer, and executor
 setup/cleanup inside `Pipeline.run`. It excludes input integrity checks,
 Ray/server startup and teardown, output validation and result serialization.
-Server startup is reported separately only when the benchmark starts its own
-server. It is zero in the commands above, which reuse the already-running
-tutorial server. Those commands measure a warm server, after the tutorial; there
-is no additional warmup pass. Earlier processing-only benchmark results excluded
-reader/writer execution and are not directly comparable to this timer.
+Server startup is reported separately when the benchmark starts its own
+server, as in the commands above. With an external endpoint it is zero because
+startup happened outside the benchmark; there is no additional warmup pass.
+Earlier processing-only benchmark results excluded reader/writer execution and
+are not directly comparable to this timer.
 
 Metrics include row throughput and per-operation applied, fallback and skipped
 counts. Requests count logical model calls, including rejected completions;
