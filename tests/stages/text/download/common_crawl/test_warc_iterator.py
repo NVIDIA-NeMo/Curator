@@ -15,6 +15,8 @@
 from pathlib import Path
 from unittest import mock
 
+import fsspec
+import pytest
 from loguru import logger
 
 from nemo_curator.stages.text.download.common_crawl.warc_iterator import CommonCrawlWarcIterator
@@ -177,3 +179,47 @@ class TestCommonCrawlWarcIterator:
 
         expected_columns = ["url", "warc_id", "source_id", "content"]
         assert columns == expected_columns
+
+    def test_iterate_remote_fsspec_path(self) -> None:
+        """Test that WARC files can be read from a non-local fsspec filesystem."""
+        remote_warc_path = "memory://common-crawl/test.warc"
+        http_response = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<html><body>Remote</body></html>\r\n"
+        http_response_bytes = http_response.encode("utf-8")
+        warc_record = (
+            (
+                "WARC/1.0\r\n"
+                "WARC-Type: response\r\n"
+                "WARC-Record-ID: <urn:uuid:remote123>\r\n"
+                "WARC-Date: 2022-01-01T00:00:00Z\r\n"
+                "WARC-Target-URI: http://example.com/remote\r\n"
+                f"Content-Length: {len(http_response_bytes)}\r\n"
+                "\r\n"
+            ).encode()
+            + http_response_bytes
+            + b"\r\n\r\n"
+        )
+
+        with fsspec.open(remote_warc_path, "wb") as file_pointer:
+            file_pointer.write(warc_record)
+
+        records = list(CommonCrawlWarcIterator().iterate(remote_warc_path))
+
+        assert len(records) == 1
+        assert records[0]["warc_id"] == "remote123"
+        assert records[0]["source_id"] == "test.warc"
+        assert records[0]["url"] == "http://example.com/remote"
+
+    @mock.patch("nemo_curator.stages.text.download.common_crawl.warc_iterator.url_to_fs")
+    def test_storage_options_are_forwarded(self, mock_url_to_fs: mock.Mock) -> None:
+        """Test that filesystem credentials and configuration are passed to fsspec."""
+        storage_options = {"profile": "commoncrawl", "client_kwargs": {"region_name": "us-east-1"}}
+        mock_fs = mock.MagicMock()
+        mock_url_to_fs.return_value = (mock_fs, "bucket/test.warc.gz")
+        mock_fs.open.side_effect = RuntimeError("stop after opening")
+
+        iterator = CommonCrawlWarcIterator(storage_options=storage_options)
+        with pytest.raises(RuntimeError, match="stop after opening"):
+            list(iterator.iterate("s3://bucket/test.warc.gz"))
+
+        mock_url_to_fs.assert_called_once_with("s3://bucket/test.warc.gz", **storage_options)
+        mock_fs.open.assert_called_once_with("bucket/test.warc.gz", "rb")

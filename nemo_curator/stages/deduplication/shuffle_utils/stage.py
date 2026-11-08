@@ -43,6 +43,9 @@ class ShuffleStage(ProcessingStage[FileGroupTask, FileGroupTask]):
         Size of the RMM GPU memory pool in bytes.
         If "auto", the memory pool is set to 90% of the free GPU memory.
         If None, the memory pool is set to 50% of the free GPU memory that can expand if needed.
+    use_async_memory
+        Whether to use a CUDA asynchronous memory resource. If False, use the
+        legacy pool memory resource backed by a CUDA memory resource.
     spill_memory_limit
         Device memory limit in bytes for spilling to host.
         If "auto", the limit is set to 80% of the RMM pool size.
@@ -70,6 +73,7 @@ class ShuffleStage(ProcessingStage[FileGroupTask, FileGroupTask]):
         rmm_pool_size: int | Literal["auto"] | None = "auto",
         spill_memory_limit: int | Literal["auto"] | None = "auto",
         enable_statistics: bool = False,
+        use_async_memory: bool = True,
     ):
         super().__init__()
 
@@ -78,6 +82,7 @@ class ShuffleStage(ProcessingStage[FileGroupTask, FileGroupTask]):
         self.total_nparts = total_nparts
         self.output_path = output_path
         self.rmm_pool_size = rmm_pool_size
+        self.use_async_memory = use_async_memory
         self.spill_memory_limit = spill_memory_limit
         self.enable_statistics = enable_statistics
 
@@ -89,6 +94,7 @@ class ShuffleStage(ProcessingStage[FileGroupTask, FileGroupTask]):
             "total_nparts": self.total_nparts,  # Can be None, executor will set it
             "output_path": self.output_path,
             "rmm_pool_size": self.rmm_pool_size,
+            "rmm_async": self.use_async_memory,
             "spill_memory_limit": self.spill_memory_limit,
             "enable_statistics": self.enable_statistics,
             "read_kwargs": self.read_kwargs,

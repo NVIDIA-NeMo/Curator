@@ -110,7 +110,8 @@ class DiverseQAPostProcessingStage(ProcessingStage[DocumentBatch, DocumentBatch]
             # Concatenate the document and the QA pairs
             return f"{text}\n\n{qa_pairs_str}"
 
-        df[self.qa_field] = df.apply(_format_row, axis=1)
+        if not df.empty:
+            df[self.qa_field] = df.apply(_format_row, axis=1)
 
         return DocumentBatch(
             data=df,

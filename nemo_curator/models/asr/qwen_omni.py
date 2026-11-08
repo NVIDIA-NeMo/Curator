@@ -182,6 +182,8 @@ class QwenOmniASRAdapter:
 
     def download_weights_on_node(self) -> None:
         """Cache the model snapshot on local disk without touching the GPU."""
+        if Path(self.model_id).is_dir():
+            return
         kwargs: dict[str, Any] = {}
         if self.revision is not None:
             kwargs["revision"] = self.revision

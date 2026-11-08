@@ -61,6 +61,9 @@ mfa_command=/path/to/micromamba/envs/mfa/bin/mfa
 ### 3. Download MFA models
 
 ```bash
+# Use the same root for model downloads and alignment.
+export MFA_ROOT_DIR="${MFA_ROOT_DIR:-$HOME/Documents/MFA}"
+
 # Acoustic model + pronunciation dictionary (English example)
 mfa model download acoustic english_us_arpa
 mfa model download dictionary english_us_arpa
@@ -69,7 +72,7 @@ mfa model download dictionary english_us_arpa
 mfa model download g2p english_us_arpa
 ```
 
-Models are stored under `~/.mfa/pretrained_models/` by default. Override with `mfa_root_dir` or the `MFA_ROOT_DIR` environment variable.
+Models are stored under `~/Documents/MFA/pretrained_models/` by default. The stage uses an explicit `mfa_root_dir` first, then `MFA_ROOT_DIR`, then `~/Documents/MFA`. If you override the root, use that same root when downloading models; for example, set `MFA_ROOT_DIR=/data/mfa` before the download commands and pass `mfa_root_dir=/data/mfa` to the tutorial.
 
 ## Input Format
 
@@ -137,13 +140,15 @@ Results are written to `/data/aligned/result.jsonl`.
 | `create_rttm` | `true` | Whether to generate RTTM speech-activity files |
 | `create_ctm` | `true` | Whether to generate CTM word-timing files |
 
-Override any setting on the command line, e.g. `num_jobs=8`.
+Override any setting on the command line, e.g. `num_jobs=8`. The YAML reserves the same number of CPUs for the alignment stage.
+
+`execution_mode` defaults to `streaming` for Xenna. The YAML also exposes `mfa_command`, `mfa_root_dir`, `local_mfa_base_dir`, `copy_models_to_local`, input field names, `max_gap_for_merge`, `single_speaker`, `clean`, `use_mp`, `output_format`, and `silence_markers`. Set root options to `null` to use the stage defaults.
 
 ## Choosing a backend
 
 | Backend | Description | When to use |
 |---|---|---|
-| `ray_data` | Default for this tutorial. `MFAAlignmentStage` forces a single actor cluster-wide (`num_workers()` returns `1`) so MFA/Kaldi never runs concurrently against a shared model directory. | **Recommended.** |
+| `ray_data` | Default for this tutorial. `MFAAlignmentStage` fixes the Ray actor pool to one worker cluster-wide so MFA/Kaldi never runs concurrently against a shared model directory. | **Recommended.** |
 | `xenna` | Cosmos-Xenna streaming engine. `xenna_stage_spec()` requests exactly one MFA worker per node instead. | Multi-node runs where Xenna's per-node scheduling is preferred. |
 
 ```bash
@@ -189,8 +194,8 @@ The output manifest JSONL contains all original fields plus:
   "speaker": "speaker_a",
   "duration": 1.23,
   "textgrid_filepath": "/data/aligned/textgrids/abc123/utt001.TextGrid",
-  "rttm_filepath": "/data/aligned/rttms/utt001.rttm",
-  "ctm_filepath": "/data/aligned/ctms/utt001.ctm",
+  "rttm_filepath": "/data/aligned/rttms/abc123/utt001.rttm",
+  "ctm_filepath": "/data/aligned/ctms/abc123/utt001.ctm",
   "mfa_skipped": false
 }
 ```
@@ -200,8 +205,8 @@ The output manifest JSONL contains all original fields plus:
 | `textgrid_filepath` | string | Path to the TextGrid alignment file (empty if MFA skipped this file) |
 | `rttm_filepath` | string | Path to the RTTM speech-activity file (if `create_rttm=true`) |
 | `ctm_filepath` | string | Path to the CTM word-timing file (if `create_ctm=true`) |
-| `mfa_skipped` | bool | `true` if MFA silently dropped this file (see below) |
-| `duration` | float | Audio duration in seconds (computed if missing from input) |
+| `mfa_skipped` | bool | `true` if input validation failed or MFA produced no alignment (see below) |
+| `duration` | float | Audio duration in seconds; computed if missing, or `-1.0` when unavailable |
 
 ### Output directory structure
 
@@ -211,9 +216,11 @@ output_dir/
 │   └── <batch_uuid>/
 │       └── utt001.TextGrid
 ├── rttms/              # RTTM speech activity files (if enabled)
-│   └── utt001.rttm
+│   └── <batch_uuid>/
+│       └── utt001.rttm
 ├── ctms/                # CTM word timing files (if enabled)
-│   └── utt001.ctm
+│   └── <batch_uuid>/
+│       └── utt001.ctm
 └── result.jsonl         # Output JSONL manifest
 ```
 
@@ -241,7 +248,7 @@ Fields: `<file-id> <channel> <start> <duration> <word>`
 When running on multiple nodes (e.g., via Xenna or Ray cluster), `MFAAlignmentStage` handles distributed MFA gracefully:
 
 - **`setup_on_node()`** copies MFA pretrained models from shared storage (NFS/Lustre) to each node's local storage (e.g., `/tmp`), namespaced by a digest of the resolved source root plus the requested acoustic/dictionary/G2P model identity. The cache is populated atomically under a lock and validated against a completeness marker before reuse, so a stale, wrong-source, or interrupted copy is never silently served. This avoids file-locking issues that Kaldi (used internally by MFA) has with network filesystems.
-- **`xenna_stage_spec()`** requests exactly 1 MFA worker per node under Xenna; the Ray Data backend instead forces a single MFA actor cluster-wide via `num_workers()`. Either way, MFA's internal parallelism is controlled via `num_jobs` (MFA `-j`).
+- **`xenna_stage_spec()`** requests exactly 1 MFA worker per node under Xenna; the Ray Data backend instead forces a single MFA actor cluster-wide through `ray_stage_spec()`. Either way, MFA's internal parallelism is controlled via `num_jobs` (MFA `-j`).
 - Set `copy_models_to_local=False` if MFA models are already on local storage.
 
 ## Non-English Languages
@@ -270,6 +277,10 @@ python nemo_curator/config/run.py \
 ```
 
 ## MFA-Skipped Files
+
+RTTM, CTM, and TextGrid files share a batch namespace, so identical input basenames in different batches keep distinct output files.
+
+Rows rejected before alignment keep empty artifact paths and `mfa_skipped=true`. Their duration is preserved or computed when possible, and is `-1.0` when unavailable.
 
 MFA may silently skip files it cannot align (out-of-vocabulary words, acoustic mismatch, very short audio, etc.). When this happens:
 

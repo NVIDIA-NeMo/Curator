@@ -511,6 +511,7 @@ def test_ext_from_content_type_known() -> None:
 
 def test_ext_from_content_type_fallback() -> None:
     assert _ext_from_content_type(None) == "bin"
+    assert _ext_from_content_type(pd.NA) == "bin"
     assert _ext_from_content_type("application/octet-stream") == "bin"
 
 

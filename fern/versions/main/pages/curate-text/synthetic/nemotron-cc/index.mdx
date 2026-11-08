@@ -32,18 +32,18 @@ flowchart TB
         C --> D[Segment Filter]
         D --> E[Document Joiner]
     end
-    
+
     subgraph "LLM Generation"
         E --> F[Task-Specific Stage<br/>WikiPara/DiverseQA/Distill/etc.]
     end
-    
+
     subgraph "Postprocessing"
         F --> G[Token Count Filter]
         G --> H[Markdown Remover]
         H --> I[Task-Specific Cleanup]
         I --> J[Quality Filter]
     end
-    
+
     J --> K[Output Dataset]
 ```
 
@@ -215,7 +215,7 @@ pipeline = add_preprocessing_pipeline(
 pipeline.add_stage(
     DiverseQAStage(
         client=llm_client,
-        model_name="meta/llama-3.3-70b-instruct",
+        model_name="nvidia/nemotron-3-super-120b-a12b",
         generation_config=generation_config,
         input_field="text",
         output_field="diverse_qa",
@@ -259,7 +259,7 @@ from nemo_curator.stages.text.io.writer.parquet import ParquetWriter
 # Initialize
 client = RayClient(include_dashboard=False)
 client.start()
-tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.3-70B-Instruct")
+tokenizer = AutoTokenizer.from_pretrained("nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16")
 
 # Create LLM client
 llm_client = AsyncOpenAIClient(
@@ -279,7 +279,7 @@ pipeline.add_stage(ParquetReader(file_paths=["./input_data/*.parquet"]))
 pipeline.add_stage(
     DiverseQAStage(
         client=llm_client,
-        model_name="meta/llama-3.3-70b-instruct",
+        model_name="nvidia/nemotron-3-super-120b-a12b",
         generation_config=GenerationConfig(temperature=0.5, top_p=0.9),
         input_field="text",
         output_field="diverse_qa",
@@ -315,8 +315,8 @@ from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.synthetic.nemotron_cc.nemo_data_designer.nemotron_cc import DiverseQAStage
 
 model_config = dd.ModelConfig(
-    alias="meta/llama-3.3-70b-instruct",
-    model="meta/llama-3.3-70b-instruct",
+    alias="nvidia/nemotron-3-super-120b-a12b",
+    model="nvidia/nemotron-3-super-120b-a12b",
     provider="nvidia",
     inference_parameters=dd.ChatCompletionInferenceParams(
         temperature=0.5, top_p=0.9, max_tokens=600,
@@ -335,7 +335,7 @@ pipeline.add_stage(
     DiverseQAStage(
         input_field="text",
         output_field="diverse_qa",
-        model_alias="meta/llama-3.3-70b-instruct",
+        model_alias="nvidia/nemotron-3-super-120b-a12b",
         model_configs=[model_config],
         model_providers=[model_provider],
     )

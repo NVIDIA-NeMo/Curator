@@ -104,6 +104,7 @@ def test_embedding_reader_extensions_default_to_input_filetype(
     workflow._run_embedding_generation(executor=object())
 
     assert captured_stages[0].file_extensions == expected_extensions
+    assert captured_stages[1].metadata_fields == [workflow.id_field]
 
 
 @pytest.mark.gpu

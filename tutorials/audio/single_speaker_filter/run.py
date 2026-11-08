@@ -14,7 +14,7 @@
 
 """Filter an ASR manifest to keep only single-speaker audio using Streaming Sortformer.
 
-Four-stage pipeline via XennaExecutor with per-task hash-based checkpointing:
+Four-stage pipeline via XennaExecutor with stage-boundary checkpointing:
   ManifestReader → InferenceSortformerStage → SingleSpeakerFilterStage → ManifestWriterStage
 
 Input:
@@ -29,7 +29,7 @@ Usage:
     python tutorials/audio/single_speaker_filter/run.py \\
         --manifest /path/to/manifest.jsonl --output-dir /path/to/output
 
-    # Resume from checkpoint after partial failure (same --output-dir)
+    # Resume from the last completed stage (same --output-dir)
     python tutorials/audio/single_speaker_filter/run.py \\
         --manifest /path/to/manifest.jsonl --output-dir /path/to/output
 
@@ -53,22 +53,29 @@ from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio import ManifestReader, ManifestWriterStage
-from nemo_curator.stages.audio.inference.speaker_diarization.sortformer import InferenceSortformerStage
+from nemo_curator.stages.audio.inference.speaker_diarization.stage import InferenceSortformerStage
 from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask, FileGroupTask
+from nemo_curator.utils.atomic_io import write_json_atomically
 
 CKPT_HASH_KEY = "_ckpt_hash"
+CKPT_ORDER_KEY = "_ckpt_order"
+CKPT_SUCCESS = "_SUCCESS"
+CKPT_RUN = "_RUN.json"
 
 
 # ---------------------------------------------------------------------------
-# Per-task hash-based checkpointing
+# Stage-boundary checkpointing
 # ---------------------------------------------------------------------------
 
 
 def _task_hash(task: AudioTask | FileGroupTask) -> str:
-    """Stable content hash derived from audio_filepath."""
-    identity = task.data.get("audio_filepath", task.task_id) if isinstance(task.data, Mapping) else task.task_id
-    return hashlib.sha256(identity.encode()).hexdigest()[:16]
+    """Stable identity within one frozen manifest snapshot, including duplicate paths."""
+    if not task.task_id:
+        msg = "Cannot checkpoint a task before Curator assigns its task_id"
+        raise ValueError(msg)
+    return hashlib.sha256(task.task_id.encode()).hexdigest()[:16]
 
 
 def _stage_ckpt_dir(checkpoint_dir: Path, stage_index: int, stage_name: str) -> Path:
@@ -86,29 +93,64 @@ def _save_task(directory: Path, h: str, task: AudioTask | FileGroupTask) -> None
     }
     if isinstance(task, FileGroupTask):
         payload["reader_config"] = task.reader_config
-    (directory / f"{h}.json").write_text(json.dumps(payload, indent=2))
+    write_json_atomically(directory / f"{h}.json", payload, indent=2)
 
 
 def _load_task(path: Path) -> AudioTask | FileGroupTask:
     payload = json.loads(path.read_text())
     if payload.get("_task_type") == "FileGroupTask":
-        return FileGroupTask(
+        task = FileGroupTask(
             dataset_name=payload["dataset_name"],
             data=payload["data"],
             _metadata=payload.get("_metadata", {}),
             reader_config=payload.get("reader_config", {}),
         )
-    return AudioTask(
-        dataset_name=payload["dataset_name"],
-        data=payload["data"],
-        _metadata=payload.get("_metadata", {}),
-    )
+    else:
+        task = AudioTask(
+            dataset_name=payload["dataset_name"],
+            data=payload["data"],
+            _metadata=payload.get("_metadata", {}),
+        )
+    task.task_id = payload["task_id"]
+    return task
 
 
 def _load_all_tasks(directory: Path) -> list[AudioTask | FileGroupTask]:
     if not directory.exists():
         return []
-    return [_load_task(p) for p in sorted(directory.glob("*.json"))]
+    tasks = [_load_task(p) for p in directory.glob("*.json")]
+    return sorted(tasks, key=lambda task: task._metadata[CKPT_ORDER_KEY])
+
+
+def _stage_complete(directory: Path) -> bool:
+    return (directory / CKPT_SUCCESS).is_file()
+
+
+def _mark_stage_complete(directory: Path) -> None:
+    directory.mkdir(parents=True, exist_ok=True)
+    write_json_atomically(directory / CKPT_SUCCESS, {})
+
+
+def _bind_checkpoint_run(checkpoint_dir: Path, identity: dict[str, object]) -> None:
+    """Refuse checkpoints created for different inputs or inference settings."""
+    marker = checkpoint_dir / CKPT_RUN
+    if marker.exists():
+        if json.loads(marker.read_text()) != identity:
+            msg = "Checkpoint input or configuration changed; rerun with --clean"
+            raise RuntimeError(msg)
+        return
+    if checkpoint_dir.exists() and any(checkpoint_dir.iterdir()):
+        msg = "Checkpoint provenance is missing; rerun with --clean"
+        raise RuntimeError(msg)
+    write_json_atomically(marker, identity, indent=2)
+
+
+def _manifest_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 # ---------------------------------------------------------------------------
@@ -121,13 +163,14 @@ class SingleSpeakerFilterStage(ProcessingStage[AudioTask, AudioTask]):
     """Keep only audio samples where Sortformer detected exactly one speaker."""
 
     diar_segments_key: str = "diar_segments"
+    num_speakers_key: str = "num_speakers"
     name: str = "SingleSpeakerFilter"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], [self.diar_segments_key]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], [self.diar_segments_key]
+        return ["data"], [self.num_speakers_key]
 
     def validate_input(self, task: AudioTask) -> bool:
         if not hasattr(task, "data") or task.data is None:
@@ -148,7 +191,7 @@ class SingleSpeakerFilterStage(ProcessingStage[AudioTask, AudioTask]):
             speakers = {seg["speaker"] for seg in segments}
             if len(speakers) == 1:
                 output_data = {k: v for k, v in task.data.items() if k != self.diar_segments_key}
-                output_data["num_speakers"] = 1
+                output_data[self.num_speakers_key] = 1
                 results.append(
                     AudioTask(
                         dataset_name=task.dataset_name,
@@ -165,11 +208,15 @@ class SingleSpeakerFilterStage(ProcessingStage[AudioTask, AudioTask]):
 # ---------------------------------------------------------------------------
 
 
-def _run_stages_with_checkpoints(
+def _run_stages_with_checkpoints(  # noqa: C901, PLR0912, PLR0915
     stages: list[ProcessingStage],
     checkpoint_dir: Path,
 ) -> list[AudioTask | FileGroupTask]:
-    """Execute stages sequentially with per-task hash-based checkpointing."""
+    """Execute stages sequentially, reusing only complete stage boundaries.
+
+    A stage interrupted inside ``Pipeline.run`` is rerun as a whole because
+    the executor returns its results only after that stage succeeds.
+    """
     executor = XennaExecutor()
     current_tasks: list[AudioTask | FileGroupTask] | None = None
     t0 = time.time()
@@ -177,13 +224,19 @@ def _run_stages_with_checkpoints(
     for idx, stage in enumerate(stages):
         sdir = _stage_ckpt_dir(checkpoint_dir, idx, stage._name)
 
+        is_writer = isinstance(stage, ManifestWriterStage)
+        if _stage_complete(sdir) and not is_writer:
+            cached = _load_all_tasks(sdir)
+            logger.info(f"Stage {idx} ({stage._name}): loaded {len(cached)} cached tasks — skipping")
+            current_tasks = cached
+            continue
+        if is_writer and sdir.exists():
+            shutil.rmtree(sdir)
+
         # --- reader stage (no input tasks) ---
         if current_tasks is None:
-            cached = _load_all_tasks(sdir)
-            if cached:
-                logger.info(f"Stage {idx} ({stage._name}): loaded {len(cached)} cached tasks — skipping")
-                current_tasks = cached
-                continue
+            if sdir.exists():
+                shutil.rmtree(sdir)
 
             logger.info(f"Running stage {idx}/{len(stages) - 1}: {stage._name}")
             stage_t0 = time.time()
@@ -191,10 +244,12 @@ def _run_stages_with_checkpoints(
             output = pipeline.run(executor=executor)
             current_tasks = output or []
 
-            for task in current_tasks:
+            for order, task in enumerate(current_tasks):
                 h = _task_hash(task)
                 task._metadata[CKPT_HASH_KEY] = h
+                task._metadata[CKPT_ORDER_KEY] = order
                 _save_task(sdir, h, task)
+            _mark_stage_complete(sdir)
             logger.info(f"Stage {stage._name} done in {time.time() - stage_t0:.1f}s — {len(current_tasks)} tasks")
             continue
 
@@ -202,13 +257,18 @@ def _run_stages_with_checkpoints(
         cached_tasks: list[AudioTask | FileGroupTask] = []
         todo_tasks: list[AudioTask | FileGroupTask] = []
 
-        for task in current_tasks:
-            h = task._metadata.get(CKPT_HASH_KEY) or _task_hash(task)
-            if (sdir / f"{h}.json").exists():
-                cached_tasks.append(_load_task(sdir / f"{h}.json"))
-            else:
-                task._metadata[CKPT_HASH_KEY] = h
-                todo_tasks.append(task)
+        if is_writer:
+            todo_tasks = current_tasks
+        else:
+            for task in current_tasks:
+                h = task._metadata.get(CKPT_HASH_KEY) or _task_hash(task)
+                if (sdir / f"{h}.json").exists():
+                    cached_task = _load_task(sdir / f"{h}.json")
+                    cached_task._metadata[CKPT_ORDER_KEY] = task._metadata[CKPT_ORDER_KEY]
+                    cached_tasks.append(cached_task)
+                else:
+                    task._metadata[CKPT_HASH_KEY] = h
+                    todo_tasks.append(task)
 
         if cached_tasks:
             logger.info(f"Stage {idx} ({stage._name}): {len(cached_tasks)} cached, {len(todo_tasks)} remaining")
@@ -221,15 +281,26 @@ def _run_stages_with_checkpoints(
             new_tasks = output or []
 
             for task in new_tasks:
-                h = task._metadata.get(CKPT_HASH_KEY) or _task_hash(task)
-                task._metadata[CKPT_HASH_KEY] = h
-                _save_task(sdir, h, task)
+                if not is_writer:
+                    h = task._metadata.get(CKPT_HASH_KEY) or _task_hash(task)
+                    task._metadata[CKPT_HASH_KEY] = h
+                    _save_task(sdir, h, task)
                 cached_tasks.append(task)
 
             logger.info(f"Stage {stage._name} done in {time.time() - stage_t0:.1f}s — {len(new_tasks)} tasks")
+        elif is_writer:
+            stage.setup()
+            stage.finalize()
         else:
             logger.info(f"Stage {idx} ({stage._name}): all tasks processed — skipping")
 
+        cached_tasks.sort(key=lambda task: task._metadata[CKPT_ORDER_KEY])
+        if not is_writer:
+            active_hashes = {task._metadata[CKPT_HASH_KEY] for task in cached_tasks}
+            for path in sdir.glob("*.json"):
+                if path.stem not in active_hashes:
+                    path.unlink()
+            _mark_stage_complete(sdir)
         current_tasks = cached_tasks
 
     total = time.time() - t0
@@ -260,45 +331,84 @@ def parse_args() -> argparse.Namespace:
     return args
 
 
+def _ensure_safe_clean(output_dir: Path, protected_path: Path) -> None:
+    if protected_path.resolve().is_relative_to(output_dir.resolve()):
+        msg = f"Refusing --clean because output directory contains input path: {protected_path}"
+        raise ValueError(msg)
+
+
+def _ensure_manifest_sources_safe(output_dir: Path, manifest: Path) -> None:
+    """Prevent --clean from deleting the manifest or any local audio it names."""
+    _ensure_safe_clean(output_dir, manifest)
+    with manifest.open(encoding="utf-8") as source:
+        for line in source:
+            if not line.strip():
+                continue
+            audio_filepath = json.loads(line).get("audio_filepath")
+            if isinstance(audio_filepath, str) and audio_filepath:
+                _ensure_safe_clean(output_dir, Path(audio_filepath).expanduser())
+
+
 def main() -> None:
     args = parse_args()
 
-    ray_client = RayClient()
-    ray_client.start()
-
     if args.clean and args.output_dir.exists():
+        _ensure_manifest_sources_safe(args.output_dir, args.manifest)
         shutil.rmtree(args.output_dir)
         logger.info(f"Cleaned output directory: {args.output_dir}")
     args.output_dir.mkdir(parents=True, exist_ok=True)
+
+    # shortcut: referenced audio bytes are not hashed; use --clean after replacing them.
+    _bind_checkpoint_run(
+        args.checkpoint_dir,
+        {
+            "version": 1,
+            "manifest": str(args.manifest.resolve()),
+            "manifest_sha256": _manifest_sha256(args.manifest),
+            "model": args.model,
+            "chunk_len": args.chunk_len,
+            "chunk_right_context": args.chunk_right_context,
+            "fifo_len": args.fifo_len,
+            "spkcache_update_period": args.spkcache_update_period,
+            "spkcache_len": args.spkcache_len,
+        },
+    )
 
     with open(args.manifest) as f:
         total_entries = sum(1 for line in f if line.strip())
     if total_entries == 0:
         print(f"Empty manifest: {args.manifest}")
-        ray_client.stop()
         return
 
-    has_checkpoint = args.checkpoint_dir.exists() and any(args.checkpoint_dir.iterdir())
+    has_checkpoint = any(args.checkpoint_dir.glob("stage_*"))
     resume_info = " (resuming from checkpoint)" if has_checkpoint else ""
     print(f"Manifest: {total_entries} entries{resume_info}", flush=True)
 
-    stages: list[ProcessingStage] = [
-        ManifestReader(manifest_path=str(args.manifest)),
-        InferenceSortformerStage(
-            model_name=args.model,
-            chunk_len=args.chunk_len,
-            chunk_right_context=args.chunk_right_context,
-            fifo_len=args.fifo_len,
-            spkcache_update_period=args.spkcache_update_period,
-            spkcache_len=args.spkcache_len,
-            inference_batch_size=1,
-        ),
-        SingleSpeakerFilterStage(),
-        ManifestWriterStage(output_path=str(args.output_manifest)),
-    ]
+    ray_client = RayClient()
+    ray_client.start()
 
-    print("Starting pipeline with inter-stage checkpointing...", flush=True)
-    _run_stages_with_checkpoints(stages, args.checkpoint_dir)
+    try:
+        stages: list[ProcessingStage] = [
+            ManifestReader(manifest_path=str(args.manifest)),
+            InferenceSortformerStage(
+                model_id=args.model,
+                adapter_kwargs={
+                    "chunk_len": args.chunk_len,
+                    "chunk_right_context": args.chunk_right_context,
+                    "fifo_len": args.fifo_len,
+                    "spkcache_update_period": args.spkcache_update_period,
+                    "spkcache_len": args.spkcache_len,
+                    "inference_batch_size": 1,
+                },
+            ).with_(resources=Resources(gpus=1), batch_size=1),
+            SingleSpeakerFilterStage(),
+            ManifestWriterStage(output_path=str(args.output_manifest)),
+        ]
+
+        print("Starting pipeline with inter-stage checkpointing...", flush=True)
+        _run_stages_with_checkpoints(stages, args.checkpoint_dir)
+    finally:
+        ray_client.stop()
 
     if args.output_manifest.exists():
         with open(args.output_manifest) as f:
@@ -310,8 +420,6 @@ def main() -> None:
     if entries_out > 0:
         print(f"Output manifest: {args.output_manifest}")
     print(f"{'=' * 60}")
-
-    ray_client.stop()
 
 
 if __name__ == "__main__":

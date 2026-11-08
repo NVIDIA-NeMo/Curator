@@ -13,8 +13,16 @@
 # limitations under the License.
 
 from collections.abc import Callable
+from unittest.mock import MagicMock
 
+import pytest
+
+from nemo_curator.stages.audio._agent._agent_ready import AgentReady, IOSpec, StageContract
+from nemo_curator.stages.audio._agent._agent_registry import build_contract
+from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
+from nemo_curator.stages.audio._agent._planning import validate_pipeline
 from nemo_curator.stages.audio.tagging.text.itn import InverseTextNormalizationStage
+from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask
 
 
@@ -36,3 +44,89 @@ class TestInverseTextNormalizationStage:
         assert len(out["segments"]) == 2
         assert out["segments"][0]["text_ITN"] == "hello"
         assert out["segments"][1]["text_ITN"] == "the answer is 42"
+
+    @pytest.mark.parametrize(
+        ("data", "expected"),
+        [
+            ({"segments": [{}]}, None),
+            ({"segments": [{"text": ""}]}, None),
+            ({"segments": [{"text": "forty two"}]}, "42"),
+        ],
+        ids=["missing-text", "empty-text", "populated"],
+    )
+    def test_agent_ready_conditional_nested_output(
+        self,
+        data: dict,
+        expected: str | None,
+    ) -> None:
+        stage = InverseTextNormalizationStage()
+        normalizer = MagicMock()
+        normalizer.split_text_into_sentences.side_effect = lambda text: [text]
+        normalizer.normalize_list.return_value = ["42"]
+        stage._normalizer = normalizer
+        task = AudioTask(dataset_name="test", data=data)
+
+        contract = assert_agent_ready(
+            stage,
+            lambda: task,
+            segments_key="segments",
+        )
+
+        assert contract.reads.data_keys == ["segments"]
+        assert contract.writes.segment_data_keys == []
+        assert len(contract.conditional_writes) == 1
+        assert contract.conditional_writes[0].writes.segment_data_keys == ["text_ITN"]
+        if expected is None:
+            assert all("text_ITN" not in segment for segment in task.data.get("segments", []))
+        else:
+            assert task.data["segments"][0]["text_ITN"] == expected
+
+    def test_planner_does_not_guarantee_conditional_nested_output(self) -> None:
+        report = validate_pipeline(
+            [InverseTextNormalizationStage()],
+            initial_roles={"segments"},
+            initial_keys={"segments"},
+            initial_task_type="AudioTask",
+        )
+
+        assert report.ok
+        assert "text_ITN" not in report.produced_keys
+
+
+def test_itn_legacy_positional_signature_still_binds() -> None:
+    """The agent-added keys are keyword-only, so legacy positional slots keep their meaning."""
+    stage = InverseTextNormalizationStage("es", "t", "MyName")
+    assert stage.language == "es"
+    assert stage.text_key == "t"
+    assert stage.name == "MyName"
+    assert stage.segments_key == "segments"
+    assert stage.output_suffix == "_ITN"
+
+
+@pytest.mark.parametrize("has_text", [False, True])
+def test_renamed_nested_text_contract_and_planner(has_text: bool) -> None:
+    stage = InverseTextNormalizationStage(text_key="transcript", output_suffix="_ITN")
+    contract = build_contract(stage)
+    assert contract.optional_reads.segment_data_keys == ["transcript"]
+    assert contract.conditional_writes[0].requires_keys == ["transcript"]
+    assert contract.key_roles["transcript_ITN"] == "text"
+
+    class TextConsumer(AgentReady, ProcessingStage):
+        def process(self, task: AudioTask) -> AudioTask:
+            return task
+
+        def describe(self) -> StageContract:
+            return StageContract(
+                reads=IOSpec(segment_data_keys=["transcript_ITN"]),
+                key_roles={"transcript_ITN": "text"},
+            )
+
+    report = validate_pipeline(
+        [stage, TextConsumer()],
+        initial_roles={"segments"},
+        initial_keys={"segments"},
+        initial_segment_keys={"transcript"} if has_text else set(),
+        initial_task_type="AudioTask",
+    )
+    assert report.ok == has_text
+    assert any(issue.code == "conditional_read" for issue in report.issues) == has_text

@@ -24,13 +24,14 @@ from typing import TYPE_CHECKING
 #       Consider vendoring the pytest code or implementing a custom expression evaluator.
 from _pytest.mark import Expression
 from loguru import logger
+from nemo_curator_benchmarking.config import assert_valid_config_dict
 
 if TYPE_CHECKING:
     from runner.sinks.sink import Sink
 from runner.datasets import DatasetResolver
-from runner.entry import Entry
+from runner.entry import Entry, normalize_environment
 from runner.path_resolver import PathResolver
-from runner.utils import assert_valid_config_dict, get_total_memory_bytes
+from runner.utils import get_total_memory_bytes
 
 _data_setup_script_base_path = Path(__file__).resolve().parent.parent / "data_prep"
 
@@ -80,6 +81,7 @@ class Session:
     object_store_size: int | float | str | None = 0.5
     # Whether to delete the entry's scratch directory after completion by default
     delete_scratch: bool = True
+    save_tasks: bool | None = None
     # Fraction of total GPU memory (0.0-1.0) above which a warning is emitted, both
     # before and after each benchmark run. If None, any usage > 0 triggers a warning.
     # Entries can override this value.
@@ -91,6 +93,9 @@ class Session:
     run_reason: str | None = None
     # Global ray settings inherited by all entries; per-entry ray sections override these values.
     ray: dict = field(default_factory=dict)
+    # Global environment variables inherited by all benchmark subprocesses; per-entry
+    # environment sections override individual variables by name.
+    environment: dict[str, str] = field(default_factory=dict)
     path_resolver: PathResolver = None
     dataset_resolver: DatasetResolver = None
 
@@ -111,6 +116,8 @@ class Session:
         # Process object_store_size by converting values representing fractions of system memory to bytes.
         if isinstance(self.object_store_size, float):
             self.object_store_size = int(get_total_memory_bytes() * self.object_store_size)
+
+        self.environment = normalize_environment(self.environment, "session")
 
         # Validate the session-level warning threshold range, if set.
         if self.gpu_mem_use_warning_threshold is not None and not (0 <= self.gpu_mem_use_warning_threshold <= 1):
@@ -134,10 +141,15 @@ class Session:
             msg = "viewer_url and viewer_url_template are mutually exclusive; set only one."
             raise ValueError(msg)
 
-        # Update delete_scratch for each entry that has not been set to the session-level delete_scratch setting
+        if self.save_tasks is not None and not isinstance(self.save_tasks, bool):
+            msg = "Invalid save_tasks: expected a boolean"
+            raise TypeError(msg)
+        # Apply session defaults only where an entry has not specified its own retention policy.
         for entry in self.entries:
             if entry.delete_scratch is None:
                 entry.delete_scratch = self.delete_scratch
+            if entry.save_tasks is None:
+                entry.save_tasks = self.save_tasks
 
         # Update timeout_s for each entry that has not been set to the session-level
         # default_timeout_s, then enforce the session-level maximum against effective values.
@@ -169,6 +181,11 @@ class Session:
         # Apply global ray defaults to each entry, with per-entry ray values taking precedence.
         for entry in self.entries:
             entry.ray = {**self.ray, **entry.ray}
+
+        # Apply global environment defaults to each subprocess entry, with per-entry
+        # values taking precedence per variable name.
+        for entry in [*self.entries, *self.data_setups]:
+            entry.environment = {**self.environment, **entry.environment}
 
     @classmethod
     def from_dict(
@@ -212,9 +229,7 @@ class Session:
         #   provided list, with strict exact-name matching. Every requested name must
         #   correspond to a configured (enabled) entry; otherwise ValueError is raised.
         #   Duplicates in the input are collapsed; result order follows the YAML.
-        #   Use this for automated callers (e.g. CI per-job invocations) and any context
-        #   where substring matching would dangerously match prefix-overlapping siblings
-        #   (e.g. "audio_tagging_tts_xenna" matching "audio_tagging_tts_xenna_repeat").
+        #   Use this for CI callers or entries with shared name prefixes.
         # - entry_filter_expr accepts a pytest "-k" style substring expression, e.g.
         #   "foo and not foobar" includes all entries containing "foo" but not "foobar".
         if entries_exact is not None:
@@ -252,18 +267,10 @@ class Session:
         sinks = []
         for sink_config in sink_configs:
             sink_name = sink_config["name"]
-            if sink_name == "mlflow":
-                from runner.sinks.mlflow_sink import MlflowSink
-
-                sinks.append(MlflowSink(sink_config=sink_config))
-            elif sink_name == "slack":
+            if sink_name == "slack":
                 from runner.sinks.slack_sink import SlackSink
 
                 sinks.append(SlackSink(sink_config=sink_config))
-            elif sink_name == "gdrive":
-                from runner.sinks.gdrive_sink import GdriveSink
-
-                sinks.append(GdriveSink(sink_config=sink_config))
             else:
                 logger.warning(f"Unknown sink: {sink_name}, skipping")
         return sinks

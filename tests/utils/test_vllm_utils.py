@@ -227,6 +227,28 @@ class TestCreateVllmLlm:
         assert captured_kwargs.get("gpu_memory_utilization") == 0.95
         assert captured_kwargs.get("max_num_batched_tokens") == 16384
 
+    def test_retry_helper_forwards_exact_engine_kwargs(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        captured_kwargs: dict = {}
+
+        class FakeLLM:
+            def __init__(self, **kwargs: object) -> None:
+                captured_kwargs.update(kwargs)
+
+        self._inject_fake_vllm(monkeypatch, FakeLLM)
+        monkeypatch.setattr(_vllm_utils, "pick_free_port", lambda: 12345)
+
+        _vllm_utils.create_vllm_llm_with_retry(
+            model="fake/model",
+            runner="pooling",
+            disable_log_stats=True,
+        )
+
+        assert captured_kwargs == {
+            "model": "fake/model",
+            "runner": "pooling",
+            "disable_log_stats": True,
+        }
+
     def test_non_eaddrinuse_raises_immediately(self, monkeypatch: pytest.MonkeyPatch):
         """A non-port-collision RuntimeError should propagate without retry."""
         call_count = 0

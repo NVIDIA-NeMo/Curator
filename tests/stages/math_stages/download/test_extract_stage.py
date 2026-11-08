@@ -170,7 +170,7 @@ class TestMathContentExtractorStage:
 
         # Check that magic_mime_type is None for failed record
         magic_fail_row = df[df["url"] == "http://example.com/magic_fail.txt"].iloc[0]
-        assert magic_fail_row["magic_mime_type"] is None
+        assert pd.isna(magic_fail_row["magic_mime_type"])
         assert magic_fail_row["text"] == "magic_fail content"  # Content should still be decoded
 
         # Check that magic_mime_type is set for successful record

@@ -36,7 +36,7 @@ Usage examples::
     # Remote NVIDIA NIM API:
     python ndd_data_generation_example.py \
         --provider nvidia \
-        --model meta/llama-3.3-70b-instruct
+        --model nvidia/nemotron-3-super-120b-a12b
 
     # Use a Data Designer YAML config file:
     python ndd_data_generation_example.py --data-designer-config-file config.yaml

@@ -3,7 +3,7 @@
 huggingface-hub>=0.34,<1.0
 numba==0.65.0
 numpy>=2.0.0,<=2.2.0
-protobuf>=5.29.5,<7.0
+protobuf>=5.29.5
 setuptools>=80.10.1,<81.0.0
 torch==2.11.0
 torchaudio==2.11.0

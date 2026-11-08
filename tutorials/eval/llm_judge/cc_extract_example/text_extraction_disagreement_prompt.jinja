@@ -1,0 +1,16 @@
+Compare the two text-extraction candidates below. Focus on meaningful document
+content, not formatting or harmless whitespace differences. Identify whether
+either candidate loses, invents, or substantially changes content relative to
+the other and to the raw source.
+
+<raw_text>
+{{ (raw_text or "")[:12000] }}
+</raw_text>
+
+<candidate_a>
+{{ (justext_text or "")[:8000] }}
+</candidate_a>
+
+<candidate_b>
+{{ (trafilatura_text or "")[:8000] }}
+</candidate_b>

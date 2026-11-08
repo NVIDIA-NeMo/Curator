@@ -49,9 +49,10 @@ def _escape_key(sample_id: str) -> str:
     return urllib.parse.quote(sample_id, safe="")
 
 
-def _ext_from_content_type(content_type: str | None) -> str:
+def _ext_from_content_type(content_type: object) -> str:
     """Return a file extension for *content_type*, falling back to ``"bin"``."""
-    if content_type:
+    if not _is_null(content_type):
+        content_type = str(content_type)
         ext = _CONTENT_TYPE_TO_EXT.get(content_type)
         if ext:
             return ext

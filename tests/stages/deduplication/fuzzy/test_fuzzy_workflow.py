@@ -291,6 +291,19 @@ class TestFuzzyDuplicates:
 
         assert stages[0].file_extensions == [".pq"]
 
+    def test_use_async_memory_is_forwarded_to_lsh_shuffler(self, tmp_path: Path) -> None:
+        workflow = FuzzyDeduplicationWorkflow(
+            input_path="/dummy",
+            cache_path=str(tmp_path / "cache"),
+            output_path=str(tmp_path / "output"),
+            use_async_memory=False,
+        )
+
+        lsh_stage = workflow._create_lsh_pipeline().stages[1]
+
+        assert lsh_stage.use_async_memory is False
+        assert lsh_stage.actor_kwargs["rmm_async"] is False
+
     def test_bad_inputs(self, tmp_path: Path) -> None:
         with pytest.raises(ValueError, match="bands_per_iteration must be between"):
             # bands_per_iteration must be between 1 and num_bands

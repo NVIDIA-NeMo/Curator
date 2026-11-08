@@ -77,6 +77,7 @@ class ConnectedComponentsStage(ProcessingStage[FileGroupTask, FileGroupTask], De
     def ray_stage_spec(self) -> dict[str, Any]:
         return {
             RayStageSpecKeys.IS_RAFT_ACTOR: True,
+            RayStageSpecKeys.USE_TASK_WEIGHTS: True,
         }
 
     def __get_2D_div(self, ngpus: int) -> tuple[int, int]:  # noqa: N802
@@ -136,7 +137,9 @@ class ConnectedComponentsStage(ProcessingStage[FileGroupTask, FileGroupTask], De
             edge_type_array=None,
             num_arrays=1,
             store_transposed=False,
-            symmetrize=False,
+            # GraphProperties declares a symmetric graph, but input edges are unidirectional,
+            # so symmetrize them during graph creation.
+            symmetrize=True,
             do_expensive_check=False,
             drop_multi_edges=True,
         )

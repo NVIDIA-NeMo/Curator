@@ -24,6 +24,8 @@ An array task normally uses `RayClient` on one node. If you allocate multiple no
 
 ## Prerequisites
 
+Prepare the cluster, shared storage, and source stages before submitting an array:
+
 - A SLURM cluster with job-array support (for example, `sbatch --array=0-19`).
 - A NeMo Curator environment visible from every compute node. This can be a shared source checkout, a container image, or a `.sqsh` image file mounted through your site's SLURM container integration.
 - Input, output, and checkpoint directories on a shared filesystem or mounted at the same path in every container.
@@ -39,29 +41,29 @@ The repository includes these reference files:
 
 `array_pipeline.py` is only a minimal example. Any NeMo Curator pipeline whose source stage supports deterministic task IDs can run under the same array configuration.
 
-## Run a JSONL array
+## Run a JSONL Array
 
-The steps below show one bare-metal setup on a shared filesystem. The same array variables and checkpoint path also work with containerized SLURM launches, including NGC images and site-specific `.sqsh` files, through `tutorials/slurm/submit_array.sh`.
+For containerized jobs, first [build an image and make it available to the cluster](/reference/infra/container-environments#build-an-image). The submit script accepts a registry reference or a shared image path.
 
-Prepare a source checkout and editable environment:
+1. Prepare a source checkout and editable environment on a shared filesystem:
 
-```bash
-cd /path/to/Curator
-python -m venv .venv
-source .venv/bin/activate
-pip install -e .
-```
+   ```bash
+   cd /path/to/Curator
+   python -m venv .venv
+   source .venv/bin/activate
+   pip install -e .
+   ```
 
-Set paths that are visible inside every array task, then submit 20 logical shards:
+2. Set paths visible to every array task, then submit 20 logical shards:
 
-```bash
-export CURATOR_DIR=/path/to/Curator
-export INPUT_DIR=/shared/data/my-jsonl-dataset
-export OUTPUT_DIR=/shared/output/my-jsonl-dataset
-export CHECKPOINT_PATH=/shared/checkpoints/my-jsonl-run
+   ```bash
+   export CURATOR_DIR=/path/to/Curator
+   export INPUT_DIR=/shared/data/my-jsonl-dataset
+   export OUTPUT_DIR=/shared/output/my-jsonl-dataset
+   export CHECKPOINT_PATH=/shared/checkpoints/my-jsonl-run
 
-sbatch --array=0-19 tutorials/slurm/submit_array.sh
-```
+   sbatch --array=0-19 tutorials/slurm/submit_array.sh
+   ```
 
 `submit_array.sh` defaults to JSONL input and output with one input file per source task. Override `FILES_PER_PARTITION` to group files before sharding.
 
@@ -85,7 +87,7 @@ sbatch --array=0-19 tutorials/slurm/submit_array.sh
 
 The example accepts `jsonl` or `parquet` for each file type. The array assignment mechanism is the same for both.
 
-## How source sharding works
+## How Source Sharding Works
 
 For every source task, NeMo Curator computes:
 
@@ -104,7 +106,7 @@ The source-stage adapter keeps only tasks whose logical shard matches the active
 
 Every array task still discovers the full deterministic source-task list before filtering. Job arrays are most useful when source discovery is inexpensive compared with downstream processing.
 
-## Array configuration
+## Array Configuration
 
 NeMo Curator attempts to enable source filtering when either a shard index or total shard count is available. A valid configuration requires both the shard index and total shard count; if either is missing, configuration raises an error instead of running with partial sharding.
 
@@ -130,7 +132,7 @@ MINIMUM_SHARD_INDEX=1 sbatch --array=1-20 tutorials/slurm/submit_array.sh
 
 Ordinary local and non-array runs are unchanged when no array configuration is present.
 
-## Choose the Ray client per array task
+## Choose the Ray Client Per Array Task
 
 The bundled script uses one node per array task and starts `RayClient`. When an array task spans multiple nodes, it passes `--slurm` to `array_pipeline.py`, which selects `SlurmRayClient`:
 
@@ -139,9 +141,9 @@ sbatch --array=0-9 --nodes=2 --cpus-per-task=32 \
   tutorials/slurm/submit_array.sh
 ```
 
-For multi-node tasks, `SLURM_NODEID=0` is the driver. Only the driver writes shard-completion metadata and stops the Ray cluster. See [Multi-Node Ray on SLURM](/admin/deployment/slurm-multi-node-ray) for port broadcasting and shared-filesystem requirements.
+For multi-node tasks, `SLURM_NODEID=0` is the driver. Only the driver writes shard-completion metadata and stops the Ray cluster. Refer to [Multi-Node Ray on SLURM](/admin/deployment/slurm-multi-node-ray) for port broadcasting and shared-filesystem requirements.
 
-## Completion and failure tracking
+## Completion and Failure Tracking
 
 Pass the same `checkpoint_path` to every shard. `Pipeline.run()` creates the logical run configuration and one completion manifest per successful shard:
 
@@ -175,7 +177,7 @@ Each attempt uses a fresh failed-task directory derived from the SLURM job, arra
 
 For source-level completion counters, per-writer LMDB files, and at-least-once sink behavior, see [Resumable Processing](/reference/infra/resumable-processing).
 
-## Retry incomplete shards
+## Retry Incomplete Shards
 
 Run retry discovery after all submissions for the logical run have finished:
 
@@ -209,7 +211,7 @@ sbatch --array="${RETRY_ARRAY}" tutorials/slurm/submit_array.sh
 
 An empty result means every logical shard has a completion manifest. A missing `run.json` is an error: use the original checkpoint path.
 
-## Work within cluster array limits
+## Work Within Cluster Array Limits
 
 If the cluster limits the number of tasks in one submission, keep a larger logical `TOTAL_SHARDS` and submit it in windows:
 
@@ -244,7 +246,9 @@ python tutorials/slurm/retry_array.py \
 
 `--max-array-size` requires `--format fields` because each output submission can have a different offset. The limit is not stored in `run.json`; it is a scheduler property, not part of logical task assignment.
 
-## Operational checklist
+## Operational Checklist
+
+Apply these checks to keep shard assignment and retries consistent:
 
 - Keep input task identity, `TOTAL_SHARDS`, and `MINIMUM_SHARD_INDEX` stable across retries.
 - Reuse the checkpoint path for one logical run; use a fresh path for new work.
@@ -252,7 +256,9 @@ python tutorials/slurm/retry_array.py \
 - Make output naming deterministic or writes idempotent because incomplete shards can replay work.
 - Monitor empty-shard warnings when logical shards outnumber source tasks.
 
-## Related topics
+## Related Topics
+
+Refer to these guides for checkpoint behavior, cluster setup, and container configuration:
 
 - [Resumable Processing](/reference/infra/resumable-processing)
 - [Multi-Node Ray on SLURM](/admin/deployment/slurm-multi-node-ray)

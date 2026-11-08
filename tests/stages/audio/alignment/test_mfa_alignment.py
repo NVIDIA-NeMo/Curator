@@ -26,11 +26,16 @@ from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 import pytest
+import soundfile as sf
+from praatio import textgrid
 
+from nemo_curator.backends.ray_data.adapter import RayDataStageAdapter
+from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.stages.audio.alignment.mfa_alignment import (
     _MFA_CACHE_MARKER_NAME,
     MFAAlignmentStage,
 )
+from nemo_curator.stages.audio.common import PreserveByValueStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
@@ -81,9 +86,7 @@ def _fake_tier(entries: list[SimpleNamespace]) -> SimpleNamespace:
     return SimpleNamespace(entries=entries)
 
 
-def _fake_textgrid(
-    entries: list[SimpleNamespace], tier_name: str = "words"
-) -> SimpleNamespace:
+def _fake_textgrid(entries: list[SimpleNamespace], tier_name: str = "words") -> SimpleNamespace:
     tier = _fake_tier(entries)
     return SimpleNamespace(
         tierNames=[tier_name],
@@ -140,6 +143,120 @@ def _patch_mfa_subprocess(stage: MFAAlignmentStage, **kwargs: object):  # noqa: 
 class TestMFAAlignmentStage:
     """Test suite for MFAAlignmentStage."""
 
+    @pytest.mark.parametrize("fallback", [False, True])
+    def test_artifacts_remain_distinct_across_batches(self, tmp_path: Path, fallback: bool) -> None:
+        stage = _make_stage(tmp_path)
+        stage.setup()
+
+        def align(cmd: list[str], _env: dict[str, str]) -> subprocess.CompletedProcess:
+            if not fallback:
+                corpus = Path(cmd[cmd.index("align") + 1])
+                for transcript in corpus.glob("*.txt"):
+                    grid = textgrid.Textgrid()
+                    grid.addTier(textgrid.IntervalTier("words", [(0.0, 1.0, transcript.read_text())], 0.0, 1.0))
+                    grid.save(
+                        str(_align_textgrid_output_dir(cmd) / f"{transcript.stem}.TextGrid"),
+                        format="long_textgrid",
+                        includeBlankSpaces=True,
+                    )
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+
+        rows = []
+        with _patch_mfa_subprocess(stage, side_effect=align):
+            for word in ("first", "second"):
+                source = tmp_path / word
+                source.mkdir()
+                rows.append(stage.process_batch([_make_task(_make_wav(source, "same.wav"), text=word)])[0])
+
+        for key in ("rttm_filepath", "ctm_filepath"):
+            assert rows[0].data[key] != rows[1].data[key]
+        assert Path(rows[0].data["ctm_filepath"]).read_text().split()[-1] == "first"
+        assert Path(rows[1].data["ctm_filepath"]).read_text().split()[-1] == "second"
+        for row in rows:
+            namespace = Path(row.data["ctm_filepath"]).parent.name
+            assert namespace == Path(row.data["rttm_filepath"]).parent.name
+            if not fallback:
+                assert namespace == Path(row.data["textgrid_filepath"]).parent.name
+
+    def test_backend_worker_policies_are_accepted(self, tmp_path: Path) -> None:
+        stage = _make_stage(tmp_path)
+        dataset = MagicMock()
+        RayDataStageAdapter(stage).process_dataset(dataset)
+        compute = dataset.map_batches.call_args.kwargs["compute"]
+        assert compute.min_size == compute.max_size == 1
+
+        with (
+            patch("nemo_curator.backends.xenna.executor.pipelines_v1.run_pipeline", return_value=[]) as run,
+            patch("nemo_curator.backends.xenna.executor.ray.init"),
+            patch("nemo_curator.backends.xenna.executor.ray.shutdown"),
+        ):
+            XennaExecutor().execute([stage])
+        spec = run.call_args.args[0].stages[0]
+        assert spec.num_workers is None
+        assert spec.num_workers_per_node == 1
+
+    def test_default_root_matches_mfa(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("MFA_ROOT_DIR", raising=False)
+        stage = _make_stage(tmp_path, mfa_root_dir=None)
+        assert stage._effective_mfa_root == str(Path.home() / "Documents" / "MFA")
+
+    def test_explicit_root_takes_precedence_over_environment(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        root = str(tmp_path / "environment-root")
+        monkeypatch.setenv("MFA_ROOT_DIR", root)
+        assert _make_stage(tmp_path, mfa_root_dir=None)._effective_mfa_root == root
+        assert _make_stage(tmp_path)._effective_mfa_root == str(tmp_path / "mfa_root")
+
+    @pytest.mark.parametrize("duration_key", ["duration", "seconds"])
+    @pytest.mark.parametrize("audio_state", ["valid", "missing", "unreadable"])
+    def test_skipped_rows_supply_duration_for_downstream_filters(
+        self, tmp_path: Path, duration_key: str, audio_state: str
+    ) -> None:
+        audio = tmp_path / "audio.wav"
+        if audio_state == "valid":
+            sf.write(audio, [0.0] * 16000, 16000)
+        elif audio_state == "unreadable":
+            audio.write_bytes(b"invalid audio")
+        task = _make_task(audio, text=" ")
+        task.data.pop("duration")
+        stage = _make_stage(tmp_path, duration_key=duration_key)
+        stage.setup()
+        with _patch_mfa_subprocess(stage) as run:
+            result = stage.process_batch([task])
+        run.assert_not_called()
+        assert task.data[duration_key] == (1.0 if audio_state == "valid" else -1.0)
+        assert PreserveByValueStage(duration_key, -1.0, operator="ge").process_batch(result) == [task]
+
+    @pytest.mark.parametrize("duration", [0.0, 2.5])
+    def test_skipped_rows_preserve_provided_duration(self, tmp_path: Path, duration: float) -> None:
+        stage = _make_stage(tmp_path)
+        stage.setup()
+        task = _make_task(tmp_path / "missing.wav", text=" ", duration=duration)
+        stage.process_batch([task])
+        assert task.data["duration"] == duration
+
+    def test_non_wav_input_is_skipped_before_mfa(self, tmp_path: Path) -> None:
+        stage = _make_stage(tmp_path)
+        stage.setup()
+        task = _make_task(_make_wav(tmp_path, "recording.flac"))
+        with _patch_mfa_subprocess(stage) as run:
+            assert stage.process_batch([task]) == [task]
+        run.assert_not_called()
+        assert task.data["mfa_skipped"] is True
+        assert task.data["textgrid_filepath"] == ""
+
+    def test_unvalidated_local_cache_does_not_delete_history(self, tmp_path: Path) -> None:
+        stage = _make_stage(tmp_path, copy_models_to_local=True, local_mfa_base_dir=str(tmp_path / "cache"))
+        root = stage._local_cache_dir()
+        root.mkdir(parents=True)
+        history = root / "command_history.yaml"
+        history.write_text("history: []\n")
+        stage._mfa_root = str(root)
+        with _patch_mfa_subprocess(stage, return_value=subprocess.CompletedProcess([], 0, "", "")):
+            stage._run_mfa_align(tmp_path, tmp_path / "textgrids")
+        assert history.read_text() == "history: []\n"
+
     def test_outputs_reflect_create_flags(self, tmp_path: Path) -> None:
         _, data_no_rttm = _make_stage(tmp_path, create_rttm=False).outputs()
         assert "rttm_filepath" not in data_no_rttm
@@ -149,9 +266,7 @@ class TestMFAAlignmentStage:
         assert "rttm_filepath" in data_no_ctm
         assert "ctm_filepath" not in data_no_ctm
 
-        _, data_tg_only = _make_stage(
-            tmp_path, create_rttm=False, create_ctm=False
-        ).outputs()
+        _, data_tg_only = _make_stage(tmp_path, create_rttm=False, create_ctm=False).outputs()
         assert data_tg_only == ["textgrid_filepath", "mfa_skipped", "duration"]
 
     def test_outputs_declares_custom_duration_key(self, tmp_path: Path) -> None:
@@ -217,9 +332,7 @@ class TestMFAAlignmentStage:
         _setup_stage(stage)
         task = _make_task(wav)
 
-        failed = subprocess.CompletedProcess(
-            ["mfa"], returncode=1, stdout="error out", stderr="error err"
-        )
+        failed = subprocess.CompletedProcess(["mfa"], returncode=1, stdout="error out", stderr="error err")
         with (
             _patch_mfa_subprocess(stage, return_value=failed),
             pytest.raises(RuntimeError, match="mfa align failed"),
@@ -250,9 +363,7 @@ class TestMFAAlignmentStage:
         """A single bad row is marked skipped without aborting the batch."""
         good_wav = _make_wav(tmp_path, name="good.wav")
         stage = _make_stage(tmp_path)
-        _setup_stage(
-            stage, textgrid=_fake_textgrid([_fake_textgrid_entry(0.0, 1.0, "hello")])
-        )
+        _setup_stage(stage, textgrid=_fake_textgrid([_fake_textgrid_entry(0.0, 1.0, "hello")]))
 
         bad = _make_task(tmp_path / "does_not_exist.wav", text="hello")
         good = _make_task(good_wav, text="hello")
@@ -268,9 +379,7 @@ class TestMFAAlignmentStage:
         assert results[1].data["mfa_skipped"] is False
         assert results[1].data["textgrid_filepath"] != ""
 
-    def test_process_batch_all_invalid_skips_without_running_mfa(
-        self, tmp_path: Path
-    ) -> None:
+    def test_process_batch_all_invalid_skips_without_running_mfa(self, tmp_path: Path) -> None:
         """When every task fails pre-flight, MFA is never invoked."""
         stage = _make_stage(tmp_path)
         _setup_stage(stage)
@@ -330,10 +439,12 @@ class TestMFAAlignmentStage:
     def test_process_batch_prefers_words_tier_over_phones(self, tmp_path: Path) -> None:
         wav = _make_wav(tmp_path)
         stage = _make_stage(tmp_path)
-        textgrid = _fake_textgrid_multi({
-            "phones": [_fake_textgrid_entry(0.0, 0.1, "AH")],
-            "words": [_fake_textgrid_entry(0.1, 0.5, "hello")],
-        })
+        textgrid = _fake_textgrid_multi(
+            {
+                "phones": [_fake_textgrid_entry(0.0, 0.1, "AH")],
+                "words": [_fake_textgrid_entry(0.1, 0.5, "hello")],
+            }
+        )
         _setup_stage(stage, textgrid=textgrid)
         task = _make_task(wav, text="hello")
 
@@ -341,18 +452,18 @@ class TestMFAAlignmentStage:
             results = stage.process_batch([task])
 
         ctm_words = [
-            line.split()[-1]
-            for line in Path(results[0].data["ctm_filepath"]).read_text().strip().split("\n")
-            if line
+            line.split()[-1] for line in Path(results[0].data["ctm_filepath"]).read_text().strip().split("\n") if line
         ]
         assert ctm_words == ["hello"]
 
     def test_process_batch_raises_when_only_phone_tiers(self, tmp_path: Path) -> None:
         wav = _make_wav(tmp_path)
         stage = _make_stage(tmp_path)
-        textgrid = _fake_textgrid_multi({
-            "phones": [_fake_textgrid_entry(0.0, 0.1, "AH")],
-        })
+        textgrid = _fake_textgrid_multi(
+            {
+                "phones": [_fake_textgrid_entry(0.0, 0.1, "AH")],
+            }
+        )
         _setup_stage(stage, textgrid=textgrid)
         task = _make_task(wav, text="hello")
 
@@ -379,9 +490,7 @@ class TestMFAAlignmentStage:
             results = stage.process_batch([task])
 
         ctm_words = [
-            line.split()[-1]
-            for line in Path(results[0].data["ctm_filepath"]).read_text().strip().split("\n")
-            if line
+            line.split()[-1] for line in Path(results[0].data["ctm_filepath"]).read_text().strip().split("\n") if line
         ]
         assert ctm_words == ["hello", "world"]
 
@@ -400,9 +509,7 @@ class TestMFAAlignmentStage:
             results = stage.process_batch([task])
 
         ctm_words = [
-            line.split()[-1]
-            for line in Path(results[0].data["ctm_filepath"]).read_text().strip().split("\n")
-            if line
+            line.split()[-1] for line in Path(results[0].data["ctm_filepath"]).read_text().strip().split("\n") if line
         ]
         assert "PAUSE" not in ctm_words
         assert "sp" in ctm_words
@@ -566,7 +673,8 @@ class TestMFAAlignmentStage:
         stage_mfa = _make_stage(tmp_path, acoustic_model="english_mfa", dictionary="english_mfa")
         assert stage_arpa._local_cache_dir() != stage_mfa._local_cache_dir()
 
-    def test_shared_mfa_root_does_not_delete_command_history(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize("copy_models_to_local", [False, True])
+    def test_shared_mfa_root_does_not_delete_command_history(self, tmp_path: Path, copy_models_to_local: bool) -> None:
         shared_root = tmp_path / "shared_mfa"
         shared_root.mkdir()
         history = shared_root / "command_history.yaml"
@@ -575,9 +683,10 @@ class TestMFAAlignmentStage:
         stage = _make_stage(
             tmp_path,
             mfa_root_dir=str(shared_root),
-            copy_models_to_local=False,
+            copy_models_to_local=copy_models_to_local,
+            local_mfa_base_dir=str(tmp_path / "local"),
         )
-        stage._mfa_root = str(shared_root)
+        stage.setup()
         assert stage._is_node_local_mfa_root() is False
 
         corpus = tmp_path / "corpus"
@@ -594,13 +703,15 @@ class TestMFAAlignmentStage:
         assert history.exists()
         assert history.read_text() == "history: []\n"
 
-    def test_num_jobs_must_be_positive(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize("num_jobs", [0, -1, 1.5, True])
+    def test_num_jobs_must_be_positive(self, tmp_path: Path, num_jobs: object) -> None:
         with pytest.raises(ValueError, match="num_jobs must be positive"):
-            _make_stage(tmp_path, num_jobs=0)
+            _make_stage(tmp_path, num_jobs=num_jobs)
 
-    def test_align_timeout_seconds_must_be_positive(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize("timeout", [0, -1, float("nan"), float("inf")])
+    def test_align_timeout_seconds_must_be_positive(self, tmp_path: Path, timeout: float) -> None:
         with pytest.raises(ValueError, match="align_timeout_seconds must be positive"):
-            _make_stage(tmp_path, align_timeout_seconds=0)
+            _make_stage(tmp_path, align_timeout_seconds=timeout)
 
     def test_resources_default_to_num_jobs_cpus(self, tmp_path: Path) -> None:
         """Ray/Xenna must reserve CPUs proportional to the -j jobs MFA forks."""

@@ -1,7 +1,7 @@
 ---
-description: "Read and write interleaved image-text datasets between WebDataset tar shards and Parquet using InterleavedParquetReader, InterleavedWebdatasetReader, and matching writers"
+description: "Read and write interleaved image-text datasets between WebDataset tar shards and Parquet, and read Lance datasets"
 categories: ["text-curation"]
-tags: ["interleaved", "io", "parquet", "webdataset", "reader", "writer", "schema"]
+tags: ["interleaved", "io", "parquet", "webdataset", "lance", "reader", "writer", "schema"]
 personas: ["data-scientist-focused", "mle-focused"]
 difficulty: "intermediate"
 content_type: "how-to"
@@ -10,7 +10,7 @@ modality: "universal"
 
 # Interleaved IO
 
-Read and write interleaved image-text data between WebDataset tar shards and Parquet. All four combinations work out of the box:
+Read and write interleaved image-text data between WebDataset tar shards and Parquet, and read row-wise interleaved Lance datasets. The file readers materialize data as `InterleavedBatch` objects:
 
 ```text
 WDS tar  ⇄  InterleavedBatch  ⇄  Parquet
@@ -20,12 +20,13 @@ WDS tar  ⇄  InterleavedBatch  ⇄  Parquet
 
 ### Storage Formats
 
-Interleaved samples can live in two on-disk formats; in memory both materialize as `InterleavedBatch`:
+Interleaved samples can live in three on-disk formats. In memory, all materialize as `InterleavedBatch`:
 
 | Format | Layout | When to Use |
 |--------|--------|-------------|
 | **WebDataset tar shards** | One tar per shard, one file per item; `sample_id` encoded in member key | Streaming reads, S3-friendly, MINT-1T-compatible |
 | **Parquet rows** | One row per item (text/image/metadata), grouped by `sample_id` | Random access, column projection, ~5× faster reads in benchmarks |
+| **Lance rows** | One row per item, grouped by `sample_id` | Versioned reads of interleaved datasets |
 
 Choose based on the consumer: training loops that stream large datasets often prefer WDS tars; analytics or sample-level inspection prefers Parquet.
 
@@ -81,7 +82,25 @@ reader = InterleavedWebdatasetReader(
 
 Configurable file extensions for image, JSON, and texts members (`image_extensions`, `json_extensions`, `texts_field`, `images_field`, `image_member_field`) let the reader cooperate with non-standard tar layouts.
 
+### Lance Reader
+
+`InterleavedLanceReader` reads rows using the interleaved schema into validated
+`InterleavedBatch` objects. Input rows for each `sample_id` must be consecutive. The reader does
+not reorder rows, and it does not regroup samples across fragment partitions. Install the optional
+Lance dependency with `pip install "nemo-curator[lance]"`.
+
+```python
+from nemo_curator.stages.interleaved.io import InterleavedLanceReader
+
+reader = InterleavedLanceReader(path="./interleaved.lance")
+```
+
+Keep the required interleaved columns when selecting `fields`. Refer to the [text Lance reader](/curate-text/load-data/read-existing)
+for dataset and storage options.
+
 ### Reader Parameters
+
+The Parquet and WebDataset readers use these parameters:
 
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |

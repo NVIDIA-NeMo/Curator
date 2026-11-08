@@ -50,6 +50,8 @@ import pyarrow as pa
 import pyarrow.compute as pc
 from loguru import logger
 
+from nemo_curator.utils.column_utils import pyarrow_to_pandas_dtype
+
 from .tasks import Task
 
 INTERLEAVED_SCHEMA = pa.schema(
@@ -95,7 +97,7 @@ class InterleavedBatch(Task[pa.Table | pd.DataFrame]):
         if isinstance(self.data, pd.DataFrame):
             return self.data
         if isinstance(self.data, pa.Table):
-            return self.data.to_pandas(types_mapper=pd.ArrowDtype)
+            return self.data.to_pandas(types_mapper=pyarrow_to_pandas_dtype)
         msg = f"Cannot convert {type(self.data)} to Pandas DataFrame"
         raise TypeError(msg)
 

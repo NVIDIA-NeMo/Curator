@@ -1,0 +1,94 @@
+stage_id: VADSegmentationStage
+category: segment
+summary: "Adapter-backed VAD: emit speech chunks as child tasks or a nested segments list; defaults to bundled Silero."
+tags: [fanout, batch_only]
+model_id: "silero-vad (pip package, bundled weights; no download)"
+model_version: "silero-vad==6.2.1"   # pinned in uv.lock
+domain: {language: any, style: speech}
+constraints: {}   # no supported_sample_rates constraint: Silero runs natively at 8/16/32/48/64/96 kHz and ANY other rate is internally resampled to 16 kHz (see notes), so no upstream ResampleAudioStage is required
+adapter_capabilities:
+  nemo_curator.models.audio.vad.silero.SileroVADAdapter:
+    supported_devices: [cpu, cuda]
+  nemo_curator.models.audio.vad.silero_tensorrt.TensorRTSileroVADAdapter:
+    supported_devices: [cuda]
+resource:
+  cpus: 1.0
+  gpu_mem_gb: 0.05  # measured on RTX 4090 (~0.03 GB reserved; Silero VAD is tiny)
+  gpu_optional: true
+  bound: cpu
+  throughput_hint: "lightweight; runs well on CPU (<1 ms per chunk)"
+use_cases:
+  good_for: ["removing silence", "chunking long audio into utterances", "producing per-segment units for quality scoring"]
+  avoid_for: ["when you want whole-file scores (skip VAD entirely)", "getting a speech-probability score (this stage writes segments, NOT a score)"]
+composition:
+  typical_upstream: [MonoConversionStage, ResampleAudioStage]
+  typical_downstream: [BandFilterStage, UTMOSFilterStage, SIGMOSFilterStage, SegmentConcatenationStage]
+params_of_note:
+  threshold: "speech-probability threshold 0-1 (higher = stricter; default 0.5)"
+  min_duration_sec: "drop speech shorter than this (default 2.0)"
+  max_duration_sec: "force a split beyond this (default 60.0)"
+  min_interval_ms: "minimum silence gap between speech segments in ms (default 500)"
+  speech_pad_ms: "padding added before/after each speech segment in ms (default 300)"
+  input_residency: "auto (default) prefers resident waveform and rate; file forces decoding; waveform forbids file fallback"
+  adapter_target: "VAD adapter class; defaults to nemo_curator.models.audio.vad.silero.SileroVADAdapter"
+  adapter_kwargs: "Silero backend='torch' (default) supports CPU/CUDA; backend='onnx' requires resources.gpus=0. TensorRTSileroVADAdapter requires engine_path and CUDA."
+  diar_segments_key: "Optional upstream diarization intervals used to count distinct speaker labels overlapping each speech chunk; VAD does not infer speaker identities"
+  num_speakers_key: "Output count recalculated from structured diarization intervals when supplied; otherwise an existing parent value is retained"
+  emit_audit_placeholders: "Keep empty/error parent rows in fan-out mode when True (default False); nested mode always retains a parent"
+  nested: "True = one task with all segments under segments_key; False (default) = fan-out one task per segment"
+  keep_segment_waveform_in_task: "keep each segment's waveform in-task (default True); REQUIRED for SegmentConcatenationStage"
+  output_waveform_key: "key where segment waveforms are written (default waveform); separate from waveform_key so legacy custom input aliases keep canonical outputs"
+  output_sample_rate_key: "key where segment sample rates are written (default sample_rate); separate from sample_rate_key so legacy custom input aliases keep canonical outputs"
+semantic_facts:
+  duration:
+    meaning: "Length of one detected speech item: a fan-out child or an item in nested segments. Retained parents and empty/error audit placeholders keep parent-level duration semantics."
+    unit: "seconds (float)"
+    provenance: "Speech-item duration comes from its start_ms/end_ms span; parent/placeholder duration is inherited or follows the empty-result behavior below."
+    scope: "speech item for fan-out children and nested entries; whole parent for retained parent rows"
+    propagation: "Written on speech items. Nested parents retain upstream duration; no-speech placeholders retain an existing duration or use full recording length when available. Error placeholders need not have a duration."
+    counterexamples:
+      - "A fan-out duration filter selects speech lengths only for real speech children. With emit_audit_placeholders=True, exclude vad_empty/read_error rows before interpreting duration as detected speech."
+  num_speakers:
+    meaning: "Distinct speaker labels overlapping a speech chunk when structured diarization intervals are supplied; otherwise an existing parent count is retained."
+    unit: "Non-negative integer for a derived count; an inherited value is copied unchanged."
+    provenance: "Computed from upstream diarization intervals and labels, not from speaker inference performed by VAD."
+    scope: "Per speech item when recalculated, in either fan-out or nested mode; an inherited count keeps its upstream scope."
+    propagation: "Replaces the parent count for structured diarization lists, including zero for an empty list or no overlapping labels. Without that structure, copies the parent count if present and creates no count if absent."
+    counterexamples:
+      - "An inherited count of three may describe the whole recording; it does not prove that three speakers occur in this chunk."
+      - "A count of two means two distinct labels overlap the chunk, not that they speak simultaneously."
+  original_file:
+    meaning: "Identity/path of the ORIGINAL recording each speech segment was cut from."
+    unit: "string (source identifier)"
+    provenance: "Copied from the parent task onto every child so provenance survives the fan-out."
+    scope: "original parent recording; a parent-level identity broadcast unchanged to every child segment"
+    propagation: "Identical on all children from the same source file."
+    counterexamples:
+      - "Many children share one original_file; grouping/deduping by it groups all segments of one recording, not distinct outputs."
+  segments:
+    meaning: "In nested mode (nested=True), the full list of detected speech segments for one file."
+    unit: "list of segment dicts (start_ms, end_ms, segment_num, duration, original_file)"
+    provenance: "Silero VAD speech timestamps for the whole input, mapped back to the original rate."
+    scope: "one original file (nested mode keeps 1:1 granularity); in fan-out mode this list is exploded into per-segment children instead"
+    propagation: "Present only in nested mode; consumed by SegmentConcatenationStage."
+    counterexamples:
+      - "nested=True does NOT fan out; nested=False (default) emits one task per segment -- the same stage yields different granularities."
+presets:
+  conversational: {threshold: 0.5, min_duration_sec: 1.0, max_duration_sec: 30.0}
+  read_speech: {threshold: 0.5, min_duration_sec: 2.0, max_duration_sec: 60.0}
+comparison:
+  language_support: "language-agnostic (speech-probability based; Silero supports 6000+ languages). (external)"
+  latency_hint: "very light; CPU-friendly (<1 ms per chunk)"
+  config_complexity: "low-medium (threshold + duration bounds)"
+  choose_when: "cheap, language-agnostic silence removal / utterance chunking. Use WhisperXVADStage for a model-based VAD inside a WhisperX-style pipeline."
+  known_limitations: "VAD only (no speaker labels); changes granularity to per-segment; writes segments, not a score"
+conflicts_with: [WhisperXVADStage]   # alternative VAD
+notes:
+  - "Execution uses process_batch; process is unsupported. Fan-out requires batch_size=1; nested mode can batch recordings. Empty or failed nested results have segments=[] and remove the parent waveform, so they do not provide a downstream audio carrier."
+  - "Runtime selection: the default Torch adapter supports CPU or one GPU; ONNX requires CPU. TensorRTSileroVADAdapter requires resources.gpus=1 and an engine_path in adapter_kwargs. Custom adapters are not declared per-row independent for delta reuse."
+  - "Sample rate: the default Silero adapter accepts ANY input rate. Silero runs natively at 8/16/32/48/64/96 kHz; any other rate is internally resampled to 16 kHz for VAD and the segment timestamps are mapped back to the original rate. No upstream ResampleAudioStage is required."
+  - "Segment schema: each segment dict has start_ms, end_ms, segment_num, duration, original_file, and retains the parent audio_filepath only as legacy provenance (times in MILLISECONDS, not start/end seconds). Fan-out invalidates that retained path as an audio carrier so file-only consumers cannot reopen the full parent recording. This is INCOMPATIBLE with SplitLongAudioStage, which reads start/end in seconds -- use diarization segments for splitting."
+  - "For SegmentConcatenationStage, run with nested=True AND keep_segment_waveform_in_task=True (it needs per-segment waveforms)."
+  - "(external) Silero VAD: enterprise-grade, ~2 MB, bundled with the pip package (no download), 8/16 kHz native (fixed 256/512-sample windows in v5). Source: https://github.com/snakers4/silero-vad"
+verified: {adapter_capabilities: mechanical, params: mechanical, semantic_facts: mechanical, tags: mechanical, model_version: best_guess, resource: measured, constraints: best_guess, domain: best_guess, use_cases: best_guess, comparison: best_guess}
+provenance: {model_card_url: "https://github.com/snakers4/silero-vad", card_version: 8, last_validated: "2026-10-19"}

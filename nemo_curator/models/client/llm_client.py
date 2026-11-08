@@ -15,10 +15,13 @@
 import asyncio
 import secrets
 from abc import ABC, abstractmethod
-from collections.abc import Iterable
+from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass
+from typing import TypeVar
 
 from loguru import logger
+
+_T = TypeVar("_T")
 
 
 class ConversationFormatter(ABC):
@@ -116,7 +119,7 @@ class AsyncLLMClient(ABC):
         msg = "Subclass of AsyncLLMClient must implement '_query_model_impl'"
         raise NotImplementedError(msg)
 
-    async def query_model(  # noqa: C901, PLR0912
+    async def query_model(
         self,
         *,
         messages: Iterable,
@@ -133,7 +136,17 @@ class AsyncLLMClient(ABC):
         elif isinstance(generation_config, dict):
             generation_config = GenerationConfig(**generation_config)
 
-        # Initialize semaphore if not already done or if we're in a different event loop
+        return await self._execute_with_retries(
+            lambda: self._query_model_impl(
+                messages=messages,
+                model=model,
+                conversation_formatter=conversation_formatter,
+                generation_config=generation_config,
+            )
+        )
+
+    async def _execute_with_retries(self, request: Callable[[], Awaitable[_T]]) -> _T:  # noqa: C901, PLR0912
+        """Run an async request with the client's concurrency and retry policy."""
         current_loop = asyncio.get_running_loop()
         if self._semaphore is None or self._semaphore_loop != current_loop:
             self._semaphore = asyncio.Semaphore(self.max_concurrent_requests)
@@ -179,12 +192,7 @@ class AsyncLLMClient(ABC):
 
                 # Attempt the query
                 try:
-                    return await self._query_model_impl(
-                        messages=messages,
-                        model=model,
-                        conversation_formatter=conversation_formatter,
-                        generation_config=generation_config,
-                    )
+                    return await request()
                 except Exception as e:
                     last_exception = e
                     # If this is the last attempt, provide helpful error message
@@ -207,8 +215,5 @@ class AsyncLLMClient(ABC):
             if last_exception:
                 raise last_exception
 
-            # This should never be reached, but add explicit return for linter
-            logger.warning(
-                "Unexpected code path: AsyncLLMClient.query_model completed without returning a result or raising an exception"
-            )
-            return []
+            msg = "Async request completed without returning a result or raising an exception"
+            raise RuntimeError(msg)

@@ -201,7 +201,6 @@ def init_cluster(  # noqa: PLR0913
             bind_host="0.0.0.0",  # noqa: S104
         )
         os.environ["RAY_SERVE_ENABLE_HA_PROXY"] = "1"
-        os.environ["RAY_SERVE_EXPERIMENTAL_PIP_HAPROXY"] = "1"
         os.environ["RAY_SERVE_HAPROXY_METRICS_PORT"] = str(haproxy_metrics_port)
         os.environ["RAY_SERVE_HAPROXY_STATS_PORT"] = str(haproxy_stats_port)
         logger.info(
