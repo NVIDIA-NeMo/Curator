@@ -1,4 +1,4 @@
-# English audio transcript processing; run with nemo_curator/config/run.py.
+# English audio transcript processing; run with this tutorial's main.py.
 defaults:
   - _self_
   - override hydra/job_logging: none
@@ -42,7 +42,7 @@ ray_client:
   _target_: nemo_curator.core.client.RayClient
   num_gpus: null
 
-# The shared runner manages this server unless an external endpoint is supplied.
+# The tutorial main.py manages this server unless an external endpoint is supplied.
 inference_server:
   _target_: nemo_curator.core.serve.InferenceServer
   _convert_: all
