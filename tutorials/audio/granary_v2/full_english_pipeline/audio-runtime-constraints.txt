@@ -1,6 +1,0 @@
-hf-xet==1.7.0
-nvidia-cuda-crt==13.4.92
-nvidia-cuda-runtime==13.4.92
-nvidia-nvjitlink==13.4.92
-# Restore the installer resolved by the original validated model-worker environment.
-uv==0.13.3

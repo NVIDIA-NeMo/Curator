@@ -40,9 +40,9 @@ cache_root: ???
 
 ray_client:
   _target_: nemo_curator.core.client.RayClient
-  num_gpus: 0
+  num_gpus: null
 
-# Start this server separately with the existing InferenceServer API; see README.md.
+# The shared runner manages this server unless an external endpoint is supplied.
 inference_server:
   _target_: nemo_curator.core.serve.InferenceServer
   _convert_: all

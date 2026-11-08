@@ -1,0 +1,70 @@
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+services:
+  text:
+    image: curator-audio-text
+    init: true
+    ipc: host
+    stop_grace_period: 2m
+    environment:
+      HF_HOME: /cache/huggingface
+    volumes:
+      - ${ENGLISH_CACHE:?Set ENGLISH_CACHE to an absolute cache directory}:/cache
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["8", "9", "10", "11", "12", "13", "14", "15"]
+              capabilities: [gpu]
+    command:
+      - bash
+      - -c
+      - |
+        set -euo pipefail
+        source tutorials/audio/granary_v2/full_english_pipeline/runtime.sh
+        exec python -u tutorials/audio/granary_v2/full_english_pipeline/serve.py
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import json, urllib.request; assert json.load(urllib.request.urlopen('http://localhost:8000/v1/models', timeout=5))['data']"
+      interval: 10s
+      timeout: 10s
+      start_period: 20m
+      retries: 12
+
+  pipeline:
+    image: curator-full-english
+    init: true
+    ipc: host
+    depends_on:
+      text:
+        condition: service_healthy
+    volumes:
+      - ${ENGLISH_MODELS:?Set ENGLISH_MODELS to the prepared model directory}:${ENGLISH_MODELS}:ro
+      - ${ENGLISH_DATA:?Set ENGLISH_DATA to the recording directory}:${ENGLISH_DATA}:ro
+      - ${ENGLISH_OUTPUT:?Set ENGLISH_OUTPUT to a fresh absolute output directory}:/output
+    environment:
+      ENGLISH_MODELS: ${ENGLISH_MODELS}
+      ENGLISH_MANIFEST: ${ENGLISH_MANIFEST:?Set ENGLISH_MANIFEST to an absolute manifest path}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["0", "1", "2", "3", "4", "5", "6", "7"]
+              capabilities: [gpu]
+    command:
+      - bash
+      - -c
+      - |
+        set -euo pipefail
+        source tutorials/audio/granary_v2/full_english_pipeline/runtime.sh
+        exec python -u nemo_curator/config/run.py \
+          --config-path ../../tutorials/audio/granary_v2/full_english_pipeline \
+          --config-name pipeline \
+          manifest_path="$$ENGLISH_MANIFEST" model_dir="$$ENGLISH_MODELS" \
+          output_dir=/output/run endpoint=http://text:8000/v1

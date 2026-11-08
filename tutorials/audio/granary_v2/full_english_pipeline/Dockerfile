@@ -13,6 +13,9 @@ RUN uv pip freeze --python /opt/venv/bin/python --exclude-editable > /tmp/granar
         'vllm==0.15.1' 'qwen-omni-utils==0.0.9' \
     && rm /tmp/granary-overrides.txt
 
+# Keep the launcher and pipeline at the same checkout as this image build.
+COPY . /opt/Curator
+
 # vLLM tensor-parallel CUDA graphs need CUDA-IPC-compatible allocations.
 # Override the metadata base image's expandable-segment allocator.
 ENV PYTORCH_CUDA_ALLOC_CONF=expandable_segments:False \

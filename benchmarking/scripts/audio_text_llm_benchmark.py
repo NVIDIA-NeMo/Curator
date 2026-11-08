@@ -22,7 +22,6 @@ from contextlib import ExitStack
 from pathlib import Path
 from typing import Any
 
-import hydra
 from fsspec import open as fsspec_open
 from loguru import logger
 from omegaconf import OmegaConf
@@ -30,6 +29,7 @@ from utils import write_benchmark_results
 
 from nemo_curator.config.run import (
     create_executor_from_yaml,
+    create_inference_server_from_yaml,
     create_pipeline_from_yaml,
     create_ray_client_from_yaml,
 )
@@ -249,7 +249,7 @@ def run_audio_text_llm_benchmark(  # noqa: C901, PLR0912, PLR0913, PLR0915
         server_start = time.perf_counter()
         startup_time = 0.0
         if not cfg.endpoint:
-            server = stack.enter_context(hydra.utils.instantiate(cfg.inference_server))
+            server = stack.enter_context(create_inference_server_from_yaml(cfg))
             cfg.endpoint = server.endpoint
             startup_time = time.perf_counter() - server_start
 
