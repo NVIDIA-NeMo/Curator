@@ -12,9 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from contextlib import ExitStack
-from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import hydra
 from loguru import logger
@@ -24,9 +22,6 @@ from nemo_curator.backends.base import BaseExecutor
 from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.resources import Resources
-
-if TYPE_CHECKING:
-    from nemo_curator.core.serve import InferenceServer
 
 _EXECUTOR_TARGETS = {
     "xenna": "nemo_curator.backends.xenna.XennaExecutor",
@@ -126,38 +121,21 @@ def create_pipeline_from_yaml(cfg: DictConfig, *, log_config: bool = True) -> Pi
         raise RuntimeError(msg)
 
 
-def create_inference_server_from_yaml(cfg: DictConfig) -> "InferenceServer":
-    """Resolve pinned model snapshots before the serving backend prefetches weights."""
-    from huggingface_hub import snapshot_download
-
-    server = hydra.utils.instantiate(cfg.inference_server)
-    for model in server.models:
-        revision = getattr(model, "engine_kwargs", {}).get("revision")
-        if revision and not Path(model.model_identifier).is_dir():
-            model.model_name = model.resolved_model_name
-            model.model_identifier = snapshot_download(repo_id=model.model_identifier, revision=revision)
-    return server
-
-
 @hydra.main(version_base=None, config_name="pipeline")
 def main(cfg: DictConfig) -> None:
     ray_client = create_ray_client_from_yaml(cfg)
-    try:
-        ray_client.start()
-        with ExitStack() as stack:
-            if cfg.get("inference_server") is not None and (
-                OmegaConf.is_missing(cfg, "endpoint") or not cfg.get("endpoint")
-            ):
-                server = stack.enter_context(create_inference_server_from_yaml(cfg))
-                cfg.endpoint = server.endpoint
+    ray_client.start()
 
-            pipeline = create_pipeline_from_yaml(cfg)
-            executor = create_executor_from_yaml(cfg)
-            print("Starting pipeline execution...")
-            _results = pipeline.run() if executor is None else pipeline.run(executor=executor)
-            print("\nPipeline completed!")
-    finally:
-        ray_client.stop()
+    pipeline = create_pipeline_from_yaml(cfg)
+    executor = create_executor_from_yaml(cfg)
+
+    # Execute pipeline
+    print("Starting pipeline execution...")
+    _results = pipeline.run() if executor is None else pipeline.run(executor=executor)
+
+    print("\nPipeline completed!")
+
+    ray_client.stop()
 
 
 if __name__ == "__main__":

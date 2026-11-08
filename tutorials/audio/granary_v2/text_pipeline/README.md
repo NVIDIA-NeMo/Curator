@@ -74,7 +74,7 @@ Curator creates isolated model-worker environments from the driver environment,
 installs the matching Dynamo vLLM extra using CUDA 12.9 wheels, and applies the
 YAML's Transformers override there. Keep the driver's Transformers version;
 audio dependencies require it. Other worker dependencies are resolved at startup.
-The shared runner keeps one server running for every operation in a pipeline
+The tutorial entrypoint keeps one server running for every operation in a pipeline
 invocation, then shuts it down. Worker dependencies can resolve differently
 between invocations; use an external endpoint when runs must share one server. Keep
 `/cache` to reuse weights and compilation artifacts with the same runtime and GPU
@@ -82,7 +82,8 @@ architecture.
 
 ## 2. Run the two examples
 
-Inside the built container, run Curator's shared YAML entrypoint. No separate
+Inside the built container, run the tutorial entrypoint. It reuses the shared
+YAML construction helpers without modifying the shared runner. No separate
 server command or second terminal is needed:
 
 ```bash
@@ -90,22 +91,24 @@ cd /opt/Curator
 unset RAY_ADDRESS
 set -euo pipefail
 test ! -e /output/english_output.jsonl
-python nemo_curator/config/run.py \
-  --config-path ../../tutorials/audio/granary_v2/text_pipeline \
-  --config-name text_pipeline \
+python tutorials/audio/granary_v2/text_pipeline/main.py \
   manifest_path=/opt/Curator/tutorials/audio/granary_v2/text_pipeline/sample_input.jsonl \
   output_path=/output/english_output.jsonl \
   cache_root=/cache/compilation \
   2>&1 | tee /output/pipeline.log
 ```
 
-When `endpoint` is missing or empty, the runner instantiates the YAML's
+When `endpoint` is missing or empty, this entrypoint instantiates the YAML's
 `inference_server`, resolves the pinned model snapshot, waits for readiness,
 and passes the endpoint to every processing stage. The server stays alive
-throughout the pipeline and is stopped on success or failure before the runner
+throughout the pipeline and is stopped on success or failure before it
 stops its Ray cluster. Curator's existing Dynamo backend handles model workers,
 package environments, routing and health checks. A first run may spend several
 minutes downloading and loading the model.
+
+With an existing endpoint, the unchanged shared `nemo_curator/config/run.py`
+can also consume this YAML directly; it requires an explicit endpoint and does
+not manage serving.
 
 The default executor is Ray Data. Add `backend=xenna execution_mode=streaming`
 to the same command to use Xenna. These processing stages are CPU HTTP clients;
@@ -122,10 +125,10 @@ this pipeline does not open audio files or filter input by language.
 ## 3. Reuse an existing endpoint (optional)
 
 Add `endpoint=http://inference-host:8000/v1` and the appropriate `model_name` to
-the same runner command. A nonempty endpoint skips server creation, snapshot
+the same tutorial command. A nonempty endpoint skips server creation, snapshot
 download and server shutdown; `cache_root` is then unnecessary. The endpoint
 must be reachable by every worker. The YAML's serving block does not reconfigure
-an external server. Leave `RAY_ADDRESS` unset to let the runner manage its own
+an external server. Leave `RAY_ADDRESS` unset to let the entrypoint manage its own
 cluster, or set it deliberately to an existing compatible cluster.
 
 ## 4. Inspect the result
@@ -206,7 +209,7 @@ one shared running server, supply the same external `--endpoint` to both runs.
 
 ## 6. Leave the container
 
-The managed server and Ray cluster stop when the runner returns. After inspecting
+The managed server and Ray cluster stop when the tutorial entrypoint returns. After inspecting
 the output, run `exit` to leave and remove the container. Inputs, outputs and
 caches remain in the mounted host directories. External servers remain under
 their owner's control.
