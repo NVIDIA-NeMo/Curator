@@ -17,11 +17,16 @@
 from __future__ import annotations
 
 import argparse
+import json
+from pathlib import Path
 
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.interleaved.io import InterleavedParquetWriterStage
 from nemo_curator.stages.interleaved.pdf.nemotron_parse import NemotronParsePDFReader
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import DEFAULT_MAX_TOKENS
+from nemo_curator.stages.interleaved.pdf.nemotron_parse.page_budget import output_version, validate_extraction_config
+from nemo_curator.stages.interleaved.pdf.nemotron_parse.schema import PAGE_OUTPUT_SCHEMA
+from nemo_curator.stages.interleaved.pdf.nemotron_parse.validation import PDFPageBudgetValidationStage
 
 
 def create_nemotron_parse_pdf_argparser() -> argparse.ArgumentParser:
@@ -42,10 +47,27 @@ def create_nemotron_parse_pdf_argparser() -> argparse.ArgumentParser:
         default="nvidia/NVIDIA-Nemotron-Parse-v1.2",
         help="HuggingFace model ID or local path",
     )
-    parser.add_argument("--pdfs-per-task", type=int, default=10, help="PDFs per processing task")
+    parser.add_argument(
+        "--pdfs-per-task", type=int, default=10, help="PDFs per task in legacy mode; ignored with --pages-per-task"
+    )
+    parser.add_argument(
+        "--pages-per-task",
+        type=int,
+        default=None,
+        help="Optional page budget per task; requires a counted/versioned manifest and served Parse 3.5 single mode",
+    )
     parser.add_argument("--max-pdfs", type=int, default=None, help="Limit total PDFs (for testing)")
+    parser.add_argument(
+        "--page-budget-extraction-config",
+        help="Resolved served extraction JSON required with --pages-per-task; records identities, not tuning overrides",
+    )
     parser.add_argument("--dpi", type=int, default=300, help="PDF rendering resolution")
-    parser.add_argument("--max-pages", type=int, default=50, help="Max pages per PDF")
+    parser.add_argument(
+        "--max-pages",
+        type=int,
+        default=50,
+        help="Legacy per-PDF page limit; page mode processes the complete manifest selection",
+    )
     parser.add_argument("--min-crop-size", type=int, default=10, help="Min pixel dimension for image crops")
     parser.add_argument(
         "--text-in-pic",
@@ -103,6 +125,13 @@ def create_nemotron_parse_pdf_pipeline(
     serving GPU and start with ``args.inference_batch_size=32``. Tune request
     concurrency on the target hardware and corpus.
     """
+    extraction_config = None
+    if getattr(args, "pages_per_task", None) is not None:
+        config_path = getattr(args, "page_budget_extraction_config", None)
+        if not config_path:
+            msg = "--pages-per-task requires --page-budget-extraction-config"
+            raise ValueError(msg)
+        extraction_config = validate_extraction_config(json.loads(Path(config_path).read_text()))
     pipeline = Pipeline(
         name="nemotron_parse_pdf",
         description="PDF -> Nemotron-Parse -> Interleaved Parquet",
@@ -116,6 +145,8 @@ def create_nemotron_parse_pdf_pipeline(
             model_path=args.model_path,
             backend=inprocess_backend,
             pdfs_per_task=args.pdfs_per_task,
+            pages_per_task=getattr(args, "pages_per_task", None),
+            page_budget_extraction_config=extraction_config,
             max_pdfs=args.max_pdfs,
             dpi=args.dpi,
             max_pages=args.max_pages,
@@ -144,6 +175,21 @@ def create_nemotron_parse_pdf_pipeline(
             path=args.output_dir,
             materialize_on_write=False,
             on_materialize_error="warn",
+            schema=PAGE_OUTPUT_SCHEMA if getattr(args, "pages_per_task", None) is not None else None,
+            mode="error" if getattr(args, "pages_per_task", None) is not None else "ignore",
+            atomic_local_write=getattr(args, "pages_per_task", None) is not None,
+            reject_unknown_columns=getattr(args, "pages_per_task", None) is not None,
+            use_output_file_id=getattr(args, "pages_per_task", None) is not None,
         )
     )
+    if getattr(args, "pages_per_task", None) is not None:
+        pipeline.add_stage(
+            PDFPageBudgetValidationStage(
+                manifest_path=args.manifest,
+                expected_output_version=output_version({"pdf_extraction_config": extraction_config}),
+                max_pdfs=args.max_pdfs,
+                file_name_field=args.file_name_field,
+                url_field=args.url_field,
+            )
+        )
     return pipeline

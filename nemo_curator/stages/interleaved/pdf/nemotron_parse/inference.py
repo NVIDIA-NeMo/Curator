@@ -40,6 +40,12 @@ from nemo_curator.models.client.llm_client import GenerationConfig
 from nemo_curator.models.client.openai_client import AsyncOpenAIClient
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.interleaved.pdf.nemotron_parse._image_transport import has_png_batch_provenance
+from nemo_curator.stages.interleaved.pdf.nemotron_parse.extraction import parser_package_identity
+from nemo_curator.stages.interleaved.pdf.nemotron_parse.page_budget import (
+    ExtractionConfigMismatchError,
+    output_version,
+    validate_extraction_config,
+)
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import InterleavedBatch
 
@@ -464,6 +470,8 @@ class NemotronParseHTTPClientStage(ProcessingStage[InterleavedBatch, Interleaved
     max_tokens: int = DEFAULT_MAX_TOKENS
     proc_size: tuple[int, int] = (2048, 1664)
     reuse_encoded_images: bool = field(default=False, kw_only=True)
+
+    extraction_config: dict[str, Any] | None = field(default=None, kw_only=True)
     name: str = "nemotron_parse_inference"
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 
@@ -512,6 +520,36 @@ class NemotronParseHTTPClientStage(ProcessingStage[InterleavedBatch, Interleaved
                 raise ImportError(_PARSE_INSTALL_HINT) from exc
             self._require_served_model()
             self._parser = DocumentParser(model=self.model_name, backend=self._parse_backend)
+            if self.extraction_config is not None:
+                from nemotron_parse.inference import PROMPT
+
+                self.extraction_config = validate_extraction_config(self.extraction_config)
+                if self.parse_mode != "single" or self.extraction_config["parser"] != parser_package_identity():
+                    msg = "Admitted parser package or parse mode differs from this worker"
+                    raise ExtractionConfigMismatchError(msg)
+                if self.extraction_config["transport"] != {
+                    "request_timeout_s": self.request_timeout_s,
+                    "max_retries": self.max_retries,
+                    "retry_base_delay_s": self.retry_base_delay_s,
+                }:
+                    msg = "Admitted HTTP timeout/retry settings differ from this worker"
+                    raise ExtractionConfigMismatchError(msg)
+                generation = _server_generation_config(
+                    {**asdict(self._parser.settings["fullpage"]), "skip_special_tokens": False}
+                )
+                self._check_extraction_request(PROMPT, "fullpage", generation)
+
+    def _check_extraction_request(self, prompt: str, stage: str, generation: GenerationConfig) -> None:
+        if self.extraction_config is not None:
+            request = {
+                "model": self.model_name,
+                "stage": stage,
+                "prompt": prompt,
+                "generation": asdict(generation),
+            }
+            if request != self.extraction_config["request"]:
+                msg = "Effective served request differs from admitted extraction configuration"
+                raise ExtractionConfigMismatchError(msg)
 
     def _require_served_model(self) -> None:
         # Page failures become rows rather than raising, so an unusable endpoint must fail here.
@@ -562,6 +600,7 @@ class NemotronParseHTTPClientStage(ProcessingStage[InterleavedBatch, Interleaved
             if self.reuse_encoded_images and not reused:
                 metrics["image_reuse_fallback_count"] = metrics.get("image_reuse_fallback_count", 0) + 1
         generation = _server_generation_config({**asdict(settings), "skip_special_tokens": False})
+        self._check_extraction_request(prompt, stage, generation)
         response = asyncio.run_coroutine_threadsafe(
             self._query_parse_page(
                 client,
@@ -648,7 +687,9 @@ class NemotronParseHTTPClientStage(ProcessingStage[InterleavedBatch, Interleaved
                     result = {**row, "parse_document": None, "materialize_error": json.dumps(error)}
                 else:
                     result = {**row, "parse_document": json.dumps(document), "materialize_error": None}
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
+                if isinstance(exc, ExtractionConfigMismatchError):
+                    raise
                 error = {
                     "stage": getattr(exc, "stage", "parse_request"),
                     "type": type(exc).__name__,
@@ -711,6 +752,12 @@ class NemotronParseHTTPClientStage(ProcessingStage[InterleavedBatch, Interleaved
         if getattr(self, "_parser", None) is None:
             msg = "Call setup() before processing served Parse 3.5 pages"
             raise RuntimeError(msg)
+        if "pdf_page_chunks" in task._metadata and (
+            self.extraction_config is None
+            or output_version(task._metadata) != output_version({"pdf_extraction_config": self.extraction_config})
+        ):
+            msg = "Page task does not match this worker's admitted extraction identity"
+            raise ExtractionConfigMismatchError(msg)
         started = time.perf_counter()
         pages = task.to_pyarrow().to_pylist()
         reuse_encoded_images = self.reuse_encoded_images and has_png_batch_provenance(

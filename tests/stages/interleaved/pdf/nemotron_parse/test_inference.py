@@ -806,3 +806,28 @@ def test_real_ray_data_preserves_png_reuse_and_page_identity(http_endpoint: Simp
     assert len(requests[0]) == len(requests[1]) == 2
     assert requests[0] == requests[1]
     assert outputs[0].equals(outputs[1])
+
+
+def test_extraction_config_does_not_rebind_legacy_positional_client_arguments():
+    from nemo_curator.stages.resources import Resources
+
+    stage = inference.NemotronParseHTTPClientStage(
+        "http://unused/v1",
+        "served",
+        None,
+        None,
+        "union",
+        False,
+        None,
+        300.0,
+        3,
+        1.0,
+        4,
+        8192,
+        (2048, 1664),
+        "legacy",
+        Resources(cpus=2),
+    )
+    assert stage.name == "legacy"
+    assert stage.resources.cpus == 2
+    assert stage.extraction_config is None

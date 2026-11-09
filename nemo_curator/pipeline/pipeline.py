@@ -287,6 +287,18 @@ class Pipeline:
 
             executor = XennaExecutor()
 
+        ray_only = [
+            stage.name
+            for stage in self.stages
+            if stage.ray_stage_spec().get("group_by_metadata") or stage.ray_stage_spec().get("run_on_driver")
+        ]
+        if ray_only:
+            from nemo_curator.backends.ray_data import RayDataExecutor
+
+            if not isinstance(executor, RayDataExecutor):
+                msg = f"Stages {ray_only} require RayDataExecutor"
+                raise ValueError(msg)
+
         from nemo_curator.core.serve import is_inference_server_active
 
         if is_inference_server_active():

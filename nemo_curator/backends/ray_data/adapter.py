@@ -176,12 +176,32 @@ class RayDataStageAdapter(BaseStageAdapter):
         # Let Ray Data apply the selected compute strategy and resource requirements.
         logger.info(f"{self.stage.__class__.__name__} stage_is_actor={stage_is_actor} with {map_batches_kwargs=}")
 
-        processed_dataset = dataset.map_batches(map_batches_fn, batch_size=self.batch_size, **map_batches_kwargs)  # type: ignore[reportArgumentType]
+        group_key = ray_stage_spec.get(RayStageSpecKeys.GROUP_BY_METADATA)
+        if group_key is None:
+            processed_dataset = dataset.map_batches(map_batches_fn, batch_size=self.batch_size, **map_batches_kwargs)  # type: ignore[reportArgumentType]
+        else:
+            processed_dataset = _process_metadata_groups(dataset, group_key, map_batches_fn, map_batches_kwargs)
 
         if ray_stage_spec.get(RayStageSpecKeys.IS_FANOUT_STAGE, False):
             processed_dataset = processed_dataset.repartition(target_num_rows_per_block=1)
 
         return processed_dataset
+
+
+def _process_metadata_groups(dataset: Dataset, key: str, fn: Callable, kwargs: dict) -> Dataset:
+    if not isinstance(key, str) or not key:
+        msg = "group_by_metadata must be a nonempty metadata key"
+        raise ValueError(msg)
+    grouped = dataset.map_batches(_add_metadata_group_key, fn_kwargs={"key": key}, batch_format="numpy")
+    return grouped.groupby("_curator_group_key").map_groups(fn, batch_format="numpy", **kwargs)
+
+
+def _add_metadata_group_key(batch: dict[str, Any], *, key: str) -> dict[str, Any]:
+    keys = [task._metadata.get(key) for task in batch["item"]]
+    if any(not isinstance(value, str) or not value for value in keys):
+        msg = f"Every grouped task must have a nonempty string in metadata[{key!r}]"
+        raise ValueError(msg)
+    return {"item": batch["item"], "_curator_group_key": keys}
 
 
 def create_actor_from_stage(stage: ProcessingStage) -> type[RayDataStageAdapter]:

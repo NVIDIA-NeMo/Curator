@@ -21,6 +21,10 @@ Convert PDF datasets into interleaved Parquet output using NVIDIA's [Nemotron-Pa
 3. **`NemotronParseHTTPClientStage`** (recommended) or **`NemotronParseInferenceStage`** — calls an OpenAI-compatible `InferenceServer`, or runs vLLM/Hugging Face Transformers in process.
 4. **`NemotronParsePostprocessStage`** — parses model output, aligns images and captions, crops images, and emits the final interleaved rows.
 
+With optional [page-based tasking](#page-based-tasking), the reader also regroups
+extracted ranges into complete documents. The tutorial then writes those documents
+and validates the complete manifest inventory on the driver.
+
 The output is interleaved Parquet ready to be filtered with [Interleaved Filters](/curate-text/process-data/interleaved/filters) and written to MINT-1T-style WebDataset shards.
 
 ## Before You Start
@@ -183,10 +187,12 @@ NemotronParsePDFReader(
 | `jsonl_base_dir` | str \| None | `None` | Root directory of JSONL-encoded PDF datasets. |
 | `model_path` | str | `"nvidia/NVIDIA-Nemotron-Parse-v1.2"` | Local path or HF repo ID for the Nemotron-Parse weights. |
 | `backend` | str | `"vllm"` | In-process inference backend (`vllm` or `hf`); ignored by the HTTP stage. |
-| `pdfs_per_task` | int | `10` | Number of PDFs grouped into each `FileGroupTask`. |
+| `pdfs_per_task` | int | `10` | PDFs per task; ignored when `pages_per_task` is set. |
+| `pages_per_task` | int \| None | `None` | Optional selected-page budget per task; requires served Parse 3.5 single mode, Ray Data, and a counted/versioned manifest. |
+| `page_budget_extraction_config` | dict \| None | `None` | Resolved extraction identity required with `pages_per_task`; see [Page-Based Tasking](#page-based-tasking). |
 | `max_pdfs` | int \| None | `None` | Hard cap on total PDFs processed (debug aid). |
 | `dpi` | int | `300` | Render DPI for PDF pages. |
-| `max_pages` | int | `50` | Maximum pages rendered per PDF; longer PDFs are truncated. |
+| `max_pages` | int | `50` | Per-PDF page limit in PDF-based mode; ignored in page-based mode, which processes the manifest selection. |
 | `inference_batch_size` | int | `4` | Pages per HF pass or concurrent page requests per HTTP worker. The HTTP stage warns below the validated starting point of 32. |
 | `max_num_seqs` | int | `64` | Maximum concurrent vLLM sequences. |
 | `max_tokens` | int | `8192` | Maximum output tokens generated per page. |
@@ -328,7 +334,7 @@ Each output row represents a single item (text, image, or metadata) from a parse
 | `binary_content` | bytes \| null | Image payload for `image` rows. |
 | `source_files` | list[string] | Source PDF files that produced this row (for lineage tracking). |
 
-The output is directly compatible with [Interleaved IO](/curate-text/process-data/interleaved/io) readers and writers — the schema matches `INTERLEAVED_SCHEMA` exactly.
+The default output uses the interleaved schema consumed by [Interleaved IO](/curate-text/process-data/interleaved/io). Page-based tasking uses `PAGE_OUTPUT_SCHEMA`, a fixed extension that also preserves physical page numbers and PDF provenance.
 
 ## Inspect Inference Metrics
 
@@ -433,7 +439,8 @@ python tutorials/interleaved/nemotron_parse_pdf/main.py \
     --executor ray-data
 ```
 
-Use `--executor xenna` to run the same pipeline on Xenna. The endpoint must serve the named model; each HTTP worker checks `/v1/models` at startup and fails if the model is not listed. For two GPUs, run the model team's server with `--data-parallel-size 2` behind one endpoint; Curator does not route across endpoints.
+Without page-based tasking, use `--executor xenna` to run the same pipeline on Xenna.
+Page-based tasking requires `--executor ray-data`. The endpoint must serve the named model; each HTTP worker checks `/v1/models` at startup and fails if the model is not listed. For two GPUs, run the model team's server with `--data-parallel-size 2` behind one endpoint; Curator does not route across endpoints.
 
 ### Curator-Managed Dynamo
 
@@ -486,6 +493,93 @@ Aggregate these additive counters with `_sum` as shown in
 [Inspect Inference Metrics](#inspect-inference-metrics). This saves CPU encoding
 work; measure pipeline wall time to determine whether encoding limits your workload.
 It does not require page-based tasking or a separate HTTP-client reuse option.
+
+### Page-Based Tasking
+
+Set `pages_per_task` on `NemotronParsePDFReader`, or `--pages-per-task` in the
+tutorial, to pack selected pages across PDF boundaries. A long PDF can span several
+tasks; document regrouping restores its page selection and element order before
+writing. The default `None` retains PDF-based tasking. This option requires served
+Parse 3.5 `single` mode and `RayDataExecutor`; other executors are rejected.
+
+A budget of `64` puts 64 selected pages into each task except the final tail. It
+is a scheduling limit, not a page cap or an inference batch size. `pdfs_per_task`
+and the legacy `max_pages` limit are ignored in this mode. Supply an authoritative
+`num_pages` to process every page, or `selected_page_indices` to process an explicit
+selection in its declared order.
+
+Use one versioned PDF per manifest record:
+
+```jsonl
+{"file_name": "document.pdf", "num_pages": 120, "source_locator": "corpus/document.pdf", "source_version": "sha256:<actual-pdf-digest>"}
+```
+
+Replace the example source version with an immutable identity for the actual PDF
+bytes. `source_version` is caller-declared provenance; Curator does not automatically
+verify the PDF hash. Keep each input file immutable throughout all chunk reads.
+The canonical locator and source version determine `document_id`; changing the task
+budget does not rename it. Duplicate document identities and ambiguous
+`sample_id` values are rejected. Grouped filename-list records are not supported
+in this mode.
+
+Page mode also requires `page_budget_extraction_config`, supplied as JSON through
+`--page-budget-extraction-config`. Its schema is `pdf-page-extraction.v1`, with
+these nonempty sections:
+
+| Section | Required identity or effective settings |
+| --- | --- |
+| `parser` | Installed parser `version` and Python-source inventory `source_sha256`; obtain these with `parser_package_identity()`. |
+| `model` | Immutable `revision` and `artifacts_sha256` for the served checkpoint, supplied from the server's verified artifact inventory. |
+| `request` | Exact served `model`, `stage="fullpage"`, prompt, and normalized generation settings. |
+| `render` | Effective DPI, processing size, timeout, recovery budget, retry timeout, and attempt limit. |
+| `transport` | Effective request timeout, retry count, and retry base delay. |
+| `projection` | `schema="pdf-page-budget.v1"` and the effective `min_crop_px`. |
+
+This contract records effective settings; it does not override parser or server
+configuration. Workers verify parser, request, render, transport, and projection
+settings against the contract. The caller must establish that the server uses the
+recorded model artifacts. See the checked-in
+[contract validation](https://github.com/NVIDIA-NeMo/Curator/blob/main/nemo_curator/stages/interleaved/pdf/nemotron_parse/page_budget.py)
+and
+[parser identity helper](https://github.com/NVIDIA-NeMo/Curator/blob/main/nemo_curator/stages/interleaved/pdf/nemotron_parse/extraction.py).
+
+After preparing the manifest and matching extraction contract, run:
+
+```bash
+python tutorials/interleaved/nemotron_parse_pdf/main.py \
+    --manifest counted-versioned.jsonl --pdf-dir /path/to/pdfs \
+    --output-dir /path/to/fresh-output \
+    --inference-server-endpoint http://localhost:8000/v1 \
+    --model-path nvidia/Nemotron-3.5-Parse \
+    --inference-server-model-name nemotron-parse \
+    --parse-mode single --executor ray-data \
+    --pages-per-task 64 --page-budget-extraction-config extraction.json
+```
+
+The tutorial uses a fixed schema and rejects undeclared columns. It retains
+explicit page failures, rejects missing or duplicate ranges, and ends with
+`PDFPageBudgetValidationStage` after the writer. This driver check reconciles
+all outputs against the original manifest, including PDFs with no surviving
+chunks. Coverage passing does not mean all pages succeeded or that extraction
+quality was validated. Directly assembled pipelines must include this finalizer;
+the executor rejects a merge pipeline without it.
+
+Use a fresh output directory for every run. The page-mode writer enables the
+otherwise default-off `atomic_local_write`, `reject_unknown_columns`, and
+`use_output_file_id` options. The last option requires a lowercase SHA-256
+`output_file_id` from regrouping; ordinary writers ignore that metadata. Each
+Parquet file is written to a temporary sibling and published with `os.replace`.
+A complete retry replaces the destination; concurrent complete writes leave the
+last replacement. Interrupted temporary files remain available for inspection.
+This is per-file atomic replacement, not crash durability, no-clobber publication,
+exactly-once inference, or a transaction across all documents.
+
+Atomic writing accepts a locally addressed filesystem. A `LocalFileSystem`
+interface does not prove SSD backing or exclude an NFS mount; verify the backing
+mount yourself. Document regrouping remains a global barrier, and planning,
+inventory validation, and final results are materialized in memory. Size the
+workload and driver for these requirements; a page budget does not bound total
+pipeline memory or make regrouping checkpoint-resumable.
 
 ### Select a Page Subset
 

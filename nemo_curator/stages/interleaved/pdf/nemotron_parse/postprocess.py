@@ -26,6 +26,8 @@ import pyarrow as pa
 from PIL import Image
 
 from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.interleaved.pdf.nemotron_parse.page_budget import output_version, validate_chunk_pages
+from nemo_curator.stages.interleaved.pdf.nemotron_parse.schema import align_page_output
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.utils import (
     DEFAULT_MIN_CROP_PX,
     build_interleaved_rows,
@@ -64,6 +66,10 @@ class NemotronParsePostprocessStage(ProcessingStage[InterleavedBatch, Interleave
     min_crop_px: int = DEFAULT_MIN_CROP_PX
     name: str = "nemotron_parse_postprocess"
     resources: Resources = field(default_factory=lambda: Resources(cpus=2.0))
+    _page_budget: bool = field(default=False, repr=False)
+
+    def ray_stage_spec(self) -> dict[str, Any]:
+        return {"is_fanout_stage": self._page_budget}
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
@@ -71,7 +77,9 @@ class NemotronParsePostprocessStage(ProcessingStage[InterleavedBatch, Interleave
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
 
-    def process(self, task: InterleavedBatch) -> InterleavedBatch | None:
+    def process(self, task: InterleavedBatch) -> InterleavedBatch | list[InterleavedBatch] | None:
+        if task._metadata.get("pdf_page_chunks"):
+            return self._process_page_chunks(task)
         if task._metadata.get("parse_mode") is not None:
             return self._process_parse(task)
         pages = task.to_pandas()
@@ -116,6 +124,64 @@ class NemotronParsePostprocessStage(ProcessingStage[InterleavedBatch, Interleave
             _metadata=task._metadata,
             _stage_perf=task._stage_perf,
         )
+
+    def _process_page_chunks(self, task: InterleavedBatch) -> list[InterleavedBatch]:
+        if task._metadata.get("parse_mode") != "single":
+            msg = "Page budgeting requires served Parse 3.5 single mode"
+            raise ValueError(msg)
+        by_document: dict[str, list[dict[str, Any]]] = {}
+        for page in task.to_pyarrow().to_pylist():
+            by_document.setdefault(page.get("document_id"), []).append(page)
+        chunks = task._metadata["pdf_page_chunks"]
+        if set(by_document) != {chunk["document_id"] for chunk in chunks.values()}:
+            msg = "Missing or unexpected document in page-budget postprocessing"
+            raise ValueError(msg)
+        results = []
+        version = output_version(task._metadata)
+        for chunk in chunks.values():
+            pages = by_document[chunk["document_id"]]
+            validate_chunk_pages(chunk, pages)
+            by_page = {page["page_number"]: page for page in pages}
+            content, outcomes = [], []
+            for index in chunk["page_indices"]:
+                page = by_page[index]
+                projected = self._page_rows(page)
+                content.extend({**row, "document_id": chunk["document_id"]} for row in projected)
+                outcomes.append(
+                    {
+                        "page_number": index,
+                        "status": "failed" if page.get("materialize_error") else "success",
+                        "element_count": len(projected),
+                    }
+                )
+            metadata = build_metadata_row(chunk["sample_id"], pages[0].get("url"), chunk["pdf_name"], len(pages))
+            info = json.loads(metadata["text_content"])
+            info["pdf_provenance"] = {
+                key: chunk[key] for key in ("document_id", "source_locator", "source_version", "selection_sha256")
+            }
+            info["pdf_provenance"]["output_version"] = version
+            info["page_outcomes"] = outcomes
+            metadata.update(document_id=chunk["document_id"], text_content=json.dumps(info), materialize_error=None)
+            rows = [metadata, *({**row, "position": index} for index, row in enumerate(content))]
+            table = align_page_output(pa.Table.from_pylist(rows))
+            results.append(
+                InterleavedBatch(
+                    dataset_name=task.dataset_name,
+                    data=table,
+                    _metadata={
+                        **{
+                            key: value
+                            for key, value in task._metadata.items()
+                            if key not in {"source_files", "pdf_page_chunks", "partition_index"}
+                        },
+                        "source_files": [chunk["source_locator"]],
+                        "pdf_document_id": chunk["document_id"],
+                        "pdf_chunk": chunk,
+                    },
+                    _stage_perf=list(task._stage_perf),
+                )
+            )
+        return results
 
     def _process_parse(self, task: InterleavedBatch) -> InterleavedBatch | None:
         documents: dict[str, list[dict[str, Any]]] = {}

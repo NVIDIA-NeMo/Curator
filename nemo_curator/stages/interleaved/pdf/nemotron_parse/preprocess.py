@@ -32,6 +32,10 @@ from PIL import Image
 
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.interleaved.pdf.nemotron_parse._image_transport import PNG_METADATA_KEY, png_batch_provenance
+from nemo_curator.stages.interleaved.pdf.nemotron_parse.page_budget import (
+    ExtractionConfigMismatchError,
+    output_version,
+)
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.utils import (
     extract_pdf_from_jsonl,
     extract_pdf_from_zip,
@@ -92,6 +96,22 @@ class PDFPreprocessStage(ProcessingStage[FileGroupTask, InterleavedBatch]):
     reuse_encoded_images: bool = field(default=False, kw_only=True)
     name: str = "pdf_preprocess"
     resources: Resources = field(default_factory=lambda: Resources(cpus=2.0))
+    _extraction_config: dict[str, Any] | None = field(default=None, init=False, repr=False)
+
+    def _check_extraction_settings(self) -> None:
+        if self._extraction_config is None:
+            return
+        effective = {
+            "dpi": self.dpi,
+            "proc_size": [2048, 1664],
+            "timeout_s": self._RENDER_TIMEOUT_S,
+            "recovery_budget_s": self._RENDER_RECOVERY_BUDGET_S,
+            "retry_timeout_s": self._RENDER_RETRY_TIMEOUT_S,
+            "max_attempts": self._RENDER_MAX_ATTEMPTS,
+        }
+        if self._extraction_config["render"] != effective:
+            msg = "Effective rendering/recovery settings differ from admitted extraction configuration"
+            raise ExtractionConfigMismatchError(msg)
 
     def __post_init__(self) -> None:
         if type(self.reuse_encoded_images) is not bool:
@@ -167,7 +187,12 @@ class PDFPreprocessStage(ProcessingStage[FileGroupTask, InterleavedBatch]):
     _RENDER_MAX_ATTEMPTS: ClassVar[int] = 7
 
     def _render_once(  # noqa: C901, PLR0915
-        self, pdf_bytes: bytes, page_indices: list[int] | None, *, timeout_s: float | None = None
+        self,
+        pdf_bytes: bytes,
+        page_indices: list[int] | None,
+        *,
+        timeout_s: float | None = None,
+        expected_page_count: int | None = None,
     ) -> tuple[list[Image.Image | None], bool, int | None]:
         """Render one window, always closing queues and reaping its child."""
         ctx = multiprocessing.get_context("fork")
@@ -176,7 +201,7 @@ class PDFPreprocessStage(ProcessingStage[FileGroupTask, InterleavedBatch]):
 
         def _worker() -> None:
             try:
-                if page_indices is None:
+                if page_indices is None or expected_page_count is not None:
                     import pypdfium2 as pdfium
 
                     doc = pdfium.PdfDocument(pdf_bytes)
@@ -225,7 +250,7 @@ class PDFPreprocessStage(ProcessingStage[FileGroupTask, InterleavedBatch]):
                         raise RuntimeError(msg)
             finally:
                 try:
-                    if page_indices is None:
+                    if page_indices is None or expected_page_count is not None:
                         with contextlib.suppress(queue.Empty):
                             page_count = page_count_q.get(timeout=0.1)
                 finally:
@@ -244,7 +269,12 @@ class PDFPreprocessStage(ProcessingStage[FileGroupTask, InterleavedBatch]):
         )
 
     def _render_with_timeout(  # noqa: C901
-        self, pdf_bytes: bytes, file_name: str, page_indices: list[int] | None = None
+        self,
+        pdf_bytes: bytes,
+        file_name: str,
+        page_indices: list[int] | None = None,
+        *,
+        expected_page_count: int | None = None,
     ) -> list[Image.Image | None]:
         """Recover served-parser windows within one shared time and attempt budget.
 
@@ -253,7 +283,15 @@ class PDFPreprocessStage(ProcessingStage[FileGroupTask, InterleavedBatch]):
         timeout behavior. The initial timeout can be overridden on a run's stage
         instance without increasing either the retry timeout or recovery budget.
         """
-        pages, timed_out, page_count = self._render_once(pdf_bytes, page_indices)
+        if expected_page_count is None:
+            pages, timed_out, page_count = self._render_once(pdf_bytes, page_indices)
+        else:
+            pages, timed_out, page_count = self._render_once(
+                pdf_bytes, page_indices, expected_page_count=expected_page_count
+            )
+            if page_count is not None and page_count != expected_page_count:
+                msg = f"Stale num_pages for {file_name}: manifest={expected_page_count}, actual={page_count}"
+                raise ValueError(msg)
         if not self.retain_failures:
             return [] if timed_out else pages
         requested = page_indices
@@ -330,28 +368,58 @@ class PDFPreprocessStage(ProcessingStage[FileGroupTask, InterleavedBatch]):
             error = json.dumps({"stage": "render_pdf", "type": "RenderError", "message": "Page rendering failed"})
         return {**row, "page_number": page_num, "materialize_error": error}
 
-    def process(self, task: FileGroupTask) -> InterleavedBatch | None:  # noqa: C901
+    def process(self, task: FileGroupTask) -> InterleavedBatch | None:  # noqa: C901, PLR0912, PLR0915
+        self._check_extraction_settings()
+        if self._extraction_config is not None and output_version(task._metadata) != output_version(
+            {"pdf_extraction_config": self._extraction_config}
+        ):
+            msg = "Page task does not match this renderer's admitted extraction identity"
+            raise ExtractionConfigMismatchError(msg)
         rows: list[dict[str, Any]] = []
 
         parsed: list[dict] = [json.loads(e) for e in task.data]
+        if task._metadata.get("pdf_page_chunks") and not self.retain_failures:
+            msg = "Page budgeting requires retain_failures=True"
+            raise ValueError(msg)
+        metrics = (
+            {"pdf_read_s": 0.0, "pdf_render_s": 0.0, "pdf_source_bytes": 0.0, "pdf_source_reads": float(len(parsed))}
+            if task._metadata.get("pdf_page_chunks")
+            else None
+        )
+
+        def failed_rows(entry: dict, sample_id: str, url: str, stage: str, message: str) -> list[dict]:
+            failed = self._failed_row(sample_id, entry["file_name"], url, stage, message)
+            if chunk := entry.get("_page_chunk"):
+                return [
+                    {**failed, "position": page, "page_number": page, "document_id": chunk["document_id"]}
+                    for page in chunk["page_indices"]
+                ]
+            return [failed]
 
         # Pre-fetch all JSONL PDFs in batch (one file open per source JSONL)
         jsonl_bytes: dict[int, bytes | None] | None = None
         if self.jsonl_base_dir is not None:
+            started = time.perf_counter() if metrics is not None else None
             jsonl_bytes = self._batch_fetch_jsonl(parsed)
+            if metrics is not None:
+                metrics["pdf_read_s"] += time.perf_counter() - started
 
         for idx, entry in enumerate(parsed):
             file_name = entry["file_name"]
             url = entry.get("url", "")
             sample_id = file_name.rsplit(".", 1)[0]
 
+            started = time.perf_counter() if metrics is not None else None
             if jsonl_bytes is not None:
                 pdf_bytes = jsonl_bytes.get(idx)
             else:
                 pdf_bytes = self._get_pdf_bytes(file_name, entry=entry)
+            if metrics is not None:
+                metrics["pdf_read_s"] += time.perf_counter() - started
+                metrics["pdf_source_bytes"] += len(pdf_bytes) if pdf_bytes is not None else 0
             if pdf_bytes is None:
                 if self.retain_failures:
-                    rows.append(self._failed_row(sample_id, file_name, url, "read_pdf", "Could not read PDF"))
+                    rows.extend(failed_rows(entry, sample_id, url, "read_pdf", "Could not read PDF"))
                 logger.warning(f"Could not read PDF: {file_name}")
                 continue
 
@@ -364,27 +432,41 @@ class PDFPreprocessStage(ProcessingStage[FileGroupTask, InterleavedBatch]):
             ):
                 msg = "selected_page_indices must be a nonempty list of unique nonnegative integers"
                 if self.retain_failures:
-                    rows.append(self._failed_row(sample_id, file_name, url, "manifest", msg))
+                    rows.extend(failed_rows(entry, sample_id, url, "manifest", msg))
                 logger.warning(f"Invalid selected_page_indices for {file_name}: {page_indices!r}")
                 continue
 
-            page_images = self._render_with_timeout(pdf_bytes, file_name, page_indices)
+            started = time.perf_counter() if metrics is not None else None
+            if entry.get("_page_chunk") and entry.get("num_pages") is not None:
+                page_images = self._render_with_timeout(
+                    pdf_bytes, file_name, page_indices, expected_page_count=entry["num_pages"]
+                )
+            else:
+                page_images = self._render_with_timeout(pdf_bytes, file_name, page_indices)
+            if metrics is not None:
+                metrics["pdf_render_s"] += time.perf_counter() - started
             if not page_images:
                 if self.retain_failures:
-                    rows.append(self._failed_row(sample_id, file_name, url, "render_pdf", "No render result"))
+                    rows.extend(failed_rows(entry, sample_id, url, "render_pdf", "No render result"))
                 logger.warning(f"No pages rendered from {file_name}; skipping")
                 continue
 
             logger.debug(f"Rendered {file_name}: {len(page_images)} pages")
             physical_indexes = range(len(page_images)) if page_indices is None else page_indices
-            rows.extend(
+            page_rows = (
                 self._page_row(sample_id, file_name, url, page_num, page_img)
                 for page_num, page_img in zip(physical_indexes, page_images, strict=True)
                 if self.retain_failures or page_img is not None
             )
+            if chunk := entry.get("_page_chunk"):
+                rows.extend({**row, "document_id": chunk["document_id"]} for row in page_rows)
+            else:
+                rows.extend(page_rows)
 
         if not rows:
             return None
+        if metrics is not None:
+            self._log_metrics(metrics)
 
         pages_df = pd.DataFrame(rows)
         if self.retain_failures:

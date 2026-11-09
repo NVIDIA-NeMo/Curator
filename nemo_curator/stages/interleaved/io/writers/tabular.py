@@ -31,6 +31,12 @@ class InterleavedParquetWriterStage(BaseInterleavedWriter):
     name: str = "interleaved_parquet_writer"
 
     def _write_dataframe(self, df: pd.DataFrame, file_path: str, write_kwargs: dict[str, Any]) -> None:
+        if self.reject_unknown_columns:
+            if write_kwargs.get("engine", "auto") not in {"auto", "pyarrow"}:
+                msg = "Strict Parquet schemas require the pyarrow engine"
+                raise ValueError(msg)
+            # pandas carries column dtypes, but not Arrow field nullability.
+            write_kwargs = {**write_kwargs, "schema": self.schema, "engine": "pyarrow"}
         write_kwargs.setdefault("compression", "snappy")
         write_kwargs.setdefault("row_group_size", 128_000)
         with self._time_metric("parquet_write_s"):

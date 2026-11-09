@@ -43,9 +43,9 @@ results = pipeline.run(executor)
 ```
 
 **Key points:**
-- The same pipeline definition works with any executor
-- Executor choice is independent of pipeline stages
-- Switch executors without changing pipeline code
+- Most pipeline definitions can run with multiple executors.
+- Backend-specific stages can require a particular executor.
+- Check stage requirements before switching executors.
 
 ## Available Backends
 
@@ -199,6 +199,29 @@ Ray Data uses `ActorPoolStrategy` for actor stages and `TaskPoolStrategy` for ta
 Ray Data may fuse adjacent operators when their compute and resource requirements are compatible. Matching resources enables the optimization but does not guarantee it; Ray Data makes the final optimizer decision. The [resource matching and fusion reference](/reference/infra/stage-worker-sizing#resource-matching-and-ray-data-fusion) explains the video-stage CPU reservation behavior.
 
 For scheduler diagnosis, refer to [Ray Data Scheduler Diagnostics](/reference/infra/monitoring#ray-data-scheduler-diagnostics).
+
+#### Grouped Tasks and Driver Finalizers
+
+Stages can opt into these Ray Data stage-spec keys through `ray_stage_spec()` or
+`with_(ray_stage_spec=...)`:
+
+| `RayStageSpecKeys` member | Value | Behavior |
+| --- | --- | --- |
+| `GROUP_BY_METADATA` | `"group_by_metadata"` | Name a task metadata field containing a nonempty string. Ray Data groups tasks by that value and passes each complete group to `process_batch()`. |
+| `RUN_ON_DRIVER` | `"run_on_driver"` | Set to `True` to execute `process_batch()` once on the collected final task list, including an empty list. |
+
+Grouped stages introduce a global grouping barrier; they do not provide bounded
+streaming fan-in. Driver stages must form the final suffix after all distributed
+stages and run in order after results are collected. Allow driver memory for the
+result list and any finalizer inventory.
+
+A stage can declare `required_finalizer` to require a matching driver stage's
+`finalizes` identifier. The executor rejects a pipeline missing that finalizer
+before execution. For example, page-based PDF regrouping requires a final
+manifest-to-output reconciliation so an entirely missing document is detected.
+Pipelines using these grouped or driver-only stages are rejected by the other
+executors. See [page-based PDF tasking](/main/curate-text/load-data/nemotron-parse-pdf#page-based-tasking)
+for the complete reader, writer, and validation workflow.
 
 ## Per-Stage Runtime Environments
 

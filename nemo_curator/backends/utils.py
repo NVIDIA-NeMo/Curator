@@ -128,6 +128,8 @@ class RayStageSpecKeys(str, Enum):
 
     IS_ACTOR_STAGE = "is_actor_stage"
     IS_FANOUT_STAGE = "is_fanout_stage"
+    GROUP_BY_METADATA = "group_by_metadata"
+    RUN_ON_DRIVER = "run_on_driver"
     IS_RAFT_ACTOR = "is_raft_actor"
     USE_TASK_WEIGHTS = "use_task_weights"
     IS_LSH_STAGE = "is_lsh_stage"

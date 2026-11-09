@@ -158,10 +158,12 @@ images = [Image.open(io.BytesIO(b)) for b in df[df["modality"] == "image"]["bina
 | `--enforce-eager` | off | Skip vLLM CUDA graph capture (~35 min savings on first run) |
 | `--max-num-seqs` | 64 | Max concurrent sequences for vLLM |
 | `--inference-batch-size` | 32 (`main.py`), 4 (`inprocess.py`) | Concurrent requests per HTTP worker, or pages per in-process HF pass |
-| `--pdfs-per-task` | 10 | PDFs batched per processing task |
+| `--pdfs-per-task` | 10 | PDFs per task; ignored with `--pages-per-task` |
+| `--pages-per-task` | off | Optional selected-page budget across PDFs; requires served single mode and Ray Data |
+| `--page-budget-extraction-config` | — | Resolved extraction-identity JSON required with `--pages-per-task` |
 | `--max-pdfs` | — | Cap total PDFs (for testing) |
 | `--dpi` | 300 | PDF rendering resolution |
-| `--max-pages` | 50 | Max pages per PDF |
+| `--max-pages` | 50 | Legacy per-PDF limit; page mode processes the complete manifest selection |
 | `--text-in-pic` | off | Predict text inside images (v1.2+ feature) |
 | `--nemotron-parse-path` | — | Local Parse 3.5 repository for managed Dynamo (`main.py` only); use with `--parse-mode` |
 | `--reuse-encoded-images` | off | Reuse verified rendered PNG bytes for served Parse 3.5 `single` mode only |
@@ -215,7 +217,8 @@ NEMO_CURATOR_DYNAMO_CUDA_TAG=cu130 python tutorials/interleaved/nemotron_parse_p
 - `triple` adds a boxes-only detection request before reading the crops;
   `--triple-regions` selects `union` (default) or `detector` regions.
 
-Use `--executor xenna` to run the same pipeline on Xenna. A page that fails to render
+Without page-based tasking, use `--executor xenna` to run the pipeline on Xenna.
+Page-based tasking requires Ray Data. A page that fails to render
 or parse is written as one `text` row with `materialize_error` set, which the tutorial
 writer keeps with `on_materialize_error="warn"`. A response with no decoded blocks
 also becomes an error row. The served path recovers missing or timed-out render
@@ -246,6 +249,56 @@ subset of normal encodes. These count image preparations for logical parser
 backend calls, rather than HTTP retry attempts, successful pages, or unique physical
 pages. Sum them across tasks to check eligibility; compare pipeline wall time to
 assess the benefit on a CPU-constrained workload.
+
+### Optional page-based tasking
+
+Use `--pages-per-task 64` with `--parse-mode single --executor ray-data` to pack
+64 selected pages per task, except the final tail, across document boundaries.
+Long PDFs are split for processing and regrouped into complete documents before
+writing. This is a task budget, not an inference batch size or page cap:
+`--pdfs-per-task` and `--max-pages` are ignored. Without the option, the existing
+PDF-based tasking remains unchanged.
+
+Page mode requires one PDF per manifest record with `source_locator`, an immutable
+`source_version` for its actual bytes, and either `num_pages` (all pages) or
+`selected_page_indices` (an explicit ordered selection). `source_version` is
+caller-declared provenance, not automatic PDF-hash verification; keep inputs
+immutable throughout every chunk read. Duplicate document identities, ambiguous
+sample IDs, and grouped filename lists are rejected.
+
+It also requires `--page-budget-extraction-config extraction.json`, containing a
+resolved `pdf-page-extraction.v1` contract for parser identity, model artifacts,
+requests, rendering/recovery, transport, and output projection. This records
+settings rather than overriding them. Prepare it from the installed parser and
+verified serving configuration; see the
+[page-based tasking guide](../../../fern/versions/main/pages/curate-text/load-data/nemotron-parse-pdf.mdx#page-based-tasking)
+for the required sections and source helpers.
+
+```bash
+python tutorials/interleaved/nemotron_parse_pdf/main.py \
+    --manifest counted-versioned.jsonl --pdf-dir /path/to/pdfs \
+    --output-dir /path/to/fresh-output \
+    --inference-server-endpoint http://localhost:8000/v1 \
+    --model-path nvidia/Nemotron-3.5-Parse \
+    --inference-server-model-name nemotron-parse \
+    --parse-mode single --executor ray-data \
+    --pages-per-task 64 --page-budget-extraction-config extraction.json
+```
+
+Use a fresh, locally addressed output directory for each run and verify its backing
+mount; a local filesystem API does not prove SSD storage or exclude NFS. The
+builder writes the fixed page-output schema, rejects undeclared columns, retains
+failed-page rows, and runs a mandatory final inventory check after writing. That
+check detects missing whole PDFs as well as missing, duplicate, or substituted
+pages; coverage passing does not establish extraction quality or all-page success.
+
+Output filenames derive from verified document/selection/extraction identities.
+The writer publishes each closed temporary Parquet with atomic replacement: a
+complete retry can replace that file, and the last complete concurrent replacement
+wins. It is not crash durability, no-clobber publication, exactly-once inference,
+or a multi-document transaction. Interrupted temporary files are retained.
+Regrouping is a global barrier, with materialized planning/inventory/results and
+no regrouping checkpoint support; the page budget does not bound total memory.
 
 ## Reproducing the Parse 3.5 serving benchmarks
 

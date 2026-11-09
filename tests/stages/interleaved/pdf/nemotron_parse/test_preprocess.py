@@ -32,6 +32,7 @@ from nemo_curator.stages.interleaved.pdf.nemotron_parse._image_transport import 
     png_batch_provenance,
 )
 from nemo_curator.tasks import FileGroupTask
+from tests.stages.interleaved.pdf.nemotron_parse._page_budget_helpers import partition
 
 
 def pdf_bytes():
@@ -350,3 +351,36 @@ def test_png_provenance_keeps_empty_and_failed_document_behavior(
         assert error["stage"] == failure_stage
     else:
         assert result is None
+
+
+def test_page_budget_unreadable_source_retains_each_expected_physical_page(tmp_path: Path):
+    _, tasks = partition(tmp_path, [{"file_name": "missing.pdf", "num_pages": 3}], 2)
+    stage = preprocess.PDFPreprocessStage(pdf_dir=str(tmp_path), retain_failures=True)
+    rows = [row for task in tasks for row in stage.process(task).to_pyarrow().to_pylist()]
+    assert [row["page_number"] for row in rows] == [0, 1, 2]
+    assert all(row["document_id"] for row in rows)
+    assert all(json.loads(row["materialize_error"])["stage"] == "read_pdf" for row in rows)
+
+
+def test_page_budget_stale_count_fails_before_inference(monkeypatch: pytest.MonkeyPatch):
+    stage = preprocess.PDFPreprocessStage(retain_failures=True)
+    monkeypatch.setattr(stage, "_render_once", lambda *_a, **_k: ([None] * 3, False, 3))
+    with pytest.raises(ValueError, match="Stale num_pages"):
+        stage._render_with_timeout(b"pdf", "three.pdf", [0, 1], expected_page_count=4)
+
+
+def test_real_pdf_page_budget_preserves_full_document_and_render_hashes(tmp_path: Path):
+    import hashlib
+
+    (tmp_path / "three.pdf").write_bytes(pdf_bytes())
+    _, tasks = partition(tmp_path, [{"file_name": "three.pdf", "num_pages": 3}], 2, pdfs=1)
+    stage = preprocess.PDFPreprocessStage(pdf_dir=str(tmp_path), retain_failures=True, max_pages=1)
+    split_rows = [row for task in tasks for row in stage.process(task).to_pyarrow().to_pylist()]
+    # Legacy max_pages=1 must not truncate explicit page-mode ranges.
+    assert [row["page_number"] for row in split_rows] == [0, 1, 2]
+    whole = preprocess.PDFPreprocessStage(pdf_dir=str(tmp_path), retain_failures=True, max_pages=3)
+    task = FileGroupTask(dataset_name="test", data=[json.dumps({"file_name": "three.pdf"})])
+    whole_rows = whole.process(task).to_pyarrow().to_pylist()
+    assert [hashlib.sha256(row["binary_content"]).hexdigest() for row in split_rows] == [
+        hashlib.sha256(row["binary_content"]).hexdigest() for row in whole_rows
+    ]

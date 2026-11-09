@@ -15,8 +15,10 @@
 """Tests for BaseInterleavedWriter: on_materialize_error modes, _write_dataframe,
 and _align_output schema alignment."""
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
+from threading import Barrier
 from typing import Any
 
 import pandas as pd
@@ -27,6 +29,7 @@ import pytest
 from nemo_curator.stages.interleaved.io.writers.base import BaseInterleavedWriter
 from nemo_curator.stages.interleaved.io.writers.tabular import InterleavedParquetWriterStage
 from nemo_curator.tasks import InterleavedBatch
+from nemo_curator.tasks.interleaved import INTERLEAVED_SCHEMA
 
 _BASE_ROW: dict[str, Any] = {
     "sample_id": "s1",
@@ -54,6 +57,67 @@ def _writer(tmp_path: Path, on_error: str = "error") -> InterleavedParquetWriter
         mode="overwrite",
         on_materialize_error=on_error,
     )
+
+
+def test_atomic_write_preserves_prior_final_and_failed_temporary_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    writer = InterleavedParquetWriterStage(
+        path=str(tmp_path / "out"), mode="error", atomic_local_write=True, materialize_on_write=False
+    )
+    task = _make_task([_BASE_ROW])
+    final = Path(writer.process(task).data[0])
+    before = final.read_bytes()
+    original_write = writer.write_data
+
+    def interrupted_write(_task: InterleavedBatch, path: str) -> None:
+        Path(path).write_bytes(b"incomplete parquet")
+        msg = "simulated interrupted write"
+        raise OSError(msg)
+
+    monkeypatch.setattr(writer, "write_data", interrupted_write)
+    with pytest.raises(OSError, match="interrupted"):
+        writer.process(task)
+    assert final.read_bytes() == before
+    partials = list(final.parent.glob(".*.partial.parquet"))
+    assert len(partials) == 1
+    assert partials[0].read_bytes() == b"incomplete parquet"
+    monkeypatch.setattr(writer, "write_data", original_write)
+    assert writer.process(task).data == [str(final)]
+    assert pq.read_table(final)["text_content"].to_pylist() == ["hello"]
+    assert partials[0].exists()
+    with pytest.raises(FileExistsError):
+        InterleavedParquetWriterStage(path=str(final.parent), mode="error")
+
+
+def test_interrupted_first_write_exposes_no_final_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    writer = InterleavedParquetWriterStage(
+        path=str(tmp_path / "out"), mode="error", atomic_local_write=True, materialize_on_write=False
+    )
+
+    def interrupted_write(_task: InterleavedBatch, path: str) -> None:
+        Path(path).write_bytes(b"partial")
+        msg = "interrupted"
+        raise OSError(msg)
+
+    monkeypatch.setattr(writer, "write_data", interrupted_write)
+    with pytest.raises(OSError, match="interrupted"):
+        writer.process(_make_task([_BASE_ROW]))
+    assert all(path.name.startswith(".") for path in (tmp_path / "out").iterdir())
+
+
+def test_atomic_write_rejects_nonlocal_filesystem():
+    with pytest.raises(ValueError, match="local filesystem"):
+        InterleavedParquetWriterStage(path="memory://outputs", atomic_local_write=True)
+
+
+def test_strict_writer_refuses_to_drop_extra_columns(tmp_path: Path):
+    writer = InterleavedParquetWriterStage(
+        path=str(tmp_path / "out"),
+        schema=INTERLEAVED_SCHEMA,
+        reject_unknown_columns=True,
+        materialize_on_write=False,
+    )
+    with pytest.raises(ValueError, match="customer_metadata"):
+        writer.process(_make_task([{**_BASE_ROW, "customer_metadata": "preserve me"}]))
 
 
 # ---------------------------------------------------------------------------
@@ -227,3 +291,77 @@ def test_base_writer_inputs_and_outputs(tmp_path: Path) -> None:
     out_task_attrs, out_data_attrs = writer.outputs()
     assert out_task_attrs == ["data"]
     assert out_data_attrs == []
+
+
+@pytest.mark.parametrize("output_id", ["a" * 64, "unrelated metadata", None, 17])
+def test_legacy_writer_ignores_output_file_id_metadata(tmp_path: Path, output_id: object):
+    writer = _writer(tmp_path)
+    task = _make_task([_BASE_ROW])
+    original = writer.process(task).data
+    task._metadata["output_file_id"] = output_id
+    assert writer.process(task).data == original
+
+
+@pytest.mark.parametrize("output_id", [None, "invalid", "A" * 64, 42])
+def test_explicit_output_file_id_requires_valid_identity(tmp_path: Path, output_id: object):
+    writer = InterleavedParquetWriterStage(path=str(tmp_path), use_output_file_id=True, materialize_on_write=False)
+    task = _make_task([_BASE_ROW])
+    if output_id is not None:
+        task._metadata["output_file_id"] = output_id
+    with pytest.raises(ValueError, match="output_file_id"):
+        writer.process(task)
+
+
+def test_explicit_output_file_id_is_independent_of_task_id(tmp_path: Path):
+    writer = InterleavedParquetWriterStage(path=str(tmp_path), use_output_file_id=True, materialize_on_write=False)
+    task = _make_task([_BASE_ROW])
+    task._metadata["output_file_id"] = "a" * 64
+    first = writer.process(task)
+    task.task_id = "a different fan-in invocation"
+    assert writer.process(task).data == first.data
+    assert Path(first.data[0]).stem == "a" * 64
+
+
+def test_atomic_completed_retry_replaces_the_prior_complete_file(tmp_path: Path):
+    writer = InterleavedParquetWriterStage(
+        path=str(tmp_path),
+        atomic_local_write=True,
+        use_output_file_id=True,
+        materialize_on_write=False,
+    )
+    task = _make_task([_BASE_ROW])
+    task._metadata["output_file_id"] = "a" * 64
+    first = writer.process(task)
+    task.data = pd.DataFrame([{**_BASE_ROW, "text_content": "replacement"}])
+    assert writer.process(task).data == first.data
+    assert pq.read_table(first.data[0]).column("text_content").to_pylist() == ["replacement"]
+
+
+def test_concurrent_atomic_publications_leave_one_complete_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    writer = InterleavedParquetWriterStage(
+        path=str(tmp_path),
+        atomic_local_write=True,
+        use_output_file_id=True,
+        materialize_on_write=False,
+    )
+    tasks = [
+        _make_task([{**_BASE_ROW, "position": n, "text_content": text} for n in range(3)])
+        for text in ("first", "second")
+    ]
+    for task in tasks:
+        task._metadata["output_file_id"] = "a" * 64
+    barrier = Barrier(2)
+    original_write = writer.write_data
+
+    def write_then_publish(task: InterleavedBatch, path: str) -> None:
+        original_write(task, path)
+        barrier.wait(timeout=10)
+
+    monkeypatch.setattr(writer, "write_data", write_then_publish)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(writer.process, tasks))
+    assert results[0].data == results[1].data
+    rows = pq.read_table(results[0].data[0]).to_pylist()
+    assert [row["position"] for row in rows] == [0, 1, 2]
+    assert {row["text_content"] for row in rows} in ({"first"}, {"second"})
+    assert len(list(tmp_path.glob("*.parquet"))) == 1
