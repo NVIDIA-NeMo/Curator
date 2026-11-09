@@ -406,7 +406,7 @@ A model's `runtime_env` is not isolated from the shared Dynamo **frontend** acto
 </Note>
 
 <Warning>
-Do not export an installer-relevant or import-relevant variable in the shell that starts your driver process. The driver's shell environment does not propagate into the isolated actor virtualenv, and if the variable does reach Ray itself rather than only the worker subprocess, it can cause Ray to import something unexpected and stall cluster or actor startup. Scope the variable with `runtime_env` or `subprocess_env` instead.
+Scope worker installer or import settings with `runtime_env` or `subprocess_env` rather than relying on the driver shell to propagate them into isolated actors. `NEMO_CURATOR_DYNAMO_CUDA_TAG` is a driver-side configuration exception: set it before importing Curator serving to select `cu129` (default) or `cu130` actor packages.
 </Warning>
 
 ```python
@@ -417,7 +417,7 @@ backend = DynamoServerConfig(
 
 ## Resource Placement
 
-Before starting Dynamo, NeMo Curator checks the total requested GPUs and fails early when the cluster is too small.
+Before starting Dynamo, NeMo Curator checks aggregate GPU demand and rejects it when it exceeds the cluster's available capacity. This coarse check does not prove that each replica can fit: for example, three replicas reserving `0.6` GPU each cannot fit on two GPUs. Ray placement-group admission remains authoritative; an unschedulable placement fails when its readiness timeout expires.
 
 - Aggregated GPU reservation is `num_replicas * tensor_parallel_size * gpu_fraction` per model. The experimental fraction defaults to `1.0`.
 - Disaggregated GPU count is the sum of each role's `num_replicas * tensor_parallel_size`.

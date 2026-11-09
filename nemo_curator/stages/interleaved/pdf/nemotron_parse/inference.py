@@ -759,7 +759,11 @@ class NemotronParseHTTPClientStage(ProcessingStage[InterleavedBatch, Interleaved
             msg = "Page task does not match this worker's admitted extraction identity"
             raise ExtractionConfigMismatchError(msg)
         started = time.perf_counter()
-        pages = task.to_pyarrow().to_pylist()
+        table = task.to_pyarrow()
+        if "page_number" not in table.column_names:
+            msg = "Served Parse 3.5 requires physical page numbers; use PDFPreprocessStage(retain_failures=True)"
+            raise ValueError(msg)
+        pages = table.to_pylist()
         reuse_encoded_images = self.reuse_encoded_images and has_png_batch_provenance(
             task._metadata, (row.get("binary_content") for row in pages)
         )
