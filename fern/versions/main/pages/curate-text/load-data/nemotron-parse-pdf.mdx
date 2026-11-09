@@ -210,7 +210,8 @@ NemotronParsePDFReader(
 
 These are public `NemotronParsePDFReader` defaults. The served tutorial and
 benchmark CLI instead default to model `nvidia/Nemotron-3.5-Parse` and
-`parse_mode="single"`.
+`parse_mode="single"`. New Parse 3.5 and PNG-reuse options are keyword-only;
+existing positional reader and HTTP-client calls remain compatible.
 
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
@@ -654,6 +655,29 @@ model and parser defaults match `main.py`, and `--benchmark-results-path` is
 required. Use `--legacy-parse --model-path nvidia/NVIDIA-Nemotron-Parse-v1.2` for
 v1.2 runs. The pinned v1.2 regression configurations explicitly select that legacy
 path, preserving their historical model and workload.
+
+For an external endpoint, the benchmark requires positive values for both
+`--num-replicas` and `--inference-server-num-gpus`. The replica count sizes the
+client pool (`replicas × --inference-server-client-workers-per-replica`); the GPU
+count is used only to normalize throughput. The client does not probe its local
+GPUs or discover or verify the remote topology. Supply the actual remote counts;
+they are caller-declared benchmark inputs. Managed-server GPU discovery remains
+unchanged.
+
+For example, declare two replicas sharing one remote GPU:
+
+```bash
+python benchmarking/scripts/nemotron_parse_pdf_benchmark.py \
+    --manifest manifest.jsonl --pdf-dir /path/to/pdfs --output-dir ./benchmark-output \
+    --benchmark-results-path ./benchmark-results \
+    --inference-server-endpoint http://parse-server:8000/v1 \
+    --model-id nemotron-parse --executor ray_data \
+    --num-replicas 2 --inference-server-num-gpus 1
+```
+
+This creates eight HTTP client workers with the default four workers per replica,
+while per-GPU throughput uses one GPU as its denominator. These topology flags
+belong to the benchmark, not `main.py`.
 
 A standalone benchmark script ships at `benchmarking/scripts/nemotron_parse_pdf_benchmark.py`. It uses `TaskPerfUtils` to report stage-normalized per-GPU pages, input tokens, and output tokens per second for both in-process and inference-server runs. The benchmark harness still records full-script `exec_time_s`, including inference-server startup; `time_taken_s` covers `pipeline.run()`, and `inference_server_startup_s` reports server startup separately. Use a representative manifest and the public tutorial arguments to compare configurations before scaling to your full corpus; the repository's nightly benchmark orchestration is not required.
 

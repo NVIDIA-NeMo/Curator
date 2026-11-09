@@ -46,6 +46,12 @@ def pdf_bytes():
     return stream.getvalue()
 
 
+def test_failure_retention_does_not_rebind_existing_positional_stage_name():
+    stage = preprocess.PDFPreprocessStage(None, "pdfs", None, 300, 50, "custom_preprocess")
+    assert stage.name == "custom_preprocess"
+    assert not stage.retain_failures
+
+
 @pytest.mark.parametrize("retain", [False, True])
 def test_unreadable_document_failure_is_opt_in(tmp_path: Path, retain: bool):
     stage = preprocess.PDFPreprocessStage(pdf_dir=str(tmp_path), retain_failures=retain)

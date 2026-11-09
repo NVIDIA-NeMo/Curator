@@ -46,6 +46,12 @@ class TestDynamoRouterConfig:
 
 
 class TestDynamoVLLMModelConfig:
+    def test_fraction_does_not_rebind_existing_positional_mode(self) -> None:
+        config = DynamoVLLMModelConfig("m", None, {}, {}, 2, "aggregated")
+        assert config.num_replicas == 2
+        assert config.mode == "aggregated"
+        assert config.gpu_fraction == 1.0
+
     @pytest.mark.parametrize("fraction", [0, -0.5, 1.1, float("nan"), float("inf"), True])
     def test_invalid_gpu_fraction(self, fraction: float) -> None:
         with pytest.raises(ValueError, match="gpu_fraction"):

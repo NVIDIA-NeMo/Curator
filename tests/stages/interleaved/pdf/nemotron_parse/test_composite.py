@@ -21,6 +21,38 @@ from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import DEFAULT
 from tests.stages.interleaved.pdf.nemotron_parse._page_budget_helpers import TEST_EXTRACTION_CONFIG
 
 
+def test_served_options_do_not_rebind_existing_positional_endpoint():
+    reader = NemotronParsePDFReader(
+        "input.jsonl",
+        None,
+        "pdfs",
+        None,
+        "legacy-model",
+        "vllm",
+        10,
+        None,
+        300,
+        50,
+        4,
+        64,
+        8192,
+        False,
+        False,
+        10,
+        "pdf_dataset",
+        "file_name",
+        "cc_pdf_file_names",
+        "url",
+        "http://unused/v1",
+        "served-model",
+        8,
+    )
+    assert reader.inference_server_endpoint == "http://unused/v1"
+    assert reader._inference.model_name == "served-model"
+    assert reader._inference.num_workers() == 8
+    assert reader.parse_mode is None
+
+
 def test_parse_mode_requires_endpoint():
     with pytest.raises(ValueError, match="requires inference_server_endpoint"):
         NemotronParsePDFReader(manifest_path="input.jsonl", parse_mode="single")

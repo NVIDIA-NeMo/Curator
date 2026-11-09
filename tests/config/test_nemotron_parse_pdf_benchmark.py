@@ -27,6 +27,7 @@ def benchmark(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> tuple:
         backend="vllm",
         inference_server_type=None,
         num_replicas=1,
+        inference_server_num_gpus=None,
         inference_server_client_workers_per_replica=4,
         model_id=None,
         engine_kwargs=None,
@@ -77,6 +78,7 @@ def test_external_endpoint_does_not_launch_or_stop_a_server(benchmark: tuple):
     module, args, pipeline, build, server, factory, probe = benchmark
     args.inference_server_endpoint = "http://native/v1"
     args.inference_server_model_name = "served-name"
+    args.inference_server_num_gpus = 1
     result = module.run_nemotron_parse_pdf_benchmark(args)
     assert build.call_args.kwargs["inference_server_endpoint"] == "http://native/v1"
     assert build.call_args.kwargs["inference_server_model_name"] == "served-name"
@@ -86,6 +88,51 @@ def test_external_endpoint_does_not_launch_or_stop_a_server(benchmark: tuple):
     factory.assert_not_called()
     probe.assert_not_called()
     server.stop.assert_not_called()
+
+
+@pytest.mark.parametrize(("replicas", "gpus"), [(None, 1), (1, None), (0, 1), (1, 0), (1, -1)])
+def test_external_topology_is_explicit_and_validated_without_local_gpu_discovery(
+    benchmark: tuple, replicas: int | None, gpus: int | None
+):
+    module, args, _, build, _, factory, probe = benchmark
+    args.inference_server_endpoint = "http://remote/v1"
+    args.num_replicas = replicas
+    args.inference_server_num_gpus = gpus
+    module.run_nemotron_parse_pdf_benchmark(args)
+    build.assert_not_called()
+    factory.assert_not_called()
+    probe.assert_not_called()
+
+
+@pytest.mark.parametrize("client_gpus", [0, 8])
+def test_remote_replicas_and_gpu_denominator_are_independent_of_client_hardware(
+    benchmark: tuple, monkeypatch: pytest.MonkeyPatch, client_gpus: int
+):
+    module, args, pipeline, build, _, factory, probe = benchmark
+    args.inference_server_endpoint = "http://remote/v1"
+    args.num_replicas = 2
+    args.inference_server_num_gpus = 1
+    probe.return_value = client_gpus
+    pipeline.run.return_value = [Mock()]
+    monkeypatch.setattr(module, "_count_unique_pdfs", lambda _tasks: 1)
+    monkeypatch.setattr(
+        module.TaskPerfUtils,
+        "aggregate_task_metrics",
+        lambda *_a, **_k: {
+            "task_nemotron_parse_inference_custom.num_valid_pages_sum": 10.0,
+            "task_nemotron_parse_inference_custom.total_output_tokens_sum": 20.0,
+            "task_nemotron_parse_inference_process_time_sum": 16.0,
+        },
+    )
+    result = module.run_nemotron_parse_pdf_benchmark(args)
+    assert result["metrics"]["is_success"]
+    assert result["params"]["num_replicas"] == 2
+    assert result["params"]["num_inference_gpus"] == 1
+    assert build.call_args.kwargs["inference_server_client_num_workers"] == 8
+    assert result["metrics"]["inference_stage_pages_per_sec_per_gpu"] == 5.0
+    assert result["metrics"]["throughput_pages_per_sec_per_gpu"] == result["metrics"]["throughput_pages_per_sec"]
+    factory.assert_not_called()
+    probe.assert_not_called()
 
 
 def test_explicit_legacy_benchmark_retains_inprocess_path(benchmark: tuple):

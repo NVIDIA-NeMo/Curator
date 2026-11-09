@@ -68,6 +68,19 @@ def _available_gpu_count() -> int:
     return num_gpus
 
 
+def _external_server_topology(args: argparse.Namespace) -> tuple[int, int]:
+    """Use caller-declared remote resources without inspecting the client GPU host."""
+    if args.num_replicas is None or args.inference_server_num_gpus is None:
+        msg = "External endpoints require --num-replicas and --inference-server-num-gpus."
+        raise ValueError(msg)
+    num_replicas = _resolve_num_replicas(args.num_replicas)
+    num_gpus = int(args.inference_server_num_gpus)
+    if num_gpus < 1:
+        msg = f"--inference-server-num-gpus must be at least 1, got {num_gpus}."
+        raise ValueError(msg)
+    return num_replicas, num_gpus
+
+
 def _sample_ids_from_table(data: Any) -> set[str]:
     """Pull sample ids from an in-memory Arrow table, if that is what the task carries."""
     if data is None or not hasattr(data, "column"):
@@ -246,8 +259,7 @@ def run_nemotron_parse_pdf_benchmark(args: argparse.Namespace) -> dict[str, Any]
                 f"Inference server ready at {inference_server.endpoint} after {inference_server_startup_s:.2f}s"
             )
         elif external_endpoint is not None:
-            num_replicas = _resolve_num_replicas(args.num_replicas)
-            num_inference_gpus = num_replicas
+            num_replicas, num_inference_gpus = _external_server_topology(args)
             inference_stage_parallelism = args.inference_server_client_workers_per_replica * num_replicas
             pipeline = create_nemotron_parse_pdf_pipeline(
                 args,
@@ -396,7 +408,13 @@ def main() -> int:
         "--num-replicas",
         type=int,
         default=None,
-        help="Inference-server replicas; defaults to the GPU count reported by Ray",
+        help="Inference-server replicas; required for external endpoints, otherwise defaults to Ray's GPU count",
+    )
+    parser.add_argument(
+        "--inference-server-num-gpus",
+        type=int,
+        default=None,
+        help="Actual remote GPU count for external-endpoint throughput accounting; required for external endpoints",
     )
     parser.add_argument(
         "--inference-server-client-workers-per-replica",

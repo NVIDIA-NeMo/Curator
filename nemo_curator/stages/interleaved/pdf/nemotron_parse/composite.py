@@ -131,14 +131,14 @@ class NemotronParsePDFReader(CompositeStage[EmptyTask, InterleavedBatch]):
     file_name_field: str = "file_name"
     file_names_field: str = "cc_pdf_file_names"
     url_field: str = "url"
-    parse_mode: str | None = None
-    triple_regions: str = "union"
+    parse_mode: str | None = field(default=None, kw_only=True)
+    triple_regions: str = field(default="union", kw_only=True)
     inference_server_endpoint: str | None = None
     inference_server_model_name: str | None = None
     inference_server_client_num_workers: int = 4
     inference_server_request_timeout_s: float = 300.0
     inference_server_max_retries: int = 3
-    inference_server_reuse_encoded_images: bool = False
+    inference_server_reuse_encoded_images: bool = field(default=False, kw_only=True)
 
     def __post_init__(self) -> None:
         super().__init__()
