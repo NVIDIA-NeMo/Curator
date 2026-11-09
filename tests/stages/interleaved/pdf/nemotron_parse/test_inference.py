@@ -44,6 +44,14 @@ TABLE = r"<x_0.1><y_0.1>\begin{tabular}{cc}A & B\\1 & 2\end{tabular}<x_0.9><y_0.
 PARSED_TABLE = {"raw_out": TABLE, "blocks": [{"class": "Table", "bbox": [0.1, 0.1, 0.9, 0.9], "content": "<table/>"}]}
 
 
+def test_parse_mode_does_not_rebind_existing_positional_client_options():
+    stage = inference.NemotronParseHTTPClientStage("http://unused/v1", "served", None, True, "custom prompt", 120.0)
+    assert stage.text_in_pic
+    assert stage.task_prompt == "custom prompt"
+    assert stage.request_timeout_s == 120.0
+    assert stage.parse_mode is None
+
+
 @pytest.fixture(autouse=True)
 def served_models(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(

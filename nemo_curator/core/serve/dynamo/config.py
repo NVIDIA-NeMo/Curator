@@ -83,7 +83,7 @@ class DynamoVLLMModelConfig(BaseModelConfig):
 
     engine_kwargs: dict[str, Any] = field(default_factory=dict)
     num_replicas: int = 1
-    gpu_fraction: float = 1.0
+    gpu_fraction: float = field(default=1.0, kw_only=True)
     mode: Literal["aggregated", "disagg"] = "aggregated"
     prefill: DynamoRoleConfig | None = None
     decode: DynamoRoleConfig | None = None

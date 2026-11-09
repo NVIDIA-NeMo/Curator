@@ -453,8 +453,8 @@ class NemotronParseHTTPClientStage(ProcessingStage[InterleavedBatch, Interleaved
     endpoint: str
     model_name: str
     model_path: str | None = None
-    parse_mode: str | None = None
-    triple_regions: str = "union"
+    parse_mode: str | None = field(default=None, kw_only=True)
+    triple_regions: str = field(default="union", kw_only=True)
     text_in_pic: bool = False
     task_prompt: str | None = None
     request_timeout_s: float = 300.0

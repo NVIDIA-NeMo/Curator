@@ -88,7 +88,7 @@ class PDFPreprocessStage(ProcessingStage[FileGroupTask, InterleavedBatch]):
     jsonl_base_dir: str | None = None
     dpi: int = 300
     max_pages: int = 50
-    retain_failures: bool = False
+    retain_failures: bool = field(default=False, kw_only=True)
     reuse_encoded_images: bool = field(default=False, kw_only=True)
     name: str = "pdf_preprocess"
     resources: Resources = field(default_factory=lambda: Resources(cpus=2.0))
