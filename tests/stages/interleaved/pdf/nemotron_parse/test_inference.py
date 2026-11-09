@@ -315,3 +315,121 @@ def test_endpoint_must_list_served_model(monkeypatch: pytest.MonkeyPatch):
     with pytest.raises(RuntimeError, match="Cannot list models at http://unused/v1/models"):
         stage._require_served_model()
     assert calls == ["http://unused/v1/models"] * 2
+
+
+def test_malformed_output_keeps_raw_response_and_physical_error_row():
+    stage = inference.NemotronParseHTTPClientStage(
+        endpoint="http://unused/v1", model_name="served", parse_mode="single"
+    )
+    stage._parser = StubParser(lambda *_a, **_k: {"raw_out": "<x_0.1>unfinished map labels", "blocks": []})
+    try:
+        batch = stage.process(task())
+        rows = NemotronParsePostprocessStage().process(batch).to_pyarrow().to_pylist()
+        failed = [row for row in rows if row["materialize_error"]]
+        assert len(failed) == 1
+        assert failed[0]["page_number"] == 0
+        error = json.loads(failed[0]["materialize_error"])
+        assert error["type"] == "NoDecodedBlocks"
+        assert error["raw_response"]["raw_out"] == "<x_0.1>unfinished map labels"
+        assert stage._custom_metrics["num_valid_pages"] == 0
+        assert stage._custom_metrics["num_error_pages"] == 1
+    finally:
+        stage.teardown()
+
+
+@pytest.mark.parametrize(("mode", "call_count"), [("single", 1), ("double", 2), ("triple", 3)])
+def test_served_metrics_count_every_stage_response(monkeypatch: pytest.MonkeyPatch, mode: str, call_count: int):
+    class Client:
+        def __init__(self, **_kwargs):
+            pass
+
+        async def query_model_response(self, **_kwargs) -> SimpleNamespace:
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content=TABLE), finish_reason="stop")],
+                usage=SimpleNamespace(prompt_tokens=2, completion_tokens=3),
+            )
+
+    monkeypatch.setattr(inference, "AsyncOpenAIClient", Client)
+    stage = inference.NemotronParseHTTPClientStage(endpoint="http://unused/v1", model_name="served", parse_mode=mode)
+
+    def parse(image: Image.Image, **_kwargs) -> dict:
+        for name in ("fullpage", "detection", "crop")[:call_count]:
+            stage._parse_backend(image, prompt="p", stage=name, settings=Settings())
+        return PARSED_TABLE
+
+    stage._parser = StubParser(parse)
+    try:
+        result = stage.process(task())
+        assert "_parse_metrics" not in result.to_pyarrow().column_names
+        assert stage._custom_metrics["num_valid_pages"] == 1
+        assert stage._custom_metrics["num_requests"] == call_count
+        assert stage._custom_metrics["total_prompt_tokens"] == 2 * call_count
+        assert stage._custom_metrics["total_output_tokens"] == 3 * call_count
+    finally:
+        stage.teardown()
+
+
+def test_failed_page_keeps_prior_request_usage_and_raw_response(monkeypatch: pytest.MonkeyPatch):
+    calls = []
+
+    class Client:
+        def __init__(self, **_kwargs):
+            pass
+
+        async def query_model_response(self, **_kwargs) -> SimpleNamespace:
+            calls.append(True)
+            if len(calls) == 2:
+                msg = "crop connection failed"
+                raise RuntimeError(msg)
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content=TABLE), finish_reason="stop")],
+                usage=SimpleNamespace(prompt_tokens=2, completion_tokens=3),
+            )
+
+    monkeypatch.setattr(inference, "AsyncOpenAIClient", Client)
+    stage = inference.NemotronParseHTTPClientStage(
+        endpoint="http://unused/v1", model_name="served", parse_mode="double"
+    )
+
+    def parse(image: Image.Image, **_kwargs) -> dict:
+        for name in ("fullpage", "crop"):
+            stage._parse_backend(image, prompt="p", stage=name, settings=Settings())
+        return PARSED_TABLE
+
+    stage._parser = StubParser(parse)
+    try:
+        result = stage.process(task())
+        error = json.loads(result.to_pyarrow().to_pylist()[0]["materialize_error"])
+        assert error["requests"][0]["raw_out"] == TABLE
+        assert stage._custom_metrics["num_requests"] == 2
+        assert stage._custom_metrics["num_failed_requests"] == 1
+        assert stage._custom_metrics["total_output_tokens"] == 3
+        assert stage._custom_metrics["num_valid_pages"] == 0
+    finally:
+        stage.teardown()
+
+
+def test_actual_parser_malformed_layout_retains_failure_and_successful_sibling():
+    package = pytest.importorskip("nemotron_parse.inference")
+    malformed = "<x_0.1><y_0.2>Unclosed map labels"
+
+    def backend(image: Image.Image, **_kwargs) -> dict:
+        raw = malformed if image.getpixel((0, 0))[0] > 0 else TABLE
+        return {"raw_out": raw, "finish_reason": "stop"}
+
+    stage = inference.NemotronParseHTTPClientStage(
+        endpoint="http://unused/v1", model_name="served", parse_mode="single"
+    )
+    stage._parser = package.DocumentParser(backend=backend)
+    try:
+        result = NemotronParsePostprocessStage().process(stage.process(task(("red", "blue"))))
+        rows = result.to_pyarrow().to_pylist()
+        failed = [row for row in rows if row["materialize_error"]]
+        assert len(failed) == 1
+        assert failed[0]["page_number"] == 0
+        error = json.loads(failed[0]["materialize_error"])
+        assert error["type"] == "NoDecodedBlocks"
+        assert error["raw_response"]["stages"]["fullpage"]["raw_out"] == malformed
+        assert any(row["page_number"] == 1 and row["modality"] == "table" for row in rows)
+    finally:
+        stage.teardown()

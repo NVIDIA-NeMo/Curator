@@ -59,6 +59,7 @@ _NEMOTRON_PARSE_SAMPLING_PARAMS: dict[str, Any] = {
 }
 _OPENAI_GENERATION_CONFIG_FIELDS = {"max_tokens", "seed", "temperature", "top_p"}
 _PARSE_TRANSPORT: ContextVar[tuple[AsyncOpenAIClient, asyncio.AbstractEventLoop]] = ContextVar("parse_transport")
+_PARSE_REQUESTS: ContextVar[list[dict[str, Any]]] = ContextVar("parse_requests")
 _PARSE_INSTALL_HINT = (
     "Served Parse 3.5 requires the model team's nemotron-parse package. "
     "Install nemo-curator[interleaved_cpu,text_cpu,cv2] for client dependencies, then install nemotron-parse --no-deps."
@@ -519,19 +520,54 @@ class NemotronParseHTTPClientStage(ProcessingStage[InterleavedBatch, Interleaved
             self._parser.close()
             self._parser = None
 
-    def _parse_backend(self, image: Image.Image, *, prompt: str, stage: str, settings: Any) -> dict:  # noqa: ARG002, ANN401
+    def _parse_backend(self, image: Image.Image, *, prompt: str, stage: str, settings: Any) -> dict:  # noqa: ANN401
         client, loop = _PARSE_TRANSPORT.get()
         stream = io.BytesIO()
         image.save(stream, format="PNG")
         generation = _server_generation_config({**asdict(settings), "skip_special_tokens": False})
         response = asyncio.run_coroutine_threadsafe(
-            self._query_page(client, stream.getvalue(), "image/png", prompt=prompt, generation_config=generation), loop
+            self._query_parse_page(
+                client,
+                stream.getvalue(),
+                prompt=prompt,
+                generation=generation,
+                stage=stage,
+                requests=_PARSE_REQUESTS.get(),
+            ),
+            loop,
         ).result()
         return {
             "raw_out": response.text,
             "finish_reason": response.finish_reason,
             "usage": {"prompt_tokens": response.prompt_tokens, "completion_tokens": response.output_tokens},
         }
+
+    async def _query_parse_page(  # noqa: PLR0913
+        self,
+        client: AsyncOpenAIClient,
+        image_bytes: bytes,
+        *,
+        prompt: str,
+        generation: GenerationConfig,
+        stage: str,
+        requests: list[dict[str, Any]],
+    ) -> _HTTPPageResult:
+        record: dict[str, Any] = {"stage": stage}
+        requests.append(record)
+        try:
+            response = await self._query_page(
+                client, image_bytes, "image/png", prompt=prompt, generation_config=generation
+            )
+        except Exception as exc:
+            record["error"] = type(exc).__name__
+            raise
+        record.update(
+            raw_out=response.text,
+            finish_reason=response.finish_reason,
+            prompt_tokens=response.prompt_tokens,
+            completion_tokens=response.output_tokens,
+        )
+        return response
 
     async def _parse_pages(self, pages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         client = AsyncOpenAIClient(
@@ -551,24 +587,52 @@ class NemotronParseHTTPClientStage(ProcessingStage[InterleavedBatch, Interleaved
         async def parse_page(row: dict[str, Any]) -> dict[str, Any]:
             if row.get("materialize_error"):
                 return {**row, "parse_document": None}
-            async with semaphore:
-                try:
+            requests: list[dict[str, Any]] = []
+            request_token = _PARSE_REQUESTS.set(requests)
+            document = None
+            try:
+                async with semaphore:
                     document = await loop.run_in_executor(
                         parser_pool, copy_context().run, self._parse_image, row["binary_content"]
                     )
-                    return {**row, "parse_document": json.dumps(document), "materialize_error": None}
-                except Exception as exc:  # noqa: BLE001
-                    return {
-                        **row,
-                        "parse_document": None,
-                        "materialize_error": json.dumps(
-                            {
-                                "stage": getattr(exc, "stage", "parse_request"),
-                                "type": type(exc).__name__,
-                                "message": str(exc),
-                            }
-                        ),
+                if not isinstance(document, dict) or not document.get("blocks"):
+                    error = {
+                        "stage": "parse_output",
+                        "type": "NoDecodedBlocks",
+                        "message": "Model response produced no decoded blocks",
+                        "raw_response": document,
+                        "requests": requests,
                     }
+                    result = {**row, "parse_document": None, "materialize_error": json.dumps(error)}
+                else:
+                    result = {**row, "parse_document": json.dumps(document), "materialize_error": None}
+            except Exception as exc:  # noqa: BLE001
+                error = {
+                    "stage": getattr(exc, "stage", "parse_request"),
+                    "type": type(exc).__name__,
+                    "message": str(exc),
+                }
+                if (response := getattr(exc, "response", None)) is not None:
+                    error["raw_response"] = (
+                        response
+                        if isinstance(response, dict)
+                        else {
+                            "status_code": getattr(response, "status_code", None),
+                            "body": getattr(exc, "body", None),
+                        }
+                    )
+                if requests:
+                    error["requests"] = requests
+                result = {**row, "parse_document": None, "materialize_error": json.dumps(error)}
+            finally:
+                _PARSE_REQUESTS.reset(request_token)
+            result["_parse_metrics"] = {
+                "num_requests": len(requests),
+                "num_failed_requests": sum("error" in request for request in requests),
+                "total_prompt_tokens": sum(request.get("prompt_tokens", 0) for request in requests),
+                "total_output_tokens": sum(request.get("completion_tokens", 0) for request in requests),
+            }
+            return result
 
         try:
             return list(await asyncio.gather(*(parse_page(row) for row in pages)))
@@ -590,13 +654,21 @@ class NemotronParseHTTPClientStage(ProcessingStage[InterleavedBatch, Interleaved
             raise RuntimeError(msg)
         started = time.perf_counter()
         rows = asyncio.run(self._parse_pages(task.to_pyarrow().to_pylist()))
-        self._log_metrics(
-            {
-                "inference_server_request_time": time.perf_counter() - started,
-                "num_input_pages": float(len(rows)),
-                "num_error_pages": float(sum(bool(row.get("materialize_error")) for row in rows)),
-            }
-        )
+        metrics = {
+            "inference_server_request_time": time.perf_counter() - started,
+            "num_input_pages": float(sum(row.get("page_number") is not None for row in rows)),
+            "num_error_pages": float(
+                sum(row.get("page_number") is not None and bool(row.get("materialize_error")) for row in rows)
+            ),
+            "num_valid_pages": float(
+                sum(row.get("page_number") is not None and not row.get("materialize_error") for row in rows)
+            ),
+        }
+        for name in ("num_requests", "num_failed_requests", "total_prompt_tokens", "total_output_tokens"):
+            metrics[name] = float(sum(row.get("_parse_metrics", {}).get(name, 0) for row in rows))
+        for row in rows:
+            row.pop("_parse_metrics", None)
+        self._log_metrics(metrics)
         return InterleavedBatch(
             dataset_name=task.dataset_name,
             data=pa.Table.from_pylist(rows),

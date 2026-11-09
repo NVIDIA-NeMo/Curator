@@ -18,7 +18,8 @@
 
 Reuses the pipeline and argparser from
 tutorials/interleaved/nemotron_parse_pdf/pipeline_utils.py with comprehensive
-metrics collection.
+metrics collection. The tutorial's Dynamo and direct-vLLM reproduction runners
+use this module for their shared Parse throughput and output metrics.
 """
 
 import argparse

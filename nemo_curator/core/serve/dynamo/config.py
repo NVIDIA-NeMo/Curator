@@ -83,6 +83,7 @@ class DynamoVLLMModelConfig(BaseModelConfig):
 
     engine_kwargs: dict[str, Any] = field(default_factory=dict)
     num_replicas: int = 1
+    gpu_fraction: float = 1.0
     mode: Literal["aggregated", "disagg"] = "aggregated"
     prefill: DynamoRoleConfig | None = None
     decode: DynamoRoleConfig | None = None
@@ -91,6 +92,14 @@ class DynamoVLLMModelConfig(BaseModelConfig):
     kv_transfer_config: dict[str, Any] = field(default_factory=dict, init=False, repr=False)
 
     def __post_init__(self) -> None:
+        if isinstance(self.gpu_fraction, bool) or not 0 < self.gpu_fraction <= 1:
+            msg = f"gpu_fraction must be in (0, 1], got {self.gpu_fraction}"
+            raise ValueError(msg)
+        if self.gpu_fraction != 1 and (
+            self.mode != "aggregated" or self.engine_kwargs.get("tensor_parallel_size", 1) != 1
+        ):
+            msg = "Fractional GPU reservations require aggregated mode with tensor_parallel_size=1"
+            raise ValueError(msg)
         if self.num_replicas < 1:
             msg = f"num_replicas must be >= 1, got {self.num_replicas}"
             raise ValueError(msg)

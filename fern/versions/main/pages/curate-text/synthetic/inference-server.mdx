@@ -233,6 +233,12 @@ server.start()
 
 For aggregated models, a tensor-parallel replica can span multiple nodes when the tensor-parallel size divides evenly across available nodes. NeMo Curator prefers a single-node placement and otherwise uses equal GPU bundles on distinct nodes.
 
+### Fractional GPU Reservations (Experimental)
+
+`DynamoVLLMModelConfig.gpu_fraction` controls the Ray GPU reservation for each aggregated replica. The default, `1.0`, keeps whole-GPU scheduling. Values must be in `(0, 1]`; values below `1.0` require `mode="aggregated"` and `tensor_parallel_size=1`. Each fractional worker still sees one physical GPU and can share it with other workers. Capacity checks and placement groups account for the requested fraction.
+
+Set vLLM's `gpu_memory_utilization` separately in `engine_kwargs`. A Ray reservation does not partition VRAM or set a compute-utilization target. Check peak memory and remaining headroom while all replicas serve a representative workload. Benchmark throughput, latency, and failures before retaining a configuration with multiple replicas on one GPU.
+
 ## Dynamo Disaggregated Serving
 
 Disaggregated mode runs independent prefill and decode workers. Configure both roles explicitly.
@@ -289,6 +295,7 @@ Disaggregated serving uses the NIXL connector for KV transfer by default. `kv_tr
 | `runtime_env` | `dict` | `{}` | Packages, environment variables, and other Ray runtime settings for workers. |
 | `engine_kwargs` | `dict` | `{}` | Base vLLM engine settings. |
 | `num_replicas` | `int` | `1` | Static replica count for aggregated mode. Must be at least 1. |
+| `gpu_fraction` | `float` | `1.0` | Experimental Ray GPU reservation in `(0, 1]`. Values below `1.0` require aggregated mode with tensor parallelism of 1. See [Fractional GPU Reservations](#fractional-gpu-reservations-experimental). |
 | `mode` | `"aggregated" \| "disagg"` | `"aggregated"` | Serving topology. |
 | `prefill` | `DynamoRoleConfig \| None` | `None` | Prefill replicas and overrides for disaggregated mode. |
 | `decode` | `DynamoRoleConfig \| None` | `None` | Decode replicas and overrides for disaggregated mode. |
@@ -405,7 +412,7 @@ backend = DynamoServerConfig(
 
 Before starting Dynamo, NeMo Curator checks the total requested GPUs and fails early when the cluster is too small.
 
-- Aggregated GPU count is `num_replicas * tensor_parallel_size` per model.
+- Aggregated GPU reservation is `num_replicas * tensor_parallel_size * gpu_fraction` per model. The experimental fraction defaults to `1.0`.
 - Disaggregated GPU count is the sum of each role's `num_replicas * tensor_parallel_size`.
 - Aggregated tensor-parallel groups prefer one node, then use an equal multi-node split.
 - Each disaggregated role must fit on one node.

@@ -295,9 +295,9 @@ class TestCheckTotalGpuCapacity:
 
     @pytest.mark.parametrize(
         ("available_gpus", "needed", "should_raise"),
-        [(8.0, 4, False), (8.0, 8, False), (8.0, 9, True), (0.0, 1, True)],
+        [(8.0, 4, False), (8.0, 8, False), (8.0, 9, True), (0.0, 1, True), (0.5, 0.5, False), (4.0, 4.5, True)],
     )
-    def test_capacity_check(self, available_gpus: float, needed: int, should_raise: bool) -> None:
+    def test_capacity_check(self, available_gpus: float, needed: float, should_raise: bool) -> None:
         with pytest.MonkeyPatch.context() as mp:
             mp.setattr(
                 "nemo_curator.backends.utils.get_available_cpu_gpu_resources",

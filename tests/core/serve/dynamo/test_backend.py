@@ -35,6 +35,15 @@ from nemo_curator.core.serve.dynamo.config import DynamoRoleConfig, DynamoRouter
 
 
 class TestDynamoBackendValidateGpuRequirementsDisagg:
+    def test_fractional_and_full_gpu_models_share_capacity_accounting(self) -> None:
+        models = [
+            DynamoVLLMModelConfig(model_identifier="shared", num_replicas=8, gpu_fraction=0.5),
+            DynamoVLLMModelConfig(model_identifier="tp", engine_kwargs={"tensor_parallel_size": 2}),
+        ]
+        with mock.patch.object(dynamo_backend, "check_total_gpu_capacity") as capacity:
+            DynamoBackend._validate_gpu_requirements(models, topology=[{"num_gpus": 6}])
+        assert capacity.call_args.args == (6.0,)
+
     def test_rejects_disagg_tp_larger_than_node(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr("nemo_curator.core.serve.dynamo.backend.check_total_gpu_capacity", lambda *_, **__: None)
         server = InferenceServer(

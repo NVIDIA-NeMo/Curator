@@ -16,15 +16,19 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import multiprocessing
 import os
+import queue
+import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import Any, ClassVar
 
 import pandas as pd
 import pyarrow as pa
 from loguru import logger
+from PIL import Image
 
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.utils import (
@@ -36,9 +40,6 @@ from nemo_curator.stages.interleaved.pdf.nemotron_parse.utils import (
 )
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import FileGroupTask, InterleavedBatch
-
-if TYPE_CHECKING:
-    from PIL import Image
 
 
 @dataclass
@@ -151,58 +152,137 @@ class PDFPreprocessStage(ProcessingStage[FileGroupTask, InterleavedBatch]):
 
         return results
 
-    _RENDER_TIMEOUT_S: int = 60  # hard limit per PDF render; kills hung C-extension
+    _RENDER_TIMEOUT_S: int = 60
+    _RENDER_RECOVERY_BUDGET_S: ClassVar[float] = 120
+    _RENDER_RETRY_TIMEOUT_S: ClassVar[float] = 60
+    _RENDER_MAX_ATTEMPTS: ClassVar[int] = 7
 
-    def _render_with_timeout(self, pdf_bytes: bytes, file_name: str, page_indices: list[int] | None = None) -> list:
-        """Render PDF with a process-based timeout.
-
-        SIGALRM cannot be used here because Xenna runs stage workers in non-main
-        threads and signal.signal() is restricted to the main thread.  Instead we
-        fork a child process (inheriting pdf_bytes via copy-on-write) and kill it
-        if it exceeds the timeout, which reliably escapes any C-extension hang.
-        """
-        dpi = self.dpi
-        max_pages = self.max_pages
-
+    def _render_once(  # noqa: C901, PLR0915
+        self, pdf_bytes: bytes, page_indices: list[int] | None, *, timeout_s: float | None = None
+    ) -> tuple[list[Image.Image | None], bool, int | None]:
+        """Render one window, always closing queues and reaping its child."""
         ctx = multiprocessing.get_context("fork")
         result_q: multiprocessing.Queue = ctx.Queue()
-
-        keep_failed = self.retain_failures or page_indices is not None
+        page_count_q: multiprocessing.Queue = ctx.Queue()
 
         def _worker() -> None:
             try:
-                pages = render_pdf_pages(
-                    pdf_bytes,
-                    dpi=dpi,
-                    max_pages=max_pages,
-                    keep_failed=keep_failed,
-                    page_indices=page_indices,
+                if page_indices is None:
+                    import pypdfium2 as pdfium
+
+                    doc = pdfium.PdfDocument(pdf_bytes)
+                    try:
+                        page_count_q.put(len(doc))
+                    finally:
+                        doc.close()
+                result_q.put(
+                    render_pdf_pages(
+                        pdf_bytes,
+                        dpi=self.dpi,
+                        max_pages=self.max_pages,
+                        keep_failed=self.retain_failures or page_indices is not None,
+                        page_indices=page_indices,
+                    )
                 )
-                result_q.put(pages)
             except Exception:  # noqa: BLE001
                 result_q.put([])
 
         proc = ctx.Process(target=_worker)
-        proc.start()
-        # Drain the queue BEFORE joining. If we join first, the child can
-        # deadlock: after result_q.put(pages) the internal feeder thread must
-        # flush all serialized data through the OS pipe; with 50 pages at
-        # 300 DPI the pipe fills up and the feeder stalls until the parent
-        # reads. Since the parent is blocked in join(), neither side makes
-        # progress and the 60 s timeout fires on a perfectly valid render.
+        pages = []
+        timed_out = False
+        page_count = None
         try:
-            pages = result_q.get(timeout=self._RENDER_TIMEOUT_S)
-        except Exception:  # noqa: BLE001
-            pages = []
-        proc.join(timeout=2)
-        if proc.is_alive():
-            proc.kill()
-            proc.join()
-            if not pages:
-                logger.warning(f"Render timed out ({self._RENDER_TIMEOUT_S}s) for {file_name}, skipping")
+            proc.start()
+            deadline = time.monotonic() + (self._RENDER_TIMEOUT_S if timeout_s is None else timeout_s)
+            # Read before joining: a large result can fill the pipe and block the child feeder.
+            while (remaining := deadline - time.monotonic()) > 0:
+                try:
+                    pages = result_q.get(timeout=min(0.1, remaining))
+                    break
+                except queue.Empty:
+                    if not proc.is_alive():
+                        break
+            else:
+                timed_out = proc.is_alive()
+        finally:
+            try:
+                if proc.pid is not None:
+                    proc.join(timeout=0.1)
+                    if proc.is_alive():
+                        proc.kill()
+                        proc.join(timeout=2)
+                    if proc.is_alive():
+                        msg = f"Render subprocess {proc.pid} did not exit after being killed"
+                        raise RuntimeError(msg)
+            finally:
+                try:
+                    if page_indices is None:
+                        with contextlib.suppress(queue.Empty):
+                            page_count = page_count_q.get(timeout=0.1)
+                finally:
+                    try:
+                        result_q.close()
+                    finally:
+                        page_count_q.close()
+        return pages, timed_out, page_count
+
+    @staticmethod
+    def _valid_render_result(pages: object, count: int) -> bool:
+        return (
+            isinstance(pages, list)
+            and len(pages) == count
+            and all(page is None or isinstance(page, Image.Image) for page in pages)
+        )
+
+    def _render_with_timeout(  # noqa: C901
+        self, pdf_bytes: bytes, file_name: str, page_indices: list[int] | None = None
+    ) -> list[Image.Image | None]:
+        """Recover served-parser windows within one shared time and attempt budget.
+
+        Every known physical page keeps its slot, including when a child exits
+        without a result. The default parser retains its existing single-attempt
+        timeout behavior. The initial timeout can be overridden on a run's stage
+        instance without increasing either the retry timeout or recovery budget.
+        """
+        pages, timed_out, page_count = self._render_once(pdf_bytes, page_indices)
+        if not self.retain_failures:
+            return [] if timed_out else pages
+        requested = page_indices
+        if requested is None:
+            if page_count is not None:
+                requested = list(range(min(page_count, self.max_pages)))
+            elif not timed_out and isinstance(pages, list) and pages:
+                requested = list(range(len(pages)))
+            else:
+                logger.warning(f"No render result or page count for {file_name}")
                 return []
-            logger.debug(f"Forcibly cleaned up render process for {file_name} (result was obtained)")
-        return pages
+        if not timed_out and self._valid_render_result(pages, len(requested)):
+            return pages
+
+        deadline = time.monotonic() + self._RENDER_RECOVERY_BUDGET_S
+        attempts = 1
+
+        def recover(indexes: list[int]) -> list[Image.Image | None]:
+            nonlocal attempts
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or attempts >= self._RENDER_MAX_ATTEMPTS:
+                return [None] * len(indexes)
+            attempts += 1
+            result, timeout, _ = self._render_once(
+                pdf_bytes, indexes, timeout_s=min(self._RENDER_RETRY_TIMEOUT_S, remaining)
+            )
+            if not timeout and self._valid_render_result(result, len(indexes)):
+                return result
+            if len(indexes) <= 1:
+                return [None] * len(indexes)
+            midpoint = len(indexes) // 2
+            return recover(indexes[:midpoint]) + recover(indexes[midpoint:])
+
+        logger.warning(f"Recovering failed render window for {file_name}; preserving physical page slots")
+        if len(requested) <= 1:
+            return [None] * len(requested)
+        midpoint = len(requested) // 2
+        return recover(requested[:midpoint]) + recover(requested[midpoint:])
 
     @staticmethod
     def _failed_row(sample_id: str, file_name: str, url: str, stage: str, message: str) -> dict[str, Any]:

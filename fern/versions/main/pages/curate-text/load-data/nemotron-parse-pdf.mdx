@@ -357,6 +357,8 @@ print(f"{output_tokens_per_second:.2f} output tokens/s")
 
 ### Metric Reference
 
+This table describes in-process inference and HTTP inference with `parse_mode` unset. Served Parse 3.5 records the page and request counts described below.
+
 | Custom metric | Backends | Description |
 | --- | --- | --- |
 | `image_load_time` | vLLM, HF | Seconds spent decoding page-image bytes for the task. |
@@ -376,7 +378,19 @@ print(f"{output_tokens_per_second:.2f} output tokens/s")
 The HF backend records image-loading and page-count metrics, but it does not expose token, character, truncation, or retry metrics. The HTTP stage reports server-request time rather than in-process image-loading or vLLM-engine time.
 </Note>
 
-Use the quality signals alongside throughput. A high `num_output_length_truncated` value means outputs are reaching the configured `max_tokens` limit (8,192 by default) and warrants inspection of those pages; `num_empty_outputs` and `num_skipped_pages` identify model-output and image failures that raw pages-per-second figures can hide. HTTP request failures are not counted as partial successes: after retries are exhausted, the task raises.
+Use the quality signals alongside throughput. A high `num_output_length_truncated` value means outputs are reaching the configured `max_tokens` limit (8,192 by default) and warrants inspection of those pages; `num_empty_outputs` and `num_skipped_pages` identify model-output and image failures that raw pages-per-second figures can hide. With `parse_mode` unset, an HTTP request that exhausts its retries raises the task. Served Parse 3.5 retains that page as an error row instead.
+
+With `parse_mode` set, the HTTP stage records these additive custom metrics:
+
+| Custom metric | Description |
+| --- | --- |
+| `num_input_pages` | Rows with a known physical page number, including failed pages. Document-level errors without a page number are excluded. |
+| `num_valid_pages` | Successfully parsed pages without a materialization error. Use this count for successful-page throughput. |
+| `num_error_pages` | Failed pages with a known physical page number. |
+| `num_requests` | Model requests made by the parser, including crop and detection passes. Internal HTTP retry attempts are not counted separately. |
+| `num_failed_requests` | Parser requests that still raise after HTTP retries. A response that fails output validation can fail the page without failing the HTTP request. |
+| `total_prompt_tokens`, `total_output_tokens` | Reported token usage across parser requests, including responses from pages that later fail. Missing usage is not estimated. |
+| `inference_server_request_time` | Wall time spent processing the task's pages in the HTTP stage. |
 
 ## Retry Behavior
 
@@ -384,7 +398,7 @@ There are three separate retry paths:
 
 1. **Engine startup:** `create_vllm_llm()` chooses a new `MASTER_PORT` and retries up to `max_port_retries=3` times for direct address-in-use errors or vLLM v1's wrapped `Engine core initialization failed` error. Retries wait two to five seconds with jitter. Known non-retryable failures, including out-of-memory, device-side assertion, and invalid configuration errors, are raised immediately.
 2. **Inference:** vLLM generation is attempted up to three times. After a failed attempt, the stage resets the engine before retrying. Successful retries contribute to the `vllm_retries` task metric; the final exception is raised after the third failed attempt.
-3. **HTTP requests:** `NemotronParseHTTPClientStage` uses the existing `AsyncOpenAIClient` exponential-backoff retry behavior. Configure the retry count with `inference_server_max_retries`; a request that still fails raises the task so the pipeline cannot silently emit a partial document.
+3. **HTTP requests:** `NemotronParseHTTPClientStage` uses the existing `AsyncOpenAIClient` exponential-backoff retry behavior. Configure the retry count with `inference_server_max_retries`. A request that still fails raises the task when `parse_mode` is unset; served Parse 3.5 keeps an error row for the failed page and retains successful pages.
 
 If startup retries are exhausted, first check the worker log for the original failure. For repeated port collisions, reduce the number of vLLM replicas starting simultaneously or set a larger stage-level `max_port_retries` through `engine_kwargs`. Do not mask CUDA out-of-memory or invalid-model errors by increasing retries; tune memory-related engine settings or correct the model configuration instead.
 
@@ -424,6 +438,7 @@ The driver environment needs `ai-dynamo==1.4.2`, which pins vLLM 0.26; Curator's
 ```bash
 hf download nvidia/Nemotron-3.5-Parse --revision 62cb1e4ba153d113ff64aaf2be6e068c377cf53c \
     --local-dir /path/to/nemotron-parse
+uv pip install --no-deps /path/to/nemotron-parse
 NEMO_CURATOR_DYNAMO_CUDA_TAG=cu130 python tutorials/interleaved/nemotron_parse_pdf/main.py \
     --manifest manifest.jsonl --pdf-dir /path/to/pdfs --output-dir /path/to/output \
     --model-path /path/to/nemotron-parse \
@@ -431,19 +446,31 @@ NEMO_CURATOR_DYNAMO_CUDA_TAG=cu130 python tutorials/interleaved/nemotron_parse_p
     --parse-mode single --executor ray-data
 ```
 
+### Select a Page Subset
+
+Add `selected_page_indices` to a manifest entry to render selected physical pages:
+
+```jsonl
+{"file_name": "document.pdf", "selected_page_indices": [0, 4, 12]}
+```
+
+Use a nonempty list of unique, nonnegative integers. Indexes start at zero in the original PDF and replace the first-`max_pages` selection for that entry. Rendering follows the supplied order and preserves physical page numbers. Served Parse 3.5 retains failed selected pages as error rows; an invalid selection records a manifest error for the document.
+
+### Parsing Modes and Failures
+
 - `single` reads the whole page.
 - `double` also rereads table and chart crops from that answer.
 - `triple` adds a boxes-only detection request before reading the crops. `--triple-regions union` combines detected regions with nonoverlapping full-page regions; `detector` uses only the detector's regions.
 
-The package's `DocumentParser` owns prompts, sampling, finish checks, region selection, crop merging, text and table cleanup, and geometry. `--text-in-pic` and `--max-tokens` do not override its settings. Curator keeps its 300-DPI render capped at 1664×2048, the render timeout, partitioning, and the writer; this path has no rendering retry. Picture crops use the parser's content-normalized boxes on the rendered page, and tables are written as `text/html`.
+The package's `DocumentParser` owns prompts, sampling, finish checks, region selection, crop merging, text and table cleanup, and geometry. `--text-in-pic` and `--max-tokens` do not override its settings. Curator keeps its 300-DPI render capped at 1664×2048, partitioning, and the writer. The served path uses bounded render recovery as described below. Picture crops use the parser's content-normalized boxes on the rendered page, and tables are written as `text/html`.
 
-Requests use the same `inference_server_max_retries` backoff as the HTTP stage, but a page that still fails does not raise the task. Each document keeps its metadata row at position -1. A page that fails to render or parse becomes one `text` row with `materialize_error` set and its physical page number; successful pages are kept. A document that cannot be opened records the error on its metadata row. The tutorial writer uses `on_materialize_error="warn"` to keep these rows; a writer with the default `"error"` policy raises. Leaving `parse_mode` unset keeps the existing behavior and the default Parse v1.2 model.
+Requests use the same `inference_server_max_retries` backoff as the HTTP stage, but a page that still fails does not raise the task. Each document keeps its metadata row at position -1. A page that fails to render or parse becomes one `text` row with `materialize_error` set and its physical page number; successful pages are kept. A parser response with no decoded blocks also becomes an error row, so malformed output is not counted as a successful blank page. Parse errors retain available raw response details for inspection. A document that cannot be opened records the error on its metadata row. The tutorial writer uses `on_materialize_error="warn"` to keep these rows; a writer with the default `"error"` policy raises. Leaving `parse_mode` unset keeps the existing behavior and the default Parse v1.2 model.
 
 ## Render Timeout
 
-The preprocess stage replaces `signal.SIGALRM` with a `multiprocessing` fork-based timeout (`_RENDER_TIMEOUT_S = 60` by default). This is required because Xenna runs stage workers inside Ray actor processes on non-main threads, where `SIGALRM` raises `ValueError: signal only works in main thread`. The forked child inherits the PDF bytes via copy-on-write and is killed if it exceeds the timeout, reliably escaping any hung C-extension code inside `pypdfium2`.
+The preprocess stage uses a `multiprocessing` fork-based timeout (`_RENDER_TIMEOUT_S = 60` by default). Xenna can run stage workers on non-main threads where `signal.SIGALRM` is unavailable. The child inherits PDF bytes through copy-on-write; timeout cleanup kills and reaps that child and closes its queues.
 
-You don't need to configure this — it works automatically. If you find legitimate PDFs that take longer than 60 seconds to render, the constant lives at `nemo_curator/stages/interleaved/pdf/nemotron_parse/preprocess.py`.
+With `parse_mode` unset, rendering uses a single attempt. Served Parse 3.5 can recover a missing, timed-out, or malformed render result by splitting the known page window into smaller windows. Recovery shares an additional 120-second budget, each recovery attempt has at most 60 seconds, and the whole operation uses at most seven child attempts including the initial attempt. Pages that remain unresolved retain their physical page slots and become error rows. If the document cannot be opened and its page count is unknown, the document-level error remains visible instead.
 
 ## Benchmarking
 
