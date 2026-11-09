@@ -12,17 +12,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import importlib.abc
+import importlib.machinery
+import inspect
 import json
 import shutil
 import subprocess
 import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import hydra
 import pytest
 from hydra import compose, initialize, initialize_config_dir
-from omegaconf import OmegaConf
+from omegaconf import ListConfig, OmegaConf
 
 from nemo_curator.config.run import create_executor_from_yaml, create_pipeline_from_yaml, main
 from nemo_curator.pipeline import Pipeline
@@ -656,6 +662,101 @@ def test_qwen_asr_tutorial_yaml_uses_generic_adapter_contract():
     assert executor.config == {}
 
 
+def test_chatterbox_tts_tutorial_yaml_matches_reference_runner_config():
+    config_dir = Path(__file__).parents[2] / "tutorials" / "audio" / "tts"
+    with initialize_config_dir(config_dir=str(config_dir), version_base=None):
+        cfg = compose(
+            config_name="pipeline",
+            overrides=[
+                "input_manifest=tests/fixtures/audio/tts/sample_turns.jsonl",
+                "reference_voices_dataset=/data/reference_voices",
+                "output_dir=/data/tts_output",
+                "cfg_weight=0.3",
+            ],
+        )
+
+    pipeline = create_pipeline_from_yaml(cfg, log_config=False)
+    reader, stage, writer = pipeline.stages
+    executor = create_executor_from_yaml(cfg)
+
+    assert reader.__class__.__name__ == "ManifestReader"
+    assert reader.manifest_path == "tests/fixtures/audio/tts/sample_turns.jsonl"
+
+    assert stage.__class__.__name__ == "ChatterboxTTSStage"
+    assert stage.output_audio_dir == "/data/tts_output/audio"
+    assert stage.reference_voices_dataset == "/data/reference_voices"
+    assert stage.language is None
+    assert stage.device == "cuda"
+    assert stage.cache_dir is None
+    assert stage.sample_rate == 24000
+    assert stage.cfg_weight == 0.3
+    assert stage.exaggeration == 0.5
+    assert stage.temperature == 0.8
+    # English model (language=None) default penalty, not the multilingual 2.0.
+    assert stage.repetition_penalty == 1.2
+    assert stage.min_p == 0.05
+    assert stage.top_p == 1.0
+    assert stage.normalize_audio is True
+    assert stage.normalize_level == -20.0
+    assert stage.max_reference_duration == 60.0
+    # Declared on the stage itself, not the tutorial: no runner-side .with_() hook needed.
+    assert stage.batch_size == 1
+    assert stage.resources.gpus == 1
+
+    assert writer.__class__.__name__ == "ManifestWriterStage"
+    assert writer.output_path == "/data/tts_output/result.jsonl"
+
+    # ray_data is the tutorial default; both Ray Data and Xenna honor the same
+    # isolated Chatterbox runtime_env (see README "Choosing a backend").
+    assert executor.__class__.__name__ == "RayDataExecutor"
+    assert executor.config == {}
+
+    from nemo_curator.backends.ray_data.adapter import RayDataStageAdapter
+    from nemo_curator.backends.xenna.adapter import XennaStageAdapter
+
+    class _Dataset:
+        def map_batches(self, _fn: object, **kwargs: object) -> "_Dataset":
+            self.kwargs = kwargs
+            return self
+
+    dataset = _Dataset()
+    RayDataStageAdapter(stage).process_dataset(dataset)
+    assert dataset.kwargs["runtime_env"]["pip"] == stage.runtime_env["pip"]
+
+    xenna_env = XennaStageAdapter(stage).env_info
+    assert xenna_env is not None
+    assert xenna_env.to_ray_runtime_env().get("pip") == stage.runtime_env["pip"]
+
+
+@pytest.mark.parametrize("backend", ["ray_data", "xenna"])
+def test_chatterbox_tts_tutorial_yaml_accepts_exaggeration_range(backend: str, tmp_path: Path) -> None:
+    config_dir = Path(__file__).parents[2] / "tutorials" / "audio" / "tts"
+    with initialize_config_dir(config_dir=str(config_dir), version_base=None):
+        cfg = compose(
+            config_name="pipeline",
+            overrides=[
+                "input_manifest=tests/fixtures/audio/tts/sample_turns.jsonl",
+                "reference_voices_dataset=/data/reference_voices",
+                f"output_dir={tmp_path}/tts_output",
+                f"backend={backend}",
+                "exaggeration=[0.25,0.75]",
+            ],
+        )
+
+    assert isinstance(cfg.exaggeration, ListConfig)
+    pipeline = create_pipeline_from_yaml(cfg, log_config=False)
+    stage = pipeline.stages[1]
+    executor = create_executor_from_yaml(cfg)
+
+    assert stage.exaggeration_range == (0.25, 0.75)
+    assert stage.exaggeration == 0.25
+    value = stage._get_exaggeration("conv001")
+    assert 0.25 <= value <= 0.75
+    assert stage._get_exaggeration("conv001") == value
+    expected_executor = "RayDataExecutor" if backend == "ray_data" else "XennaExecutor"
+    assert executor.__class__.__name__ == expected_executor
+
+
 def test_faster_whisper_tutorial_yaml_matches_reference_contract():
     config_dir = Path(__file__).parents[2] / "tutorials" / "audio" / "faster_whisper"
     with initialize_config_dir(config_dir=str(config_dir), version_base=None):
@@ -910,3 +1011,110 @@ def test_run_cli_defaults_to_pipeline_config_for_fastconformer() -> None:
     )
 
     assert "adapter_target: nemo_curator.models.asr.nemo_asr.NeMoASRAdapter" in result.stdout
+
+
+SHIPPED_TEXT_CONFIG_DIR = Path(__file__).parents[2] / "nemo_curator" / "config" / "text"
+SHIPPED_TEXT_CONFIGS = sorted(p.name for p in SHIPPED_TEXT_CONFIG_DIR.glob("*.yaml"))
+
+
+# Packages the CPU test job does not install: the `deduplication_cuda12` extra with
+# what it pulls in (rmm, pylibcudf, cupy), and pynvml from `cuda12`. A target whose
+# module imports one of them is imported with them replaced by mocks, which is
+# enough to read its signature and keeps the check running on CPU runners.
+_GPU_ONLY_PACKAGES = frozenset(
+    {
+        "cudf",
+        "cudf_streaming",
+        "cuml",
+        "cupy",
+        "pylibcudf",
+        "pylibcugraph",
+        "pylibraft",
+        "pynvml",
+        "raft_dask",
+        "rapidsmpf",
+        "rmm",
+    }
+)
+
+
+class _MockMissingGpuPackages(importlib.abc.MetaPathFinder, importlib.abc.Loader):
+    """Hand out a mock for a GPU-only package only when it is not installed.
+
+    Appended to ``sys.meta_path``, so it is asked after the real finders and an
+    installed package always wins.
+    """
+
+    def __init__(self) -> None:
+        self.created: list[str] = []
+
+    def find_spec(self, fullname: str, path: object, target: object = None) -> importlib.machinery.ModuleSpec | None:
+        if fullname.split(".")[0] not in _GPU_ONLY_PACKAGES:
+            return None
+        return importlib.machinery.ModuleSpec(fullname, self, is_package=True)
+
+    def create_module(self, spec: importlib.machinery.ModuleSpec) -> MagicMock:
+        self.created.append(spec.name)
+        return MagicMock(name=spec.name)
+
+    def exec_module(self, module: object) -> None:
+        pass
+
+
+@contextmanager
+def _missing_gpu_packages_mocked() -> Iterator[None]:
+    finder = _MockMissingGpuPackages()
+    sys.meta_path.append(finder)
+    try:
+        yield
+    finally:
+        sys.meta_path.remove(finder)
+        for name in finder.created:
+            sys.modules.pop(name, None)
+
+
+def _target_nodes(node: object) -> Iterator[dict]:
+    """Every mapping under ``node`` that names a Hydra ``_target_``."""
+    if isinstance(node, dict):
+        if "_target_" in node:
+            yield node
+        for value in node.values():
+            yield from _target_nodes(value)
+    elif isinstance(node, list):
+        for item in node:
+            yield from _target_nodes(item)
+
+
+@pytest.mark.parametrize("config_name", SHIPPED_TEXT_CONFIGS)
+def test_shipped_config_passes_only_arguments_its_targets_accept(config_name: str) -> None:
+    """A shipped config has to survive instantiation, and nothing cheap told us it does.
+
+    ``main`` starts the Ray client before it builds the pipeline, so a key a
+    target stopped declaring costs a cluster start and then raises
+    ``InstantiationException`` wrapping a ``TypeError``. Binding each node's keys
+    against its target's signature catches that drift with no GPU, no model
+    download and no cluster.
+
+    A target whose module needs the GPU extras is imported with those packages
+    mocked, so the semantic deduplication workflow is checked on CPU runners too.
+    """
+    with initialize_config_dir(config_dir=str(SHIPPED_TEXT_CONFIG_DIR), version_base=None):
+        cfg = compose(config_name=config_name)
+
+    unaccepted: list[str] = []
+    with _missing_gpu_packages_mocked():
+        for node in _target_nodes(OmegaConf.to_container(cfg, resolve=False)):
+            target = node["_target_"]
+            kwargs = {
+                key: value
+                for key, value in node.items()
+                # `_` keys are Hydra's own, and `_instantiate_stage` applies
+                # `resources` through `.with_()` rather than the constructor.
+                if not key.startswith("_") and key != "resources"
+            }
+            try:
+                inspect.signature(hydra.utils.get_class(target)).bind_partial(**kwargs)
+            except TypeError as error:
+                unaccepted.append(f"{target}: {error}")
+
+    assert not unaccepted, f"{config_name} passes arguments nothing accepts: " + "; ".join(unaccepted)

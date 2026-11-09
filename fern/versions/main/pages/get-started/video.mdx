@@ -140,31 +140,30 @@ Use the following reference sections to configure storage, FFmpeg, models, and p
 
 ## Install FFmpeg and Encoders
 
-Video pipelines use FFmpeg to decode and encode clips. Install FFmpeg 8.0 or later with an encoder supported by your GPU and a software H.264 decoder. The maintained script below builds FFmpeg with NVENC, `libvpx-vp9`, and software H.264/HEVC/AV1 decoders.
+Video pipelines use FFmpeg to decode and encode clips. Install FFmpeg 8.0 or later with an encoder supported by your GPU and a software H.264 decoder. The maintained script below builds FFmpeg with NVENC, `libvpx-vp9`, software H.264/HEVC/AV1 decoders, and the `libopenh264` encoder.
 
 <Tabs>
    <Tab title="Debian/Ubuntu (Script)">
 
-Run the maintained software decoder support script. It builds FFmpeg with NVIDIA NVENC, `libvpx-vp9`, and software H.264/HEVC/AV1 decoders in one step.
+Use the maintained script in the repository to build and install `FFmpeg` with the codecs needed by Curator video workflows. The script enables dynamic CUDA/NVIDIA codec support through `--enable-cuda`, `--enable-cuvid`, `--enable-nvdec`, `--enable-nvenc`, and `--enable-ffnvcodec`, plus `--enable-libvpx` and `--enable-libopenh264`.
 
-- Script source: [software decoder support script](https://github.com/NVIDIA-NeMo/Curator/blob/main/docker/common/install_h264_support.sh).
+- Script source: [docker/common/install_ffmpeg.sh](https://github.com/NVIDIA-NeMo/Curator/blob/main/docker/common/install_ffmpeg.sh)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/NVIDIA-NeMo/Curator/main/docker/common/install_h264_support.sh -o install_h264_support.sh
-chmod +x install_h264_support.sh
-sudo bash install_h264_support.sh
+curl -fsSL https://raw.githubusercontent.com/NVIDIA-NeMo/Curator/main/docker/common/install_ffmpeg.sh -o install_ffmpeg.sh
+chmod +x install_ffmpeg.sh
+sudo bash install_ffmpeg.sh
 ```
 
 </Tab>
 
    <Tab title="Verify Installation">
 
-Run these commands to confirm that FFmpeg is on your `PATH`, the required video encoder is available, and the software H.264 decoder is registered:
+Confirm that `FFmpeg` is on your `PATH` and that the expected video codecs are available:
 
 ```bash
-ffmpeg -hide_banner -version | head -n 5
-ffmpeg -encoders | grep -E "h264_nvenc|libvpx-vp9"
-ffmpeg -decoders | grep -E '^[[:space:]]+V[^[:space:]]+[[:space:]]+h264[[:space:]]'
+curl -fsSL https://raw.githubusercontent.com/NVIDIA-NeMo/Curator/main/docker/common/install_ffmpeg.sh -o install_ffmpeg.sh
+bash install_ffmpeg.sh --check
 ```
 
 If an encoder or decoder is missing, reinstall FFmpeg with the required options or use the Debian/Ubuntu script above.
@@ -176,7 +175,7 @@ If an encoder or decoder is missing, reinstall FFmpeg with the required options 
 Refer to [Clip Encoding](/curate-video/process-data/transcoding) to select an encoder and verify NVENC support on your system.
 
 <Note>
-On GPUs without NVENC hardware, such as NVIDIA A100 and NVIDIA H100, use `--transcode-encoder libvpx-vp9`. Software H.264 decoding is provided by `install_h264_support.sh`; the optional `libopenh264` encoder is separate.
+On GPUs without NVENC hardware, such as NVIDIA A100 and NVIDIA H100, use `--transcode-encoder libvpx-vp9`. The maintained `docker/common/install_ffmpeg.sh` provides software H.264 decoding and the `libopenh264` encoder.
 </Note>
 
 ## Available Models

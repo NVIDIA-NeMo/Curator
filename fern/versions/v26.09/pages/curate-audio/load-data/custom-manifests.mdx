@@ -1,0 +1,202 @@
+---
+description: "Create and load custom audio manifests in JSONL format for NeMo Curator audio processing"
+categories: ["data-loading"]
+tags: ["custom-manifests", "jsonl", "audio-metadata"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "beginner"
+content_type: "how-to"
+modality: "audio-only"
+---
+
+# Create and Load Custom Audio Manifests
+
+Create and load custom audio manifests in JSONL format for your speech datasets. This guide covers the required manifest format and how to load manifests into NeMo Curator pipelines.
+
+## Manifest Format
+
+NeMo Curator uses JSONL (JSON Lines) format for audio manifests, with one JSON object per line:
+
+```json
+{"audio_filepath": "/data/audio/sample_001.wav", "text": "hello world", "duration": 2.1}
+{"audio_filepath": "/data/audio/sample_002.wav", "text": "good morning", "duration": 1.8}
+{"audio_filepath": "/data/audio/sample_003.wav", "text": "how are you", "duration": 2.3}
+```
+
+<Note>
+NeMo Curator does not provide a generic TSV reader stage. You must convert your data to JSONL format before loading, or use dataset-specific importers like the FLEURS manifest creator.
+</Note>
+
+<Warning>
+Resolve local manifest paths to absolute paths on the driver before you build the pipeline. File discovery runs in an executor worker, whose working directory can differ from the directory where you launched the pipeline. Audio file paths in the manifest must be absolute filesystem paths that resolve identically on every executor. If the source audio is remote, download or otherwise materialize it on that shared or mounted filesystem before running audio stages.
+</Warning>
+
+## Required Fields
+
+Every audio manifest entry must include:
+
+| Field | Type | Description | Example |
+|-------|------|-------------|---------|
+| `audio_filepath` | string | Absolute filesystem path that resolves on every executor | `/data/audio/sample.wav` |
+| `text` | string | Ground truth transcription | `"hello world"` |
+
+## Optional Fields
+
+Additional fields that can enhance processing:
+
+| Field | Type | Description | Example |
+|-------|------|-------------|---------|
+| `duration` | float | Audio duration in seconds | `2.1` |
+| `language` | string | Language identifier | `"en_us"` |
+| `speaker_id` | string | Speaker identifier | `"speaker_001"` |
+| `sample_rate` | int | Audio sample rate in Hz | `16000` |
+
+## Creating Custom Manifests
+
+You'll need to create your own manifest files using your preferred tools. Here's a simple Python example:
+
+```python
+import json
+
+# Example: Create a manifest from a list of audio files
+audio_data = [
+    {"audio_filepath": "/data/audio/sample1.wav", "text": "hello world"},
+    {"audio_filepath": "/data/audio/sample2.wav", "text": "good morning"},
+    {"audio_filepath": "/data/audio/sample3.wav", "text": "how are you"}
+]
+
+# Write JSONL manifest
+with open("my_audio_manifest.jsonl", "w") as f:
+    for entry in audio_data:
+        f.write(json.dumps(entry) + "\n")
+```
+
+## Loading Manifests in Pipelines
+
+### Using ManifestReader
+
+Load your custom manifest as `AudioTask` objects using the built-in `ManifestReader`:
+
+```python
+from pathlib import Path
+
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.audio.common import ManifestReader
+from nemo_curator.stages.audio.inference.asr.stage import ASRStage
+from nemo_curator.stages.audio.metrics.wer import GetPairwiseWerStage
+
+# Create pipeline
+pipeline = Pipeline(name="custom_audio_processing")
+
+# Resolve on the driver before executor workers perform file discovery.
+manifest_path = Path("my_audio_manifest.jsonl").expanduser().resolve()
+
+# Load custom manifest (produces AudioTask objects).
+pipeline.add_stage(
+    ManifestReader(manifest_path=str(manifest_path))
+)
+
+# ASR inference consumes and returns AudioTask objects
+pipeline.add_stage(
+    ASRStage(
+        adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+        model_id="nvidia/stt_en_fastconformer_hybrid_large_pc",
+        max_audio_sec_per_actor=240.0,
+        max_inference_duration_s=120.0,
+        local_bucketing=True,
+        audio_filepath_key="audio_filepath",
+        pred_text_key="pred_text"
+    )
+)
+
+# Calculate WER between ground truth and prediction
+pipeline.add_stage(
+    GetPairwiseWerStage(
+        text_key="text",
+        pred_text_key="pred_text",
+        wer_key="wer_pct",
+    )
+)
+```
+
+### Validation
+
+`ManifestReader` parses each JSONL row into an `AudioTask`, but it does not set `filepath_key` and therefore does not preflight audio-file existence through `AudioTask.validate()`. Consuming stages enforce their required columns and perform audio I/O. By default, `ASRStage` logs an unreadable-audio error, writes an empty prediction, and marks the task with `_skipme="audio_load_error"`; set `fail_on_audio_error=True` on that stage to raise instead.
+
+For an explicit local preflight check, construct the task with `filepath_key` and call `validate()`:
+
+```python
+from nemo_curator.tasks import AudioTask
+
+entry = {
+    "audio_filepath": "/absolute/path/to/audio.wav",
+    "text": "reference transcript",
+}
+audio_task = AudioTask(data=entry, filepath_key="audio_filepath")
+
+if not audio_task.validate():
+    raise FileNotFoundError(entry["audio_filepath"])
+```
+
+Run this check in the same filesystem namespace used by executor workers. In multi-node runs, an existing driver-local path is not sufficient unless it resolves on the workers too.
+
+## Example: Complete Workflow
+
+```python
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.audio.common import ManifestReader
+from nemo_curator.stages.audio.inference.asr.stage import ASRStage
+from nemo_curator.stages.audio.metrics.wer import GetPairwiseWerStage
+from nemo_curator.stages.audio.common import GetAudioDurationStage, PreserveByValueStage
+from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
+from nemo_curator.stages.text.io.writer import JsonlWriter
+
+def create_custom_audio_pipeline(manifest_path: str, output_path: str) -> Pipeline:
+    """Create pipeline for custom audio manifest processing."""
+
+    pipeline = Pipeline(name="custom_audio_processing")
+
+    # Load custom manifest
+    pipeline.add_stage(ManifestReader(manifest_path=manifest_path))
+
+    # ASR processing
+    pipeline.add_stage(ASRStage(
+        adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+        model_id="nvidia/stt_en_fastconformer_hybrid_large_pc",
+        max_audio_sec_per_actor=240.0,
+        max_inference_duration_s=120.0,
+        local_bucketing=True,
+        audio_filepath_key="audio_filepath",
+    ))
+
+    # Quality assessment
+    pipeline.add_stage(GetPairwiseWerStage())
+    pipeline.add_stage(GetAudioDurationStage(
+        audio_filepath_key="audio_filepath",
+        duration_key="duration"
+    ))
+
+    # Filter by quality (keep WER &lt;= 40%)
+    pipeline.add_stage(PreserveByValueStage(
+        input_value_key="wer_pct",
+        target_value=40.0,
+        operator="le"
+    ))
+
+    # Export results
+    pipeline.add_stage(AudioToDocumentStage())
+    pipeline.add_stage(JsonlWriter(path=output_path))
+
+    return pipeline
+
+# Usage
+pipeline = create_custom_audio_pipeline(
+    manifest_path="/absolute/path/to/my_audio_manifest.jsonl",
+    output_path="/absolute/path/to/processed_results"
+)
+```
+
+## Related Topics
+
+- **[Audio Processing Overview](/curate-audio/process-data)** - Complete audio processing workflow
+- **[FLEURS Dataset](/curate-audio/load-data/fleurs-dataset)** - Example of automated dataset loading
+- **[Local Files](/curate-audio/load-data/local-files)** - Loading audio files from local directories

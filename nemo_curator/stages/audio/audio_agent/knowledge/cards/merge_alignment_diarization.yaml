@@ -1,0 +1,34 @@
+stage_id: MergeAlignmentDiarizationStage
+category: transcribe
+summary: "Merge word alignments into diarization segments (produce who-said-what text per speaker)."
+tags: []
+model_id: null
+domain: {language: any, style: conversational}
+constraints: {}
+resource:
+  cpus: 1.0
+  gpu_mem_gb: 0.0
+  gpu_optional: false
+  bound: cpu
+  throughput_hint: "CPU; pure metadata merge"
+use_cases:
+  good_for: ["attaching aligned transcript text/words to diarization segments"]
+  avoid_for:
+    - "when either alignment or diarization is missing (both are required inputs)"
+    - "after normal split alignment without the join: alignment remains inside split_metadata rather than at top level"
+composition:
+  typical_upstream: [SplitASRAlignJoinStage, JoinSplitAudioMetadataStage, InferenceSortformerStage, PyAnnoteDiarizationStage]
+  typical_downstream: [TimestampMapperStage, AudioToDocumentStage]
+params_of_note:
+  text_key: "key to write merged segment text"
+  words_key: "key to write per-segment word alignments"
+  alignment_key: "top-level word list containing {word, start, end}, with times in seconds (default alignment)"
+  segments_key: "diarization list containing {speaker, start, end}, with times in seconds (default segments)"
+param_dependencies:
+  alignment_key: "requires top-level word alignment, normally from SplitASRAlignJoinStage or Split -> Align -> Join. NeMoASRAlignerStage fallback output may also be top-level, but its usual split output is nested. Plain ASRStage pred_text is insufficient."
+  segments_key: "requires upstream diarization segments; set to the diarizer's key (e.g. diar_segments from InferenceSortformerStage)"
+notes:
+  - "Only the configured segments list is read; a separate overlap_segments list is not merged automatically. Words are assigned once by containment/overlap, with ties favoring the current segment; words falling in gaps are skipped. This does not create separate transcripts for simultaneous speakers."
+  - "The parent row is retained. With empty alignment or segments, no new segment text/words are added."
+verified: {params: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess}
+provenance: {model_card_url: null, card_version: 3, last_validated: "2026-10-19"}

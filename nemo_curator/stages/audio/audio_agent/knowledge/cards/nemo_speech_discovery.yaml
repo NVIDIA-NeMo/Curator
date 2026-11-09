@@ -1,0 +1,64 @@
+stage_id: NeMoSpeechDiscoveryStage
+category: ingest
+summary: "Expand filtered NeMo input configuration into stable physical-shard source tasks, with optional artifact-driven restart cleanup."
+tags: [fanout]
+model_id: null
+domain: {language: "configuration labels only", style: "nemo/nemo_tarred shard configuration"}
+resource:
+  gpu_mem_gb: 0.0
+  gpu_optional: false
+  bound: io
+  throughput_hint: "Enumerates shard descriptors and restart state; no audio decoding. Many output files/markers can make recursive restart scanning expensive."
+use_cases:
+  good_for:
+    - "The discovery half of a NeMo reader, including deterministic manifest/tar pairing."
+    - "Enumerating physical source shards without decoding their audio."
+    - "Replaying incomplete unchanged shards while retaining completed artifact state."
+  avoid_for:
+    - "Producing AudioTasks, checking spoken language, reading arbitrary training input types, or validating every audio file."
+    - "Sharing artifact-driven and Pipeline source-checkpoint scheduling for the same source."
+composition:
+  typical_downstream: [NeMoSpeechReaderStage]
+params_of_note:
+  yaml_path: "Input YAML file; provide this or input_cfg. Inline configuration takes precedence."
+  input_cfg: "Nonempty list of entries/groups, or mapping with input_cfg list; resolved OmegaConf values are accepted. Entries support only nemo/nemo_tarred."
+  corpus_filter: "Exact corpus selection before expansion. Corpus defaults to unknown when absent; an empty filter means no restriction."
+  language_filter: "Exact entry language-label selection before expansion; empty means no restriction. It does not inspect row language predictions."
+  output_dir: "Absolute local shared root for manifests/markers/replay state; required for done_markers mode, optional for checkpoint mode."
+  resume_mode: "done_markers (default) skips output-validated completed shards. checkpoint emits source work for Pipeline.run(checkpoint_path=...) to schedule."
+  cleanup_partial: "Default true; remove incomplete shard JSONL, legacy progress and row receipts only in done_markers mode. Opus files and ownership records remain."
+param_dependencies:
+  input_cfg: "Every entry needs manifest_filepath. nemo_tarred also needs tarred_audio_filepaths; expanded lists are zipped in order and must have equal length. A nemo entry cannot include a tar path."
+  output_dir: "Readers/writers should use the same root for coherent artifact scheduling and source registration. No shared output cleanup occurs when checkpoint scheduling owns progress."
+  resume_mode: "done_markers marks this source non-resumable by Pipeline source checkpoints, so combining them raises before partial-output cleanup."
+semantic_facts:
+  shard_task:
+    meaning: "FileGroupTask containing a physical manifest path, optional paired tar path, and reader_config with corpus, language and shard_key."
+    unit: "one task per expanded shard"
+    provenance: "Filtered entries, NeMo brace/range path expansion, derived logical output keys, and verified existing output state."
+    scope: "Physical shard, not one audio recording or training minibatch."
+    propagation: "Feeds NeMoSpeechReaderStage. Source deterministic identity includes the shard key as well as file paths; incoming metadata/performance lineage survives."
+    counterexamples:
+      - "A discovered task does not prove its manifest is readable or its audio decodes."
+      - "Training weights, shuffle, dynamic bucketing and unimplemented input_cfg types are not applied."
+  completed_shard:
+    meaning: "Existing output manifest has a matching versioned done marker, positive equal expected/completed input counts, row count and SHA-256."
+    provenance: "Validation of the output manifest and marker under output_dir."
+    scope: "Previously finalized output shard."
+    propagation: "The shard is skipped in done_markers mode, even when cleanup_partial=false."
+    counterexamples:
+      - "No current input-content, recipe or model hash is checked, so a stale completed shard can be skipped after work changes."
+      - "Skipping does not re-open every Opus file or prove the current source/fan-out result is complete."
+notes:
+  - "Entry example: {type: nemo_tarred, manifest_filepath: /data/demo/manifest_{0..7}.jsonl, tarred_audio_filepaths: /data/demo/audio_{0..7}.tar, corpus: demo}. Both expansions must produce the same number of paths."
+  - "Without shard_key_prefix, corpus must occur exactly once as a manifest-path component. An explicit safe prefix controls the logical key; colliding keys are rejected before cleanup. Keep prefixes distinct for separate datasets."
+  - "Invalid/missing markers cause replay. With cleanup_partial=false, replay occurs without clearing partial metadata; this is not an assurance that stale receipts are safe to reuse."
+  - "Retained ownership records bind output audio to its old content/identity; changing work in the same output root can conflict even after incomplete row receipts are cleared. Use a fresh output lifecycle for changed inputs/models/policies."
+  - "Use NeMoSpeechAudioReader for the complete source. This stage emits FileGroupTask protocol objects and is not a generic task-data transform."
+  - "Implementation: nemo_curator/stages/audio/io/nemo_speech_reader.py; key derivation: io/shard_key.py; restart tests: tests/stages/audio/io/test_nemo_speech_reader.py."
+  - "NeMo input-format background, broader than this wrapper's supported subset: https://docs.nvidia.com/nemo-framework/user-guide/latest/nemotoolkit/asr/datasets.html#lhotse-dataloading"
+caveats:
+  - "Discovery can delete incomplete output metadata when done-marker cleanup is enabled. The output root must belong to this pipeline's artifact lifecycle."
+  - "Descriptor/path/configuration and duplicate-shard errors raise; discovery does not turn them into per-audio error placeholders."
+verified: {params: mechanical, tags: mechanical, resource: best_guess, domain: mechanical, use_cases: best_guess, semantic_facts: mechanical}
+provenance: {model_card_url: null, card_version: 2, last_validated: "2026-10-26"}
