@@ -22,6 +22,7 @@ import pytest_httpserver
 
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.resources import Resources
+from nemo_curator.stages.synthetic.nemo_data_designer.data_designer import DataDesignerStage
 from nemo_curator.stages.synthetic.nemotron_cc.nemo_data_designer.base import (
     _FORMATTED_PROMPT_COL,
     NDDBaseSyntheticStage,
@@ -39,7 +40,7 @@ from data_designer.interface import DataDesigner
 
 
 def _model_configs() -> list:
-    return [dd.ModelConfig(alias="test_model", model="test/model")]
+    return [dd.ModelConfig(alias="test_model", model="test/model", provider="openai")]
 
 
 def _make_stage(**kwargs: object) -> NDDBaseSyntheticStage:
@@ -137,16 +138,38 @@ class TestNDDBaseSyntheticStage:
         with pytest.raises(ValueError, match="'input_field' is None"):
             stage._process_llm_prompt({"text": "hello"})
 
+    def test_process_preserves_task_id_for_parent(self) -> None:
+        """Temporary batch passed to DataDesignerStage preserves the input task ID."""
+        stage = _make_stage()
+        batch = DocumentBatch(
+            data=pd.DataFrame([{"text": "hello"}]),
+            dataset_name="ds",
+        )
+        batch._set_task_id("parent", 3)
+
+        captured_task_ids = []
+
+        def fake_parent_process(_self: DataDesignerStage, inner_batch: DocumentBatch) -> DocumentBatch:
+            captured_task_ids.append(inner_batch.task_id)
+            return inner_batch
+
+        with patch.object(DataDesignerStage, "process", fake_parent_process):
+            stage.process(batch)
+
+        assert captured_task_ids == ["parent_3"]
+
     def test_process(self) -> None:
         """Covers pre-process prompt formatting, NDD call, post-process response, temp column
         removal, task_id appending, and metadata/stage_perf preservation."""
         stage = _make_stage()
         stage.setup()
 
-        output_df = pd.DataFrame([
-            {"text": "a", _FORMATTED_PROMPT_COL: "Rephrase: a", "result": "out_a"},
-            {"text": "b", _FORMATTED_PROMPT_COL: "Rephrase: b", "result": "out_b"},
-        ])
+        output_df = pd.DataFrame(
+            [
+                {"text": "a", _FORMATTED_PROMPT_COL: "Rephrase: a", "result": "out_a"},
+                {"text": "b", _FORMATTED_PROMPT_COL: "Rephrase: b", "result": "out_b"},
+            ]
+        )
         stage.data_designer.preview = MagicMock(
             return_value=PreviewResults(config_builder=stage.config_builder, dataset=output_df)
         )
@@ -156,14 +179,11 @@ class TestNDDBaseSyntheticStage:
         batch = DocumentBatch(
             data=pd.DataFrame([{"text": "a"}, {"text": "b"}]),
             dataset_name="ds",
-            task_id="t1",
             _metadata=original_metadata,
             _stage_perf=original_stage_perf,
         )
         out = stage.process(batch)
-
         assert isinstance(out, DocumentBatch)
-        assert out.task_id == "t1_DataDesignerStage"
         assert out.dataset_name == "ds"
         assert out.data["result"].tolist() == ["out_a", "out_b"]
         assert _FORMATTED_PROMPT_COL not in out.data.columns
@@ -179,7 +199,7 @@ class TestNDDBaseSyntheticStage:
         stage.data_designer.preview = MagicMock(
             return_value=PreviewResults(config_builder=stage.config_builder, dataset=output_df)
         )
-        batch = DocumentBatch(data=pd.DataFrame([{"text": "hello"}]), dataset_name="ds", task_id="t1")
+        batch = DocumentBatch(data=pd.DataFrame([{"text": "hello"}]), dataset_name="ds")
         out = stage.process(batch)
 
         assert isinstance(out, DocumentBatch)
@@ -215,7 +235,7 @@ class TestNDDBaseSyntheticStage:
         )
         stage.setup()
 
-        batch = DocumentBatch(data=pd.DataFrame([{"text": "hello"}]), dataset_name="ds", task_id="t1")
+        batch = DocumentBatch(data=pd.DataFrame([{"text": "hello"}]), dataset_name="ds")
         out = stage.process(batch)
 
         assert isinstance(out, DocumentBatch)
@@ -267,9 +287,7 @@ class TestNDDBaseSyntheticStagePipelineIntegration:
             description="NDDBaseSyntheticStage via pipeline.run()",
             stages=[stage],
         )
-        initial_tasks = [
-            DocumentBatch(data=pd.DataFrame([{"text": "hello"}]), dataset_name="integration", task_id="e2e-1")
-        ]
+        initial_tasks = [DocumentBatch(data=pd.DataFrame([{"text": "hello"}]), dataset_name="integration")]
         executor = XennaExecutor(config={"execution_mode": "streaming"})
         result_tasks = pipeline.run(executor, initial_tasks=initial_tasks)
 

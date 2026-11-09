@@ -36,7 +36,7 @@ from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
-from nemo_curator.tasks import Task, _EmptyTask
+from nemo_curator.tasks import EmptyTask, Task
 
 SAMPLE_SENTENCES = [
     "I love this product, it works great",
@@ -60,7 +60,7 @@ class SampleTask(Task[pd.DataFrame]):
         return True
 
 
-class TaskCreationStage(ProcessingStage[_EmptyTask, SampleTask]):
+class TaskCreationStage(ProcessingStage[EmptyTask, SampleTask]):
     name: str = "TaskCreationStage"
 
     def __init__(self, num_sentences_per_task: int, num_tasks: int):
@@ -73,7 +73,7 @@ class TaskCreationStage(ProcessingStage[_EmptyTask, SampleTask]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], ["sentence"]
 
-    def process(self, _: _EmptyTask) -> SampleTask:
+    def process(self, _: EmptyTask) -> SampleTask:
         """
         Process the input task and return a new task with the processed data
         """
@@ -84,7 +84,6 @@ class TaskCreationStage(ProcessingStage[_EmptyTask, SampleTask]):
             tasks.append(
                 SampleTask(
                     data=pd.DataFrame({"sentence": sampled_sentences}),
-                    task_id=random.randint(0, 1000000),  # noqa: S311
                     dataset_name="SampleDataset",
                 )
             )
@@ -203,7 +202,7 @@ class SentimentStage(ProcessingStage[SampleTask, SampleTask]):
             new_data = task.data.copy()
             new_data["sentiment"] = task_sentiments
 
-            result_task = SampleTask(data=new_data, task_id=task.task_id, dataset_name=task.dataset_name)
+            result_task = SampleTask(data=new_data, dataset_name=task.dataset_name)
             result_tasks.append(result_task)
 
             sentence_idx += num_sentences

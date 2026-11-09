@@ -24,6 +24,8 @@ DEFAULT_RAY_DASHBOARD_METRIC_PORT = 44227
 # Ray's own default is 9101; we pick a free port starting from this so multiple Curator
 # clusters can coexist on a single host without bind conflicts.
 DEFAULT_RAY_SERVE_HAPROXY_METRICS_PORT = 9101
+# Default for Ray Serve's HAProxy stats endpoint (RAY_SERVE_HAPROXY_STATS_PORT).
+DEFAULT_RAY_SERVE_HAPROXY_STATS_PORT = 8404
 
 # We cannot use a free port between 10000 and 19999 as it is used by Ray.
 DEFAULT_RAY_MIN_WORKER_PORT = 10002

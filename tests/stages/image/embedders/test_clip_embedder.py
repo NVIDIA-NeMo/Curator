@@ -30,11 +30,7 @@ class TestImageEmbeddingStage:
     @pytest.fixture
     def stage(self) -> ImageEmbeddingStage:
         """Create a test stage instance."""
-        return ImageEmbeddingStage(
-            model_dir="test_models/clip",
-            model_inference_batch_size=2,
-            verbose=True
-        )
+        return ImageEmbeddingStage(model_dir="test_models/clip", model_inference_batch_size=2, verbose=True)
 
     @pytest.fixture
     def mock_model(self) -> Mock:
@@ -53,34 +49,30 @@ class TestImageEmbeddingStage:
             ImageObject(
                 image_id="img_001",
                 image_path="/path/to/img1.jpg",
-                image_data=rng.integers(0, 255, (224, 224, 3), dtype=np.uint8)
+                image_data=rng.integers(0, 255, (224, 224, 3), dtype=np.uint8),
             ),
             ImageObject(
                 image_id="img_002",
                 image_path="/path/to/img2.jpg",
-                image_data=rng.integers(0, 255, (224, 224, 3), dtype=np.uint8)
+                image_data=rng.integers(0, 255, (224, 224, 3), dtype=np.uint8),
             ),
             ImageObject(
                 image_id="img_003",
                 image_path="/path/to/img3.jpg",
-                image_data=rng.integers(0, 255, (224, 224, 3), dtype=np.uint8)
+                image_data=rng.integers(0, 255, (224, 224, 3), dtype=np.uint8),
             ),
             ImageObject(
                 image_id="img_004",
                 image_path="/path/to/img4.jpg",
-                image_data=rng.integers(0, 255, (224, 224, 3), dtype=np.uint8)
-            )
+                image_data=rng.integers(0, 255, (224, 224, 3), dtype=np.uint8),
+            ),
         ]
 
     @pytest.fixture
     def sample_image_batch(self, sample_image_objects: list[ImageObject]) -> ImageBatch:
         """Create a sample ImageBatch."""
         return ImageBatch(
-            data=sample_image_objects,
-            dataset_name="test_dataset",
-            task_id="test_task_001",
-            _metadata={"test": "metadata"},
-            _stage_perf={}
+            data=sample_image_objects, dataset_name="test_dataset", _metadata={"test": "metadata"}, _stage_perf={}
         )
 
     def test_stage_properties(self, stage: ImageEmbeddingStage) -> None:
@@ -110,9 +102,8 @@ class TestImageEmbeddingStage:
 
         mock_clip_embeddings.assert_called_once()
         call_args, call_kwargs = mock_clip_embeddings.call_args
-        assert (
-            (len(call_args) >= 1 and call_args[0] == "test_models/clip")
-            or (call_kwargs.get("model_dir") == "test_models/clip")
+        assert (len(call_args) >= 1 and call_args[0] == "test_models/clip") or (
+            call_kwargs.get("model_dir") == "test_models/clip"
         )
         mock_model.setup.assert_called_once()
         assert stage.model == mock_model
@@ -183,13 +174,15 @@ class TestImageEmbeddingStage:
         rng = np.random.default_rng(42)
         images = []
         for i in range(5):
-            images.append(ImageObject(
-                image_id=f"img_{i:03d}",
-                image_path=f"/path/to/img{i}.jpg",
-                image_data=rng.integers(0, 255, (224, 224, 3), dtype=np.uint8)
-            ))
+            images.append(
+                ImageObject(
+                    image_id=f"img_{i:03d}",
+                    image_path=f"/path/to/img{i}.jpg",
+                    image_data=rng.integers(0, 255, (224, 224, 3), dtype=np.uint8),
+                )
+            )
 
-        batch = ImageBatch(data=images, task_id="test_batch", dataset_name="test_dataset")
+        batch = ImageBatch(data=images, dataset_name="test_dataset")
 
         # Mock processor to return appropriate tensor sizes
         # The processor returns the same structure regardless of input size
@@ -211,7 +204,7 @@ class TestImageEmbeddingStage:
     @patch("nemo_curator.stages.image.embedders.clip_embedder.CLIPImageEmbeddings")
     def test_empty_batch(self, mock_clip_embeddings: Mock, stage: ImageEmbeddingStage) -> None:
         """Test processing empty image batch."""
-        empty_batch = ImageBatch(data=[], task_id="empty_test", dataset_name="test_dataset")
+        empty_batch = ImageBatch(data=[], dataset_name="test_dataset")
         mock_clip_embeddings.return_value = Mock()
 
         stage.setup()
@@ -241,14 +234,17 @@ class TestImageEmbeddingStage:
         stage.process(sample_image_batch)
 
         # Should log embedding generation
-        embedding_calls = [call for call in mock_logger.info.call_args_list
-                          if "Generated embeddings for" in str(call)]
+        embedding_calls = [call for call in mock_logger.info.call_args_list if "Generated embeddings for" in str(call)]
         assert len(embedding_calls) > 0
 
     @patch("nemo_curator.stages.image.embedders.clip_embedder.CLIPImageEmbeddings")
     @patch("transformers.CLIPProcessor.from_pretrained")
     def test_preserves_other_image_attributes(
-        self, mock_processor: Mock, mock_clip_embeddings: Mock, stage: ImageEmbeddingStage, sample_image_batch: ImageBatch
+        self,
+        mock_processor: Mock,
+        mock_clip_embeddings: Mock,
+        stage: ImageEmbeddingStage,
+        sample_image_batch: ImageBatch,
     ) -> None:
         """Test that processing preserves other image attributes."""
         mock_clip_embeddings.return_value = Mock()
@@ -332,9 +328,8 @@ class TestImageEmbeddingStage:
         # Verify the model was instantiated and setup was called
         mock_clip_embeddings.assert_called_once()
         call_args, call_kwargs = mock_clip_embeddings.call_args
-        assert (
-            (len(call_args) >= 1 and call_args[0] == "test_models/clip")
-            or (call_kwargs.get("model_dir") == "test_models/clip")
+        assert (len(call_args) >= 1 and call_args[0] == "test_models/clip") or (
+            call_kwargs.get("model_dir") == "test_models/clip"
         )
         mock_model_instance.setup.assert_called_once()
 
@@ -364,16 +359,16 @@ class TestImageEmbeddingStage:
                 ImageObject(
                     image_id="small_img",
                     image_path="/path/to/small.jpg",
-                    image_data=rng.integers(0, 255, (100, 100, 3), dtype=np.uint8)
+                    image_data=rng.integers(0, 255, (100, 100, 3), dtype=np.uint8),
                 ),
                 ImageObject(
                     image_id="large_img",
                     image_path="/path/to/large.jpg",
-                    image_data=rng.integers(0, 255, (500, 500, 3), dtype=np.uint8)
-                )
+                    image_data=rng.integers(0, 255, (500, 500, 3), dtype=np.uint8),
+                ),
             ]
 
-            batch = ImageBatch(data=different_sized_images, task_id="shape_test", dataset_name="test_dataset")
+            batch = ImageBatch(data=different_sized_images, dataset_name="test_dataset")
 
             # Mock consistent outputs regardless of input size
             mock_processor_instance.return_value = {"pixel_values": torch.randn(2, 3, 224, 224)}
@@ -421,7 +416,7 @@ class TestImageEmbeddingStage:
             )
             for i in range(4)
         ]
-        batch = ImageBatch(data=images, dataset_name="ds", task_id="t0")
+        batch = ImageBatch(data=images, dataset_name="ds")
 
         stage = ImageEmbeddingStage(model_dir="/does/not/matter", model_inference_batch_size=2, verbose=False)
         with patch(

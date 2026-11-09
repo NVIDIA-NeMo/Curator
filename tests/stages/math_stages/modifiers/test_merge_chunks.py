@@ -19,7 +19,7 @@ from nemo_curator.tasks import DocumentBatch
 
 
 def _make_batch(df: pd.DataFrame) -> DocumentBatch:
-    return DocumentBatch(data=df, task_id="test", dataset_name="test")
+    return DocumentBatch(data=df, dataset_name="test")
 
 
 class TestChunkMergeStage:

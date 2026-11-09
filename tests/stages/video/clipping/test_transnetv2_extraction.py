@@ -72,7 +72,7 @@ class TestTransNetV2ClipExtractionStage:
             frame_array=rng.integers(0, 255, (900, 27, 48, 3), dtype=np.uint8),
         )
 
-        self.mock_task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=self.mock_video)
+        self.mock_task = VideoTask(dataset_name="test_dataset", data=self.mock_video)
 
     def test_name_property(self):
         """Test the name property."""
@@ -187,7 +187,7 @@ class TestTransNetV2ClipExtractionStage:
             frame_array=rng.integers(0, 255, (100, 27, 48, 3), dtype=np.uint8),
         )
 
-        task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video_without_metadata)
+        task = VideoTask(dataset_name="test_dataset", data=video_without_metadata)
 
         with patch("nemo_curator.models.transnetv2.TransNetV2"):
             self.stage.setup()
@@ -220,7 +220,7 @@ class TestTransNetV2ClipExtractionStage:
             frame_array=rng.integers(0, 255, (100, 27, 48, 3), dtype=np.uint8),
         )
 
-        task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video_no_framerate)
+        task = VideoTask(dataset_name="test_dataset", data=video_no_framerate)
 
         with patch("nemo_curator.models.transnetv2.TransNetV2"):
             self.stage.setup()
@@ -250,7 +250,7 @@ class TestTransNetV2ClipExtractionStage:
             frame_array=None,
         )
 
-        task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video_no_frames)
+        task = VideoTask(dataset_name="test_dataset", data=video_no_frames)
 
         with patch("nemo_curator.models.transnetv2.TransNetV2"):
             self.stage.setup()
@@ -279,7 +279,7 @@ class TestTransNetV2ClipExtractionStage:
             frame_array=rng.integers(0, 255, (100, 28, 48, 3), dtype=np.uint8),  # Wrong height
         )
 
-        task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video_wrong_shape)
+        task = VideoTask(dataset_name="test_dataset", data=video_wrong_shape)
 
         with patch("nemo_curator.models.transnetv2.TransNetV2"):
             self.stage.setup()
@@ -685,7 +685,7 @@ class TestIntegration:
             frame_array=frames,
         )
 
-        task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
+        task = VideoTask(dataset_name="test_dataset", data=video)
 
         # Mock model
         mock_model = Mock()
@@ -694,7 +694,9 @@ class TestIntegration:
         # Setup and process
         stage.setup()
 
-        with patch("nemo_curator.stages.video.clipping.transnetv2_extraction._get_predictions") as mock_get_predictions:
+        with patch(
+            "nemo_curator.stages.video.clipping.transnetv2_extraction._get_predictions"
+        ) as mock_get_predictions:
             # Mock predictions to create some transitions
             mock_get_predictions.return_value = np.array([[0], [1], [0], [0], [1], [0]] * 25, dtype=np.uint8)
 

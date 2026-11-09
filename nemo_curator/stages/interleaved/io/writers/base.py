@@ -24,13 +24,13 @@ import pyarrow as pa
 from fsspec.core import url_to_fs
 from loguru import logger
 
-import nemo_curator.stages.text.io.writer.utils as writer_utils
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.interleaved.utils import materialize_task_binary_content
 from nemo_curator.stages.interleaved.utils.schema import align_table, reconcile_schema, resolve_schema
 from nemo_curator.tasks import FileGroupTask, InterleavedBatch
 from nemo_curator.utils.client_utils import is_remote_url
 from nemo_curator.utils.file_utils import check_output_mode
+from nemo_curator.utils.hash_utils import get_deterministic_hash
 
 
 @dataclass
@@ -141,7 +141,7 @@ class BaseInterleavedWriter(ProcessingStage[InterleavedBatch, FileGroupTask], AB
 
     def process(self, task: InterleavedBatch) -> FileGroupTask:
         if source_files := task._metadata.get("source_files"):
-            filename = writer_utils.get_deterministic_hash(source_files, task.task_id)
+            filename = get_deterministic_hash(source_files, task.task_id)
         else:
             logger.warning("The task does not have source_files in metadata, using UUID for base filename")
             filename = uuid.uuid4().hex
@@ -151,7 +151,6 @@ class BaseInterleavedWriter(ProcessingStage[InterleavedBatch, FileGroupTask], AB
 
         self.write_data(task, file_path_with_protocol)
         return FileGroupTask(
-            task_id=task.task_id,
             dataset_name=task.dataset_name,
             data=[file_path_with_protocol],
             _metadata={**task._metadata, "format": self.file_extension},

@@ -14,10 +14,12 @@
 
 from __future__ import annotations
 
+import gc
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 import pandas as pd
+import torch
 
 from nemo_curator.models.clip import CLIPImageEmbeddings
 from nemo_curator.stages.interleaved.stages import BaseInterleavedFilterStage
@@ -76,6 +78,11 @@ class InterleavedCLIPScoreFilterStage(BaseInterleavedFilterStage):
     def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
         self._model = CLIPImageEmbeddings(self.model_dir)
         self._model.setup()
+
+    def teardown(self) -> None:
+        del self._model
+        gc.collect()
+        torch.cuda.empty_cache()
 
     def setup_on_node(self, node_info: NodeInfo, worker_metadata: WorkerMetadata) -> None:  # noqa: ARG002
         """Download the weights for the CLIP model on the node."""

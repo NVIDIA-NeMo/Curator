@@ -18,7 +18,7 @@ The pipeline is intentionally CPU-only and dependency-free so the focus
 stays on the client switch rather than model setup.
 
 Stages:
-    1. TaskCreationStage  (_EmptyTask -> list[SampleTask])
+    1. TaskCreationStage  (EmptyTask -> list[SampleTask])
        Generates ``num_tasks`` tasks, each holding a small DataFrame of sentences.
 
     2. WordCountStage     (SampleTask -> SampleTask)
@@ -56,7 +56,7 @@ from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.core.client import RayClient, SlurmRayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.base import ProcessingStage
-from nemo_curator.tasks import Task, _EmptyTask
+from nemo_curator.tasks import EmptyTask, Task
 
 # ---------------------------------------------------------------------------
 # Sample data
@@ -97,7 +97,7 @@ class SampleTask(Task[pd.DataFrame]):
 # ---------------------------------------------------------------------------
 
 
-class TaskCreationStage(ProcessingStage[_EmptyTask, SampleTask]):
+class TaskCreationStage(ProcessingStage[EmptyTask, SampleTask]):
     """Generate ``num_tasks`` tasks, each with ``sentences_per_task`` rows."""
 
     name: str = "TaskCreationStage"
@@ -112,14 +112,13 @@ class TaskCreationStage(ProcessingStage[_EmptyTask, SampleTask]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], ["sentence"]
 
-    def process(self, _: _EmptyTask) -> list[SampleTask]:
+    def process(self, _: EmptyTask) -> list[SampleTask]:
         tasks = []
-        for i in range(self.num_tasks):
+        for _ in range(self.num_tasks):
             sentences = random.choices(SAMPLE_SENTENCES, k=self.sentences_per_task)  # noqa: S311
             tasks.append(
                 SampleTask(
                     data=pd.DataFrame({"sentence": sentences}),
-                    task_id=f"task_{i:04d}",
                     dataset_name="slurm_demo",
                 )
             )

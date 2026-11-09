@@ -41,7 +41,6 @@ class TestCaptionGenerationStage:
             caption_batch_size=2,
             fp8=False,
             max_output_tokens=256,
-            model_does_preprocess=True,
             disable_mmcache=True,
             verbose=True,
             generate_stage2_caption=False,
@@ -54,7 +53,6 @@ class TestCaptionGenerationStage:
         assert stage.caption_batch_size == 16
         assert stage.fp8 is False
         assert stage.max_output_tokens == 512
-        assert stage.model_does_preprocess is False
         assert stage.disable_mmcache is False
         assert stage.verbose is False
         assert stage.generate_stage2_caption is False
@@ -85,7 +83,6 @@ class TestCaptionGenerationStage:
             caption_batch_size=2,
             fp8=False,
             max_output_tokens=256,
-            model_does_preprocess=True,
             disable_mmcache=True,
         )
         mock_model.setup.assert_called_once()
@@ -176,7 +173,7 @@ class TestCaptionGenerationStage:
 
         video.clips = [clip1, clip2]
 
-        return VideoTask(task_id="test", dataset_name="test", data=video)
+        return VideoTask(dataset_name="test", data=video)
 
     def test_process_successful_generation(self):
         """Test successful caption generation process."""
@@ -228,7 +225,7 @@ class TestCaptionGenerationStage:
         )
         clip.windows = [window]
         video.clips = [clip]
-        task = VideoTask(task_id="test", dataset_name="test", data=video)
+        task = VideoTask(dataset_name="test", data=video)
 
         self.stage.process(task)
 
@@ -245,7 +242,7 @@ class TestCaptionGenerationStage:
         clip = Clip(uuid=uuid4(), source_video="test.mp4", span=(0.0, 5.0), buffer=b"test_buffer")
         # No windows added
         video.clips = [clip]
-        task = VideoTask(task_id="test", dataset_name="test", data=video)
+        task = VideoTask(dataset_name="test", data=video)
 
         self.stage.process(task)
 
@@ -271,7 +268,7 @@ class TestCaptionGenerationStage:
         window = _Window(start_frame=0, end_frame=5)
         clip.windows = [window]
         video.clips = [clip]
-        task = VideoTask(task_id="test", dataset_name="test", data=video)
+        task = VideoTask(dataset_name="test", data=video)
 
         self.stage.process(task)
 
@@ -347,7 +344,7 @@ class TestCaptionGenerationStage:
         )
         clip.windows = [window]
         video.clips = [clip]
-        task = VideoTask(task_id="test", dataset_name="test", data=video)
+        task = VideoTask(dataset_name="test", data=video)
 
         self.stage.process(task)
 
@@ -437,7 +434,7 @@ class TestCaptionGenerationStage:
 
         clip.windows = [window1, window2]
         video.clips = [clip]
-        task = VideoTask(task_id="test", dataset_name="test", data=video)
+        task = VideoTask(dataset_name="test", data=video)
 
         result = stage.process(task)
 
@@ -465,7 +462,7 @@ def _make_task(video_bytes: bytes, task_id: str = "integration-test") -> VideoTa
     )
     video = Video(input_video=Path(task_id + ".mp4"))
     video.clips = [clip]
-    return VideoTask(task_id=task_id, dataset_name="integration", data=video)
+    return VideoTask(dataset_name="integration", data=video)
 
 
 @pytest.fixture(scope="module")
@@ -479,7 +476,6 @@ def preparation_stage() -> CaptionPreparationStage:
         sampling_fps=2.0,
         window_size=256,
         remainder_threshold=4,
-        model_does_preprocess=False,
         generate_previews=False,
         verbose=False,
     )
@@ -497,7 +493,6 @@ def generation_stage():
         caption_batch_size=1,
         fp8=False,
         max_output_tokens=64,
-        model_does_preprocess=False,
         disable_mmcache=True,
         vllm_kwargs={"enforce_eager": True},
         verbose=False,
@@ -538,7 +533,7 @@ class TestQwenCaptionPipelineIntegration:
     ) -> None:
         """Run prep→generation once and store state on the class for all tests."""
         video_bytes = video_fixture_path.read_bytes()
-        task = _make_task(video_bytes, task_id="pipeline-test")
+        task = _make_task(video_bytes)
 
         # --- preparation stage ---
         task = preparation_stage.process(task)

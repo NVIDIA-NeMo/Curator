@@ -15,19 +15,22 @@
 import argparse
 import os
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from nemo_curator.core.client import RayClient
-from nemo_curator.core.constants import (
-    DEFAULT_RAY_CLIENT_SERVER_PORT,
-    DEFAULT_RAY_DASHBOARD_HOST,
-    DEFAULT_RAY_DASHBOARD_PORT,
-    DEFAULT_RAY_METRICS_PORT,
-    DEFAULT_RAY_PORT,
-    DEFAULT_RAY_TEMP_DIR,
-)
+if TYPE_CHECKING:
+    from nemo_curator.core.client import RayClient
 
 
 def attach_ray_client_args(parser: argparse.ArgumentParser) -> None:
+    from nemo_curator.core.constants import (
+        DEFAULT_RAY_CLIENT_SERVER_PORT,
+        DEFAULT_RAY_DASHBOARD_HOST,
+        DEFAULT_RAY_DASHBOARD_PORT,
+        DEFAULT_RAY_METRICS_PORT,
+        DEFAULT_RAY_PORT,
+        DEFAULT_RAY_TEMP_DIR,
+    )
+
     parser.add_argument("--ray-port", type=int, default=DEFAULT_RAY_PORT)
     parser.add_argument("--ray-dashboard-port", type=int, default=DEFAULT_RAY_DASHBOARD_PORT)
     parser.add_argument("--ray-client-server-port", type=int, default=DEFAULT_RAY_CLIENT_SERVER_PORT)
@@ -42,7 +45,9 @@ def attach_ray_client_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--metrics-dir", type=str, default=None)
 
 
-def create_ray_client(args: argparse.Namespace) -> RayClient:
+def create_ray_client(args: argparse.Namespace) -> "RayClient":
+    from nemo_curator.core.client import RayClient
+
     return RayClient(
         ray_port=args.ray_port,
         ray_dashboard_port=args.ray_dashboard_port,

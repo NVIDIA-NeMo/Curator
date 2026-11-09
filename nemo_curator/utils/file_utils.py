@@ -14,16 +14,19 @@
 
 from __future__ import annotations
 
+import json
 import os
 import posixpath
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import fsspec
 from fsspec.core import get_filesystem_class, split_protocol
+from fsspec.implementations.local import LocalFileSystem
 from fsspec.utils import infer_storage_options
 from loguru import logger
 
+from nemo_curator.utils.atomic_io import write_json_atomically
 from nemo_curator.utils.client_utils import is_remote_url
 
 if TYPE_CHECKING:
@@ -39,11 +42,37 @@ FILETYPE_TO_DEFAULT_EXTENSIONS = {
 }
 
 
+def get_default_file_extensions(input_filetype: str) -> list[str]:
+    """Return default file extensions for an input file type."""
+    file_extensions = FILETYPE_TO_DEFAULT_EXTENSIONS.get(input_filetype)
+    if file_extensions is None:
+        msg = f"Unsupported filetype: {input_filetype}"
+        raise ValueError(msg)
+    return file_extensions
+
+
 def get_fs(path: str, storage_options: dict[str, str] | None = None) -> fsspec.AbstractFileSystem:
     if not storage_options:
         storage_options = {}
     protocol, path = split_protocol(path)
     return get_filesystem_class(protocol)(**storage_options)
+
+
+def read_json_file(path: str, fs: fsspec.AbstractFileSystem) -> dict[str, Any]:
+    """Read JSON from an fsspec filesystem."""
+    return json.loads(fs.read_text(path, encoding="utf-8"))
+
+
+def write_json_file(path: str, payload: dict[str, Any], fs: fsspec.AbstractFileSystem) -> None:
+    """Write JSON through fsspec, atomically for local filesystems."""
+    if isinstance(fs, LocalFileSystem):
+        write_json_atomically(Path(path), payload)
+        return
+
+    parent = posixpath.dirname(path)
+    if parent:
+        fs.makedirs(parent, exist_ok=True)
+    fs.write_text(path, f"{json.dumps(payload, sort_keys=True)}\n", encoding="utf-8")
 
 
 def is_not_empty(
@@ -346,15 +375,18 @@ def check_output_mode(
     fs.makedirs(path, exist_ok=True)
 
 
-def infer_dataset_name_from_path(path: str) -> str:
+def infer_dataset_name_from_path(path: str, *, path_kind: Literal["file", "directory"] = "file") -> str:
     """Infer a dataset name from a path, handling both local and cloud storage paths.
     Args:
         path: Local path or cloud storage URL (e.g. s3://, abfs://)
+        path_kind: Whether ``path`` identifies a file or directory.
     Returns:
         Inferred dataset name from the path
     """
     # Split protocol and path for cloud storage
     protocol, pure_path = split_protocol(path)
+    if path_kind == "directory":
+        return posixpath.basename(pure_path.rstrip("/")).lower()
     if protocol is None:
         # Local path handling
         first_file = Path(path)

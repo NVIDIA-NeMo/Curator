@@ -320,7 +320,12 @@ This is a temporary maneuver — track the change so it gets reverted.
 
 ## Library Reference (Autodocs) and the Fern Cross-Ref Bug
 
-`fern/docs.yml` declares a `libraries:` block that pulls Python source from `nemo_curator/` and generates MDX into `fern/product-docs/nemo-curator/Full-Library-Reference/` (gitignored). It runs as `fern docs md generate` in the publish and preview workflows.
+`fern/docs.yml` declares one `libraries:` entry, and a script provides a second, temporary one (both write to `fern/product-docs/nemo-curator/Full-Library-Reference/`, gitignored):
+
+- **`nemo-curator`** (`input.git`, committed in `docs.yml`) — used by CI/publish/preview; requires `fern login` or `FERN_TOKEN`. Workflows run `fern docs md generate --library nemo-curator`.
+- **`nemo-curator-local`** (`input.path: ../nemo_curator`, injected temporarily by `fern/scripts/generate-library-local.sh`) — local dev without Fern auth; requires Docker. Run `npm run generate:library:local` from `fern/`. The entry must NOT be committed to `docs.yml`: `fern docs dev` rejects path-input libraries ("'path' input which is not yet supported") and renders a blank page, while `--local` generation only accepts `path` inputs.
+
+For a full API reference locally (424 pages), use `npm run generate:library`. The local Docker parser is beta and currently produces fewer pages — fine for testing the no-auth flow, not a substitute for CI generation.
 
 **Known bug in the Fern Python library generator** (filed upstream): the generator emits cross-references that miss the `/nemo/curator` site basepath (links use `/nemo-curator/...` instead of `/nemo/curator/nemo-curator/...`) and tacks on Sphinx-style `#nemo_curator-…` fragments that don't match any rendered anchor. Result: ~540 broken links across the generated API reference.
 
@@ -347,7 +352,7 @@ python3 fern/_fix_broken_links.py
 | `{{ variable }}` shows literally on site | Not in `DEFAULT_VARIABLES` in `substitute_variables.py` — add it there |
 | MDX parse error | Replace bare `<https://...>` with `[text](https://...)`; escape `<` in prose with `&lt;` or backticks |
 | Old Sphinx URL breaks | Add a `redirects:` entry in `fern/docs.yml` |
-| Library reference missing | Run `fern docs md generate` in `fern/` (see `fern/AUTODOCS_GUIDE.md`) |
+| Library reference missing | Run `npm run generate:library` in `fern/` (full reference; needs Fern auth). Or `npm run generate:library:local` without auth (Docker; beta, fewer pages). See `fern/AUTODOCS_GUIDE.md`. |
 | Broken image | Path is relative to the MDX file; check `fern/assets/` or `pages/_images/` exists |
 
 ## Key References

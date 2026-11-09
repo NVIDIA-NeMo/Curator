@@ -13,8 +13,10 @@
 # limitations under the License.
 
 
+import gzip
 import os
 import shutil
+import tempfile
 import time
 import uuid
 from pathlib import Path
@@ -44,6 +46,22 @@ def _wait_for_ray_cleanup() -> None:
         logger.info(f"SHM usage after cleanup wait: {shm['summary']}")
 
 
+def _start_ray_client_with_environment(client: RayClient, environment: dict[str, str]) -> None:
+    """Apply entry overrides during startup, preserving other changes such as RAY_ADDRESS."""
+    # RayClient uses this key to skip startup and publishes the fresh cluster's address through it.
+    environment = {name: value for name, value in environment.items() if name != "RAY_ADDRESS"}
+    previous = {name: os.environ.get(name) for name in environment}
+    os.environ.update(environment)
+    try:
+        client.start()
+    finally:
+        for name, value in previous.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+
+
 def setup_ray_cluster_and_env(  # noqa: PLR0913
     num_cpus: int,
     num_gpus: int,
@@ -51,8 +69,17 @@ def setup_ray_cluster_and_env(  # noqa: PLR0913
     ray_log_path: Path,
     object_store_size: int | None = None,
     include_dashboard: bool = True,
+    ray_data_log_level: str | None = None,
+    environment: dict[str, str] | None = None,
 ) -> tuple[RayClient, Path]:
-    """Setup a Ray cluster and set the RAY_ADDRESS environment variable and return the Ray client and temp dir."""
+    """Start Ray with the entry's environment inherited by cluster processes.
+
+    Restore the runner's overridden environment after startup, leaving RAY_ADDRESS
+    available for the benchmark subprocess. Return the client and temp directory.
+    """
+    startup_environment = dict(environment or {})
+    if ray_data_log_level is not None:
+        startup_environment["RAY_DATA_LOG_LEVEL"] = ray_data_log_level
     # Create a short temp dir to avoid Unix socket path length limits
     short_temp_path = Path(f"/tmp/ray_{uuid.uuid4().hex[:8]}")  # noqa: S108
     short_temp_path.mkdir(parents=True, exist_ok=True)
@@ -93,7 +120,7 @@ def setup_ray_cluster_and_env(  # noqa: PLR0913
         )
 
         try:
-            client.start()
+            _start_ray_client_with_environment(client, startup_environment)
             _ensure_ray_client_process_started(client, ray_client_start_timeout_s, ray_client_start_poll_interval_s)
             responsive = True
         except Exception:
@@ -220,3 +247,25 @@ def _copy_ray_debug_artifacts(short_temp_path: Path, ray_destination_path: Path)
     if session_src.exists():
         session_dst = ray_destination_path / "session_latest"
         _copy_session_contents(session_src, session_dst)
+
+    _compress_large_logs(ray_destination_path)
+
+
+def _compress_large_logs(directory: Path) -> None:
+    """Gzip archived logs larger than 10 MiB, preserving their full diagnostic content."""
+    for log_path in directory.rglob("*.log"):
+        if log_path.is_symlink():
+            continue
+        try:
+            if log_path.stat().st_size <= 10 * 1024 * 1024:
+                continue
+            compressed_path = log_path.with_suffix(".log.gz")
+            # Publish only complete archives, on the same filesystem for atomic replacement.
+            with tempfile.TemporaryDirectory(prefix=".compress-", dir=log_path.parent) as temporary_dir:
+                temporary_path = Path(temporary_dir) / compressed_path.name
+                with log_path.open("rb") as source, gzip.open(temporary_path, "wb", compresslevel=1) as destination:
+                    shutil.copyfileobj(source, destination)
+                temporary_path.replace(compressed_path)
+            log_path.unlink()
+        except OSError:
+            logger.exception(f"Failed to compress archived log {log_path}")

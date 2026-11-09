@@ -39,6 +39,7 @@ _TRANSNETV2_MODEL_ID: Final = "Sn4kehead/TransNetV2"
 _TRANSNETV2_MODEL_WEIGHTS: Final = "transnetv2-pytorch-weights.pth"
 _TRANSNETV2_MODEL_REVISION: Final = "db6ceab"
 
+
 class _TransNetV2(nn.Module):
     def __init__(  # noqa: PLR0913
         self,

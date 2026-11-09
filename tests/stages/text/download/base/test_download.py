@@ -186,6 +186,20 @@ class TestBaseDocumentDownloader:
 class TestDocumentDownloadStage:
     """Test class for DocumentDownloadStage functionality."""
 
+    def test_num_workers_per_node_delegates_to_downloader(self, tmp_path: Path) -> None:
+        class PerNodeMockDownloader(MockDocumentDownloader):
+            def num_workers_per_node(self) -> int:
+                return 4
+
+        stage = DocumentDownloadStage(PerNodeMockDownloader(str(tmp_path)))
+
+        assert stage.num_workers_per_node() == 4
+
+    def test_num_workers_per_node_can_be_overridden(self, tmp_path: Path) -> None:
+        stage = DocumentDownloadStage(MockDocumentDownloader(str(tmp_path))).with_(num_workers_per_node=4)
+
+        assert stage.num_workers_per_node() == 4
+
     def test_stage_properties(self, tmp_path: Path) -> None:
         """Test that stage properties are correctly defined."""
         downloader = MockDocumentDownloader(str(tmp_path), verbose=False)
@@ -209,7 +223,6 @@ class TestDocumentDownloadStage:
         # Create input task with multiple URLs
         urls = ["http://example.com/file1.txt", "http://example.com/file2.txt", "http://example.com/file3.txt"]
         input_task = FileGroupTask(
-            task_id="test_task",
             dataset_name="test_dataset",
             data=urls,
             _metadata={"source": "test", "count": 3},
@@ -219,7 +232,6 @@ class TestDocumentDownloadStage:
 
         # Verify result structure
         assert isinstance(result, FileGroupTask)
-        assert result.task_id == "test_task"
         assert result.dataset_name == "test_dataset"
         assert result._metadata == {
             "source": "test",
@@ -255,7 +267,6 @@ class TestDocumentDownloadStage:
             "http://example.com/file3.txt",
         ]
         input_task = FileGroupTask(
-            task_id="test_task",
             dataset_name="test_dataset",
             data=urls,
             _metadata={"source": "test"},
@@ -277,7 +288,6 @@ class TestDocumentDownloadStage:
         stage = DocumentDownloadStage(downloader=downloader)
 
         input_task = FileGroupTask(
-            task_id="empty_task",
             dataset_name="test_dataset",
             data=[],
             _metadata={"source": "test"},
@@ -286,7 +296,6 @@ class TestDocumentDownloadStage:
         result = stage.process(input_task)
 
         assert isinstance(result, FileGroupTask)
-        assert result.task_id == "empty_task"
         assert result.dataset_name == "test_dataset"
         assert result.data == []
         assert result._metadata == {"source": "test", "source_files": []}
@@ -299,7 +308,6 @@ class TestDocumentDownloadStage:
 
         urls = ["http://example.com/file1.txt", "http://example.com/file2.txt"]
         input_task = FileGroupTask(
-            task_id="test_task",
             dataset_name="test_dataset",
             data=urls,
             _metadata={"source": "test"},
@@ -309,7 +317,6 @@ class TestDocumentDownloadStage:
 
         # Should return empty data list when all downloads fail
         assert len(result.data) == 0
-        assert result.task_id == "test_task"
         assert result.dataset_name == "test_dataset"
         assert result._metadata == {"source": "test", "source_files": []}
 

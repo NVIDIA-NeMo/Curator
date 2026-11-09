@@ -42,7 +42,7 @@ def _make_batch(texts: list[str], **extra_columns: list) -> DocumentBatch:
     data = {"text": texts}
     data.update(extra_columns)
     df = pd.DataFrame(data)
-    return DocumentBatch(data=df, dataset_name="test", task_id="1")
+    return DocumentBatch(data=df, dataset_name="test")
 
 
 def _segment_and_add_translations(
@@ -59,7 +59,7 @@ def _segment_and_add_translations(
     if extra_columns:
         data.update(extra_columns)
     df = pd.DataFrame(data)
-    batch = DocumentBatch(data=df, dataset_name="test", task_id="1")
+    batch = DocumentBatch(data=df, dataset_name="test")
 
     seg_stage = SegmentationStage(source_lang="en", mode=mode)
     segmented = seg_stage.process(batch)
@@ -74,7 +74,6 @@ def _segment_and_add_translations(
     return DocumentBatch(
         data=seg_df,
         dataset_name=segmented.dataset_name,
-        task_id=segmented.task_id,
         _metadata=segmented._metadata,
         _stage_perf=segmented._stage_perf,
     )
@@ -266,7 +265,7 @@ class TestEdgeCases:
                 "text": pd.Series(dtype="str"),
             }
         )
-        batch = DocumentBatch(data=df, dataset_name="test", task_id="1")
+        batch = DocumentBatch(data=df, dataset_name="test")
 
         stage = ReassemblyStage()
         result = stage.process(batch)
@@ -317,7 +316,7 @@ class TestEdgeCases:
                 ]
             }
         )
-        batch = DocumentBatch(data=df, dataset_name="test", task_id="1")
+        batch = DocumentBatch(data=df, dataset_name="test")
 
         segmented = SegmentationStage(
             source_lang="en",
@@ -329,7 +328,6 @@ class TestEdgeCases:
         translated_batch = DocumentBatch(
             data=seg_df,
             dataset_name=segmented.dataset_name,
-            task_id=segmented.task_id,
             _metadata=segmented._metadata,
             _stage_perf=segmented._stage_perf,
         )

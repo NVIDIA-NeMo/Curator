@@ -1,0 +1,92 @@
+# Granary v2 ASR post-processing regex rules.
+#
+# Covered languages (48):
+#   Latin:      en, de, es, fr, it, pt, pl, cs, nl, ro, hu, fi, lt, da, sv,
+#               lv, hr, et, sk, sl, mt, id, tl/fil, tr, vi
+#   Greek:      el
+#   Cyrillic:   ru, uk, bg
+#   Devanagari: hi, mr
+#   Bengali:    bn, as
+#   Gurmukhi:   pa
+#   Gujarati:   gu
+#   Odia:       or
+#   Tamil:      ta
+#   Telugu:     te
+#   Kannada:    kn
+#   Malayalam:  ml
+#   Thai:       th
+#   Arabic:     ar, ur, fa
+#   Hebrew:     he
+#   CJK:        zh, ja (Hanzi/Kanji + Hiragana + Katakana)
+#   Hangul:     ko
+
+# Smart quotes & dashes
+- {"pattern": "’", "repl": "'"}
+- {"pattern": "‘", "repl": "'"}
+- {"pattern": "—", "repl": "-"}
+- {"pattern": "–", "repl": "-"}
+- {"pattern": "-", "repl": "-"}
+- {"pattern": "_", "repl": " "}
+- {"pattern": "——", "repl": "-"}
+- {"pattern": "Ё", "repl": "Е"}
+- {"pattern": "ё", "repl": "е"}
+
+# Double smart quotes (as, or, fil)
+- {"pattern": "“", "repl": ""}
+- {"pattern": "”", "repl": ""}
+
+# Guillemets (fa)
+- {"pattern": "«", "repl": ""}
+- {"pattern": "»", "repl": ""}
+
+# Invisible / formatting characters (strip)
+- {"pattern": "‎", "repl": ""}
+- {"pattern": "‏", "repl": ""}
+- {"pattern": "­", "repl": ""}
+- {"pattern": "﻿", "repl": ""}
+
+# Devanagari / Odia punctuation (hi, mr, or)
+- {"pattern": "\u0964", "repl": "."}
+- {"pattern": "\u0965", "repl": "."}
+
+# Arabic / Urdu punctuation (ar, ur, fa)
+- {"pattern": "\u06D4", "repl": "."}
+- {"pattern": "\u060C", "repl": ","}
+- {"pattern": "\u061B", "repl": ","}
+- {"pattern": "\u061F", "repl": "?"}
+- {"pattern": "\u0640", "repl": ""}
+
+# CJK punctuation (zh, ja, ko)
+- {"pattern": "\u3002", "repl": "."}
+- {"pattern": "\u3001", "repl": ","}
+- {"pattern": "\uFF0C", "repl": ","}
+- {"pattern": "\uFF01", "repl": "!"}
+- {"pattern": "\uFF1F", "repl": "?"}
+- {"pattern": "\uFF1A", "repl": ":"}
+- {"pattern": "\uFF1B", "repl": ","}
+
+# Music & misc symbols
+- {"pattern": "♫", "repl": " "}
+- {"pattern": "♪", "repl": " "}
+- {"pattern": "♬", "repl": " "}
+- {"pattern": "♩", "repl": " "}
+- {"pattern": "♭", "repl": " "}
+- {"pattern": '\|', "repl": " "}
+- {"pattern": ";", "repl": ","}
+
+# Bracketed content removal
+- {"pattern": '\[[^\]]*\]', "repl": ""}
+- {"pattern": ' ?\([^\)]+\)', "repl": ""}
+- {"pattern": ' ?{[^}]+}', "repl": ""}
+
+# Character whitelist: anything NOT in this class becomes a space.
+# Scripts appended after the base Latin/Greek/Cyrillic set, in Unicode-block order.
+- {"pattern": "[^ !$%',-.0123456789;?ABCDEFGHIJKLMNOPQRSßTUVWXYŸZabcdefghijklmnopqrsẞtuvwxyÿz¡£¿ÀÁÂÃÄÅÆÇÈÉÊÌÍÎÑÒÓÔÕÖØÙÚÜÝàáâãäåæçèéêëìíîïñòóôõöøùúûüýĀāĂăĄąĆćĊċČčĎďĐđĒēĖėĘęĚěĠġĢģĦħĪīĮįĶķĹĺĻļĽľŁłŃńŅņŇňŐőŒœŔŕŘřŚśŠšŤťŪūŮůŰűŲųŹźŻżŽžȘșȚțΆΈΉΌΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩάέήίαβγδεζηθικλμνξοπρστυφχψωϊόύώЁЄІЇАБВГДЕЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯабвгдежзийклмнопрстуфхцчшщъыьэюяёєіїҐґ€₴₽/:\u011E\u011F\u0130\u0131\u015E\u015F\u01A0-\u01B0\u0590-\u05FF\u0600-\u06FF\u0750-\u077F\u0900-\u097F\u0980-\u09FF\u0A00-\u0A7F\u0A80-\u0AFF\u0B00-\u0B7F\u0B80-\u0BFF\u0C00-\u0C7F\u0C80-\u0CFF\u0D00-\u0D7F\u0E00-\u0E7F\u1EA0-\u1EFF\u200C\u200D\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF\uAC00-\uD7AF]", "repl": " "}
+
+# Trailing cleanup
+- {"pattern": '\s+\.', "repl": "."}
+- {"pattern": '\?+', "repl": "?"}
+- {"pattern": '\.+', "repl": "."}
+- {"pattern": ',+', "repl": ","}
+- {"pattern": '!+', "repl": "!"}
+- {"pattern": '\s+', "repl": " "}

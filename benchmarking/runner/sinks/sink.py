@@ -11,11 +11,49 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from abc import ABC, abstractmethod
-from typing import Any
+from __future__ import annotations
 
-from runner.entry import Entry
-from runner.session import Session
+import logging
+from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from runner.entry import Entry
+    from runner.session import Session
+
+logger = logging.getLogger(__name__)
+
+
+def _log_sink_exception(sink_name: str, hook_name: str, context_msg: str, error: Exception) -> None:
+    try:
+        from loguru import logger as loguru_logger
+    except ModuleNotFoundError:
+        logger.exception(
+            "Sink %s.%s failed%s; benchmark execution will continue: %s",
+            sink_name,
+            hook_name,
+            context_msg,
+            error,
+        )
+    else:
+        loguru_logger.exception(
+            "Sink {}.{} failed{}; benchmark execution will continue: {}",
+            sink_name,
+            hook_name,
+            context_msg,
+            error,
+        )
+
+
+def _log_sink_disabled(sink_name: str) -> None:
+    try:
+        from loguru import logger as loguru_logger
+    except ModuleNotFoundError:
+        logger.warning("Disabling sink %s for the remainder of this session", sink_name)
+    else:
+        loguru_logger.warning("Disabling sink {} for the remainder of this session", sink_name)
 
 
 class Sink(ABC):
@@ -65,3 +103,35 @@ class Sink(ABC):
     @abstractmethod
     def finalize(self) -> None:
         """Finalize the sink after all results have been processed."""
+
+
+def call_sink_hook(sink: object, hook_name: str, *, context: str = "", **kwargs: object) -> bool:
+    """Call a sink hook without letting reporting failures affect benchmarks."""
+    sink_name = sink.__class__.__name__
+    try:
+        getattr(sink, hook_name)(**kwargs)
+    except Exception as e:
+        context_msg = f" while {context}" if context else ""
+        _log_sink_exception(sink_name, hook_name, context_msg, e)
+        return False
+    return True
+
+
+def initialize_sinks(
+    sinks: Sequence[object], *, session_name: str, session: Session, env_dict: dict[str, Any]
+) -> list[object]:
+    """Initialize sinks, returning only those safe to use for later hooks."""
+    active_sinks = []
+    for sink in sinks:
+        if call_sink_hook(
+            sink,
+            "initialize",
+            context="initializing benchmark reporting sinks",
+            session_name=session_name,
+            session=session,
+            env_dict=env_dict,
+        ):
+            active_sinks.append(sink)
+        else:
+            _log_sink_disabled(sink.__class__.__name__)
+    return active_sinks

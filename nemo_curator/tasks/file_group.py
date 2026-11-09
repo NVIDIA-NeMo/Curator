@@ -17,6 +17,8 @@ from typing import Any
 
 from loguru import logger
 
+from nemo_curator.utils.hash_utils import get_deterministic_hash
+
 from .tasks import Task
 
 
@@ -46,3 +48,10 @@ class FileGroupTask(Task[list[str]]):
             err = f"Invalid data type in task {self.task_id}"
             raise TypeError(err)
         return True
+
+    def get_deterministic_id(self) -> str:
+        """Content-based id derived from the sorted file paths. Stable
+        across runs even if the source stage emits the file group at a
+        different position (e.g. because new files were added or removed
+        between runs)."""
+        return get_deterministic_hash(sorted(self.data))

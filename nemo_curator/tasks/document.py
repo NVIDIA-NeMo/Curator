@@ -14,9 +14,12 @@
 
 from dataclasses import dataclass, field
 
+import numpy as np
 import pandas as pd
 import pyarrow as pa
 from loguru import logger
+
+from nemo_curator.utils.column_utils import pyarrow_string_to_pandas_dtype
 
 from .tasks import Task
 
@@ -46,7 +49,10 @@ class DocumentBatch(Task[pa.Table | pd.DataFrame]):
         if isinstance(self.data, pd.DataFrame):
             return self.data
         elif isinstance(self.data, pa.Table):
-            return self.data.to_pandas()
+            return self.data.to_pandas(
+                types_mapper=lambda arrow_type: pyarrow_string_to_pandas_dtype(arrow_type, na_value=np.nan),
+                use_threads=False,
+            )
         else:
             msg = f"Cannot convert {type(self.data)} to Pandas DataFrame"
             raise TypeError(msg)

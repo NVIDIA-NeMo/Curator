@@ -1,0 +1,260 @@
+---
+title: "SLURM Job Arrays"
+description: "Shard NeMo Curator source tasks across SLURM job arrays, track completed shards, and retry only incomplete work"
+categories: ["deployment"]
+tags: ["slurm", "job-array", "sharding", "retries", "resumability"]
+personas: ["devops-focused", "admin-focused", "mle-focused"]
+difficulty: "advanced"
+content_type: "how-to"
+modality: "universal"
+---
+
+# SLURM Job Arrays
+
+Use a SLURM job array to split a large set of source tasks across independent NeMo Curator pipeline runs. Each array task builds the same deterministic source-task list, and NeMo Curator keeps only the tasks assigned to that logical shard.
+
+This topology differs from one multi-node Ray cluster:
+
+| Topology | Use it when | Ray lifecycle |
+| --- | --- | --- |
+| SLURM job array | Input is naturally partitioned into many files and each shard can run independently | Each array task owns a separate Ray cluster |
+| [Multi-Node Ray on SLURM](/admin/deployment/slurm-multi-node-ray) | One pipeline needs workers from multiple nodes and shared Ray scheduling | One Ray cluster spans the allocation |
+
+An array task normally uses `RayClient` on one node. If you allocate multiple nodes to each array task, use `SlurmRayClient` inside that task.
+
+## Prerequisites
+
+- A SLURM cluster with job-array support (for example, `sbatch --array=0-19`).
+- A NeMo Curator environment visible from every compute node. This can be a shared source checkout, a container image, or a `.sqsh` image file mounted through your site's SLURM container integration.
+- Input, output, and checkpoint directories on a shared filesystem or mounted at the same path in every container.
+- Source stages that emit deterministic task IDs. For the most common array workflows built around `FilePartitioningStage`, this works out of the box. If a source stage is incompatible, NeMo Curator raises a clear error instead of silently sharding the wrong tasks. NeMo Curator also rejects source IDs beginning with `r` because ambiguous IDs cannot be assigned consistently across retries.
+
+The repository includes these reference files:
+
+| File | Purpose |
+| --- | --- |
+| `tutorials/slurm/submit_array.sh` | Container-based `sbatch` script and environment setup |
+| `tutorials/slurm/array_pipeline.py` | Example toy JSONL or Parquet reader/writer pipeline |
+| `tutorials/slurm/retry_array.py` | Finds incomplete logical shards and formats retry submissions |
+
+`array_pipeline.py` is only a minimal example. Any NeMo Curator pipeline whose source stage supports deterministic task IDs can run under the same array configuration.
+
+## Run a JSONL array
+
+The steps below show one bare-metal setup on a shared filesystem. The same array variables and checkpoint path also work with containerized SLURM launches, including NGC images and site-specific `.sqsh` files, through `tutorials/slurm/submit_array.sh`.
+
+Prepare a source checkout and editable environment:
+
+```bash
+cd /path/to/Curator
+python -m venv .venv
+source .venv/bin/activate
+pip install -e .
+```
+
+Set paths that are visible inside every array task, then submit 20 logical shards:
+
+```bash
+export CURATOR_DIR=/path/to/Curator
+export INPUT_DIR=/shared/data/my-jsonl-dataset
+export OUTPUT_DIR=/shared/output/my-jsonl-dataset
+export CHECKPOINT_PATH=/shared/checkpoints/my-jsonl-run
+
+sbatch --array=0-19 tutorials/slurm/submit_array.sh
+```
+
+`submit_array.sh` defaults to JSONL input and output with one input file per source task. Override `FILES_PER_PARTITION` to group files before sharding.
+
+<Warning>
+Use a checkpoint directory dedicated to one logical array run. Reuse it for retries of that run, but choose a new directory for unrelated input, pipeline, or shard configuration.
+</Warning>
+
+## Use Parquet
+
+Select Parquet independently for input and output:
+
+```bash
+export INPUT_DIR=/shared/data/my-parquet-dataset
+export OUTPUT_DIR=/shared/output/my-parquet-dataset
+export INPUT_FILE_TYPE=parquet
+export OUTPUT_FILE_TYPE=parquet
+export CHECKPOINT_PATH=/shared/checkpoints/my-parquet-run
+
+sbatch --array=0-19 tutorials/slurm/submit_array.sh
+```
+
+The example accepts `jsonl` or `parquet` for each file type. The array assignment mechanism is the same for both.
+
+## How source sharding works
+
+For every source task, NeMo Curator computes:
+
+```text
+logical shard = int(sha256(task_id)[:16], 16) mod total_shards + minimum_shard_index
+```
+
+The calculation converts the first 16 hexadecimal characters—the first 64 bits—of the SHA-256 digest to an integer before applying the modulo.
+
+The source-stage adapter keeps only tasks whose logical shard matches the active array task. Hash-based assignment provides these properties:
+
+- The same deterministic task ID returns to the same shard on retry.
+- Shards do not require contiguous input-file ranges.
+- Some shards can be empty when there are more shards than source tasks.
+- Changing `total_shards` or `minimum_shard_index` changes assignment. Keep both values unchanged during retries.
+
+Every array task still discovers the full deterministic source-task list before filtering. Job arrays are most useful when source discovery is inexpensive compared with downstream processing.
+
+## Array configuration
+
+NeMo Curator attempts to enable source filtering when either a shard index or total shard count is available. A valid configuration requires both the shard index and total shard count; if either is missing, configuration raises an error instead of running with partial sharding.
+
+| NeMo Curator variable | SLURM fallback | Description |
+| --- | --- | --- |
+| `NEMO_CURATOR_SLURM_ARRAY_SHARD_INDEX` | `SLURM_ARRAY_TASK_ID` | Active logical shard index |
+| `NEMO_CURATOR_SLURM_ARRAY_TOTAL_SHARDS` | `SLURM_ARRAY_TASK_COUNT` | Total logical shard count |
+| `NEMO_CURATOR_SLURM_ARRAY_MINIMUM_SHARD_INDEX` | None; defaults to `0` | First assignable logical shard |
+| `NEMO_CURATOR_SLURM_ARRAY_ENABLED` | None; defaults to `1` (true) | Set to `0`, `false`, `no`, or `off` to disable filtering explicitly |
+
+Values are validated before source filtering:
+
+- `total_shards` must be greater than zero.
+- `minimum_shard_index` and `shard_index` must be non-negative.
+- The assignable range is `minimum_shard_index` through `minimum_shard_index + total_shards - 1`.
+- An index outside that range receives no source tasks and logs a warning.
+
+For an array starting at 1 rather than 0, set the minimum explicitly:
+
+```bash
+MINIMUM_SHARD_INDEX=1 sbatch --array=1-20 tutorials/slurm/submit_array.sh
+```
+
+Ordinary local and non-array runs are unchanged when no array configuration is present.
+
+## Choose the Ray client per array task
+
+The bundled script uses one node per array task and starts `RayClient`. When an array task spans multiple nodes, it passes `--slurm` to `array_pipeline.py`, which selects `SlurmRayClient`:
+
+```bash
+sbatch --array=0-9 --nodes=2 --cpus-per-task=32 \
+  tutorials/slurm/submit_array.sh
+```
+
+For multi-node tasks, `SLURM_NODEID=0` is the driver. Only the driver writes shard-completion metadata and stops the Ray cluster. See [Multi-Node Ray on SLURM](/admin/deployment/slurm-multi-node-ray) for port broadcasting and shared-filesystem requirements.
+
+## Completion and failure tracking
+
+Pass the same `checkpoint_path` to every shard. `Pipeline.run()` creates the logical run configuration and one completion manifest per successful shard:
+
+```text
+CHECKPOINT_PATH/
+└── .nemo_curator_metadata/
+    ├── .slurm_array_completion/
+    │   ├── run.json
+    │   └── completed_slurm_array_*.json
+    ├── .failed_tasks/
+    │   └── slurm_job_*/.../restart_*/.../failed_tasks.json
+    └── *.mdb
+```
+
+`run.json` records the original `minimum_shard_index` and `total_shards`. NeMo Curator atomically creates or validates this file, preventing a retry from silently changing the logical assignment.
+
+| Outcome | Completion manifest | Next action |
+| --- | --- | --- |
+| Pipeline finishes without `FailedTask` results | Written | Do not rerun the shard |
+| Pipeline raises, crashes, times out, or is preempted | Not written | Rerun the shard |
+| A downstream stage emits one or more `FailedTask` results | Not written | Rerun the full owning shard |
+| Array task is still running or was never submitted | Not written | Wait or submit it before final retry discovery |
+
+Retries occur at shard granularity. A `FailedTask` does not cause only that individual task to be resubmitted.
+
+<Warning>
+Source stages cannot emit `FailedTask`. A source failure lacks a stable upstream identity that guarantees recovery, so NeMo Curator raises an error. Raise the source exception and leave the shard incomplete instead.
+</Warning>
+
+Each attempt uses a fresh failed-task directory derived from the SLURM job, array task, restart count, and logical shard. Old failure manifests remain available for inspection but cannot make a later successful attempt appear failed. If you set `NEMO_CURATOR_FAILED_TASKS_DIR` yourself, keep it attempt-scoped.
+
+For source-level completion counters, per-writer LMDB files, and at-least-once sink behavior, see [Resumable Processing](/reference/infra/resumable-processing).
+
+## Retry incomplete shards
+
+Run retry discovery after all submissions for the logical run have finished:
+
+```bash
+python tutorials/slurm/retry_array.py \
+  --checkpoint-path "${CHECKPOINT_PATH}" \
+  --format fields
+```
+
+Each output line contains:
+
+```text
+ARRAY_EXPRESSION SHARD_INDEX_OFFSET MINIMUM_SHARD_INDEX TOTAL_SHARDS
+```
+
+For example, `1-2,5-10,99 0 0 100` means those logical shards are incomplete and the original run used 100 shards starting at 0. Preserve all four values when resubmitting:
+
+```bash
+read -r RETRY_ARRAY SHARD_INDEX_OFFSET MINIMUM_SHARD_INDEX TOTAL_SHARDS < <(
+  python tutorials/slurm/retry_array.py \
+    --checkpoint-path "${CHECKPOINT_PATH}" \
+    --format fields
+)
+
+CHECKPOINT_PATH="${CHECKPOINT_PATH}" \
+SHARD_INDEX_OFFSET="${SHARD_INDEX_OFFSET}" \
+MINIMUM_SHARD_INDEX="${MINIMUM_SHARD_INDEX}" \
+TOTAL_SHARDS="${TOTAL_SHARDS}" \
+sbatch --array="${RETRY_ARRAY}" tutorials/slurm/submit_array.sh
+```
+
+An empty result means every logical shard has a completion manifest. A missing `run.json` is an error: use the original checkpoint path.
+
+## Work within cluster array limits
+
+If the cluster limits the number of tasks in one submission, keep a larger logical `TOTAL_SHARDS` and submit it in windows:
+
+```bash
+export TOTAL_SHARDS=10000
+
+sbatch --array=0-999 tutorials/slurm/submit_array.sh
+sbatch --array=1000-1999 tutorials/slurm/submit_array.sh
+# Continue through 9000-9999.
+```
+
+If the scheduler also rejects high physical array indices, reuse `0-999` and apply offsets:
+
+```bash
+export TOTAL_SHARDS=10000
+
+SHARD_INDEX_OFFSET=0    sbatch --array=0-999 tutorials/slurm/submit_array.sh
+SHARD_INDEX_OFFSET=1000 sbatch --array=0-999 tutorials/slurm/submit_array.sh
+# Continue through SHARD_INDEX_OFFSET=9000.
+```
+
+Keep `MINIMUM_SHARD_INDEX=0` in both windowing modes. `SHARD_INDEX_OFFSET` changes the logical shard exported by the submit script; `MINIMUM_SHARD_INDEX` changes the assignment range itself.
+
+For retry discovery on a cluster with a maximum physical array size, let the helper split missing shards and compute offsets:
+
+```bash
+python tutorials/slurm/retry_array.py \
+  --checkpoint-path "${CHECKPOINT_PATH}" \
+  --max-array-size 1000 \
+  --format fields
+```
+
+`--max-array-size` requires `--format fields` because each output submission can have a different offset. The limit is not stored in `run.json`; it is a scheduler property, not part of logical task assignment.
+
+## Operational checklist
+
+- Keep input task identity, `TOTAL_SHARDS`, and `MINIMUM_SHARD_INDEX` stable across retries.
+- Reuse the checkpoint path for one logical run; use a fresh path for new work.
+- Wait for every initial/windowed submission to finish before discovering retries.
+- Make output naming deterministic or writes idempotent because incomplete shards can replay work.
+- Monitor empty-shard warnings when logical shards outnumber source tasks.
+
+## Related topics
+
+- [Resumable Processing](/reference/infra/resumable-processing)
+- [Multi-Node Ray on SLURM](/admin/deployment/slurm-multi-node-ray)
+- [Execution Backends](/reference/infra/execution-backends)
+- [Container Environments](/reference/infra/container-environments)

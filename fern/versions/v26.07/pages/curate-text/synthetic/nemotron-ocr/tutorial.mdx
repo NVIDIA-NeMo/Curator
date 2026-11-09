@@ -1,0 +1,251 @@
+---
+description: "Run NemotronOCR-v2 over Hugging Face image datasets and optionally generate bbox-scored multimodal QA conversations with NVIDIA Inference"
+categories: ["tutorials"]
+tags: ["nemotron-ocr", "ocr", "multimodal", "synthetic-data", "nvidia-inference-api"]
+personas: ["mle-focused", "data-scientist-focused"]
+difficulty: "advanced"
+content_type: "tutorial"
+modality: "image-only"
+---
+
+# Run the Nemotron OCR Pipeline
+
+Run `tutorials/synthetic/omni/ocr_pipeline.py` over a Hugging Face dataset. Start with local OCR, inspect the boxes, and then enable remote verification and QA conversation generation.
+
+## 1. Start the GPU container
+
+From the repository root:
+
+```bash
+docker pull nvcr.io/nvidia/nemo-curator:{{ container_version }}
+
+docker run --gpus all -it --rm \
+  -v "$PWD:/workspace" \
+  -v "$HOME/.cache/huggingface:/root/.cache/huggingface" \
+  -w /workspace \
+  nvcr.io/nvidia/nemo-curator:{{ container_version }}
+```
+
+Inside the container:
+
+```bash
+source /opt/venv/env.sh
+nvidia-smi
+python -c "from nemotron_ocr.inference.pipeline_v2 import NemotronOCRV2; print('Nemotron OCR ready')"
+```
+
+For private or gated data, authenticate through the environment or Hugging Face CLI. Do not commit tokens.
+
+## 2. Run a small OCR-only sample
+
+```bash
+python -m tutorials.synthetic.omni.ocr_pipeline \
+  --hf-dataset lmms-lab/textvqa \
+  --hf-image-dir /workspace/ocr-data/images \
+  --hf-split validation \
+  --hf-image-column image \
+  --hf-limit 25 \
+  --output-path /workspace/ocr-data/results/ocr.jsonl \
+  --image-parent /workspace/ocr-data/images
+```
+
+The runner starts Ray, uses Xenna, writes `ocr_worker<worker-id>.jsonl` shards, and merges them to the requested file after success.
+
+<Note>
+`--output-path` is a base file path, despite the current help text describing it as a directory. Include a `.jsonl` filename. Without a suffix, the writer creates `<name>_worker*.jsonl` and merges them to `<name>.jsonl` beside the supplied path.
+</Note>
+
+Inspect one record:
+
+```bash
+head -n 1 /workspace/ocr-data/results/ocr.jsonl
+```
+
+```json
+{
+  "image_path": "000000.jpg",
+  "image_id": "000000",
+  "ocr_is_word_level": true,
+  "ocr_dense": [
+    {"bbox_2d": [108, 72, 492, 146], "text_content": "EMERGENCY EXIT", "valid": true}
+  ]
+}
+```
+
+## 3. Enable scoring and QA
+
+Create an NVIDIA API key at [NVIDIA Build](https://build.nvidia.com/settings/api-keys), then export it without putting the value in shell history:
+
+```bash
+read -s NVINFERENCE_API_KEY
+export NVINFERENCE_API_KEY
+```
+
+Each image causes one remote verifier request, so validate a small sample first:
+
+```bash
+python -m tutorials.synthetic.omni.ocr_pipeline \
+  --hf-dataset lmms-lab/textvqa \
+  --hf-image-dir /workspace/ocr-data/images \
+  --hf-split validation \
+  --hf-image-column image \
+  --hf-limit 25 \
+  --output-path /workspace/ocr-data/results/ocr-qa.jsonl \
+  --image-parent /workspace/ocr-data/images \
+  --run-scoring-qa \
+  --scoring-qa-min-bbox-match 5 \
+  --scoring-qa-max-text-errors 0 \
+  --scoring-qa-dense-dump-prob 0.05
+```
+
+Add `--scoring-qa-fail-on-missing-text` to invalidate images with uncovered text. Otherwise missing regions are recorded, dense dump is disabled for that image, and QA uses boxes that passed scoring. Add `--valid-only` to exclude invalid images; without it, failed records remain with an `error` string.
+
+## CLI reference
+
+| Argument | Default | Description |
+| --- | --- | --- |
+| `--hf-dataset` | Required | Hub dataset ID or local dataset/image-folder path. |
+| `--hf-image-dir` | Required | RGB JPEG cache. Existing filenames are reused. |
+| `--hf-split` | `train` | Dataset split. |
+| `--hf-config` | None | Optional Hub configuration/subset. |
+| `--hf-image-column` | `image` | Column containing the image. |
+| `--hf-id-column` | Row index | Filename/deduplication column; use safe unique values. |
+| `--hf-limit` | None | Records selected before duplicate IDs are removed. |
+| `--output-path` | Required | Base JSONL file used for shards and final merge. |
+| `--image-parent` | None | Makes descendant image paths relative in output. |
+| `--valid-only` | False | Skip invalid tasks rather than retaining errors. |
+| `--nemotron-model-dir` | HF download | Local `v2_multilingual` model directory. |
+| `--run-scoring-qa` | False | Enable remote scoring and conversation generation. |
+| `--scoring-qa-model-id` | `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning` | Verifier model. |
+| `--scoring-qa-min-bbox-match` | `5` | Inclusive minimum box-fit score. |
+| `--scoring-qa-max-text-errors` | `0` | Inclusive maximum text errors. |
+| `--scoring-qa-fail-on-missing-text` | False | Invalidate images with missing regions. |
+| `--scoring-qa-dense-dump-prob` | `0.05` | Dense-turn probability for complete OCR. |
+
+OCR `merge_level`, verifier generation/batch settings, priority mode, and API client concurrency are Python-only settings.
+
+## 4. Use the Python API
+
+```python
+from pathlib import Path
+
+from nemo_curator.backends.xenna import XennaExecutor
+from nemo_curator.core.client import RayClient
+from nemo_curator.stages.synthetic.omni.io import merge_output_shards
+from tutorials.synthetic.omni.ocr_pipeline import create_hf_ocr_pipeline
+
+output = Path("/workspace/ocr-data/results/ocr-qa.jsonl")
+pipeline = create_hf_ocr_pipeline(
+    dataset_name="lmms-lab/textvqa",
+    image_dir=Path("/workspace/ocr-data/images"),
+    output_path=output,
+    hf_split="validation",
+    hf_limit=25,
+    image_parent=Path("/workspace/ocr-data/images"),
+    valid_only=False,
+    run_scoring_qa=True,
+    scoring_qa_min_bbox_match=5,
+    scoring_qa_max_text_errors=0,
+    scoring_qa_dense_dump_prob=0.05,
+)
+
+client = RayClient()
+client.start()
+try:
+    pipeline.run(XennaExecutor())
+finally:
+    client.stop()
+    merged_output = merge_output_shards(output)
+
+print(merged_output)
+```
+
+The CLI merges shards only after a successful pipeline run. This example uses an outer `finally` so workers stop before any available shards are merged, including after a pipeline failure.
+
+Configure stages individually when you need Python-only options:
+
+```python
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.synthetic.omni.io import HFDatasetImageReaderStage, JsonlSampleWriterStage
+from nemo_curator.stages.synthetic.omni.ocr_nemotron_v2 import OCRNemotronV2Stage
+from nemo_curator.stages.synthetic.omni.ocr_scoring_qa import OCRScoringQAStage
+from nemo_curator.tasks.ocr import OCRData
+
+pipeline = Pipeline(name="ocr-nemotron-custom")
+pipeline.add_stage(HFDatasetImageReaderStage(
+    dataset_name="lmms-lab/textvqa",
+    image_dir="/workspace/ocr-data/images",
+    split="validation",
+    limit=25,
+    task_type=OCRData,
+))
+pipeline.add_stage(OCRNemotronV2Stage(merge_level="word"))
+pipeline.add_stage(OCRScoringQAStage(
+    temperature=1.0,
+    max_tokens=16384,
+    min_bbox_match=5,
+    max_text_errors=0,
+    dense_dump_prob=0.05,
+    batch_size=16,
+    priority_mode=False,
+))
+pipeline.add_stage(JsonlSampleWriterStage(
+    output_path="/workspace/ocr-data/results/custom.jsonl",
+    valid_only=False,
+    image_parent="/workspace/ocr-data/images",
+))
+```
+
+`JsonlSampleWriterStage` defaults `valid_only=True` when constructed directly, while the tutorial CLI defaults `--valid-only` to false and passes that value explicitly. Set `valid_only=False` to retain invalid records for inspection or a later rerun.
+
+## 5. Read scored output
+
+```json
+{
+  "image_path": "000000.jpg",
+  "image_id": "000000",
+  "ocr_is_word_level": true,
+  "ocr_dense": [
+    {"bbox_2d": [108, 72, 492, 146], "text_content": "EMERGENCY EXIT", "valid": true, "bbox_match": 10, "text_errors": 0}
+  ],
+  "ocr_scoring_model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+  "ocr_scoring_mode": "word",
+  "ocr_scoring_missing": [],
+  "conversation": {
+    "conversation": [
+      {"sender": "user", "fragments": [{"t": "image", "value": "000000.jpg"}, "What text is in the bounding box [108, 72, 492, 146]?"]},
+      {"sender": "assistant", "fragments": ["EMERGENCY EXIT"]}
+    ]
+  }
+}
+```
+
+Output also retains `ocr_scoring_prompt` and `ocr_scoring_response_raw`. These can be large with the 16,384-token response budget; remove them downstream if training does not require provenance.
+
+## Batching and failures
+
+- OCR has `batch_size=32`; image errors are caught individually.
+- Scoring QA has `batch_size=16`; each worker permits 10 concurrent requests.
+- Invalid inputs skip later model stages but reach the writer unless `--valid-only` is set.
+- No OCR boxes skips scoring without invalidating the record.
+- Empty/unparseable verifier output, no boxes passing thresholds, and optionally missing text invalidate the image.
+- Conversation choices are deterministic for framework task identity. Do not set `task_id` yourself.
+- Weights download once per node and load once per OCR worker.
+
+## Rerun safely
+
+Image extraction is idempotent by filename, but inference is not resumable:
+
+1. Use a new output basename or remove stale `<stem>_worker*.jsonl` shards.
+2. Preserve invalid rows initially so `image_id` and `error` can drive a targeted retry dataset.
+3. Do not treat cached JPEGs as completed OCR; reruns process every selected unique ID.
+4. After interruption, inspect worker shards before merging or discarding them.
+5. After success, verify record count, errors, bbox thresholds, missing-text rate, and conversation mix.
+
+## Related topics
+
+- [Nemotron OCR concepts and schemas](/curate-text/synthetic/nemotron-ocr)
+- [Synthetic data generation](/curate-text/synthetic)
+- [LLM client configuration](/curate-text/synthetic/llm-client)
+- [Image curation tutorials](/curate-images/tutorials)
+- [Install NeMo Curator](/get-started/installation)

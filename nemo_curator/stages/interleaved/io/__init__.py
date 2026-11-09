@@ -12,13 +12,28 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from importlib import import_module
+
 from nemo_curator.stages.interleaved.io.reader import InterleavedParquetReader, InterleavedWebdatasetReader
 from nemo_curator.stages.interleaved.io.writers.tabular import InterleavedParquetWriterStage
 from nemo_curator.stages.interleaved.io.writers.webdataset import InterleavedWebdatasetWriterStage
 
+_LAZY = {
+    "InterleavedLanceReader": "nemo_curator.stages.interleaved.lance",
+}
+
 __all__ = [
+    "InterleavedLanceReader",
     "InterleavedParquetReader",
     "InterleavedParquetWriterStage",
     "InterleavedWebdatasetReader",
     "InterleavedWebdatasetWriterStage",
 ]
+
+
+def __getattr__(name: str) -> object:
+    target = _LAZY.get(name)
+    if target is None:
+        msg = f"module {__name__!r} has no attribute {name!r}"
+        raise AttributeError(msg)
+    return getattr(import_module(target), name)

@@ -31,7 +31,6 @@ def pandas_document_batch() -> DocumentBatch:
         }
     )
     return DocumentBatch(
-        task_id="test_pandas_batch",
         dataset_name="test_dataset",
         data=df,
         _metadata={"dummy_key": "dummy_value"},
@@ -51,7 +50,6 @@ def pandas_document_batch() -> DocumentBatch:
 def pyarrow_document_batch(pandas_document_batch: DocumentBatch) -> DocumentBatch:
     """Fixture providing a pyarrow Table for testing."""
     return DocumentBatch(
-        task_id="test_pyarrow_batch",
         dataset_name="test_dataset",
         data=pandas_document_batch.to_pyarrow(),
         _metadata={"dummy_key": "dummy_value"},

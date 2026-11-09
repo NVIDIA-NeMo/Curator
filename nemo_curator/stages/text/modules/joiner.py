@@ -184,10 +184,8 @@ class DocumentJoiner(ProcessingStage[DocumentBatch, DocumentBatch]):
             joined = joined.drop(columns=self.segment_id_field)
 
         return DocumentBatch(
-            task_id=f"{batch.task_id}_{self.name}",
             dataset_name=batch.dataset_name,
             data=joined,
             _metadata=batch._metadata,
             _stage_perf=batch._stage_perf,
         )
-

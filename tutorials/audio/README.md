@@ -1,36 +1,177 @@
 # Audio Curation Tutorials
 
-Hands-on tutorials for curating audio data with NeMo Curator. Complete working examples with detailed explanations.
+Hands-on tutorials for curating audio data with NeMo Curator.
 
-## Quick Start
+The [Granary v2 tutorials](granary_v2/README.md) cover metadata extraction,
+Indic ASR, Qwen Omni ASR, and transcript processing.
 
 **New to audio curation?** Start with the [Audio Getting Started Guide](https://docs.nvidia.com/nemo/curator/latest/get-started/audio.html) for setup and basic concepts.
 
-### System Dependencies
+## Platform support
 
-Audio pipelines require `ffmpeg` for resampling and format conversion. Install them before running any audio tutorial:
+Audio curation requires **x86_64 Linux**. The `audio_cpu` and `audio_cuda12` extras omit several dependencies on arm64/aarch64 (NeMo ASR, diarization, and related tooling) because upstream packages do not ship aarch64 wheels. The arm64 NeMo Curator container therefore does not include the full audio stack — use amd64 for ASR, diarization, and tagging tutorials below.
+
+## Getting started in 5 minutes
+
+No data download needed — run the ALM pipeline on bundled fixtures:
 
 ```bash
-# Ubuntu / Debian
-sudo apt-get install -y ffmpeg
+# Install (CPU is fine for this)
+uv sync --extra audio_cpu && source .venv/bin/activate
 
+# Run the ALM pipeline on sample data
+python tutorials/audio/alm/main.py \
+  --config-path . --config-name pipeline \
+  manifest_path=tests/fixtures/audio/alm/sample_input.jsonl
 ```
 
-## Available Tutorials
+Expected output in under 10 seconds:
 
-| Tutorial | Description | Files |
-|----------|-------------|-------|
-| **[FLEURS Dataset](fleurs/)** | Complete pipeline for multilingual speech data | `pipeline.py`, `run.py`, `pipeline.yaml` |
-| **[Audio Tagging](tagging/)** | Label raw audio for TTS/ASR via diarization, alignment, and quality metrics | `main.py`, `tts_pipeline.yaml`, `asr_pipeline.yaml` |
-| **[ALM Data Pipeline](alm/)** | Create training windows for Audio Language Models | `main.py`, `pipeline.yaml` |
+```
+PIPELINE COMPLETE
+==================================================
+  Output entries: 5
+  [alm_data_builder] windows_created: 181
+  [alm_data_overlap] output_windows (after overlap): 25
+```
 
-## Documentation Links
+**With a GPU?** Run FastConformer on the bundled two-file manifest:
+
+```bash
+uv sync --extra audio_cuda12 && source .venv/bin/activate
+
+python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/nemo_fastconformer \
+  manifest_path=tests/fixtures/audio/tagging/sample_input.jsonl
+```
+
+## Which tutorial should I use?
+
+| I want to... | Tutorial | GPU | Data |
+|---|---|---|---|
+| Transcribe a manifest with NeMo FastConformer through the shared ASR adapter | [**nemo_fastconformer/**](nemo_fastconformer/) | Recommended (1 per ASR actor) | Bundled sample or your own manifest |
+| Curate multilingual ASR data (download, transcribe, filter by WER) | [**fleurs/**](fleurs/) | Yes (~4 GB VRAM) | Auto-downloads from HuggingFace |
+| Transcribe a manifest in-process with Qwen3-Omni and vLLM | [**qwen_omni_inprocess/**](qwen_omni_inprocess/) | Yes (2 per ASR actor) | Bundled sample or your own manifest |
+| Transcribe audio with Qwen3-Omni, check the text, and clean it | [**granary_v2/qwen_omni_asr/**](granary_v2/qwen_omni_asr/) | Yes (2 per ASR actor) | Public LibriSpeech sample or your own audio and fallback transcripts |
+| Transcribe a manifest with Qwen3-ASR through the generic ASR adapter | [**qwen_asr/**](qwen_asr/) | Yes (1 per ASR actor) | Bundled sample or your own manifest |
+| Transcribe a manifest with Faster-Whisper Large-v3 through the generic ASR adapter | [**faster_whisper/**](faster_whisper/) | Recommended (1 per ASR actor) or CPU | Bundled sample or your own manifest |
+| Diarize whole recordings with Streaming Sortformer through the shared diarization adapter | [**sortformer/**](sortformer/) | Yes (1 per actor) | Bundled sample or your own manifest |
+| Transcribe Hindi audio with Indic Canary and Parakeet, check the text, and measure WER | [**granary_v2/indic_asr/**](granary_v2/indic_asr/) | Yes (80 GB H100 with compatible engines) | Two public FLEURS clips; model engine bundles supplied separately |
+| Restore punctuation, normalize ASR transcripts and generate text features | [**granary_v2/text_pipeline/**](granary_v2/text_pipeline/) | 8 GPUs for the included model server; CPU client with an existing endpoint | Two bundled English transcripts; no audio download |
+| Extract Granary speech clips, speaker turns, sound events, and language metadata | [**granary_v2/metadata/**](granary_v2/metadata/) | Yes; hardware-compatible TensorRT engines required | Two public FLEURS clips or your own recordings; local model bundles required |
+| Build training windows for Audio Language Models from diarized manifests | [**alm/**](alm/) | No (CPU-only) | Bundled sample fixtures |
+| Label raw audio for TTS/ASR/ALM via diarization, alignment, and quality metrics | [**tagging/**](tagging/) | Yes (~8 GB VRAM) | Bring your own audio manifest |
+| Evaluate speaker diarization (DER) on a benchmark dataset | [**callhome_diar/**](callhome_diar/) | Yes (~8 GB VRAM) | Requires [LDC license](https://catalog.ldc.upenn.edu/LDC97S42) |
+| Filter a manifest to keep only single-speaker audio | [**single_speaker_filter/**](single_speaker_filter/) | Yes (~8 GB VRAM) | Requires a pre-existing JSONL manifest |
+| Quality-filter raw audio (MOS, VAD, bandwidth, noise) | [**readspeech/**](readspeech/) | Recommended (~4 GB VRAM) | Auto-downloads DNS Challenge (4.88 GB) |
+| Synthesise multi-speaker conversation audio from text (Chatterbox TTS) | [**tts/**](tts/) | Yes (~4 GB VRAM) | Bring your own turn manifest + reference voices |
+
+## Data availability
+
+| Tutorial | Auto-download | Size | Notes |
+|---|---|---|---|
+| `nemo_fastconformer/` | Model only | Two bundled audio files | Downloads the configured NeMo ASR checkpoint on first use |
+| `fleurs/` | Yes | ~50 MB per language split | Downloads from HuggingFace `google/fleurs` |
+| `qwen_omni_inprocess/` | Model only | Two bundled audio files | Downloads Qwen3-Omni weights on first use |
+| `granary_v2/qwen_omni_asr/` | Yes, with the download command | Six clips, 82.8 seconds | Downloads public LibriSpeech clips and their transcripts |
+| `qwen_asr/` | Model only | Two bundled audio files | Downloads Qwen3-ASR weights on first use |
+| `faster_whisper/` | Model only | Two bundled audio files | Downloads the configured Faster-Whisper checkpoint on first use |
+| `sortformer/` | Model only | Two bundled audio files | Downloads the configured Sortformer v2.1 checkpoint on first use |
+| `granary_v2/indic_asr/` | Yes, with the download command | Two clips, 22.50 seconds | Downloads pinned `google/fleurs` Hindi validation clips and transcripts; model engine bundles supplied separately |
+| `granary_v2/text_pipeline/` | Model only | Two bundled transcript records | Public LibriSpeech text; audio waveforms are not read |
+| `granary_v2/metadata/` | Audio only | Two FLEURS clips / 22.50 seconds | Reuses the Indic sample downloader; supply Sortformer, Silero, CNN14, and language-ID model bundles |
+| `alm/` | N/A | Bundled | Uses `tests/fixtures/audio/alm/sample_input.jsonl` (5 entries) |
+| `tagging/` | No | Varies | Bring your own NeMo-style JSONL manifest with audio paths |
+| `callhome_diar/` | No | ~1 GB | Requires LDC membership and license ([LDC97S42](https://catalog.ldc.upenn.edu/LDC97S42)) |
+| `single_speaker_filter/` | No | Varies | Bring your own NeMo-style JSONL manifest |
+| `readspeech/` | Yes | 4.88 GB compressed | Downloads DNS Challenge Read Speech (14,279 WAV files) |
+| `tts/` | No | Varies | Bring your own turn manifest + reference voices dataset |
+
+The Indic ASR tutorial downloads two FLEURS clips. Its separate
+[standalone benchmark](../../benchmarking/README.md#audio-benchmark-data-setup)
+uses 216,164 retained clips / 531.75763 hours from `ketav/parakeet-hindi-asr`.
+The benchmark's larger dataset is not required for the tutorial.
+
+## System dependencies
+
+Most audio pipelines use the `ffmpeg` command-line tool for resampling and format conversion. The audio Python extras do not install it. Without root access, install FFmpeg in a user-owned Conda or Micromamba prefix:
+
+```bash
+conda create -y -p /path/to/curator-ffmpeg -c conda-forge ffmpeg
+# Or: micromamba create -y -p /path/to/curator-ffmpeg -c conda-forge ffmpeg
+export PATH="/path/to/curator-ffmpeg/bin:$PATH"
+command -v ffmpeg
+ffmpeg -hide_banner -version
+```
+
+For multi-node Ray or Xenna runs, make FFmpeg available on every executor node and configure `PATH` before starting the cluster so workers inherit it. A site-provided FFmpeg environment module is also suitable. See the [installation guide](https://docs.nvidia.com/nemo/curator/latest/get-started/installation.html#install-ffmpeg-and-encoders-required-for-video) for the system-wide video build and verification details.
+
+| Tutorial | System packages | Pip extras |
+|---|---|---|
+| `nemo_fastconformer/` | `ffmpeg` | `audio_cpu` or `audio_cuda12` |
+| `fleurs/` | `ffmpeg` | `audio_cpu` or `audio_cuda12` |
+| `qwen_omni_inprocess/` | `ffmpeg` | `audio_cuda12`, `vllm` |
+| `granary_v2/qwen_omni_asr/` | `ffmpeg` | `audio_cuda12`, `vllm` |
+| `qwen_asr/` | `ffmpeg` | `audio_cuda12`, `vllm` |
+| `faster_whisper/` | `ffmpeg` | `audio_cuda12` (GPU) or `audio_cpu` (CPU) |
+| `sortformer/` | None | `audio_cuda12` |
+| `granary_v2/indic_asr/` | CUDA 13-capable driver or supported forward-compat stack; TensorRT engine bundles | Dedicated `docker/audio/Dockerfile.trt_llm` image (Python 3.12, Linux x86_64) |
+| `granary_v2/text_pipeline/` | `etcd`, `nats-server` for local Dynamo serving | Existing project Docker image (`audio` and `inference_server` dependencies) |
+| `granary_v2/metadata/` | CUDA 13-capable driver or supported forward-compat stack; FFmpeg; libsndfile with Opus; TensorRT engine bundles | Dedicated `docker/audio/Dockerfile.trt_llm` image (Python 3.12, Linux x86_64) |
+| `alm/` | `ffmpeg` | `audio_cpu` |
+| `tagging/` | `ffmpeg` | `audio_cuda12` |
+| `callhome_diar/` | `ffmpeg`, `sox` | `audio_cuda12` |
+| `single_speaker_filter/` | `ffmpeg` | `audio_cuda12` |
+| `readspeech/` | `ffmpeg` | `audio_cuda12` (recommended) or `audio_cpu` |
+| `tts/` | `ffmpeg` | `audio_cuda12` |
+
+Install pip extras from the repo root:
+
+```bash
+# GPU (recommended)
+uv sync --extra audio_cuda12
+
+# CPU only
+uv sync --extra audio_cpu
+```
+
+Indic ASR uses a dedicated container instead of a root dependency extra:
+
+```bash
+docker build -f docker/audio/Dockerfile.trt_llm -t curator-indic-trtllm .
+docker run --rm --gpus all curator-indic-trtllm python docker/audio/check_trt_llm.py
+```
+
+It runs Curator, Canary TensorRT-LLM, and Parakeet TensorRT in one Python 3.12 /
+Torch 2.9.1 environment, without changing the normal Curator dependency stack.
+Do not run root `uv sync` inside this image. See the
+[Indic ASR tutorial](granary_v2/indic_asr/README.md#1-build-and-check-the-environment) for mounts
+and benchmark image selection.
+
+## Troubleshooting: is my pipeline hung?
+
+Audio pipelines can appear stuck for legitimate reasons. Before killing a run:
+
+1. **Check logs**: Run with `--verbose` (or `level=DEBUG`) to see per-stage progress.
+2. **First-run model download**: NeMo/HuggingFace models are downloaded on first use. A `FastConformer` model is ~500 MB; `Sortformer` is ~200 MB. This happens once and can take minutes on slow connections.
+3. **GPU utilization**: Run `watch -n1 nvidia-smi` in another terminal. If GPU utilization is >0%, inference is running.
+4. **Worker startup**: Xenna and Ray may take 10–30 seconds to allocate workers before any processing begins. This is normal.
+5. **Large datasets**: Processing 10K+ files takes time. Refer to each tutorial's Performance section for expected durations.
+
+| Symptom | Likely cause | Action |
+|---|---|---|
+| No output for 2+ minutes at start | Model downloading | Wait; check `~/.cache/huggingface/` or `~/.cache/nemo/` for growing files |
+| GPU at 0% after startup | OOM crash or worker failure | Check logs for CUDA OOM errors; reduce batch size |
+| Steady GPU usage but no log output | Processing normally, logs buffered | Wait; add `--verbose` for more frequent output |
+| Process killed by OS | System OOM (CPU RAM) | Reduce number of workers or process fewer files |
+
+## Documentation
 
 | Category | Links |
-|----------|-------|
-| **Setup** | [Installation](https://docs.nvidia.com/nemo/curator/latest/get-started/installation.html) • [Configuration](https://docs.nvidia.com/nemo/curator/latest/get-started/configuration.html) |
-| **Concepts** | [Architecture](https://docs.nvidia.com/nemo/curator/latest/about/concepts/index.html) • [Data Loading](https://docs.nvidia.com/nemo/curator/latest/about/concepts/text/data-loading-concepts.html) |
-| **Advanced** | [Custom Pipelines](https://docs.nvidia.com/nemo/curator/latest/reference/index.html) • [Execution Backends](https://docs.nvidia.com/nemo/curator/latest/reference/infrastructure/execution-backends.html) • [NeMo ASR Integration](https://docs.nvidia.com/nemo/curator/latest/about/key-features.html) |
+|---|---|
+| **Setup** | [Installation](https://docs.nvidia.com/nemo/curator/latest/get-started/installation.html) · [Configuration](https://docs.nvidia.com/nemo/curator/latest/get-started/configuration.html) |
+| **Concepts** | [Architecture](https://docs.nvidia.com/nemo/curator/latest/about/concepts/index.html) · [Data Loading](https://docs.nvidia.com/nemo/curator/latest/about/concepts/text/data-loading-concepts.html) |
+| **Advanced** | [Custom Pipelines](https://docs.nvidia.com/nemo/curator/latest/reference/index.html) · [Execution Backends](https://docs.nvidia.com/nemo/curator/latest/reference/infrastructure/execution-backends.html) · [NeMo ASR Integration](https://docs.nvidia.com/nemo/curator/latest/about/key-features.html) |
 
 ## Known Issues
 
@@ -38,7 +179,7 @@ sudo apt-get install -y ffmpeg
 
 In some environments, and under certain timing conditions, Ray workers may crash with a `SIGSEGV` during GPU model initialization. This is not a NeMo Curator code issue: it comes from a thread-safety problem in the gRPC version bundled with Ray. Any GPU pipeline (audio, text, image, or video) that loads models through Ray actors can hit the same failure.
 
-The OpenTelemetry SDK starts a `PeriodicExportingMetricReader` background thread that periodically calls `OtlpGrpcMetricExporter::Export()` over gRPC; a `getenv()` call on that path can race with NeMo/PyTorch model initialization in another thread. **Disabling OpenTelemetry for the process** prevents Ray’s OpenTelemetry background exporter from starting and removes that race. NeMo Curator does not use OpenTelemetry for its own functionality, so disabling it has no functional impact on Curator workflows.
+The OpenTelemetry SDK starts a `PeriodicExportingMetricReader` background thread that periodically calls `OtlpGrpcMetricExporter::Export()` over gRPC; a `getenv()` call on that path can race with NeMo/PyTorch model initialization in another thread. **Disabling OpenTelemetry for the process** prevents Ray's OpenTelemetry background exporter from starting and removes that race. NeMo Curator does not use OpenTelemetry for its own functionality, so disabling it has no functional impact on Curator workflows.
 
 **Container scope:** This has been observed with the `nemo-curator:26.04.rc0` image (and similar 26.04-era builds). The race was [fixed upstream in gRPC ≥ 1.60](https://github.com/grpc/grpc/pull/33508); it should stop being relevant once the bundled gRPC in the container is upgraded accordingly.
 
@@ -52,4 +193,4 @@ export OTEL_TRACES_EXPORTER=none
 
 ## Support
 
-**Documentation**: [Main Docs](https://docs.nvidia.com/nemo/curator/latest/) • [API Reference](https://docs.nvidia.com/nemo/curator/latest/apidocs/index.html) • [GitHub Discussions](https://github.com/NVIDIA-NeMo/Curator/discussions)
+[Main Docs](https://docs.nvidia.com/nemo/curator/latest/) · [API Reference](https://docs.nvidia.com/nemo/curator/latest/apidocs/index.html) · [GitHub Discussions](https://github.com/NVIDIA-NeMo/Curator/discussions)

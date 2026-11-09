@@ -80,12 +80,15 @@ class BucketsToEdgesStage(ProcessingStage[FileGroupTask, FileGroupTask]):
             pd.DataFrame(edges, columns=[f"{self.document_id_field}_x", f"{self.document_id_field}_y"])
         )
 
-        output_path = self.output_fs.sep.join([self.output_path, f"{task._uuid}.parquet"])
+        output_path = self.output_fs.sep.join([self.output_path, f"{task.task_id}.parquet"])
         pq.write_table(edges, output_path, filesystem=self.output_fs)
         return FileGroupTask(
-            task_id=f"{task.task_id}",
             dataset_name=f"{task.dataset_name}_edges",
             data=[output_path],
-            _metadata={**task._metadata, "storage_options": self.write_storage_options},
+            _metadata={
+                **task._metadata,
+                "storage_options": self.write_storage_options,
+                "task_weight": len(edges),
+            },
             _stage_perf=task._stage_perf,
         )

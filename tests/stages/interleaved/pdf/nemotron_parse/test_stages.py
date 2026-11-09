@@ -16,29 +16,75 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
+import contextlib
 import io
 import json
 import zipfile
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
+from unittest.mock import AsyncMock, patch
 
 import pytest
-
-if TYPE_CHECKING:
-    from pathlib import Path
 from PIL import Image
 
+from nemo_curator.backends.utils import RayStageSpecKeys
+from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import set_nemotron_parse_attention_backend
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.partitioning import PDFPartitioningStage
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.postprocess import NemotronParsePostprocessStage
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.preprocess import PDFPreprocessStage
-from nemo_curator.tasks import _EmptyTask
+from nemo_curator.tasks import EmptyTask
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
-def _empty_task() -> _EmptyTask:
-    return _EmptyTask(task_id="empty", dataset_name="test", data=None)
+def _empty_task() -> EmptyTask:
+    return EmptyTask(dataset_name="test", data=None)
+
+
+@pytest.mark.parametrize(
+    ("capability", "vllm_version", "engine_kwargs", "expected_backend"),
+    [
+        ((8, 0), "0.23.0", {}, "TRITON_ATTN"),
+        ((8, 6), "0.23.0", {}, "TRITON_ATTN"),
+        ((9, 0), "0.22.0", {}, None),
+        ((10, 0), "0.22.0", {}, "TRITON_ATTN"),
+        ((10, 0), "0.23.0", {}, None),
+        ((10, 0), "0.22.0", {"attention_backend": "FLASHINFER"}, "FLASHINFER"),
+    ],
+)
+def test_nemotron_parse_attention_backend_compatibility(
+    monkeypatch: pytest.MonkeyPatch,
+    capability: tuple[int, int],
+    vllm_version: str,
+    engine_kwargs: dict,
+    expected_backend: str | None,
+) -> None:
+    monkeypatch.setattr("torch.cuda.is_available", lambda: True)
+    monkeypatch.setattr("torch.cuda.get_device_capability", lambda: capability)
+    monkeypatch.setattr(
+        "nemo_curator.stages.interleaved.pdf.nemotron_parse.inference.importlib.metadata.version",
+        lambda _package: vllm_version,
+    )
+
+    set_nemotron_parse_attention_backend(engine_kwargs)
+
+    assert engine_kwargs.get("attention_backend") == expected_backend
 
 
 class TestPDFPartitioningStage:
+    def test_worker_defaults(self, tmp_path: Path):
+        manifest = tmp_path / "manifest.jsonl"
+        manifest.write_text(json.dumps({"file_name": "a.pdf"}) + "\n")
+
+        stage = PDFPartitioningStage(manifest_path=str(manifest))
+
+        assert stage.ray_stage_spec()[RayStageSpecKeys.IS_FANOUT_STAGE] is True
+        assert stage.num_workers() == 1
+        assert stage.xenna_stage_spec() == {}
+
     def test_simple_manifest(self, tmp_path: Path):
         manifest = tmp_path / "manifest.jsonl"
         manifest.write_text(
@@ -171,7 +217,6 @@ class TestPDFPreprocessStage:
         from nemo_curator.tasks import FileGroupTask
 
         task = FileGroupTask(
-            task_id="test_task",
             dataset_name="test",
             data=[entry],
         )
@@ -193,7 +238,6 @@ class TestPDFPreprocessStage:
         from nemo_curator.tasks import FileGroupTask
 
         task = FileGroupTask(
-            task_id="test_task",
             dataset_name="test",
             data=[entry],
         )
@@ -213,7 +257,7 @@ class TestPDFPreprocessStage:
         entry = json.dumps({"file_name": "0001234.pdf", "url": "http://test"})
         from nemo_curator.tasks import FileGroupTask
 
-        task = FileGroupTask(task_id="test_task", dataset_name="test", data=[entry])
+        task = FileGroupTask(dataset_name="test", data=[entry])
         stage = PDFPreprocessStage(zip_base_dir=str(tmp_path))
         result = stage.process(task)
         assert result is not None
@@ -234,7 +278,7 @@ class TestPDFPreprocessStage:
         )
         from nemo_curator.tasks import FileGroupTask
 
-        task = FileGroupTask(task_id="test_task", dataset_name="test", data=[entry])
+        task = FileGroupTask(dataset_name="test", data=[entry])
         stage = PDFPreprocessStage(jsonl_base_dir=str(jsonl_dir))
         result = stage.process(task)
         assert result is not None
@@ -256,7 +300,7 @@ class TestPDFPreprocessStage:
         entry = json.dumps({"file_name": "test.pdf", "url": "http://test", "jsonl_file": "data.jsonl", "line_idx": 1})
         from nemo_curator.tasks import FileGroupTask
 
-        task = FileGroupTask(task_id="test_task", dataset_name="test", data=[entry])
+        task = FileGroupTask(dataset_name="test", data=[entry])
         stage = PDFPreprocessStage(jsonl_base_dir=str(jsonl_dir))
         result = stage.process(task)
         assert result is not None
@@ -266,7 +310,7 @@ class TestPDFPreprocessStage:
         entry = json.dumps({"file_name": "test.pdf"})
         from nemo_curator.tasks import FileGroupTask
 
-        task = FileGroupTask(task_id="t", dataset_name="test", data=[entry])
+        task = FileGroupTask(dataset_name="test", data=[entry])
         stage = PDFPreprocessStage()
         with pytest.raises(ValueError, match="One of"):
             stage.process(task)
@@ -300,7 +344,6 @@ class TestNemotronParsePostprocessStage:
         )
 
         task = InterleavedBatch(
-            task_id="test",
             dataset_name="test",
             data=pa.Table.from_pandas(result_df),
             _metadata={"proc_size": [100, 100], "model_path": "v1.2"},
@@ -344,7 +387,6 @@ class TestNemotronParsePostprocessStage:
         )
 
         task = InterleavedBatch(
-            task_id="test",
             dataset_name="test",
             data=pa.Table.from_pandas(result_df),
             _metadata={"proc_size": [100, 100], "model_path": "v1.2"},
@@ -356,3 +398,351 @@ class TestNemotronParsePostprocessStage:
         assert result is not None
         out_df = result.to_pandas()
         assert out_df.iloc[0]["modality"] == "metadata"
+
+
+class TestNemotronParseInferenceStageMetrics:
+    def test_vllm_metrics_from_outputs(self) -> None:
+        from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import NemotronParseInferenceStage
+
+        outputs = [
+            SimpleNamespace(
+                prompt_token_ids=[1, 2, 3],
+                outputs=[SimpleNamespace(text="hello", token_ids=[4, 5, 6], finish_reason="stop")],
+            ),
+            SimpleNamespace(
+                prompt_token_ids=[7, 8],
+                outputs=[SimpleNamespace(text="", token_ids=[], finish_reason="length")],
+            ),
+        ]
+
+        metrics = NemotronParseInferenceStage._vllm_metrics_from_outputs(
+            outputs,
+            inference_time_s=1.5,
+            num_input_pages=3,
+            num_valid_pages=2,
+            num_skipped_pages=1,
+            vllm_retries=1,
+        )
+
+        assert metrics["vllm_inference_time"] == 1.5
+        assert metrics["num_input_pages"] == 3.0
+        assert metrics["num_valid_pages"] == 2.0
+        assert metrics["num_skipped_pages"] == 1.0
+        assert metrics["total_prompt_tokens"] == 5.0
+        assert metrics["total_output_tokens"] == 3.0
+        assert metrics["total_output_chars"] == 5.0
+        assert metrics["num_output_length_truncated"] == 1.0
+        assert metrics["num_empty_outputs"] == 1.0
+        assert metrics["vllm_retries"] == 1.0
+        assert "avg_output_tokens_per_page" not in metrics
+        assert "avg_output_chars_per_page" not in metrics
+
+    def test_process_logs_vllm_metrics(self) -> None:
+        import pandas as pd
+        import pyarrow as pa
+
+        from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import NemotronParseInferenceStage
+        from nemo_curator.tasks import InterleavedBatch
+
+        img = Image.new("RGB", (10, 10), color="white")
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+
+        task_df = pd.DataFrame(
+            [
+                {
+                    "sample_id": "s1",
+                    "position": 0,
+                    "modality": "page_image",
+                    "content_type": "image/png",
+                    "text_content": None,
+                    "binary_content": buf.getvalue(),
+                    "source_ref": None,
+                }
+            ]
+        )
+        task = InterleavedBatch(dataset_name="test", data=pa.Table.from_pandas(task_df))
+
+        stage = NemotronParseInferenceStage(backend="vllm")
+        stage._proc_size = (100, 100)
+
+        raw_outputs = [
+            SimpleNamespace(
+                prompt_token_ids=[1, 2],
+                outputs=[SimpleNamespace(text="parsed", token_ids=[3, 4, 5], finish_reason="stop")],
+            )
+        ]
+
+        with patch.object(stage, "_infer_vllm", return_value=(["parsed"], raw_outputs, 0)):
+            stage.process(task)
+
+        assert hasattr(stage, "_custom_metrics")
+        assert stage._custom_metrics["num_valid_pages"] == 1.0
+        assert stage._custom_metrics["total_output_tokens"] == 3.0
+        assert stage._custom_metrics["total_output_chars"] == 6.0
+        assert "vllm_inference_time" in stage._custom_metrics
+
+    def test_setup_vllm_engine_kwargs_override_stage_defaults(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import importlib.metadata
+        import sys
+        import types
+
+        from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import NemotronParseInferenceStage
+        from nemo_curator.utils import vllm_utils
+
+        fake_vllm = types.ModuleType("vllm")
+
+        class FakeSamplingParams:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+
+        fake_vllm.SamplingParams = FakeSamplingParams
+        monkeypatch.setitem(sys.modules, "vllm", fake_vllm)
+        package_version = importlib.metadata.version
+        monkeypatch.setattr(
+            "nemo_curator.stages.interleaved.pdf.nemotron_parse.inference.importlib.metadata.version",
+            lambda package: "0.22.0" if package == "vllm" else package_version(package),
+        )
+        monkeypatch.setattr("torch.cuda.is_available", lambda: True)
+        monkeypatch.setattr("torch.cuda.get_device_capability", lambda: (10, 0))
+
+        captured_kwargs: dict = {}
+
+        def fake_create_vllm_llm(model_path: str, **kwargs) -> object:
+            captured_kwargs["model_path"] = model_path
+            captured_kwargs.update(kwargs)
+            return object()
+
+        fake_processor = SimpleNamespace(image_processor=SimpleNamespace(final_size=(100, 100)))
+        monkeypatch.setattr(vllm_utils, "resolve_local_model_path", lambda _path: "/models/nemotron")
+        monkeypatch.setattr(vllm_utils, "create_vllm_llm", fake_create_vllm_llm)
+        monkeypatch.setattr("transformers.AutoProcessor.from_pretrained", lambda *_args, **_kwargs: fake_processor)
+
+        stage = NemotronParseInferenceStage(
+            backend="vllm",
+            max_num_seqs=64,
+            enforce_eager=False,
+            engine_kwargs={
+                "max_num_seqs": 8,
+                "enforce_eager": True,
+                "gpu_memory_utilization": 0.9,
+            },
+        )
+
+        stage._setup_vllm()
+
+        assert captured_kwargs["model_path"] == "/models/nemotron"
+        assert captured_kwargs["max_num_seqs"] == 8
+        assert captured_kwargs["enforce_eager"] is True
+        assert captured_kwargs["gpu_memory_utilization"] == 0.9
+        assert captured_kwargs["attention_backend"] == "TRITON_ATTN"
+        assert stage._proc_size == (100, 100)
+
+    def test_in_process_and_http_client_sampling_parameters_match(self) -> None:
+        from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import (
+            _nemotron_parse_sampling_params,
+            _nemotron_parse_server_generation_config,
+        )
+
+        http_client_config = _nemotron_parse_server_generation_config(1234)
+        http_client_params = {
+            "temperature": http_client_config.temperature,
+            "top_p": http_client_config.top_p,
+            "max_tokens": http_client_config.max_tokens,
+            "seed": http_client_config.seed,
+            **http_client_config.extra_kwargs["extra_body"],
+        }
+
+        assert http_client_params == _nemotron_parse_sampling_params(1234)
+
+    def test_in_process_and_http_client_default_to_8192_max_tokens(self) -> None:
+        from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import (
+            NemotronParseHTTPClientStage,
+            NemotronParseInferenceStage,
+        )
+
+        in_process_stage = NemotronParseInferenceStage()
+        http_client_stage = NemotronParseHTTPClientStage(
+            endpoint="http://localhost:8000/v1",
+            model_name="nemotron-parse",
+        )
+
+        assert in_process_stage.max_tokens == 8192
+        assert http_client_stage.max_tokens == 8192
+        assert http_client_stage._generation_config.max_tokens == 8192
+
+    def test_infer_vllm_empty_outputs_produces_empty_string(self) -> None:
+        """RequestOutput with no completions should yield '' rather than IndexError."""
+        from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import NemotronParseInferenceStage
+
+        stage = NemotronParseInferenceStage(backend="vllm")
+        stage._sampling_params = SimpleNamespace()
+        # Simulate a RequestOutput where the model returned no completions.
+        empty_req_output = SimpleNamespace(prompt_token_ids=[1, 2], outputs=[])
+        stage._llm = SimpleNamespace(generate=lambda _p, _s: [empty_req_output])
+
+        texts, raw, retries = stage._infer_vllm([Image.new("RGB", (10, 10))])
+
+        assert texts == [""]
+        assert raw == [empty_req_output]
+        assert retries == 0
+
+    def test_hf_page_failure_raises_after_batch_fallback(self) -> None:
+        from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import NemotronParseInferenceStage
+
+        stage = NemotronParseInferenceStage(backend="hf")
+
+        with (
+            patch.object(stage, "_infer_batch_hf", side_effect=RuntimeError("inference failed")),
+            pytest.raises(RuntimeError, match="inference failed"),
+        ):
+            stage._infer_hf([Image.new("RGB", (10, 10))])
+
+    def test_infer_vllm_unreachable_loop_path_raises(self) -> None:
+        from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import NemotronParseInferenceStage
+
+        stage = NemotronParseInferenceStage(backend="vllm")
+        stage._sampling_params = SimpleNamespace()
+        stage._llm = SimpleNamespace(generate=lambda _p, _s: [])
+        image = Image.new("RGB", (10, 10))
+
+        with patch("builtins.range", return_value=()), pytest.raises(RuntimeError, match="unreachable"):
+            stage._infer_vllm([image])
+
+
+class TestNemotronParseHTTPClientStage:
+    def test_rejects_non_positive_inference_batch_size(self) -> None:
+        from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import (
+            NemotronParseHTTPClientStage,
+        )
+
+        with pytest.raises(ValueError, match="inference_batch_size must be at least 1"):
+            NemotronParseHTTPClientStage(
+                endpoint="http://localhost:8000/v1",
+                model_name="nemotron-parse",
+                inference_batch_size=0,
+            )
+
+    def test_warns_when_request_concurrency_is_below_recommended_starting_point(self) -> None:
+        from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import (
+            NemotronParseHTTPClientStage,
+        )
+
+        with patch("nemo_curator.stages.interleaved.pdf.nemotron_parse.inference.logger.warning") as warning:
+            NemotronParseHTTPClientStage(
+                endpoint="http://localhost:8000/v1",
+                model_name="nemotron-parse",
+                inference_batch_size=4,
+            )
+
+        warning.assert_called_once()
+
+    def test_query_pages_runs_up_to_inference_batch_size_concurrently(self) -> None:
+        from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import (
+            NemotronParseHTTPClientStage,
+        )
+
+        active_requests = 0
+        max_active_requests = 0
+        two_requests_started = asyncio.Event()
+
+        async def create_response(**create_kwargs: object) -> SimpleNamespace:
+            nonlocal active_requests, max_active_requests
+            active_requests += 1
+            max_active_requests = max(max_active_requests, active_requests)
+            if active_requests == 2:
+                two_requests_started.set()
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(two_requests_started.wait(), timeout=0.05)
+
+            messages = create_kwargs["messages"]
+            image_url = messages[0]["content"][1]["image_url"]["url"]  # type: ignore[index]
+            page_text = base64.b64decode(image_url.split(",", 1)[1]).decode()
+            active_requests -= 1
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content=page_text), finish_reason="stop")],
+                usage=SimpleNamespace(prompt_tokens=1, completion_tokens=1),
+            )
+
+        sdk_client = SimpleNamespace(
+            chat=SimpleNamespace(completions=SimpleNamespace(create=create_response)),
+            close=AsyncMock(),
+        )
+        stage = NemotronParseHTTPClientStage(
+            endpoint="http://localhost:8000/v1",
+            model_name="nemotron-parse",
+        )
+        stage.inference_batch_size = 2
+
+        with patch("nemo_curator.models.client.openai_client.AsyncOpenAI", return_value=sdk_client):
+            results = asyncio.run(stage._query_pages([(f"page-{index}".encode(), "image/png") for index in range(3)]))
+
+        assert max_active_requests == 2
+        assert [result.text for result in results] == ["page-0", "page-1", "page-2"]
+
+    def test_terminal_request_failure_raises(self) -> None:
+        from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import (
+            NemotronParseHTTPClientStage,
+        )
+
+        stage = NemotronParseHTTPClientStage(
+            endpoint="http://localhost:8000/v1",
+            model_name="nemotron-parse",
+        )
+        client = SimpleNamespace(query_model_response=AsyncMock(side_effect=RuntimeError("request failed")))
+
+        with pytest.raises(RuntimeError, match="request failed"):
+            asyncio.run(stage._query_page(client, b"png-bytes", "image/png"))
+
+    def test_process_uses_openai_client_response_and_records_usage(self) -> None:
+        import pandas as pd
+        import pyarrow as pa
+
+        from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import (
+            NemotronParseHTTPClientStage,
+        )
+        from nemo_curator.tasks import InterleavedBatch
+
+        task = InterleavedBatch(
+            dataset_name="test",
+            data=pa.Table.from_pandas(
+                pd.DataFrame(
+                    [
+                        {
+                            "sample_id": "s1",
+                            "position": 0,
+                            "modality": "page_image",
+                            "content_type": "image/png",
+                            "text_content": None,
+                            "binary_content": b"png-bytes",
+                            "source_ref": None,
+                        }
+                    ]
+                )
+            ),
+        )
+        response = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="parsed page"), finish_reason="stop")],
+            usage=SimpleNamespace(prompt_tokens=5, completion_tokens=7),
+        )
+        stage = NemotronParseHTTPClientStage(
+            endpoint="http://localhost:8000/v1",
+            model_name="nemotron-parse",
+            model_path="/models/NVIDIA-Nemotron-Parse-v1.1",
+        )
+
+        with patch(
+            "nemo_curator.stages.interleaved.pdf.nemotron_parse.inference.AsyncOpenAIClient.query_model_response",
+            new_callable=AsyncMock,
+            return_value=response,
+        ):
+            result = stage.process(task)
+
+        assert result is not None
+        assert result.to_pandas().iloc[0]["text_content"] == "parsed page"
+        assert result._metadata["inference_server_endpoint"] == "http://localhost:8000/v1"
+        assert result._metadata["model_path"] == "/models/NVIDIA-Nemotron-Parse-v1.1"
+        assert result._metadata["proc_size"] == [2048, 1664]
+        assert stage._custom_metrics["total_prompt_tokens"] == 5.0
+        assert stage._custom_metrics["total_output_tokens"] == 7.0
+        assert "vllm_inference_time" not in stage._custom_metrics

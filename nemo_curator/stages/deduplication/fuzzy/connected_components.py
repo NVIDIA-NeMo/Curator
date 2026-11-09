@@ -59,6 +59,7 @@ class ConnectedComponentsStage(ProcessingStage[FileGroupTask, FileGroupTask], De
 
         self.name = self.__class__.__name__
         self.resources = Resources(cpus=1.0, gpus=1.0)
+        self.is_resumable = False  # connected components fans in -> not source-attributable
         self.batch_size = None
 
         # Handle output directory cleanup logic
@@ -76,6 +77,7 @@ class ConnectedComponentsStage(ProcessingStage[FileGroupTask, FileGroupTask], De
     def ray_stage_spec(self) -> dict[str, Any]:
         return {
             RayStageSpecKeys.IS_RAFT_ACTOR: True,
+            RayStageSpecKeys.USE_TASK_WEIGHTS: True,
         }
 
     def __get_2D_div(self, ngpus: int) -> tuple[int, int]:  # noqa: N802
@@ -135,7 +137,9 @@ class ConnectedComponentsStage(ProcessingStage[FileGroupTask, FileGroupTask], De
             edge_type_array=None,
             num_arrays=1,
             store_transposed=False,
-            symmetrize=False,
+            # GraphProperties declares a symmetric graph, but input edges are unidirectional,
+            # so symmetrize them during graph creation.
+            symmetrize=True,
             do_expensive_check=False,
             drop_multi_edges=True,
         )
@@ -173,7 +177,7 @@ class ConnectedComponentsStage(ProcessingStage[FileGroupTask, FileGroupTask], De
         input_files = []
         for task in tasks:
             input_files.extend(task.data)
-        output_file = self.output_fs.sep.join([self.output_path, f"{tasks[0]._uuid}.parquet"])
+        output_file = self.output_fs.sep.join([self.output_path, f"{tasks[0].task_id}.parquet"])
         edgelist_columns = [self.source_field, self.destination_field]
         dfs = []
         for input_file in input_files:
@@ -192,7 +196,6 @@ class ConnectedComponentsStage(ProcessingStage[FileGroupTask, FileGroupTask], De
         return [
             FileGroupTask(
                 dataset_name=tasks[0].dataset_name,
-                task_id=tasks[0].task_id,
                 data=[output_file],
                 _metadata={
                     "storage_options": self.write_kwargs.get("storage_options"),

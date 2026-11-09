@@ -22,7 +22,7 @@ from nemo_curator.tasks import DocumentBatch
 def _sample_batch() -> DocumentBatch:
     """Create a simple three-row batch for tests."""
     df = pd.DataFrame({"text": ["first", "second", "third"]})
-    return DocumentBatch(data=df, task_id="batch_1", dataset_name="test_ds")
+    return DocumentBatch(data=df, dataset_name="test_ds")
 
 
 class TestAddIdStage:
@@ -35,7 +35,7 @@ class TestAddIdStage:
         result = stage.process(batch)
         assert result is not None, "Stage returned None"
 
-        prefix = str(batch._uuid)
+        prefix = batch.task_id
         expected_ids = [f"{prefix}_{i}" for i in range(len(batch.to_pandas()))]
 
         # Check column creation and values
@@ -44,9 +44,6 @@ class TestAddIdStage:
         # Original data should remain unchanged
         pd.testing.assert_series_equal(batch.data["text"], result.data["text"])
 
-        # Task id should include the stage name
-        assert result.task_id == f"{batch.task_id}_{stage.name}"
-
     def test_io_spec(self) -> None:
         """The declared inputs/outputs match the contract."""
         stage = AddId(id_field="custom_id")
@@ -54,9 +51,16 @@ class TestAddIdStage:
         assert stage.outputs() == (["data"], ["custom_id"])
 
     def test_unique_ids_across_batches(self) -> None:
-        """Ensure IDs are unique across different batches."""
+        """Ensure IDs are unique across different batches.
+
+        AddId derives doc ids from ``batch.task_id``. In a pipeline the
+        executor adapter gives each batch a unique task_id (its id
+        path); simulate that here so the two batches don't collide.
+        """
         batch1 = _sample_batch()
         batch2 = _sample_batch()
+        batch1._set_task_id("", 0)
+        batch2._set_task_id("", 1)
 
         stage = AddId(id_field="id")
 
@@ -79,7 +83,7 @@ class TestAddIdStage:
 
         result = stage.process(batch)
 
-        prefix = f"custom_{batch._uuid}"
+        prefix = f"custom_{batch.task_id}"
         expected_ids = [f"{prefix}_{i}" for i in range(len(batch.to_pandas()))]
         assert list(result.data["uid"]) == expected_ids
 
@@ -101,7 +105,7 @@ class TestAddIdStage:
         stage = AddId(id_field="my_id", overwrite=True)
         result = stage.process(batch)
 
-        prefix = str(batch._uuid)
+        prefix = batch.task_id
         expected_ids = [f"{prefix}_{i}" for i in range(len(batch.to_pandas()))]
         assert list(result.data["my_id"]) == expected_ids
         # Ensure the old values are gone

@@ -26,6 +26,7 @@ import pytest
 with suppress(ImportError):
     from nemo_curator.stages.deduplication.semantic.identify_duplicates import IdentifyDuplicatesStage
     from nemo_curator.tasks import FileGroupTask
+    from nemo_curator.utils.performance_utils import StagePerfStats
 
 
 @pytest.mark.gpu
@@ -83,7 +84,7 @@ class TestIdentifyDuplicatesStage:
         }
         self.create_test_similarity_file(str(single_file), single_data)
 
-        task_single = FileGroupTask(task_id="single", dataset_name="test", data=[str(single_file)])
+        task_single = FileGroupTask(dataset_name="test", data=[str(single_file)])
         result_single = stage.process_batch([task_single])
         assert len(result_single) == 1
         result_df = pd.read_parquet(result_single[0].data[0])
@@ -98,7 +99,7 @@ class TestIdentifyDuplicatesStage:
         }
         self.create_test_similarity_file(str(no_similar_file), no_similar_data)
 
-        task_no_similar = FileGroupTask(task_id="no_similar", dataset_name="test", data=[str(no_similar_file)])
+        task_no_similar = FileGroupTask(dataset_name="test", data=[str(no_similar_file)])
         result_no_similar = stage.process_batch([task_no_similar])
         assert len(result_no_similar) == 1
         result_df = pd.read_parquet(result_no_similar[0].data[0])
@@ -115,7 +116,7 @@ class TestIdentifyDuplicatesStage:
 
         # Strict epsilon (0.01) - threshold = 0.99, should get 0 results
         stage_strict = IdentifyDuplicatesStage(output_path=str(output_dir), eps=0.01, verbose=True)
-        task_eps = FileGroupTask(task_id="eps_test", dataset_name="test", data=[str(eps_test_file)])
+        task_eps = FileGroupTask(dataset_name="test", data=[str(eps_test_file)])
         result_strict = stage_strict.process_batch([task_eps])
         result_df = pd.read_parquet(result_strict[0].data[0])
         assert len(result_df) == 0, "Strict epsilon should return 0 results"
@@ -140,7 +141,7 @@ class TestIdentifyDuplicatesStage:
         }
         self.create_test_similarity_file(str(basic_file), basic_data)
 
-        task_basic = FileGroupTask(task_id="basic", dataset_name="test", data=[str(basic_file)])
+        task_basic = FileGroupTask(dataset_name="test", data=[str(basic_file)])
         result_basic = stage.process_batch([task_basic])
         assert len(result_basic) == 1
         output_file = result_basic[0].data[0]
@@ -177,12 +178,17 @@ class TestIdentifyDuplicatesStage:
         )
 
         # Create tasks for each cluster
+        partitioning_perf = StagePerfStats(stage_name="pairwise_file_partitioning")
+        pairwise_perfs = [
+            StagePerfStats(stage_name="PairwiseCosineSimilarityStage", num_items_processed=i + 1)
+            for i in range(len(cluster_files))
+        ]
         tasks = []
         for i, file_path in enumerate(cluster_files):
             task = FileGroupTask(
-                task_id=f"test_batch_{i}",
                 dataset_name="test",
                 data=[file_path],
+                _stage_perf=[partitioning_perf, pairwise_perfs[i]],
             )
             tasks.append(task)
 
@@ -199,6 +205,7 @@ class TestIdentifyDuplicatesStage:
         # Check metadata
         assert "num_removed" in result_tasks[0]._metadata
         assert result_tasks[0]._metadata["num_removed"] == 20
+        assert result_tasks[0]._stage_perf == [partitioning_perf, *pairwise_perfs]
 
     def test_identify_duplicates_stage_custom_row_groups(self, tmp_path: Path) -> None:
         """Test custom row group configuration."""
@@ -221,7 +228,6 @@ class TestIdentifyDuplicatesStage:
         )
 
         task = FileGroupTask(
-            task_id="test_custom_row_groups",
             dataset_name="test",
             data=[str(input_file)],
         )

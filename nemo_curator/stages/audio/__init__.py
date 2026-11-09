@@ -12,56 +12,87 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""
-Audio curation stages for NeMo Curator.
+"""Audio curation stages for NeMo Curator.
 
-This module provides stages for processing and curating audio data,
-including ASR inference, quality assessment, ALM data preparation,
-audio preprocessing (mono conversion, segment concatenation, timestamp mapping),
-audio quality filtering (SIGMOS, UTMOS, bandwidth classification filtering),
-VAD segmentation, speaker diarization/separation,
-and advanced audio processing pipelines.
+Lazy attribute resolution (PEP 562). Eagerly importing every subpackage at
+package-init time pulls in heavy ML deps (e.g. NeMo ASR -> lightning.pytorch
+-> torchvision) that most consumers don't need. Worse, it makes importing
+*any* nemo_curator.stages.audio.* submodule fail when those heavy deps are
+broken in the environment. Resolving names on first attribute access fixes
+both: each name still imports lazily from the same submodule it used to,
+preserving the public API.
 """
 
-from nemo_curator.stages.audio.advanced_pipelines import AudioDataFilterStage
-from nemo_curator.stages.audio.alm import ALMDataBuilderStage, ALMDataOverlapStage
-from nemo_curator.stages.audio.common import (
-    GetAudioDurationStage,
-    ManifestReader,
-    ManifestWriterStage,
-    PreserveByValueStage,
-)
-from nemo_curator.stages.audio.filtering import (
-    BandFilterStage,
-    SIGMOSFilterStage,
-    UTMOSFilterStage,
-)
-from nemo_curator.stages.audio.postprocessing import (
-    TimestampMapperStage,
-)
-from nemo_curator.stages.audio.preprocessing import (
-    MonoConversionStage,
-    SegmentConcatenationStage,
-)
-from nemo_curator.stages.audio.segmentation import (
-    SpeakerSeparationStage,
-    VADSegmentationStage,
-)
+from importlib import import_module
+
+# Map each public name to the submodule that defines it. Adding/removing
+# a stage means updating this dict and `__all__` together.
+_LAZY = {
+    "ALMDataBuilderStage": "nemo_curator.stages.audio.alm",
+    "ALMDataOverlapStage": "nemo_curator.stages.audio.alm",
+    "AbbreviationConcatStage": "nemo_curator.stages.audio.text_filtering",
+    "AudioDataFilterStage": "nemo_curator.stages.audio.advanced_pipelines",
+    "BandFilterStage": "nemo_curator.stages.audio.filtering",
+    "ChannelCountStage": "nemo_curator.stages.audio.preprocessing",
+    "ChatterboxTTSStage": "nemo_curator.stages.audio.tts",
+    "CreateInitialManifestAudioFolderStage": "nemo_curator.stages.audio.common",
+    "GetAudioDurationStage": "nemo_curator.stages.audio.common",
+    "ManifestCheckpointStage": "nemo_curator.stages.audio.common",
+    "ManifestReader": "nemo_curator.stages.audio.common",
+    "ManifestWriterStage": "nemo_curator.stages.audio.common",
+    "NeMoSpeechAudioReader": "nemo_curator.stages.audio.io.nemo_speech_reader",
+    "NeMoSpeechWriterStage": "nemo_curator.stages.audio.io.nemo_speech_writer",
+    "MonoConversionStage": "nemo_curator.stages.audio.preprocessing",
+    "PreserveByValueConditionsStage": "nemo_curator.stages.audio.common",
+    "PreserveByValueStage": "nemo_curator.stages.audio.common",
+    "RegexSubstitutionStage": "nemo_curator.stages.audio.text_filtering",
+    "SampleRateFilterStage": "nemo_curator.stages.audio.preprocessing",
+    "SIGMOSFilterStage": "nemo_curator.stages.audio.filtering",
+    "SegmentConcatenationStage": "nemo_curator.stages.audio.preprocessing",
+    "SpeakerSeparationStage": "nemo_curator.stages.audio.segmentation",
+    "TimestampMapperStage": "nemo_curator.stages.audio.postprocessing",
+    "UTMOSFilterStage": "nemo_curator.stages.audio.filtering",
+    "VADSegmentationStage": "nemo_curator.stages.audio.segmentation",
+    "WhisperHallucinationStage": "nemo_curator.stages.audio.text_filtering",
+}
 
 __all__ = [
     "ALMDataBuilderStage",
     "ALMDataOverlapStage",
+    "AbbreviationConcatStage",
     "AudioDataFilterStage",
     "BandFilterStage",
+    "ChannelCountStage",
+    "ChatterboxTTSStage",
+    "CreateInitialManifestAudioFolderStage",
     "GetAudioDurationStage",
+    "ManifestCheckpointStage",
     "ManifestReader",
     "ManifestWriterStage",
     "MonoConversionStage",
+    "NeMoSpeechAudioReader",
+    "NeMoSpeechWriterStage",
+    "PreserveByValueConditionsStage",
     "PreserveByValueStage",
+    "RegexSubstitutionStage",
     "SIGMOSFilterStage",
+    "SampleRateFilterStage",
     "SegmentConcatenationStage",
     "SpeakerSeparationStage",
     "TimestampMapperStage",
     "UTMOSFilterStage",
     "VADSegmentationStage",
+    "WhisperHallucinationStage",
 ]
+
+
+def __getattr__(name: str) -> object:
+    target = _LAZY.get(name)
+    if target is None:
+        msg = f"module {__name__!r} has no attribute {name!r}"
+        raise AttributeError(msg)
+    return getattr(import_module(target), name)
+
+
+def __dir__() -> list[str]:
+    return __all__

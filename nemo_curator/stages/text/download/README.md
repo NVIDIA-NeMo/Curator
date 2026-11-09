@@ -112,7 +112,7 @@ results = pipeline.run(executor)
 
 - **Extractor is optional** - omit if iteration produces final format
 - **Each component is independent** - mix and match with existing ones
-- **Follow the data flow**: `_EmptyTask → FileGroupTask → DocumentBatch`
+- **Follow the data flow**: `EmptyTask → FileGroupTask → DocumentBatch`
 - **Use existing patterns** - see `common_crawl/` for complete example
 
 ## 📖 Examples

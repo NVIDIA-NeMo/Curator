@@ -86,7 +86,7 @@ class TestPreviewStage:
         video = Video(input_video=pathlib.Path("test.mp4"), metadata=video_metadata, clips=[clip])
 
         # Create video task
-        task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
+        task = VideoTask(dataset_name="test_dataset", data=video)
 
         stage = PreviewStage()
 
@@ -110,7 +110,7 @@ class TestPreviewStage:
 
         video = Video(input_video=pathlib.Path("test.mp4"), metadata=video_metadata, clips=[])
 
-        task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
+        task = VideoTask(dataset_name="test_dataset", data=video)
 
         stage = PreviewStage()
 
@@ -134,7 +134,7 @@ class TestPreviewStage:
 
         video = Video(input_video=pathlib.Path("test.mp4"), metadata=video_metadata, clips=[])
 
-        task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
+        task = VideoTask(dataset_name="test_dataset", data=video)
 
         stage = PreviewStage()
 
@@ -165,7 +165,7 @@ class TestPreviewStage:
             clips=[clip1, clip2],
         )
 
-        task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
+        task = VideoTask(dataset_name="test_dataset", data=video)
 
         stage = PreviewStage()
 

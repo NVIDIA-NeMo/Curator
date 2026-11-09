@@ -42,7 +42,7 @@ def _make_batch(texts: list[str], **extra_columns: list) -> DocumentBatch:
     data = {"text": texts}
     data.update(extra_columns)
     df = pd.DataFrame(data)
-    return DocumentBatch(data=df, dataset_name="test", task_id="1")
+    return DocumentBatch(data=df, dataset_name="test")
 
 
 def _seg_metadata(batch: DocumentBatch, row: int = 0) -> dict:
@@ -386,7 +386,7 @@ class TestPassthroughTranslatabilityFilter:
         tag_only = "<hr/>"
         json_blob = '{"tool":"lookup","payload":{"model":"DeepSeek V3"}}'
         df = pd.DataFrame({"_seg_segments": [code_block, tag_only, json_blob]})
-        batch = DocumentBatch(data=df, dataset_name="test", task_id="1")
+        batch = DocumentBatch(data=df, dataset_name="test")
 
         result = stage.process(batch)
         result_df = result.to_pandas()
@@ -421,7 +421,7 @@ class TestPassthroughTranslatabilityFilter:
         stage._initialized = True
 
         df = pd.DataFrame({"_seg_segments": ["Hello world"]})
-        batch = DocumentBatch(data=df, dataset_name="test", task_id="1")
+        batch = DocumentBatch(data=df, dataset_name="test")
         result = stage.process(batch)
         result_df = result.to_pandas()
 

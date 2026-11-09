@@ -27,7 +27,7 @@ from nemo_curator.tasks.interleaved import INTERLEAVED_SCHEMA
 
 def _make_task(metadata: dict | None = None) -> InterleavedBatch:
     table = pa.Table.from_pylist([], schema=INTERLEAVED_SCHEMA)
-    return InterleavedBatch(task_id="t", dataset_name="d", data=table, _metadata=metadata or {})
+    return InterleavedBatch(dataset_name="d", data=table, _metadata=metadata or {})
 
 
 # --- resolve_storage_options ---

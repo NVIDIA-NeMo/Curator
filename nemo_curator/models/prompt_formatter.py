@@ -21,6 +21,10 @@ from transformers import AutoProcessor
 from nemo_curator.models.nemotron_3_nano_omni import _HF_MODEL_ID as _NEMOTRON_3_NANO_OMNI_HF_ID
 from nemo_curator.models.nemotron_h_vl import _NEMOTRON_VARIANTS_INFO
 
+_RAW_VIDEO_NDIMS = 4
+_RAW_VIDEO_MAX_VALUE = 255.0
+_RAW_VIDEO_CHANNEL_COUNTS = {1, 3, 4}
+
 # Mapping of variants to their HuggingFace model IDs
 VARIANT_MAPPING: dict[str, str] = {
     "qwen2.5": "Qwen/Qwen2.5-VL-7B-Instruct",
@@ -88,7 +92,7 @@ class PromptFormatter:
     def _generate_qwen_inputs(
         self,
         prompt: str,
-        video_inputs: torch.Tensor | None,
+        video_inputs: torch.Tensor | np.ndarray | None,
         override_text_prompt: bool,
         fps: float = 2.0,
     ) -> dict[str, Any]:
@@ -102,7 +106,7 @@ class PromptFormatter:
             )
         video_data = video_inputs
         if video_inputs is not None:
-            video_np = self._convert_to_numpy(video_inputs)
+            video_np = self._format_raw_video_frames(video_inputs)
             num_frames = video_np.shape[0]
             video_data = (
                 video_np,
@@ -143,7 +147,7 @@ class PromptFormatter:
         # Handle video metadata (vLLM's Nemotron processor requires this tuple format)
         video_with_metadata = None
         if video_inputs is not None:
-            video_np = self._convert_to_numpy(video_inputs)
+            video_np = self._format_raw_video_frames(video_inputs)
             num_frames = video_np.shape[0]
             video_with_metadata = (
                 video_np,
@@ -155,22 +159,47 @@ class PromptFormatter:
             "multi_modal_data": {"video": video_with_metadata},
         }
 
-    def _convert_to_numpy(self, video_inputs: torch.Tensor | np.ndarray) -> np.ndarray:
-        """Convert video inputs to numpy array in (T, H, W, C) format."""
+    def _format_raw_video_frames(self, video_inputs: torch.Tensor | np.ndarray) -> np.ndarray:
+        """Format raw decoded frames for vLLM video inputs as a contiguous uint8 array.
+
+        Torch tensors are expected in decoder format (T, C, H, W). NumPy arrays
+        are expected to already be channel-last (T, H, W, C).
+        """
         if isinstance(video_inputs, torch.Tensor):
-            # Assume tensor is (T, C, H, W), convert to (T, H, W, C)
-            video_np = video_inputs.permute(0, 2, 3, 1).cpu().numpy()
+            # Decoder tensors are (T, C, H, W); vLLM processors expect (T, H, W, C).
+            video_tensor = video_inputs.detach().permute(0, 2, 3, 1).cpu()
+            if video_tensor.dtype == torch.bfloat16:
+                video_tensor = video_tensor.float()
+            video_np = video_tensor.numpy()
         else:
+            # NumPy callers must provide vLLM-ready channel-last frames.
             video_np = video_inputs
 
-        # Normalize to uint8 if needed
-        if video_np.dtype != np.uint8:
-            if np.issubdtype(video_np.dtype, np.floating) and video_np.max() <= 1.0:
-                video_np = (video_np * 255).astype(np.uint8)
-            else:
-                video_np = video_np.astype(np.uint8)
+        if video_np.ndim != _RAW_VIDEO_NDIMS:
+            msg = f"Expected raw video frames with 4 dimensions, got shape {video_np.shape}"
+            raise ValueError(msg)
 
-        return video_np
+        if not isinstance(video_inputs, torch.Tensor) and video_np.shape[-1] not in _RAW_VIDEO_CHANNEL_COUNTS:
+            msg = (
+                "Expected NumPy raw video frames in channel-last (T, H, W, C) format, "
+                f"got shape {video_np.shape}"
+            )
+            raise ValueError(msg)
+
+        if video_np.dtype == np.uint8:
+            return np.ascontiguousarray(video_np)
+
+        min_value = float(np.nanmin(video_np))
+        max_value = float(np.nanmax(video_np))
+        if min_value < 0:
+            msg = "Captioning expects raw video frames, but got normalized frames with negative values."
+            raise ValueError(msg)
+
+        if max_value > _RAW_VIDEO_MAX_VALUE:
+            msg = f"Raw video frame values exceed uint8 range: max={max_value}"
+            raise ValueError(msg)
+
+        return np.ascontiguousarray(video_np.astype(np.uint8))
 
     def _create_qwen_message(self, prompt: str) -> list[dict[str, Any]]:
         """Create a message for Qwen models."""

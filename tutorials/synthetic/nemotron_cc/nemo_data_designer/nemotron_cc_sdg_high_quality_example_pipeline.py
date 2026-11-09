@@ -147,8 +147,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--model-name",
         type=str,
-        default="meta/llama-3.3-70b-instruct",
-        help="Model identifier (e.g. 'meta/llama-3.3-70b-instruct')",
+        default="nvidia/nemotron-3-super-120b-a12b",
+        help="Model identifier (e.g. 'nvidia/nemotron-3-super-120b-a12b')",
     )
     parser.add_argument(
         "--model-alias",
@@ -229,10 +229,7 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
     try:
         from transformers import AutoTokenizer
     except ImportError as e:
-        msg = (
-            "The 'transformers' package is required for tokenizer support. "
-            "Install it with: pip install transformers"
-        )
+        msg = "The 'transformers' package is required for tokenizer support. Install it with: pip install transformers"
         raise ImportError(msg) from e
     args.tokenizer = AutoTokenizer.from_pretrained(args.tokenizer)
     args.hf_token = os.environ.get("HF_TOKEN", "")
@@ -371,14 +368,13 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
         input_batches = [input_data[i : i + batch_size] for i in range(0, len(input_data), batch_size)]
         input_tasks = []
         id_counter = 0
-        for i in range(num_input_tasks // len(input_batches)):
-            for j, batch in enumerate(input_batches):
+        for _ in range(num_input_tasks // len(input_batches)):
+            for batch in input_batches:
                 df = pd.DataFrame(batch)
                 df["id"] = [id_counter + k for k in range(len(df))]
                 id_counter += len(df)
                 input_task = DocumentBatch(
                     data=df,
-                    task_id=f"input_batch_{i * batch_size + j}",
                     dataset_name="data_for_sdg",
                 )
                 input_tasks.append(input_task)
@@ -398,7 +394,9 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
     ### Extract high quality data
     pipeline.add_stage(
         Filter(
-            filter_fn=lambda x: x is not None and not (isinstance(x, float) and math.isnan(x)) and int(x) > BUCKETED_RESULTS_THRESHOLD,
+            filter_fn=lambda x: x is not None
+            and not (isinstance(x, float) and math.isnan(x))
+            and int(x) > BUCKETED_RESULTS_THRESHOLD,
             filter_field="bucketed_results",
         ),
     )

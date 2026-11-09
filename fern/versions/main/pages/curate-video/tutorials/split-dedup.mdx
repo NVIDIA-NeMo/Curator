@@ -123,7 +123,6 @@ pipe.add_stage(
         input_path=INPUT_PARQUET,
         output_path=f"{OUTPUT_DIR}/kmeans",
         input_filetype="parquet",
-        embedding_dim=512,
         read_kwargs={"storage_options": None},
         write_kwargs={"storage_options": None},
     )

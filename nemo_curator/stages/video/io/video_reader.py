@@ -21,10 +21,11 @@ from loguru import logger
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.client_partitioning import ClientPartitioningStage
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
-from nemo_curator.tasks import _EmptyTask
+from nemo_curator.tasks import EmptyTask
 from nemo_curator.tasks.file_group import FileGroupTask
 from nemo_curator.tasks.video import Video, VideoTask
 from nemo_curator.utils.client_utils import FSPath, is_remote_url
+from nemo_curator.utils.decoder_utils import SoftwareCodecMissingError
 
 
 @dataclass
@@ -89,7 +90,6 @@ class VideoReaderStage(ProcessingStage[FileGroupTask, VideoTask]):
             raise ValueError(msg)
         video = Video(input_video=task.data[0])
         video_task = VideoTask(
-            task_id=f"{task.data[0]}_processed",
             dataset_name=task.dataset_name,
             data=video,
             _metadata=deepcopy(task._metadata),
@@ -172,6 +172,9 @@ class VideoReaderStage(ProcessingStage[FileGroupTask, VideoTask]):
         """
         try:
             video.populate_metadata()
+        except SoftwareCodecMissingError as e:
+            logger.error(f"Skipping {video.input_video}: software codec missing for this stage. {e}")
+            return False
         except Exception as e:  # noqa: BLE001
             logger.warning(f"Failed to extract metadata for {video.input_video}: {e}")
             return False
@@ -234,7 +237,7 @@ class VideoReaderStage(ProcessingStage[FileGroupTask, VideoTask]):
 
 
 @dataclass
-class VideoReader(CompositeStage[_EmptyTask, VideoTask]):
+class VideoReader(CompositeStage[EmptyTask, VideoTask]):
     """Composite stage that reads video files from storage and downloads/processes them.
 
     This stage combines FilePartitioningStage and VideoReaderStage into a single

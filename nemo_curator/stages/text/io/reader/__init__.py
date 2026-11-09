@@ -12,7 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from nemo_curator.stages.text.io.reader.jsonl import JsonlReader
-from nemo_curator.stages.text.io.reader.parquet import ParquetReader
+from importlib import import_module
 
-__all__ = ["JsonlReader", "ParquetReader"]
+_LAZY = {
+    "JsonlReader": ".jsonl",
+    "LanceReader": ".lance",
+    "ParquetReader": ".parquet",
+}
+
+__all__ = list(_LAZY)
+
+
+def __getattr__(name: str) -> object:
+    target = _LAZY.get(name)
+    if target is None:
+        msg = f"module {__name__!r} has no attribute {name!r}"
+        raise AttributeError(msg)
+    return getattr(import_module(target, package=__name__), name)

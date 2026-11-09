@@ -56,7 +56,6 @@ class BaseInterleavedAnnotatorStage(ProcessingStage[InterleavedBatch, Interleave
             return task
         out_df = self.annotate(task, df)
         return InterleavedBatch(
-            task_id=f"{task.task_id}_{self.name}",
             dataset_name=task.dataset_name,
             data=out_df.reset_index(drop=True),
             _metadata=task._metadata,
@@ -104,7 +103,6 @@ class BaseInterleavedFilterStage(BaseInterleavedAnnotatorStage, ABC):
         if not masked_indices:
             return
         temp_task = InterleavedBatch(
-            task_id=task.task_id,
             dataset_name=task.dataset_name,
             data=df.loc[masked_indices],
             _metadata=task._metadata,

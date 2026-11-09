@@ -166,7 +166,7 @@ class TestModelStage:
         stage.setup()
 
         df = self.create_sample_dataframe(4, include_seq_order=True)
-        batch = DocumentBatch(task_id="test_task", dataset_name="test_dataset", data=df)
+        batch = DocumentBatch(dataset_name="test_dataset", data=df)
 
         result = stage.process(batch).to_pandas()
 
@@ -185,7 +185,7 @@ class TestModelStage:
         stage.setup()
 
         df = self.create_sample_dataframe(4, include_seq_order=False)
-        batch = DocumentBatch(task_id="test_task", dataset_name="test_dataset", data=df)
+        batch = DocumentBatch(dataset_name="test_dataset", data=df)
 
         result = stage.process(batch).to_pandas()
 
@@ -200,7 +200,7 @@ class TestModelStage:
         stage.setup()
 
         df = self.create_sample_dataframe(4, include_seq_order=False)
-        batch = DocumentBatch(task_id="test_task", dataset_name="test_dataset", data=df)
+        batch = DocumentBatch(dataset_name="test_dataset", data=df)
 
         result = stage.process(batch).to_pandas()
 
@@ -213,7 +213,7 @@ class TestModelStage:
         stage.setup()
 
         df = self.create_sample_dataframe(4, include_seq_order=False)
-        batch = DocumentBatch(task_id="test_task", dataset_name="test_dataset", data=df)
+        batch = DocumentBatch(dataset_name="test_dataset", data=df)
 
         result = stage.process(batch).to_pandas()
 
@@ -239,7 +239,7 @@ class TestModelStage:
         stage.setup()
 
         df = self.create_sample_dataframe(2)
-        batch = DocumentBatch(task_id="test_task", dataset_name="test_dataset", data=df)
+        batch = DocumentBatch(dataset_name="test_dataset", data=df)
 
         _ = stage.process(batch)
 

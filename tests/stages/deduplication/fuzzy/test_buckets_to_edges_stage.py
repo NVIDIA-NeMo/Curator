@@ -81,7 +81,6 @@ def sample_files(tmp_path: Path, sample_bucket_data: tuple[pd.DataFrame, pd.Data
 def input_task(sample_files: list[str]) -> FileGroupTask:
     """Create a FileGroupTask from sample files."""
     return FileGroupTask(
-        task_id="test_task",
         dataset_name="test_buckets",
         data=sample_files,
         _metadata={"batch_id": 0, "total_batches": 1},
@@ -108,6 +107,7 @@ class TestBucketsToEdgesStage:
         assert len(output_task.data) == 1
         assert output_task.dataset_name == "test_buckets_edges"
         assert "storage_options" in output_task._metadata
+        assert output_task._metadata["task_weight"] > 0
 
         # Verify output file exists
         output_file = output_task.data[0]
@@ -163,7 +163,6 @@ class TestBucketsToEdgesStage:
         pq.write_table(table, file)
 
         input_task = FileGroupTask(
-            task_id="test_task_custom",
             dataset_name="test_buckets_custom",
             data=[str(file)],
             _metadata={"batch_id": 0, "total_batches": 1},
@@ -206,7 +205,6 @@ class TestBucketsToEdgesStage:
         pq.write_table(table, input_file)
 
         input_task = FileGroupTask(
-            task_id="empty_test",
             dataset_name="empty_buckets",
             data=[str(input_file)],
             _metadata={},
@@ -242,7 +240,6 @@ class TestBucketsToEdgesStage:
         pq.write_table(table, input_file)
 
         input_task = FileGroupTask(
-            task_id="single_doc_test",
             dataset_name="single_doc_buckets",
             data=[str(input_file)],
             _metadata={},
@@ -275,7 +272,6 @@ class TestBucketsToEdgesStage:
         pq.write_table(table, input_file)
 
         input_task = FileGroupTask(
-            task_id="large_bucket_test",
             dataset_name="large_buckets",
             data=[str(input_file)],
             _metadata={},

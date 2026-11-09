@@ -47,7 +47,6 @@ def image_batch_with_embeddings(rng: np.random.Generator, tmp_path: Path) -> Ima
     return ImageBatch(
         data=images,
         dataset_name="ds_test",
-        task_id="task_123",
         _metadata={"foo": "bar"},
         _stage_perf={"stage": 1.23},
     )
@@ -64,7 +63,6 @@ class TestConvertImageBatchToDocumentBatchStage:
         assert df["image_id"].tolist() == [img.image_id for img in image_batch_with_embeddings.data]
 
         # Metadata and identifiers preserved
-        assert out.task_id == f"{image_batch_with_embeddings.task_id}_{stage.name}"
         assert out.dataset_name == image_batch_with_embeddings.dataset_name
         assert out._metadata == image_batch_with_embeddings._metadata
         assert out._stage_perf == image_batch_with_embeddings._stage_perf
@@ -86,7 +84,7 @@ class TestConvertImageBatchToDocumentBatchStage:
 
     def test_empty_input_default_fields(self) -> None:
         stage = ConvertImageBatchToDocumentBatchStage()
-        empty_batch = ImageBatch(data=[], dataset_name="ds", task_id="t0")
+        empty_batch = ImageBatch(data=[], dataset_name="ds")
         out = stage.process(empty_batch)
         df = out.to_pandas()
         assert isinstance(out, DocumentBatch)
@@ -95,7 +93,7 @@ class TestConvertImageBatchToDocumentBatchStage:
 
     def test_empty_input_with_custom_fields(self) -> None:
         stage = ConvertImageBatchToDocumentBatchStage(fields=["image_id", "embedding", "image_path"])
-        empty_batch = ImageBatch(data=[], dataset_name="ds", task_id="t0")
+        empty_batch = ImageBatch(data=[], dataset_name="ds")
         out = stage.process(empty_batch)
         df = out.to_pandas()
         assert list(df.columns) == ["image_id", "embedding", "image_path"]
@@ -115,7 +113,7 @@ class TestConvertImageBatchToDocumentBatchStage:
                 image_data=rng.integers(0, 255, (8, 8, 3), dtype=np.uint8),
             ),
         ]
-        batch = ImageBatch(data=images, dataset_name="dsx", task_id="t1")
+        batch = ImageBatch(data=images, dataset_name="dsx")
         stage = ConvertImageBatchToDocumentBatchStage(fields=["image_id", "embedding"])  # 'embedding' may be missing
         out = stage.process(batch)
         df = out.to_pandas()

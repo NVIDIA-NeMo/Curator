@@ -59,6 +59,9 @@ class CommonCrawlWARCDownloader(DocumentDownloader):
             msg = "s5cmd is not installed. Please install it from https://github.com/peak/s5cmd"
             raise RuntimeError(msg)
 
+    def num_workers_per_node(self) -> int:
+        return 2
+
     def _get_output_filename(self, url: str) -> str:
         """Generate output filename from URL."""
         return urlparse(url).path[1:].replace("/", "-")
@@ -420,7 +423,6 @@ class CommonCrawlWARCReader(ProcessingStage[DocumentBatch, DocumentBatch]):
                     logger.info(f"Dropped {dropped_count}/{initial_count} rows due to failed WARC fetch.")
 
         return DocumentBatch(
-            task_id=batch.task_id,
             dataset_name=batch.dataset_name,
             data=df,
             _metadata=batch._metadata,

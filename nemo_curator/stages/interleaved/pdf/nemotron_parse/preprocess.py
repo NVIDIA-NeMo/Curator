@@ -215,6 +215,7 @@ class PDFPreprocessStage(ProcessingStage[FileGroupTask, InterleavedBatch]):
 
             page_images = self._render_with_timeout(pdf_bytes, file_name)
             if not page_images:
+                logger.warning(f"No pages rendered from {file_name}; skipping")
                 continue
 
             logger.debug(f"Rendered {file_name}: {len(page_images)} pages")
@@ -238,7 +239,6 @@ class PDFPreprocessStage(ProcessingStage[FileGroupTask, InterleavedBatch]):
 
         pages_df = pd.DataFrame(rows)
         return InterleavedBatch(
-            task_id=f"{task.task_id}_preprocessed",
             dataset_name=task.dataset_name,
             data=pa.Table.from_pandas(pages_df, preserve_index=False),
             _metadata=task._metadata,

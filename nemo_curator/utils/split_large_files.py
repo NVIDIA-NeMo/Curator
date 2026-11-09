@@ -50,6 +50,18 @@ def _join_out_path(output_path: str, filename: str, storage_options: dict[str, A
 
 
 def _split_table(table: pa.Table, target_size: int) -> list[pa.Table]:
+    if table.num_rows <= 1:
+        # A single row cannot be split any further, so return it as its own
+        # chunk even if it is larger than the target size. Without this base
+        # case, bisecting a one-row table produces the same one-row table
+        # forever and the recursion never terminates (RecursionError).
+        if table.num_rows == 1 and table.nbytes > target_size:
+            logger.warning(
+                "Single row ({} bytes) exceeds target ({} bytes); writing it as its own shard",
+                table.nbytes,
+                target_size,
+            )
+        return [table]
     # Split table into two chunks
     tables = [table.slice(0, table.num_rows // 2), table.slice(table.num_rows // 2, table.num_rows)]
     results = []
@@ -105,7 +117,11 @@ def split_parquet_file_by_size(
                 if row_group.nbytes > target_size_bytes:
                     # Flush any pending small row groups first to preserve order.
                     if row_groups_to_write:
-                        sub_table = row_groups_to_write[0] if len(row_groups_to_write) == 1 else pa.concat_tables(row_groups_to_write)
+                        sub_table = (
+                            row_groups_to_write[0]
+                            if len(row_groups_to_write) == 1
+                            else pa.concat_tables(row_groups_to_write)
+                        )
                         out_file = _join_out_path(output_path, f"{outfile_prefix}_{file_idx}{ext}", so)
                         _write_table_to_file(sub_table, out_file, so)
                         file_idx += 1
@@ -129,7 +145,9 @@ def split_parquet_file_by_size(
                     row_group_idx += 1
 
             if row_groups_to_write:
-                sub_table = row_groups_to_write[0] if len(row_groups_to_write) == 1 else pa.concat_tables(row_groups_to_write)
+                sub_table = (
+                    row_groups_to_write[0] if len(row_groups_to_write) == 1 else pa.concat_tables(row_groups_to_write)
+                )
                 out_file = _join_out_path(output_path, f"{outfile_prefix}_{file_idx}{ext}", so)
                 _write_table_to_file(sub_table, out_file, so)
                 file_idx += 1
@@ -207,7 +225,9 @@ def parse_args(args: argparse.ArgumentParser | None = None) -> argparse.Namespac
     parser.add_argument(
         "--input-path", type=str, required=True, help="Path to input file, or directory of files, to split"
     )
-    parser.add_argument("--file-type", type=str, required=True, help="Type of file to split", choices=["parquet", "jsonl"])
+    parser.add_argument(
+        "--file-type", type=str, required=True, help="Type of file to split", choices=["parquet", "jsonl"]
+    )
     parser.add_argument("--output-path", type=str, required=True, help="Output directory to store split files")
     parser.add_argument("--target-size-mb", type=int, default=128, help="Target size (in MB) of split output files")
     parser.add_argument(
@@ -242,7 +262,7 @@ def main(args: argparse.ArgumentParser | None = None) -> None:
                     target_size_mb=args.target_size_mb,
                     storage_options=storage_options,
                 )
-                    for f in files
+                for f in files
             ]
         )
 

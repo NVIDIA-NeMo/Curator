@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,6 +18,8 @@ from urllib.parse import urlparse
 from loguru import logger
 
 from nemo_curator.stages.text.download import DocumentDownloader
+
+from .constants import WIKIMEDIA_USER_AGENT
 
 
 class WikipediaDownloader(DocumentDownloader):
@@ -53,7 +55,7 @@ class WikipediaDownloader(DocumentDownloader):
             logger.info(f"Downloading {url} to {path}")
 
         # Download with wget
-        cmd = ["wget", url, "-O", path]
+        cmd = ["wget", f"--user-agent={WIKIMEDIA_USER_AGENT}", url, "-O", path]
 
         # Set up stdout/stderr handling
         if self._verbose:

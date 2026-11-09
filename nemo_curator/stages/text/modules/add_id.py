@@ -68,13 +68,12 @@ class AddId(ProcessingStage[DocumentBatch, DocumentBatch]):
                 msg = f"Column '{self.id_field}' already exists. Set overwrite=True to replace it."
                 raise ValueError(msg)
 
-        uuid_part = str(batch._uuid)
+        uuid_part = batch.task_id
         prefix = f"{self.id_prefix}_{uuid_part}" if self.id_prefix else uuid_part
 
         df[self.id_field] = [f"{prefix}_{i}" for i in range(len(df))]
         # Create output batch
         return DocumentBatch(
-            task_id=f"{batch.task_id}_{self.name}",
             dataset_name=batch.dataset_name,
             data=df,
             _metadata=batch._metadata,

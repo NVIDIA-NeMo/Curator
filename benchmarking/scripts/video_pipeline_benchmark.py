@@ -150,7 +150,11 @@ def main() -> int:
         help="Executor to use for pipeline execution",
     )
 
+    parser.add_argument(
+        "--save-tasks", action=argparse.BooleanOptionalAction, default=True, help="Save completed tasks in tasks.pkl"
+    )
     args = parser.parse_args()
+    save_tasks = vars(args).pop("save_tasks")
 
     logger.info("=== Video Pipeline Benchmark Starting ===")
     logger.info(f"Arguments: {vars(args)}")
@@ -165,7 +169,7 @@ def main() -> int:
     try:
         results = run_video_pipeline_benchmark(args)
     finally:
-        write_benchmark_results(results, args.benchmark_results_path)
+        write_benchmark_results(results, args.benchmark_results_path, save_tasks=save_tasks)
 
     # Return proper exit code based on success
     return 0 if results["metrics"]["is_success"] else 1

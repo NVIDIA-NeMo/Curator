@@ -17,13 +17,22 @@ from collections.abc import Callable
 from typing import Any
 
 from loguru import logger
-from ray.data import Dataset
+from ray.data import ActorPoolStrategy, Dataset, TaskPoolStrategy
 
 from nemo_curator.backends.base import BaseStageAdapter
-from nemo_curator.backends.utils import RayStageSpecKeys, get_worker_metadata_and_node_id
+from nemo_curator.backends.utils import (
+    RayStageSpecKeys,
+    get_configured_actor_pool_sizing_keys,
+    get_num_workers_for_nodes,
+    get_stage_num_workers_per_node,
+    get_worker_metadata_and_node_id,
+)
 from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.utils.ray_utils import get_alive_ray_node_count
 
-from .utils import calculate_concurrency_for_actors_for_stage, is_actor_stage
+from .utils import get_actor_compute_strategy_for_stage, is_actor_stage
+
+CURATOR_MANAGED_MAP_BATCHES_KWARGS = {"compute", "max_calls", "num_cpus", "num_gpus"}
 
 
 class RayDataStageAdapter(BaseStageAdapter):
@@ -37,8 +46,9 @@ class RayDataStageAdapter(BaseStageAdapter):
         c. Else we use tasks
     """
 
-    def __init__(self, stage: ProcessingStage):
+    def __init__(self, stage: ProcessingStage, ignore_head_node: bool = False):
         super().__init__(stage)
+        self.ignore_head_node = ignore_head_node
 
         self._batch_size = self.stage.batch_size
         if self._batch_size is None and self.stage.resources.gpus > 0:
@@ -71,7 +81,36 @@ class RayDataStageAdapter(BaseStageAdapter):
         # For Task objects, we return them in the 'item' column
         return {"item": results}
 
-    def process_dataset(self, dataset: Dataset, ignore_head_node: bool = False) -> Dataset:
+    def _build_resource_kwargs(self, ray_stage_spec: dict) -> dict[str, float]:
+        """Build num_cpus/num_gpus kwargs for map_batches.
+
+        Checks ray_stage_spec for RAY_NUM_CPUS first so stages can request a
+        different CPU reservation for Ray Data (e.g. cpus=1.0 to enable stage
+        fusion) without changing resources.cpus used by other executors.
+        """
+        kwargs: dict[str, float] = {}
+        ray_num_cpus = ray_stage_spec.get(RayStageSpecKeys.RAY_NUM_CPUS)
+        if ray_num_cpus is not None:
+            kwargs["num_cpus"] = ray_num_cpus  # type: ignore[reportArgumentType]
+        elif self.stage.resources.cpus > 0:
+            kwargs["num_cpus"] = self.stage.resources.cpus  # type: ignore[reportArgumentType]
+        if self.stage.resources.gpus > 0:
+            kwargs["num_gpus"] = self.stage.resources.gpus  # type: ignore[reportArgumentType]
+        return kwargs
+
+    def _total_pool_size(self) -> int | None:
+        """Return the cluster-wide pool size implied by num_workers_per_node()."""
+        num_workers_per_node = get_stage_num_workers_per_node(self.stage)
+        if num_workers_per_node is None:
+            return None
+
+        node_count = get_alive_ray_node_count(ignore_head_node=self.ignore_head_node)
+        if node_count <= 0:
+            msg = f"No alive Ray nodes available for num_workers_per_node sizing on stage {self.stage.name}."
+            raise ValueError(msg)
+        return get_num_workers_for_nodes(num_workers_per_node, node_count, self.stage.name)
+
+    def process_dataset(self, dataset: Dataset) -> Dataset:
         """Process a Ray Data dataset through this stage.
 
         Args:
@@ -80,43 +119,66 @@ class RayDataStageAdapter(BaseStageAdapter):
         Returns:
             Dataset: Processed Ray Data dataset
         """
+        ray_stage_spec = self.stage.ray_stage_spec()
+        stage_is_actor = ray_stage_spec.get(RayStageSpecKeys.IS_ACTOR_STAGE, is_actor_stage(self.stage))
+        total_pool_size = self._total_pool_size()
 
-        is_actor_stage_ = self.stage.ray_stage_spec().get(RayStageSpecKeys.IS_ACTOR_STAGE, is_actor_stage(self.stage))
-
-        if is_actor_stage_:
+        if stage_is_actor:
             map_batches_fn = create_actor_from_stage(self.stage)
-            concurrency_kwargs = {
-                "concurrency": calculate_concurrency_for_actors_for_stage(
-                    self.stage, ignore_head_node=ignore_head_node
-                ),
-            }
+            compute = (
+                ActorPoolStrategy(size=total_pool_size)
+                if total_pool_size is not None
+                else get_actor_compute_strategy_for_stage(self.stage)
+            )
+            map_batches_kwargs = {"compute": compute}
         else:
             map_batches_fn = create_task_from_stage(self.stage)
-            concurrency_kwargs = {"concurrency": None}
-            max_calls = self.stage.ray_stage_spec().get(RayStageSpecKeys.MAX_CALLS_PER_WORKER, None)
-            if max_calls is not None:
-                concurrency_kwargs["max_calls"] = max_calls
+            map_batches_kwargs = {}
 
-        if self.stage.resources.cpus > 0:
-            concurrency_kwargs["num_cpus"] = self.stage.resources.cpus  # type: ignore[reportArgumentType]
-        if self.stage.resources.gpus > 0:
-            concurrency_kwargs["num_gpus"] = self.stage.resources.gpus  # type: ignore[reportArgumentType]
+            actor_pool_sizing_keys = get_configured_actor_pool_sizing_keys(ray_stage_spec)
+            if actor_pool_sizing_keys:
+                logger.warning(
+                    f"Ignoring ray_stage_spec worker sizing keys {actor_pool_sizing_keys} "
+                    f"for Ray Data task stage {self.stage.name}; these keys only apply to actor stages."
+                )
+
+            num_workers = self.stage.num_workers()
+            pool_size = total_pool_size if total_pool_size is not None else num_workers
+            if pool_size is not None and pool_size > 0:
+                map_batches_kwargs["compute"] = TaskPoolStrategy(size=pool_size)
+
+            max_calls = ray_stage_spec.get(RayStageSpecKeys.MAX_CALLS_PER_WORKER)
+            if max_calls is not None:
+                map_batches_kwargs["max_calls"] = max_calls
+
+        map_batches_kwargs.update(self._build_resource_kwargs(ray_stage_spec))
 
         # Per-stage ray_remote_args (e.g. runtime_env with different pip versions per stage).
-        ray_remote_args = copy.deepcopy(self.stage.ray_stage_spec().get(RayStageSpecKeys.RAY_REMOTE_ARGS) or {})
+        ray_remote_args = copy.deepcopy(ray_stage_spec.get(RayStageSpecKeys.RAY_REMOTE_ARGS) or {})
         # If the stage declares runtime_env, forward it directly to Ray so Ray creates and
         # caches an isolated virtualenv for this stage's workers.
         if self.stage.runtime_env:
             ray_remote_args["runtime_env"] = self.stage.runtime_env
 
-        concurrency_kwargs.update(ray_remote_args)
+        colliding_ray_remote_args = sorted(CURATOR_MANAGED_MAP_BATCHES_KWARGS & ray_remote_args.keys())
+        if colliding_ray_remote_args:
+            msg = (
+                f"ray_remote_args for Ray Data stage {self.stage.name} must not override "
+                f"Curator-managed map_batches arguments {colliding_ray_remote_args}."
+            )
+            raise ValueError(msg)
 
-        # Calculate concurrency based on available resources
-        logger.info(f"{self.stage.__class__.__name__} {is_actor_stage_=} with {concurrency_kwargs=}")
+        if total_pool_size is not None:
+            map_batches_kwargs["scheduling_strategy"] = "SPREAD"
 
-        processed_dataset = dataset.map_batches(map_batches_fn, batch_size=self.batch_size, **concurrency_kwargs)  # type: ignore[reportArgumentType]
+        map_batches_kwargs.update(ray_remote_args)
 
-        if self.stage.ray_stage_spec().get(RayStageSpecKeys.IS_FANOUT_STAGE, False):
+        # Let Ray Data apply the selected compute strategy and resource requirements.
+        logger.info(f"{self.stage.__class__.__name__} stage_is_actor={stage_is_actor} with {map_batches_kwargs=}")
+
+        processed_dataset = dataset.map_batches(map_batches_fn, batch_size=self.batch_size, **map_batches_kwargs)  # type: ignore[reportArgumentType]
+
+        if ray_stage_spec.get(RayStageSpecKeys.IS_FANOUT_STAGE, False):
             processed_dataset = processed_dataset.repartition(target_num_rows_per_block=1)
 
         return processed_dataset

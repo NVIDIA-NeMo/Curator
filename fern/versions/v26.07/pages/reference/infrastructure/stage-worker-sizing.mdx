@@ -1,0 +1,329 @@
+---
+description: "Configure fixed and autoscaling worker pools and backend stage overrides for Ray Data, Xenna, and Ray Actor Pool executors"
+categories: ["reference"]
+tags: ["workers", "autoscaling", "ray-data", "xenna", "with-configuration"]
+personas: ["mle-focused", "admin-focused", "devops-focused"]
+difficulty: "advanced"
+content_type: "reference"
+modality: "universal"
+---
+
+# Stage Worker Sizing
+
+Use `ProcessingStage.num_workers()` or `stage.with_(num_workers=...)` to set a backend-neutral worker request. Use `ray_stage_spec` and `xenna_stage_spec` for backend-specific execution behavior.
+
+Worker count and per-worker resources are separate controls:
+
+- `num_workers()` controls how many workers the executor requests.
+- `Resources` controls CPU and GPU resources reserved for each worker.
+- `ray_stage_spec()` and `xenna_stage_spec()` provide backend-specific scheduling options.
+
+<Warning>
+A worker count does not create cluster capacity. Ensure the cluster can satisfy `worker count × per-worker Resources`, or use autoscaling bounds that fit the cluster.
+</Warning>
+
+## Common Stage for the Examples
+
+The examples on this page configure this minimal stage:
+
+```python
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.resources import Resources
+from nemo_curator.tasks import EmptyTask
+
+
+class PassthroughStage(ProcessingStage[EmptyTask, EmptyTask]):
+    name = "passthrough"
+    resources = Resources(cpus=1.0)
+
+    def process(self, task: EmptyTask) -> EmptyTask:
+        return task
+```
+
+## Worker Controls by Backend
+
+| Backend | `num_workers=N`, where `N > 0` | `num_workers=None` | Backend-specific alternative |
+| --- | --- | --- | --- |
+| Ray Data actor stage | Fixed `ActorPoolStrategy(size=N)` | Autoscaling actor pool, minimum 1 with no maximum by default | `min_workers`, `max_workers`, and `initial_workers` |
+| Ray Data task stage | Fixed `TaskPoolStrategy(size=N)` | Ray Data's default task scheduling; no explicit compute strategy | None; actor-pool sizing keys are ignored |
+| Xenna | Exactly `N` workers across the cluster | Xenna determines worker allocation | `num_workers_per_node` in `xenna_stage_spec` |
+| Ray Actor Pool | Requests `N`; warns and caps it if fewer actors fit available resources | Chooses the smaller of work batches and resource capacity | None |
+
+Ray Data and Ray Actor Pool also treat `0` and negative values as no fixed-size request. Xenna passes every non-`None` value to its stage specification, so use a positive count or `None`; do not use zero or negative Xenna worker counts.
+
+## Ray Data Worker Pools
+
+Ray Data uses actor stages for stateful setup or GPU-backed work and task stages for stateless work. A stage is an actor stage when either condition is true:
+
+- `ray_stage_spec[RayStageSpecKeys.IS_ACTOR_STAGE]` is explicitly `True`.
+- The stage overrides `setup()`, or requests both CPU and GPU resources.
+
+Set `IS_ACTOR_STAGE` to `False` to force task execution. Do this only when the stage does not depend on worker-local setup state.
+
+### Fixed actor pool
+
+Set a positive `num_workers` and mark the stage as an actor stage:
+
+```python
+from nemo_curator.backends.ray_data import RayDataExecutor
+from nemo_curator.backends.utils import RayStageSpecKeys
+
+stage = PassthroughStage().with_(
+    num_workers=4,
+    ray_stage_spec={
+        RayStageSpecKeys.IS_ACTOR_STAGE: True,
+    },
+)
+
+executor = RayDataExecutor()
+```
+
+Ray Data receives `ActorPoolStrategy(size=4)`. Cluster resources must be able to place four actors with the stage's per-worker `Resources`.
+
+### Autoscaling actor pool
+
+Use the exact `RayStageSpecKeys` members `MIN_WORKERS`, `MAX_WORKERS`, and `INITIAL_WORKERS`:
+
+```python
+from nemo_curator.backends.ray_data import RayDataExecutor
+from nemo_curator.backends.utils import RayStageSpecKeys
+
+stage = PassthroughStage().with_(
+    # Explicitly clear an inherited fixed worker count, if the stage has one.
+    num_workers=None,
+    ray_stage_spec={
+        RayStageSpecKeys.IS_ACTOR_STAGE: True,
+        RayStageSpecKeys.MIN_WORKERS: 2,
+        RayStageSpecKeys.MAX_WORKERS: 8,
+        RayStageSpecKeys.INITIAL_WORKERS: 4,
+    },
+)
+
+executor = RayDataExecutor()
+```
+
+Ray Data receives `ActorPoolStrategy(min_size=2, max_size=8, initial_size=4)`.
+
+| Actor-pool key | String value | Default when omitted | Meaning |
+| --- | --- | --- | --- |
+| `RayStageSpecKeys.MIN_WORKERS` | `"min_workers"` | `1` | Minimum live actors |
+| `RayStageSpecKeys.MAX_WORKERS` | `"max_workers"` | `None` | Maximum live actors; `None` leaves the pool unbounded by this setting |
+| `RayStageSpecKeys.INITIAL_WORKERS` | `"initial_workers"` | `None` | Initial pool size selected by Ray Data |
+
+Ray validates the relationship among the three values. For example, an initial size greater than the maximum raises `ValueError` with the stage name and the underlying actor-pool validation message.
+
+### Fixed task pool
+
+For a stateless task stage, a positive worker count selects `TaskPoolStrategy(size=N)`:
+
+```python
+from nemo_curator.backends.ray_data import RayDataExecutor
+from nemo_curator.backends.utils import RayStageSpecKeys
+
+stage = PassthroughStage().with_(
+    num_workers=6,
+    ray_stage_spec={
+        RayStageSpecKeys.IS_ACTOR_STAGE: False,
+    },
+)
+
+executor = RayDataExecutor()
+```
+
+Without a positive `num_workers`, a task stage does not set `compute`; Ray Data uses its default task scheduler.
+
+### Ray Data precedence and errors
+
+| Configuration | Result |
+| --- | --- |
+| Actor stage with positive `num_workers` only | Fixed actor pool |
+| Actor stage with positive `num_workers` plus min/max/initial keys | Fixed actor pool wins; Curator logs a warning listing ignored sizing keys |
+| Actor stage without positive `num_workers`, no sizing keys | Autoscaling actor pool with `min_size=1`, `max_size=None`, and `initial_size=None` |
+| Task stage with positive `num_workers` | Fixed task pool |
+| Task stage with min/max/initial keys | Keys are ignored; Curator logs a warning because they apply only to actor stages |
+| Invalid actor-pool bounds | Raises `ValueError` |
+| Unknown `ray_stage_spec` key | Raises `ValueError` while constructing the adapter |
+| `ray_remote_args` includes `compute`, `max_calls`, `num_cpus`, or `num_gpus` | Raises `ValueError`; these arguments are managed by Curator |
+
+## Xenna Worker Counts
+
+Xenna supports either a cluster-wide fixed count or a per-node count, but not both on one stage.
+
+<Tabs>
+<Tab title="Cluster-wide">
+
+Use the common worker hook. This example requests 12 workers in total, regardless of node count:
+
+```python
+from nemo_curator.backends.xenna import XennaExecutor
+
+stage = PassthroughStage().with_(num_workers=12)
+executor = XennaExecutor()
+```
+
+</Tab>
+<Tab title="Per node">
+
+Leave `num_workers()` unset and pass `num_workers_per_node` through the Xenna stage spec:
+
+```python
+from nemo_curator.backends.xenna import XennaExecutor
+
+stage = PassthroughStage().with_(
+    num_workers=None,
+    xenna_stage_spec={
+        "num_workers_per_node": 2,
+    },
+)
+executor = XennaExecutor()
+```
+
+</Tab>
+</Tabs>
+
+The following combinations are invalid:
+
+| Configuration | Behavior |
+| --- | --- |
+| `with_(xenna_stage_spec={"num_workers": 4})` | Raises `ValueError`; use `with_(num_workers=4)` |
+| A stage's `xenna_stage_spec()` returns `{"num_workers": 4}` | `XennaExecutor` raises `ValueError`; override `num_workers()` instead |
+| Any non-`None` `num_workers()` result and `num_workers_per_node` | `XennaExecutor` raises `ValueError`; choose one scope |
+
+When neither setting is present, Xenna controls worker allocation using stage resources and pipeline demand.
+
+## Ray Actor Pool Resource Capping
+
+`RayActorPoolExecutor` calculates how many actors fit from available CPU and GPU resources. A positive `num_workers()` is honored when it fits. If it exceeds capacity, Curator warns and caps the actor count instead of waiting for impossible placements.
+
+For example, a stage that requests `Resources(cpus=2.0)` and `num_workers=8` can place at most four actors when eight CPUs are available. Work batch count can further reduce the automatically chosen pool size when `num_workers` is unset.
+
+## Configure a Stage with `with_()`
+
+`with_()` deep-copies the stage and returns the configured copy. It can override portable properties and merge backend stage specs in one call:
+
+```python
+from nemo_curator.backends.utils import RayStageSpecKeys
+from nemo_curator.stages.resources import Resources
+
+configured = PassthroughStage().with_(
+    name="gpu_passthrough",
+    resources=Resources(cpus=2.0, gpus=1.0),
+    batch_size=8,
+    runtime_env={"pip": ["transformers==4.45.0"]},
+    num_workers=4,
+    ray_stage_spec={
+        RayStageSpecKeys.RAY_NUM_CPUS: 1.0,
+        RayStageSpecKeys.RAY_REMOTE_ARGS: {
+            "scheduling_strategy": "SPREAD",
+        },
+    },
+    xenna_stage_spec={
+        "worker_max_lifetime_m": 45,
+    },
+)
+```
+
+The original stage remains unchanged. `resources`, `batch_size`, `runtime_env`, and `num_workers` apply across supported executors. `ray_stage_spec` configures Ray Data and the Ray-specific flags used by Ray Actor Pool; `xenna_stage_spec` configures Xenna.
+
+### Shallow-merge behavior
+
+`ray_stage_spec` and `xenna_stage_spec` are shallow-merged with the stage's existing dictionary. New top-level keys are preserved, and user values replace existing values at the same top-level key. Nested dictionaries are replaced, not recursively merged.
+
+For example, if a stage returns:
+
+```python
+{
+    RayStageSpecKeys.MAX_WORKERS: 8,
+    RayStageSpecKeys.RAY_REMOTE_ARGS: {
+        "scheduling_strategy": "SPREAD",
+        "max_retries": 2,
+    },
+}
+```
+
+then this override:
+
+```python
+stage.with_(
+    ray_stage_spec={
+        RayStageSpecKeys.MAX_WORKERS: None,
+        RayStageSpecKeys.RAY_REMOTE_ARGS: {"max_retries": 0},
+    }
+)
+```
+
+produces a spec where `max_workers` is explicitly `None` and `ray_remote_args` contains only `{"max_retries": 0}`. The original `scheduling_strategy` nested key is not retained.
+
+### Omitted values and explicit `None`
+
+| Call | Meaning |
+| --- | --- |
+| Omit `num_workers` | Preserve the stage's current `num_workers()` result |
+| `with_(num_workers=None)` | Explicitly reset worker sizing to executor-controlled behavior |
+| Omit `ray_stage_spec` or pass `ray_stage_spec=None` | Do not modify the current Ray spec |
+| `ray_stage_spec={RayStageSpecKeys.MAX_WORKERS: None}` | Preserve the key with an explicit `None`, clearing an inherited maximum |
+| Omit `xenna_stage_spec` or pass `xenna_stage_spec=None` | Do not modify the current Xenna spec |
+| `xenna_stage_spec={"worker_max_lifetime_m": None}` | Preserve that key with an explicit `None` |
+| `runtime_env=None` | Do not modify the current environment |
+| `runtime_env={}` | Replace the current environment with an empty dictionary |
+
+Chained `with_()` calls merge against the already configured copy, so later values win while unrelated top-level keys from earlier calls remain.
+
+## Reserved `num_workers` Hook
+
+`num_workers` is reserved as a method on `ProcessingStage`. Do not define it as a dataclass field or ordinary stage attribute:
+
+```python
+class FixedStage(PassthroughStage):
+    def num_workers(self) -> int:
+        return 4
+```
+
+Alternatively, keep the class executor-neutral and use `stage.with_(num_workers=4)` at pipeline construction time. Defining `num_workers: int = 4` as a class or dataclass field raises `TypeError` when the subclass is created.
+
+Some built-in single-input and fanout stages override `num_workers()` to return `1`, preventing duplicate source enumeration. Use `with_(num_workers=None)` only when executor-controlled parallelism is safe for that stage's input contract.
+
+For ASR stages, the stage-local NeMo DataLoader setting is named `dataloader_num_workers`. When migrating an ASR constructor or configuration, rename the previous stage field `num_workers` to `dataloader_num_workers`; the common `num_workers()` hook is now reserved for Curator backend workers:
+
+```python
+from nemo_curator.stages.audio.tagging.inference.nemo_asr_align import NeMoASRAlignerStage
+
+asr_stage = NeMoASRAlignerStage(
+    dataloader_num_workers=10,
+).with_(num_workers=2)
+```
+
+## Resource Matching and Ray Data Fusion
+
+Ray Data may fuse compatible adjacent operators to avoid materializing and serializing intermediate blocks. Fusion is an optimizer decision, not a guaranteed stage behavior.
+
+Ray Data determines the per-worker reservation in this order:
+
+| Resource | Selection |
+| --- | --- |
+| CPU | `ray_stage_spec[RayStageSpecKeys.RAY_NUM_CPUS]` when non-`None`; otherwise `stage.resources.cpus` when positive |
+| GPU | `stage.resources.gpus` when positive |
+
+Use `RAY_NUM_CPUS` when Ray Data needs a different scheduling reservation from other executors:
+
+```python
+stage = PassthroughStage().with_(
+    resources=Resources(cpus=4.0),
+    ray_stage_spec={
+        RayStageSpecKeys.RAY_NUM_CPUS: 1.0,
+    },
+)
+```
+
+The CPU paths of `VideoFrameExtractionStage` and `ClipTranscodingStage` use a Ray Data reservation of `1.0` CPU by default while preserving their larger `Resources.cpus` values for Xenna. Matching the adjacent video operators' Ray Data reservations makes fusion possible and can remove inter-stage serialization overhead. Different resources, execution constraints, or optimizer decisions can still keep stages separate; inspect the Ray Data execution plan or dashboard instead of assuming fusion occurred.
+
+<Note>
+Lowering the scheduler reservation does not reduce the CPU work performed by FFmpeg. Confirm that the resulting concurrency does not oversubscribe the host.
+</Note>
+
+## Related References
+
+- [`ProcessingStage` API](/api/reference/api-reference/processing-stage)
+- [Pipeline Execution Backends](/reference/infra/execution-backends)
+- [Per-Stage Runtime Environments](/reference/infra/per-stage-runtime)
+- [`Resources` API](/api/reference/api-reference/resources)

@@ -14,7 +14,6 @@
 
 import os
 from dataclasses import dataclass, field
-from typing import Any
 
 import pyarrow as pa
 import pyarrow.dataset as ds
@@ -36,16 +35,15 @@ class ImageDuplicatesRemovalStage(ProcessingStage[ImageBatch, ImageBatch]):
         removal_parquets_dir: Directory containing Parquet files with image IDs to remove
         duplicate_id_field: Name of the column containing image IDs to remove
         verbose: Whether to log verbose output
-        num_workers_per_node: Number of workers per node for the stage. This is sometimes needed
-            to avoid OOM when concurrently running actors on one node loading the same removal
-            parquet files into memory.
+
+    To size the worker pool from the cluster's node count, configure
+    ``.with_(num_workers_per_node=...)``. Ray placement is best-effort, not a hard
+    per-node cap.
     """
 
     removal_parquets_dir: str
     duplicate_id_field: str = "id"
     verbose: bool = False
-    num_workers_per_node: int | None = None
-
     name: str = "image_dedup_filter"
 
     # Internal cache
@@ -58,7 +56,11 @@ class ImageDuplicatesRemovalStage(ProcessingStage[ImageBatch, ImageBatch]):
         return ["data"], []
 
     def setup(self, _worker_metadata=None) -> None:  # noqa: ANN001
-        removal_parquets = [os.path.join(self.removal_parquets_dir, f) for f in os.listdir(self.removal_parquets_dir) if f.endswith(".parquet")]
+        removal_parquets = [
+            os.path.join(self.removal_parquets_dir, f)
+            for f in os.listdir(self.removal_parquets_dir)
+            if f.endswith(".parquet")
+        ]
         if not removal_parquets:
             msg = f"No parquet files found in {self.removal_parquets_dir}"
             logger.error(msg)
@@ -73,9 +75,7 @@ class ImageDuplicatesRemovalStage(ProcessingStage[ImageBatch, ImageBatch]):
         self._ids_to_remove.update(ids_array)
 
         if self.verbose:
-            logger.debug(
-                f"Loaded {len(self._ids_to_remove)} IDs to remove from '{self.removal_parquets_dir}'"
-            )
+            logger.debug(f"Loaded {len(self._ids_to_remove)} IDs to remove from '{self.removal_parquets_dir}'")
 
     def process(self, task: ImageBatch) -> ImageBatch:
         original_count = len(task.data)
@@ -85,20 +85,12 @@ class ImageDuplicatesRemovalStage(ProcessingStage[ImageBatch, ImageBatch]):
         removed_count = original_count - len(filtered_images)
         if self.verbose:
             logger.debug(
-                f"Dedup filtering: kept {len(filtered_images)}/{original_count} images, "
-                f"removed {removed_count} by ID"
+                f"Dedup filtering: kept {len(filtered_images)}/{original_count} images, removed {removed_count} by ID"
             )
 
         return ImageBatch(
             data=filtered_images,
             dataset_name=task.dataset_name,
-            task_id=f"{task.task_id}_{self.name}",
             _metadata=task._metadata,
             _stage_perf=task._stage_perf,
         )
-
-    def xenna_stage_spec(self) -> dict[str, Any]:
-        spec: dict[str, Any] = {}
-        if self.num_workers_per_node is not None:
-            spec["num_workers_per_node"] = self.num_workers_per_node
-        return spec

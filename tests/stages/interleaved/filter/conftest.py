@@ -24,7 +24,7 @@ from nemo_curator.tasks.interleaved import INTERLEAVED_SCHEMA
 
 def interleaved_task(rows: list[dict]) -> InterleavedBatch:
     table = pa.Table.from_pylist(rows, schema=INTERLEAVED_SCHEMA)
-    return InterleavedBatch(task_id="test", dataset_name="d", data=table)
+    return InterleavedBatch(dataset_name="d", data=table)
 
 
 def make_jpeg_bytes(width: int = 32, height: int = 32, sharp: bool = True) -> bytes:

@@ -135,6 +135,9 @@ navigation:
               - page: Overview
                 path: ./main/pages/about/release-notes/index.mdx
                 slug: ""
+              - page: Migration Checklist
+                path: ./main/pages/about/release-notes/migration-checklist.mdx
+                slug: migration-checklist
               - page: Migration FAQ
                 path: ./main/pages/about/release-notes/migration-faq.mdx
                 slug: migration-faq
@@ -168,9 +171,24 @@ navigation:
           - page: Overview
             path: ./main/pages/curate-text/index.mdx
             slug: ""
-          - page: Tutorials
-            path: ./main/pages/curate-text/tutorials/index.mdx
+          - section: Tutorials
             slug: tutorials
+            contents:
+              - page: Overview
+                path: ./main/pages/curate-text/tutorials/index.mdx
+                slug: ""
+              - page: LLM Judge Runner
+                path: ./main/pages/curate-text/tutorials/llm-judge/index.mdx
+                slug: llm-judge
+              - section: Nemotron-CLIMB
+                slug: nemotron-climb
+                contents:
+                  - page: Recipe
+                    path: ./main/pages/curate-text/tutorials/nemotron-climb/index.mdx
+                    slug: ""
+                  - page: Stage Reference
+                    path: ./main/pages/curate-text/tutorials/nemotron-climb/stages.mdx
+                    slug: stages
           - section: Load Data
             slug: load-data
             contents:
@@ -267,6 +285,9 @@ navigation:
                   - page: Heuristic Filtering
                     path: ./main/pages/curate-text/process-data/quality-assessment/heuristic.mdx
                     slug: heuristic
+                  - page: LLM Judge Workflow
+                    path: ./main/pages/curate-text/process-data/quality-assessment/llm-judge.mdx
+                    slug: llm-judge
               - section: Specialized Processing
                 slug: specialized-processing
                 contents:
@@ -309,6 +330,15 @@ navigation:
               - page: Multilingual Q&A
                 path: ./main/pages/curate-text/synthetic/multilingual-qa.mdx
                 slug: multilingual-qa
+              - section: Nemotron OCR
+                slug: nemotron-ocr
+                contents:
+                  - page: Overview
+                    path: ./main/pages/curate-text/synthetic/nemotron-ocr/index.mdx
+                    slug: ""
+                  - page: Tutorial
+                    path: ./main/pages/curate-text/synthetic/nemotron-ocr/tutorial.mdx
+                    slug: tutorial
               - section: Nemotron-CC
                 slug: nemotron-cc
                 contents:
@@ -441,6 +471,9 @@ navigation:
               - page: Captions Preview
                 path: ./main/pages/curate-video/process-data/captions-preview.mdx
                 slug: captions-preview
+              - page: Caption Quality Evaluation
+                path: ./main/pages/curate-video/process-data/caption-evaluation.mdx
+                slug: caption-evaluation
           - page: Save and Export
             path: ./main/pages/curate-video/save-export.mdx
             slug: save-export
@@ -462,6 +495,9 @@ navigation:
               - page: ALM Tutorial
                 path: ./main/pages/curate-audio/tutorials/alm.mdx
                 slug: alm
+              - page: Long-Form Audio Cutting for ALM Pretraining
+                path: ./main/pages/curate-audio/tutorials/audio-pretrain.mdx
+                slug: audio-pretrain
               - page: ReadSpeech Tutorial
                 path: ./main/pages/curate-audio/tutorials/readspeech.mdx
                 slug: readspeech
@@ -486,6 +522,9 @@ navigation:
               - page: Overview
                 path: ./main/pages/curate-audio/process-data/index.mdx
                 slug: ""
+              - page: Sound Event Detection
+                path: ./main/pages/curate-audio/process-data/sound-event-detection.mdx
+                slug: sound-event-detection
               - section: ASR Inference
                 slug: asr-inference
                 contents:
@@ -579,12 +618,12 @@ navigation:
               - page: Requirements
                 path: ./main/pages/admin/deployment/requirements.mdx
                 slug: requirements
-              - page: Deploy Image Curation on Slurm
-                path: ./main/pages/admin/deployment/slurm/image.mdx
-                slug: slurm-image
               - page: Multi-Node Ray on Slurm
                 path: ./main/pages/admin/deployment/slurm/multi-node-ray.mdx
                 slug: slurm-multi-node-ray
+              - page: SLURM Job Arrays
+                path: ./main/pages/admin/deployment/slurm/arrays.mdx
+                slug: slurm-arrays
           - section: Integrations
             slug: integrations
             contents:
@@ -618,6 +657,9 @@ navigation:
               - page: Execution Backends
                 path: ./main/pages/reference/infrastructure/execution-backends.mdx
                 slug: execution-backends
+              - page: Stage Worker Sizing
+                path: ./main/pages/reference/infrastructure/stage-worker-sizing.mdx
+                slug: stage-worker-sizing
               - page: Per-Stage Runtime Environments
                 path: ./main/pages/reference/infrastructure/per-stage-runtime.mdx
                 slug: per-stage-runtime
@@ -666,9 +708,6 @@ navigation:
               - page: XennaExecutor
                 path: ./main/pages/api-reference/executors/xenna-executor.mdx
                 slug: xenna-executor
-              - page: Experimental
-                path: ./main/pages/api-reference/executors/experimental.mdx
-                slug: experimental
           - page: Resources
             path: ./main/pages/api-reference/resources.mdx
             slug: resources

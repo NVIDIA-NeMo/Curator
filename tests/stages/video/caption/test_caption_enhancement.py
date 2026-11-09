@@ -162,7 +162,7 @@ class TestCaptionEnhancementStage:
         clip2.windows = [window3]
 
         video.clips = [clip1, clip2]
-        return VideoTask(task_id="test", dataset_name="test", data=video)
+        return VideoTask(dataset_name="test", data=video)
 
     def _create_test_video_task_empty_clips(self) -> VideoTask:
         """Create a test VideoTask with empty clips."""
@@ -174,7 +174,7 @@ class TestCaptionEnhancementStage:
         clip = Clip(uuid=uuid4(), source_video="test.mp4", span=(0.0, 10.0), buffer=b"test_buffer")
         clip.windows = []
         video.clips = [clip]
-        return VideoTask(task_id="test", dataset_name="test", data=video)
+        return VideoTask(dataset_name="test", data=video)
 
     def _create_test_video_task_no_captions(self) -> VideoTask:
         """Create a test VideoTask with windows but no captions."""
@@ -191,7 +191,7 @@ class TestCaptionEnhancementStage:
         clip.windows = [window]
 
         video.clips = [clip]
-        return VideoTask(task_id="test", dataset_name="test", data=video)
+        return VideoTask(dataset_name="test", data=video)
 
     @patch("nemo_curator.stages.video.caption.caption_enhancement.logger")
     def test_process_with_valid_captions(self, _mock_logger: Mock):  # noqa: PT019
@@ -305,7 +305,7 @@ class TestCaptionEnhancementStage:
             clip.windows.append(window)
 
         video.clips = [clip]
-        task = VideoTask(task_id="test", dataset_name="test", data=video)
+        task = VideoTask(dataset_name="test", data=video)
 
         self.stage.process(task)
 
@@ -351,7 +351,7 @@ class TestCaptionEnhancementStage:
         window.enhanced_caption = {}
         clip.windows = [window]
         video.clips = [clip]
-        task = VideoTask(task_id="test", dataset_name="test", data=video)
+        task = VideoTask(dataset_name="test", data=video)
 
         self.stage.process(task)
 
@@ -424,7 +424,7 @@ def _make_task_with_captions(captions: list[str], task_id: str = "enhancement-te
     clip.windows = windows
     video = Video(input_video=Path(task_id + ".mp4"))
     video.clips = [clip]
-    return VideoTask(task_id=task_id, dataset_name="integration", data=video)
+    return VideoTask(dataset_name="integration", data=video)
 
 
 @pytest.mark.gpu

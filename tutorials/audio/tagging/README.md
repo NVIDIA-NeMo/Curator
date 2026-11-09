@@ -95,12 +95,7 @@ source .venv/bin/activate
 
 ### Prerequisites
 
-- **System packages**: `ffmpeg` must be installed for audio resampling and format conversion:
-  ```bash
-  # Ubuntu / Debian
-  sudo apt-get install -y ffmpeg
-
-  ```
+- **System packages**: A full-featured `ffmpeg` command must be on `PATH` for audio resampling and format conversion. The audio extras do not install it. Follow the [audio system dependency instructions](../README.md#system-dependencies) for a no-sudo Conda/Micromamba setup, and make it available on every executor node before starting Ray or Xenna.
 - **GPU**: Required for diarization (PyAnnote), VAD (Pyannote), ASR alignment (NeMo)
 - **HuggingFace Token**: Required for PyAnnote diarization model access. See [HuggingFace Access](#huggingface-access) for setup instructions.
 

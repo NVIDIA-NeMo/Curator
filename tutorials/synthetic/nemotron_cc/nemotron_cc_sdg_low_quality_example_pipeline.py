@@ -88,7 +88,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--model-name",
         type=str,
-        default="meta/llama-3.3-70b-instruct",
+        default="nvidia/nemotron-3-super-120b-a12b",
         help="Name of the model to use for generation",
     )
     parser.add_argument(
@@ -272,11 +272,10 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
         batch_size = 5
         input_batches = [input_data[i : i + batch_size] for i in range(0, len(input_data), batch_size)]
         input_tasks = []
-        for i, batch in enumerate(input_batches):
+        for batch in input_batches:
             df = pd.DataFrame(batch)
             input_task = DocumentBatch(
                 data=df,
-                task_id=f"input_batch_{i}",
                 dataset_name="data_for_sdg",
             )
             input_tasks.append(input_task)

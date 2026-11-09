@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -19,6 +19,7 @@ import pytest
 import requests
 from bs4 import BeautifulSoup
 
+from nemo_curator.stages.text.download.wikipedia.constants import WIKIMEDIA_REQUEST_HEADERS
 from nemo_curator.stages.text.download.wikipedia.url_generation import WikipediaUrlGenerator
 
 
@@ -97,6 +98,90 @@ class TestWikipediaUrlGenerator:
             "https://dumps.wikimedia.org/enwiki/20230501/enwiki-20230501-pages-articles-multistream2.xml.bz2",
         ]
         assert sorted(urls) == sorted(expected_urls)
+        for call in mock_get.call_args_list:
+            assert call.kwargs["headers"] == WIKIMEDIA_REQUEST_HEADERS
+
+    @pytest.mark.parametrize(
+        "candidate_failure",
+        [
+            pytest.param(404, id="missing-status"),
+            pytest.param(408, id="request-timeout-status"),
+            pytest.param(429, id="rate-limited"),
+            pytest.param(500, id="server-error"),
+            pytest.param(503, id="service-unavailable"),
+            pytest.param(requests.Timeout, id="request-timeout"),
+            pytest.param(requests.ConnectionError, id="connection-error"),
+            pytest.param(requests.exceptions.ChunkedEncodingError, id="truncated-response"),
+            pytest.param(b"not JSON", id="invalid-json"),
+            pytest.param(b"\xff", id="invalid-utf8"),
+        ],
+    )
+    @patch("requests.get")
+    def test_get_latest_dump_date_falls_back_from_unavailable_candidate(
+        self,
+        mock_get: Mock,
+        candidate_failure: int | bytes | type[requests.RequestException],
+    ):
+        """An unavailable newest candidate falls back to an older completed dump."""
+        completed_dump = {
+            "jobs": {
+                "articlesmultistreamdump": {
+                    "status": "done",
+                    "files": {"enwiki-20230501-pages-articles-multistream1.xml.bz2": {}},
+                }
+            }
+        }
+
+        def mock_get_side_effect(url: str, **kwargs) -> Mock:  # noqa: ARG001
+            response = Mock(status_code=200)
+            if url == "https://dumps.wikimedia.org/enwiki":
+                response.content = b'<a href="20230501/">20230501/</a><a href="20230601/">20230601/</a>'
+            elif url.endswith("20230601/dumpstatus.json"):
+                if isinstance(candidate_failure, type):
+                    error_msg = "Temporary request failure"
+                    raise candidate_failure(error_msg)
+                if isinstance(candidate_failure, int):
+                    response.status_code = candidate_failure
+                    if candidate_failure != requests.codes.not_found:
+                        response.raise_for_status.side_effect = requests.HTTPError(
+                            f"HTTP {candidate_failure}", response=response
+                        )
+                else:
+                    response.content = candidate_failure
+            elif url.endswith("20230501/dumpstatus.json"):
+                response.content = json.dumps(completed_dump).encode("utf-8")
+            else:
+                error_msg = f"Unexpected URL: {url}"
+                raise ValueError(error_msg)
+            return response
+
+        mock_get.side_effect = mock_get_side_effect
+
+        urls = WikipediaUrlGenerator(language="en").generate_urls()
+
+        assert urls == [
+            "https://dumps.wikimedia.org/enwiki/20230501/enwiki-20230501-pages-articles-multistream1.xml.bz2"
+        ]
+
+    @patch("requests.get")
+    def test_get_latest_dump_date_http_error(self, mock_get: Mock):
+        """HTTP errors from the dump index are surfaced instead of parsed as HTML."""
+        mock_response = Mock()
+        mock_response.raise_for_status.side_effect = requests.HTTPError("403 Client Error")
+        mock_get.return_value = mock_response
+
+        with pytest.raises(requests.HTTPError, match="403 Client Error"):
+            WikipediaUrlGenerator(language="en").generate_urls()
+
+    @patch("requests.get")
+    def test_get_latest_dump_date_no_completed_dump(self, mock_get: Mock):
+        """A clear error is raised when the index has no completed dumps."""
+        mock_response = Mock(status_code=200)
+        mock_response.content = b'<a href="latest/">latest/</a>'
+        mock_get.return_value = mock_response
+
+        with pytest.raises(ValueError, match="Unable to find a completed Wikipedia dump"):
+            WikipediaUrlGenerator(language="en").generate_urls()
 
     @patch("requests.get")
     def test_get_wikipedia_urls_with_specified_date(self, mock_get: Mock):
@@ -368,4 +453,8 @@ class TestWikipediaUrlGeneratorIntegration:
             "https://dumps.wikimedia.org/eswiki/20230301/eswiki-20230301-pages-articles-multistream2.xml.bz2",
         ]
         assert sorted(urls) == sorted(expected_urls)
-        mock_get.assert_called_once_with("https://dumps.wikimedia.org/eswiki/20230301/dumpstatus.json", timeout=30)
+        mock_get.assert_called_once_with(
+            "https://dumps.wikimedia.org/eswiki/20230301/dumpstatus.json",
+            headers=WIKIMEDIA_REQUEST_HEADERS,
+            timeout=30,
+        )

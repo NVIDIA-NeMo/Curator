@@ -1,0 +1,1442 @@
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Tests for the generic ``ASRStage`` exercised against a mock ``ASRAdapter`` (no real model load)."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import TYPE_CHECKING
+from unittest.mock import MagicMock, patch
+
+import numpy as np
+import pytest
+import soundfile as sf
+import torch
+
+from nemo_curator.backends.base import BaseStageAdapter
+from nemo_curator.backends.ray_data.adapter import RayDataStageAdapter
+from nemo_curator.models.asr.base import ASRResult
+from nemo_curator.models.asr.faster_whisper import FasterWhisperASR
+from nemo_curator.stages.audio._agent._agent_ready import AgentReady, IOSpec, StageContract
+from nemo_curator.stages.audio.inference.asr.stage import ASRStage
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.resources import Resources
+from nemo_curator.tasks import AudioTask
+from tests.stages.audio.inference import review_helpers as rh
+
+if TYPE_CHECKING:
+    from typing import Any
+
+_QWEN_ADAPTER_TARGET = "nemo_curator.models.asr.qwen_omni.QwenOmniASRAdapter"
+_FASTER_WHISPER_ADAPTER_TARGET = "nemo_curator.models.asr.faster_whisper.FasterWhisperASR"
+_SR = 16000
+_RESAMPLED_AUDIO_PATH = "/data/resampled.wav"
+
+
+def _make_stage(  # noqa: PLR0913
+    *,
+    default_language: str | None = None,
+    batch_size: int = 32,
+    max_audio_sec_per_actor: float = 2400.0,
+    local_bucketing: bool = False,
+    target_sample_rate: int = _SR,
+    max_inference_duration_s: float = 2400.0,
+    supported_language_codes: list[str] | None = None,
+    skip_if_output_exists: bool = False,
+    waveform_key: str | None = None,
+    keep_waveform: bool = False,
+    extras_key: str | None = None,
+    fail_on_audio_error: bool = False,
+) -> ASRStage:
+    """Build an ASRStage wired to a mock adapter (no real model load)."""
+    stage = ASRStage(
+        adapter_target=_QWEN_ADAPTER_TARGET,
+        model_id="mock/qwen-omni",
+        pred_text_key="pred_text",
+        default_language=default_language,
+        batch_size=batch_size,
+        max_audio_sec_per_actor=max_audio_sec_per_actor,
+        local_bucketing=local_bucketing,
+        target_sample_rate=target_sample_rate,
+        max_inference_duration_s=max_inference_duration_s,
+        supported_language_codes=supported_language_codes,
+        skip_if_output_exists=skip_if_output_exists,
+        waveform_key=waveform_key,
+        keep_waveform=keep_waveform,
+        extras_key=extras_key,
+        fail_on_audio_error=fail_on_audio_error,
+    )
+    mock_adapter = MagicMock()
+    stage._adapter = mock_adapter
+    stage._load_audio = MagicMock(  # type: ignore[method-assign]
+        return_value=(np.zeros(_SR, dtype=np.float32), _SR)
+    )
+    return stage
+
+
+def _make_task(source_lang: str | None = "en") -> AudioTask:
+    data: dict[str, object] = {"resampled_audio_filepath": _RESAMPLED_AUDIO_PATH}
+    if source_lang is not None:
+        data["source_lang"] = source_lang
+    return AudioTask(data=data)
+
+
+def _make_waveform_task(
+    *,
+    waveform: np.ndarray | None = None,
+    sample_rate: int = _SR,
+    source_lang: str | None = "en",
+) -> AudioTask:
+    data: dict[str, object] = {
+        "waveform": np.zeros(_SR, dtype=np.float32) if waveform is None else waveform,
+        "sampling_rate": sample_rate,
+    }
+    if source_lang is not None:
+        data["source_lang"] = source_lang
+    return AudioTask(data=data)
+
+
+def test_process_raises_not_implemented() -> None:
+    stage = _make_stage()
+    with pytest.raises(NotImplementedError):
+        stage.process(_make_task())
+
+
+def test_empty_batch_does_not_create_an_unparented_sentinel() -> None:
+    stage = _make_stage()
+    assert stage.process_batch([]) == []
+
+
+def test_basic_inference() -> None:
+    stage = _make_stage()
+    stage._adapter.transcribe_batch.return_value = [
+        ASRResult(text="hello world"),
+    ]
+
+    results = stage.process_batch([_make_task()])
+
+    assert results[0].data["pred_text"] == "hello world"
+    assert results[0].data == {
+        "resampled_audio_filepath": _RESAMPLED_AUDIO_PATH,
+        "source_lang": "en",
+        "pred_text": "hello world",
+    }
+    inferred_item = stage._adapter.transcribe_batch.call_args.args[0][0]
+    assert set(inferred_item) == {
+        "waveform",
+        "sample_rate",
+        "audio_seconds",
+        "language",
+        "language_code",
+        "task_id",
+    }
+    assert inferred_item["waveform"].shape == (_SR,)
+    assert inferred_item["sample_rate"] == _SR
+    assert inferred_item["audio_seconds"] == 1.0
+
+
+def test_adapter_not_initialized_raises() -> None:
+    stage = ASRStage(
+        adapter_target=_QWEN_ADAPTER_TARGET,
+        model_id="mock/model",
+        max_audio_sec_per_actor=2400.0,
+    )
+    with pytest.raises(RuntimeError, match="setup"):
+        stage.process_batch([_make_task()])
+
+
+def test_multi_task_batch_preserves_order() -> None:
+    stage = _make_stage()
+    stage._adapter.transcribe_batch.return_value = [
+        ASRResult(text="text1"),
+        ASRResult(text="text2"),
+    ]
+    results = stage.process_batch([_make_task(), _make_task()])
+
+    assert results[0].data["pred_text"] == "text1"
+    assert results[1].data["pred_text"] == "text2"
+
+
+@pytest.mark.parametrize("num_tasks", [0, 1, 2])
+def test_ray_data_numpy_batch_preserves_tasks_and_predictions(num_tasks: int) -> None:
+    stage = _make_stage()
+    tasks = np.array([_make_task() for _ in range(num_tasks)], dtype=object)
+    predictions = [f"text{index}" for index in range(num_tasks)]
+    stage._adapter.transcribe_batch.return_value = [ASRResult(text=text) for text in predictions]
+    for index, task in enumerate(tasks):
+        task.task_id = f"source-{index}"
+
+    results = RayDataStageAdapter(stage)._process_batch_internal({"item": tasks})["item"]
+
+    assert [task.data["pred_text"] for task in results] == predictions
+    assert all(result is task for result, task in zip(results, tasks, strict=True))
+    assert [task.task_id for task in results] == [f"source-{index}_0" for index in range(num_tasks)]
+    if num_tasks == 0:
+        stage._adapter.transcribe_batch.assert_not_called()
+        stage._load_audio.assert_not_called()
+
+
+def test_local_bucketing_groups_all_rows_and_restores_task_order() -> None:
+    stage = _make_stage(
+        waveform_key="waveform",
+        keep_waveform=True,
+        max_audio_sec_per_actor=50.0,
+        max_inference_duration_s=50.0,
+        local_bucketing=True,
+    )
+    tasks = [
+        _make_waveform_task(waveform=np.zeros(5 * _SR, dtype=np.float32)),
+        _make_waveform_task(waveform=np.zeros(40 * _SR, dtype=np.float32)),
+        _make_waveform_task(waveform=np.zeros(15 * _SR, dtype=np.float32)),
+    ]
+    for index, task in enumerate(tasks):
+        task.task_id = f"task-{index}"
+    stage._adapter.transcribe_batch.side_effect = lambda items: [
+        ASRResult(text=str(item["task_id"])) for item in items
+    ]
+
+    results = stage.process_batch(tasks)
+
+    durations_by_call = [
+        [item["audio_seconds"] for item in call.args[0]] for call in stage._adapter.transcribe_batch.call_args_list
+    ]
+    assert durations_by_call == [[5.0, 15.0], [40.0]]
+    assert [task.data["pred_text"] for task in results] == ["task-0", "task-1", "task-2"]
+
+
+@pytest.mark.parametrize(
+    ("local_bucketing", "expected_call_durations", "expected_call_task_ids"),
+    [
+        (False, [[1.0, 4.0], [1.0]], [["task-0", "task-1"], ["task-2"]]),
+        (True, [[1.0, 1.0], [4.0]], [["task-0", "task-2"], ["task-1"]]),
+    ],
+    ids=["input-order", "duration-order"],
+)
+def test_actor_audio_budget_is_enforced_with_bucketing_on_or_off(
+    local_bucketing: bool,
+    expected_call_durations: list[list[float]],
+    expected_call_task_ids: list[list[str]],
+) -> None:
+    stage = _make_stage(
+        waveform_key="waveform",
+        keep_waveform=True,
+        max_audio_sec_per_actor=8.0,
+        max_inference_duration_s=8.0,
+        local_bucketing=local_bucketing,
+    )
+    durations = [1.0, 4.0, 1.0]
+    tasks = [_make_waveform_task(waveform=np.zeros(int(duration * _SR), dtype=np.float32)) for duration in durations]
+    for index, task in enumerate(tasks):
+        task.task_id = f"task-{index}"
+    stage._adapter.transcribe_batch.side_effect = lambda items: [
+        ASRResult(text=str(item["task_id"])) for item in items
+    ]
+
+    results = stage.process_batch(tasks)
+
+    call_durations = [
+        [item["audio_seconds"] for item in call.args[0]] for call in stage._adapter.transcribe_batch.call_args_list
+    ]
+    call_task_ids = [
+        [item["task_id"] for item in call.args[0]] for call in stage._adapter.transcribe_batch.call_args_list
+    ]
+    assert call_durations == expected_call_durations
+    assert call_task_ids == expected_call_task_ids
+    assert [task.data["pred_text"] for task in results] == ["task-0", "task-1", "task-2"]
+    assert all(len(call) * max(call) <= 8.0 for call in call_durations)
+
+
+def test_local_bucketing_minimizes_padded_seconds_after_call_count() -> None:
+    stage = _make_stage(
+        waveform_key="waveform",
+        keep_waveform=True,
+        max_audio_sec_per_actor=4.0,
+        max_inference_duration_s=4.0,
+        local_bucketing=True,
+    )
+    durations = [1.0, 2.0, 2.0]
+    tasks = [_make_waveform_task(waveform=np.zeros(int(duration * _SR), dtype=np.float32)) for duration in durations]
+    for index, task in enumerate(tasks):
+        task.task_id = f"task-{index}"
+    stage._adapter.transcribe_batch.side_effect = lambda items: [
+        ASRResult(text=str(item["task_id"])) for item in items
+    ]
+
+    results = stage.process_batch(tasks)
+
+    durations_by_call = [
+        [item["audio_seconds"] for item in call.args[0]] for call in stage._adapter.transcribe_batch.call_args_list
+    ]
+    assert durations_by_call == [[1.0], [2.0, 2.0]]
+    assert sum(len(call) * max(call) for call in durations_by_call) == 5.0
+    assert [task.data["pred_text"] for task in results] == ["task-0", "task-1", "task-2"]
+
+
+@pytest.mark.parametrize("local_bucketing", [False, True])
+def test_actor_budget_accepts_decimal_roundoff_at_exact_boundary(local_bucketing: bool) -> None:
+    stage = _make_stage(
+        max_audio_sec_per_actor=0.3,
+        max_inference_duration_s=0.3,
+        local_bucketing=local_bucketing,
+    )
+    items = [{"audio_seconds": 0.1, "name": name} for name in ["a", "b", "c"]]
+
+    plan = stage._plan_adapter_batches(items)
+
+    assert [indices for indices, _items in plan] == [[0, 1, 2]]
+    assert [[item["name"] for item in batch] for _indices, batch in plan] == [["a", "b", "c"]]
+
+
+def test_local_bucketing_is_scoped_to_each_process_batch_call() -> None:
+    stage = _make_stage(waveform_key="waveform", keep_waveform=True, local_bucketing=True)
+    first = _make_waveform_task()
+    second = _make_waveform_task()
+    first.task_id = "first-window"
+    second.task_id = "second-window"
+    stage._adapter.transcribe_batch.side_effect = lambda items: [
+        ASRResult(text=str(item["task_id"])) for item in items
+    ]
+
+    first_result = stage.process_batch([first])
+    second_result = stage.process_batch([second])
+
+    task_ids_by_call = [
+        [item["task_id"] for item in call.args[0]] for call in stage._adapter.transcribe_batch.call_args_list
+    ]
+    assert task_ids_by_call == [["first-window"], ["second-window"]]
+    assert first_result[0].data["pred_text"] == "first-window"
+    assert second_result[0].data["pred_text"] == "second-window"
+
+
+def test_batch_size_does_not_cap_adapter_calls() -> None:
+    stage = _make_stage(
+        waveform_key="waveform",
+        keep_waveform=True,
+        batch_size=2,
+        max_audio_sec_per_actor=3.0,
+        max_inference_duration_s=3.0,
+    )
+    tasks = [_make_waveform_task() for _ in range(3)]
+    stage._adapter.transcribe_batch.return_value = [
+        ASRResult(text="a"),
+        ASRResult(text="b"),
+        ASRResult(text="c"),
+    ]
+
+    results = stage.process_batch(tasks)
+
+    assert [len(call.args[0]) for call in stage._adapter.transcribe_batch.call_args_list] == [3]
+    assert [task.data["pred_text"] for task in results] == ["a", "b", "c"]
+
+
+@pytest.mark.parametrize("local_bucketing", [False, True])
+def test_model_safe_segmentation_preserves_samples_and_stitches_parent_order(local_bucketing: bool) -> None:
+    sample_rate = 10
+    stage = _make_stage(
+        waveform_key="waveform",
+        keep_waveform=True,
+        target_sample_rate=sample_rate,
+        max_audio_sec_per_actor=9.0,
+        max_inference_duration_s=3.0,
+        local_bucketing=local_bucketing,
+    )
+    long_waveform = np.arange(5 * sample_rate, dtype=np.float32)
+    short_waveform = np.arange(2 * sample_rate, dtype=np.float32) + 100
+    tasks = [
+        _make_waveform_task(waveform=long_waveform, sample_rate=sample_rate),
+        _make_waveform_task(waveform=short_waveform, sample_rate=sample_rate),
+    ]
+
+    def transcribe(items: list[dict[str, object]]) -> list[ASRResult]:
+        results: list[ASRResult] = []
+        for item in items:
+            item_waveform = np.asarray(item["waveform"])
+            if item_waveform[0] == 0:
+                text = "first"
+            elif item_waveform[0] == 30:
+                text = "tail"
+            else:
+                text = "second"
+            results.append(ASRResult(text=text))
+        return results
+
+    stage._adapter.transcribe_batch.side_effect = transcribe
+
+    results = stage.process_batch(tasks)
+
+    inferred = [item for call in stage._adapter.transcribe_batch.call_args_list for item in call.args[0]]
+    assert sorted(item["audio_seconds"] for item in inferred) == [2.0, 2.0, 3.0]
+    inferred_by_start = {float(item["waveform"][0]): item for item in inferred}
+    np.testing.assert_array_equal(inferred_by_start[0.0]["waveform"], long_waveform[: 3 * sample_rate])
+    np.testing.assert_array_equal(inferred_by_start[30.0]["waveform"], long_waveform[3 * sample_rate :])
+    np.testing.assert_array_equal(inferred_by_start[100.0]["waveform"], short_waveform)
+    np.testing.assert_array_equal(
+        np.concatenate([inferred_by_start[0.0]["waveform"], inferred_by_start[30.0]["waveform"]]),
+        long_waveform,
+    )
+    assert all(item["waveform"].dtype == np.float32 for item in inferred)
+    assert all(item["waveform"].flags.c_contiguous for item in inferred)
+    assert [task.data["pred_text"] for task in results] == ["first tail", "second"]
+
+
+def test_segmented_parent_obeys_actor_audio_budget_before_stitching() -> None:
+    sample_rate = 10
+    waveform = np.arange(10 * sample_rate, dtype=np.float32)
+    stage = _make_stage(
+        waveform_key="waveform",
+        keep_waveform=True,
+        target_sample_rate=sample_rate,
+        max_audio_sec_per_actor=6.0,
+        max_inference_duration_s=3.0,
+        local_bucketing=True,
+    )
+    stage._adapter.transcribe_batch.side_effect = lambda items: [
+        ASRResult(text=f"chunk-{int(np.asarray(item['waveform'])[0]) // 30}") for item in items
+    ]
+
+    result = stage.process_batch([_make_waveform_task(waveform=waveform, sample_rate=sample_rate)])[0]
+
+    assert [len(call.args[0]) for call in stage._adapter.transcribe_batch.call_args_list] == [2, 2]
+    inferred = [item for call in stage._adapter.transcribe_batch.call_args_list for item in call.args[0]]
+    assert [
+        [item["audio_seconds"] for item in call.args[0]] for call in stage._adapter.transcribe_batch.call_args_list
+    ] == [
+        [1.0, 3.0],
+        [3.0, 3.0],
+    ]
+    ordered = sorted(inferred, key=lambda item: float(item["waveform"][0]))
+    np.testing.assert_array_equal(np.concatenate([item["waveform"] for item in ordered]), waveform)
+    assert result.data["pred_text"] == "chunk-0 chunk-1 chunk-2 chunk-3"
+
+
+def test_long_row_tail_can_co_bucket_after_model_safe_segmentation() -> None:
+    sample_rate = 10
+    stage = _make_stage(
+        waveform_key="waveform",
+        keep_waveform=True,
+        target_sample_rate=sample_rate,
+        max_audio_sec_per_actor=240.0,
+        max_inference_duration_s=120.0,
+        local_bucketing=True,
+    )
+    tasks = [
+        _make_waveform_task(waveform=np.zeros(250 * sample_rate, dtype=np.float32), sample_rate=sample_rate),
+        _make_waveform_task(waveform=np.zeros(10 * sample_rate, dtype=np.float32), sample_rate=sample_rate),
+        _make_waveform_task(waveform=np.zeros(sample_rate, dtype=np.float32), sample_rate=sample_rate),
+    ]
+    stage._adapter.transcribe_batch.side_effect = [
+        [ASRResult(text="tiny"), ASRResult(text="tail"), ASRResult(text="ten")],
+        [ASRResult(text="long-0"), ASRResult(text="long-1")],
+    ]
+
+    results = stage.process_batch(tasks)
+
+    durations_by_call = [
+        [item["audio_seconds"] for item in call.args[0]] for call in stage._adapter.transcribe_batch.call_args_list
+    ]
+    assert durations_by_call == [[1.0, 10.0, 10.0], [120.0, 120.0]]
+    assert [task.data["pred_text"] for task in results] == ["long-0 long-1 tail", "ten", "tiny"]
+
+
+def test_segmented_parent_marks_partial_chunk_failure() -> None:
+    sample_rate = 10
+    stage = _make_stage(
+        waveform_key="waveform",
+        keep_waveform=True,
+        target_sample_rate=sample_rate,
+        max_inference_duration_s=3.0,
+    )
+    task = _make_waveform_task(waveform=np.zeros(5 * sample_rate, dtype=np.float32), sample_rate=sample_rate)
+    stage._adapter.transcribe_batch.return_value = [
+        ASRResult(text="", skipped=True, skip_reason="empty_audio"),
+        ASRResult(text="recovered"),
+    ]
+
+    result = stage.process_batch([task])[0]
+
+    assert result.data["pred_text"] == "recovered"
+    assert result.data["_skipme"] == "empty_audio"
+
+
+def test_segmented_parent_preserves_skip_reason_and_flat_adapter_extras() -> None:
+    sample_rate = 10
+    stage = _make_stage(
+        waveform_key="waveform",
+        keep_waveform=True,
+        extras_key="asr_extras",
+        target_sample_rate=sample_rate,
+        max_inference_duration_s=3.0,
+    )
+    task = _make_waveform_task(waveform=np.zeros(5 * sample_rate, dtype=np.float32), sample_rate=sample_rate)
+    stage._adapter.transcribe_batch.return_value = [
+        ASRResult(text="", skipped=True, skip_reason="decode_failed", extras={"first_chunk": 0}),
+        ASRResult(text="", skipped=True, skip_reason="empty_audio", extras={"last_chunk": 1}),
+    ]
+
+    result = stage.process_batch([task])[0]
+
+    assert result.data["pred_text"] == ""
+    assert result.data["_skipme"] == "decode_failed"
+    assert result.data["asr_extras"] == {"first_chunk": 0, "last_chunk": 1}
+
+
+def test_audio_load_failure_skips_only_failed_item_and_preserves_order() -> None:
+    stage = _make_stage()
+    waveform = np.zeros(_SR, dtype=np.float32)
+    stage._load_audio.side_effect = [
+        (waveform, _SR),
+        RuntimeError("corrupt audio"),
+        (waveform, _SR),
+    ]
+    stage._adapter.transcribe_batch.return_value = [
+        ASRResult(text="text1"),
+        ASRResult(text="text3"),
+    ]
+    tasks = [_make_task(), _make_task(), _make_task()]
+    for index, task in enumerate(tasks, start=1):
+        task.task_id = f"task-{index}"
+        task.data["resampled_audio_filepath"] = f"/data/resampled-{index}.wav"
+
+    results = stage.process_batch(tasks)
+
+    assert [task.data["pred_text"] for task in results] == ["text1", "", "text3"]
+    assert "_skipme" not in results[0].data
+    assert results[1].data["_skipme"] == "audio_load_error"
+    assert "_skipme" not in results[2].data
+    inferred_items = stage._adapter.transcribe_batch.call_args.args[0]
+    assert [item["task_id"] for item in inferred_items] == [tasks[0].task_id, tasks[2].task_id]
+
+
+def test_audio_load_failure_can_fail_strict_benchmarks() -> None:
+    stage = _make_stage(fail_on_audio_error=True)
+    stage._load_audio.side_effect = RuntimeError("corrupt audio")
+
+    with pytest.raises(RuntimeError, match="failed to prepare audio"):
+        stage.process_batch([_make_task()])
+
+    stage._adapter.transcribe_batch.assert_not_called()
+
+
+def test_skip_if_output_exists_reuses_prediction_and_only_infers_missing_rows() -> None:
+    stage = _make_stage(skip_if_output_exists=True)
+    stage._adapter.transcribe_batch.return_value = [ASRResult(text="new prediction")]
+    existing = _make_task()
+    existing.data["pred_text"] = "existing prediction"
+    missing = _make_task()
+
+    results = stage.process_batch([existing, missing])
+
+    assert results == [existing, missing]
+    assert existing.data["pred_text"] == "existing prediction"
+    assert missing.data["pred_text"] == "new prediction"
+    inferred_items = stage._adapter.transcribe_batch.call_args.args[0]
+    assert len(inferred_items) == 1
+    stage._load_audio.assert_called_once_with(_RESAMPLED_AUDIO_PATH)
+
+
+def test_skip_if_output_exists_skips_entire_prefilled_batch() -> None:
+    stage = _make_stage(skip_if_output_exists=True)
+    tasks = [_make_task(), _make_task()]
+    tasks[0].data["pred_text"] = "first"
+    tasks[1].data["pred_text"] = "second"
+
+    results = stage.process_batch(tasks)
+
+    assert [task.data["pred_text"] for task in results] == ["first", "second"]
+    stage._adapter.transcribe_batch.assert_not_called()
+
+
+def test_skip_if_output_exists_does_not_skip_empty_prediction() -> None:
+    stage = _make_stage(skip_if_output_exists=True)
+    stage._adapter.transcribe_batch.return_value = [ASRResult(text="filled")]
+    task = _make_task()
+    task.data["pred_text"] = ""
+
+    result = stage.process_batch([task])
+
+    assert result[0].data["pred_text"] == "filled"
+    stage._adapter.transcribe_batch.assert_called_once()
+
+
+def test_adapter_result_length_mismatch_raises() -> None:
+    stage = _make_stage()
+    stage._adapter.transcribe_batch.return_value = [ASRResult(text="x")]  # 1 result
+    with pytest.raises(RuntimeError, match=r"returned 1 results for 2 supported items"):
+        stage.process_batch([_make_task(), _make_task()])
+
+
+def test_language_resolution_from_task() -> None:
+    stage = _make_stage()
+    stage._adapter.transcribe_batch.return_value = [ASRResult(text="hola")]
+
+    task = AudioTask(
+        data={
+            "resampled_audio_filepath": "/data/spanish.wav",
+            "source_lang": "es",
+        }
+    )
+    stage.process_batch([task])
+
+    items = stage._adapter.transcribe_batch.call_args[0][0]
+    assert items[0]["language"] == "Spanish"
+
+
+def test_default_language_used_when_task_language_missing() -> None:
+    stage = _make_stage(default_language="en")
+    stage._adapter.transcribe_batch.return_value = [ASRResult(text="hello")]
+
+    task = AudioTask(data={"resampled_audio_filepath": _RESAMPLED_AUDIO_PATH})
+    stage.process_batch([task])
+
+    items = stage._adapter.transcribe_batch.call_args[0][0]
+    assert items[0]["language"] == "English"
+
+
+def test_supported_language_filter_skips_before_adapter_call() -> None:
+    stage = _make_stage(supported_language_codes=["en"])
+
+    results = stage.process_batch([_make_task(source_lang="pl")])
+
+    stage._adapter.transcribe_batch.assert_not_called()
+    stage._load_audio.assert_not_called()
+    assert results[0].data["pred_text"] == ""
+    assert results[0].data["_skipme"] == "language_not_supported"
+    assert results[0].data["additional_notes"]["ASR_inference"] == "skipped (unsupported language: pl)"
+    assert results[0].data["additional_notes"]["pred_text"] == "lang_not_supported:pl"
+
+
+def test_supported_language_filter_annotates_missing_language() -> None:
+    stage = _make_stage(supported_language_codes=["en"])
+
+    results = stage.process_batch([_make_task(source_lang=None)])
+
+    stage._adapter.transcribe_batch.assert_not_called()
+    stage._load_audio.assert_not_called()
+    assert results[0].data["pred_text"] == ""
+    assert results[0].data["_skipme"] == "language_missing"
+    assert results[0].data["additional_notes"]["ASR_inference"] == "skipped (missing language)"
+    assert results[0].data["additional_notes"]["pred_text"] == "language_missing"
+
+
+def test_resumability_preserves_unsupported_task_lineage() -> None:
+    stage = _make_stage(supported_language_codes=["en"])
+    task = _make_task(source_lang="pl")
+    task.task_id = "source_0"
+    task._source_id = "source"
+    captured: list[tuple[str, str, int]] = []
+
+    with (
+        patch("nemo_curator.backends.base.is_resumability_actor_active", return_value=True),
+        patch("nemo_curator.backends.base.flush_resumability_deltas", side_effect=captured.extend),
+    ):
+        results = BaseStageAdapter(stage).process_batch([task])
+
+    assert results == [task]
+    assert task.task_id == "source_0_0"
+    assert task._source_id == "source"
+    assert captured == [("source_0_0", "source", 0)]
+    stage._adapter.transcribe_batch.assert_not_called()
+
+
+def test_inputs_and_exact_output_contract() -> None:
+    stage = ASRStage(
+        adapter_target=_QWEN_ADAPTER_TARGET,
+        model_id="mock/model",
+        max_audio_sec_per_actor=2400.0,
+        pred_text_key="custom_prediction",
+    )
+    _required, required_inputs = stage.inputs()
+    assert required_inputs == ["resampled_audio_filepath"]
+
+    _required, optional_outputs = stage.outputs()
+    assert optional_outputs == ["custom_prediction", "_skipme", "additional_notes"]
+
+
+def test_adapter_extras_are_copied_to_one_nested_manifest_field() -> None:
+    stage = _make_stage(extras_key="asr_extras")
+    adapter_extras = {
+        "detected_language": "English",
+        "confidence": 0.98,
+        "segments": [{"start": 0.0, "end": 1.0}],
+    }
+    stage._adapter.transcribe_batch.return_value = [ASRResult(text="hello", extras=adapter_extras)]
+
+    result = stage.process_batch([_make_task()])[0]
+
+    assert result.data["asr_extras"] == adapter_extras
+    assert result.data["asr_extras"] is not adapter_extras
+
+
+def test_empty_adapter_extras_remove_stale_manifest_metadata() -> None:
+    stage = _make_stage(extras_key="asr_extras")
+    stage._adapter.transcribe_batch.return_value = [ASRResult(text="hello")]
+    task = _make_task()
+    task.data["asr_extras"] = {"stale": True}
+
+    result = stage.process_batch([task])[0]
+
+    assert "asr_extras" not in result.data
+
+
+def test_adapter_extras_output_can_be_disabled() -> None:
+    stage = _make_stage(extras_key=None)
+    stage._adapter.transcribe_batch.return_value = [ASRResult(text="hello", extras={"detected_language": "English"})]
+
+    result = stage.process_batch([_make_task()])[0]
+
+    assert "asr_extras" not in result.data
+    assert stage.outputs() == ([], ["pred_text", "_skipme", "additional_notes"])
+
+
+def test_in_memory_input_contract_requires_waveform_and_sample_rate() -> None:
+    stage = ASRStage(
+        adapter_target=_QWEN_ADAPTER_TARGET,
+        model_id="mock/model",
+        max_audio_sec_per_actor=2400.0,
+        waveform_key="waveform",
+        sample_rate_key="sampling_rate",
+    )
+
+    _required, required_inputs = stage.inputs()
+
+    assert required_inputs == ["waveform", "sampling_rate"]
+
+
+def test_stage_loads_resampled_audio_with_torchaudio_and_preserves_sample_rate(tmp_path: Path) -> None:
+    decoded_sample_rate = 8000
+    audio_path = tmp_path / "resampled.wav"
+    sf.write(audio_path, np.ones(_SR, dtype=np.float32), decoded_sample_rate, subtype="FLOAT")
+
+    waveform, sample_rate = ASRStage._load_audio(str(audio_path))
+    assert sample_rate == decoded_sample_rate
+    assert waveform.shape == (_SR,)
+    assert waveform.dtype == np.float32
+    np.testing.assert_array_equal(waveform, np.ones(_SR, dtype=np.float32))
+
+
+def test_stage_load_audio_preserves_stereo_channel_first(tmp_path: Path) -> None:
+    decoded = np.ones((_SR, 2), dtype=np.float32)
+    audio_path = tmp_path / "stereo.wav"
+    sf.write(audio_path, decoded, _SR, subtype="FLOAT")
+
+    waveform, sample_rate = ASRStage._load_audio(str(audio_path))
+
+    assert sample_rate == _SR
+    assert waveform.shape == (2, _SR)
+    assert waveform.flags.c_contiguous
+
+
+def test_in_memory_waveform_is_normalized_once_and_removed_after_inference() -> None:
+    stage = _make_stage(waveform_key="waveform")
+    stage._adapter.transcribe_batch.return_value = [ASRResult(text="hello")]
+    stereo_8khz = np.ones((2, 8000), dtype=np.float64)
+    task = _make_waveform_task(waveform=stereo_8khz, sample_rate=8000)
+
+    results = stage.process_batch([task])
+
+    assert results[0].data["pred_text"] == "hello"
+    assert "waveform" not in results[0].data
+    inferred_item = stage._adapter.transcribe_batch.call_args.args[0][0]
+    assert inferred_item["sample_rate"] == _SR
+    assert inferred_item["waveform"].shape == (_SR,)
+    assert inferred_item["waveform"].dtype == np.float32
+    stage._load_audio.assert_not_called()
+
+
+@pytest.mark.parametrize("dtype", [np.int16, np.int32, np.int64, np.float32, np.float64])
+@pytest.mark.parametrize("channels", [1, 2])
+@pytest.mark.parametrize("as_torch", [False, True], ids=["numpy", "torch"])
+def test_resident_waveform_preserves_legacy_cast_only_semantics(
+    dtype: type[np.number], channels: int, as_torch: bool
+) -> None:
+    mono = np.array([16384, -16384, 0, 1], dtype=dtype)
+    channel_first = np.stack([mono] * channels) if channels > 1 else mono
+    resident = torch.from_numpy(channel_first.copy()) if as_torch else channel_first
+    stage = _make_stage(waveform_key="waveform")
+
+    prepared = stage._prepare_waveform(resident, _SR)
+
+    np.testing.assert_array_equal(prepared, mono.astype(np.float32))
+    assert prepared.dtype == np.float32
+    assert prepared.flags.c_contiguous
+
+
+def test_integer_list_waveform_reaches_adapter_without_skipping() -> None:
+    stage = _make_stage(waveform_key="waveform")
+    stage._adapter.transcribe_batch.return_value = [ASRResult(text="transcribed")]
+    task = _make_waveform_task(waveform=[0, 1, -1], sample_rate=_SR)
+
+    result = stage.process_batch([task])[0]
+
+    assert result.data["pred_text"] == "transcribed"
+    prepared = stage._adapter.transcribe_batch.call_args.args[0][0]["waveform"]
+    np.testing.assert_array_equal(prepared, np.array([0, 1, -1], dtype=np.float32))
+
+
+@pytest.mark.parametrize(
+    "waveform",
+    [np.zeros(0, dtype=np.float32), np.zeros((0, 32), dtype=np.float32)],
+)
+def test_faster_whisper_empty_8khz_audio_preserves_reference_output(waveform: np.ndarray) -> None:
+    stage = ASRStage(
+        adapter_target=_FASTER_WHISPER_ADAPTER_TARGET,
+        model_id="large-v3",
+        max_audio_sec_per_actor=2400.0,
+        waveform_key="waveform",
+        sample_rate_key="sampling_rate",
+        supported_language_codes=["fil"],
+        pred_text_key="asr_prediction",
+        extras_key="asr_extras",
+    )
+    adapter = FasterWhisperASR()
+    adapter._model = MagicMock()
+    stage._adapter = adapter
+    task = _make_waveform_task(
+        waveform=waveform,
+        sample_rate=8000,
+        source_lang="fil",
+    )
+
+    result = stage.process_batch([task])[0]
+
+    assert result.data["asr_prediction"] == ""
+    assert result.data["asr_extras"] == {"language_code": "tl"}
+    assert "_skipme" not in result.data
+    assert "waveform" not in result.data
+    adapter._model.transcribe.assert_not_called()
+
+
+def test_in_memory_waveform_can_be_retained_for_recovery_inference() -> None:
+    stage = _make_stage(waveform_key="waveform", keep_waveform=True)
+    stage._adapter.transcribe_batch.return_value = [ASRResult(text="hello")]
+    waveform = np.ones(_SR, dtype=np.float32)
+    task = _make_waveform_task(waveform=waveform)
+
+    results = stage.process_batch([task])
+
+    assert results[0].data["waveform"] is waveform
+
+
+def test_invalid_target_sample_rate_is_rejected() -> None:
+    with pytest.raises(ValueError, match="target_sample_rate must be > 0"):
+        ASRStage(
+            adapter_target=_QWEN_ADAPTER_TARGET,
+            model_id="mock/model",
+            max_audio_sec_per_actor=2400.0,
+            target_sample_rate=0,
+        )
+
+
+@pytest.mark.parametrize(
+    ("max_audio_sec_per_actor", "expected_exception", "match"),
+    [
+        (0, ValueError, "max_audio_sec_per_actor must be finite and > 0"),
+        (-1, ValueError, "max_audio_sec_per_actor must be finite and > 0"),
+        (float("inf"), ValueError, "max_audio_sec_per_actor must be finite and > 0"),
+        (float("nan"), ValueError, "max_audio_sec_per_actor must be finite and > 0"),
+        ("2400", TypeError, "max_audio_sec_per_actor must be numeric"),
+        (True, TypeError, "max_audio_sec_per_actor must be numeric"),
+    ],
+)
+def test_invalid_max_audio_sec_per_actor_is_rejected(
+    max_audio_sec_per_actor: object,
+    expected_exception: type[Exception],
+    match: str,
+) -> None:
+    with pytest.raises(expected_exception, match=match):
+        ASRStage(
+            adapter_target=_QWEN_ADAPTER_TARGET,
+            model_id="mock/model",
+            max_audio_sec_per_actor=max_audio_sec_per_actor,  # type: ignore[arg-type]
+        )
+
+
+def test_invalid_local_bucketing_is_rejected() -> None:
+    with pytest.raises(TypeError, match="local_bucketing must be a bool"):
+        ASRStage(
+            adapter_target=_QWEN_ADAPTER_TARGET,
+            model_id="mock/model",
+            max_audio_sec_per_actor=2400.0,
+            local_bucketing=1,  # type: ignore[arg-type]
+        )
+
+
+def test_actor_budget_must_fit_one_model_safe_segment() -> None:
+    with pytest.raises(ValueError, match="max_inference_duration_s must be <= max_audio_sec_per_actor"):
+        ASRStage(
+            adapter_target=_QWEN_ADAPTER_TARGET,
+            model_id="mock/model",
+            max_audio_sec_per_actor=10.0,
+            max_inference_duration_s=11.0,
+        )
+
+
+def test_invalid_max_inference_duration_is_rejected() -> None:
+    with pytest.raises(ValueError, match="max_inference_duration_s must be finite and > 0"):
+        ASRStage(
+            adapter_target=_QWEN_ADAPTER_TARGET,
+            model_id="mock/model",
+            max_audio_sec_per_actor=2400.0,
+            max_inference_duration_s=0,
+        )
+
+
+def test_stage_requires_resampled_path_and_does_not_fallback_to_original_audio() -> None:
+    stage = _make_stage()
+    task = AudioTask(data={"audio_filepath": "/data/original.wav", "source_lang": "en"})
+
+    with pytest.raises(ValueError, match="missing required columns"):
+        stage.process_batch([task])
+
+    stage._load_audio.assert_not_called()
+    stage._adapter.transcribe_batch.assert_not_called()
+
+
+def test_empty_prediction_key_is_rejected() -> None:
+    with pytest.raises(ValueError, match="pred_text_key must be non-empty"):
+        ASRStage(
+            adapter_target=_QWEN_ADAPTER_TARGET,
+            model_id="mock/model",
+            max_audio_sec_per_actor=2400.0,
+            pred_text_key="",
+        )
+
+
+def test_empty_extras_key_is_rejected() -> None:
+    with pytest.raises(ValueError, match="extras_key must be non-empty or None"):
+        ASRStage(
+            adapter_target=_QWEN_ADAPTER_TARGET,
+            model_id="mock/model",
+            max_audio_sec_per_actor=2400.0,
+            extras_key=" ",
+        )
+
+
+@pytest.mark.parametrize("field_name", ["skip_me_key", "notes_key"])
+def test_empty_control_key_is_rejected(field_name: str) -> None:
+    with pytest.raises(ValueError, match=rf"{field_name} must be a non-empty string"):
+        ASRStage(
+            max_audio_sec_per_actor=2400.0,
+            adapter_target=_QWEN_ADAPTER_TARGET,
+            model_id="mock/model",
+            **{field_name: " "},
+        )
+
+
+def test_control_keys_must_be_distinct() -> None:
+    with pytest.raises(ValueError, match=r"skip_me_key and notes_key must be (distinct|different)"):
+        ASRStage(
+            max_audio_sec_per_actor=2400.0,
+            adapter_target=_QWEN_ADAPTER_TARGET,
+            model_id="mock/model",
+            skip_me_key="control",
+            notes_key="control",
+        )
+
+
+@pytest.mark.parametrize("extras_key", ["pred_text", "_skipme", "additional_notes"])
+def test_extras_key_cannot_collide_with_another_output(extras_key: str) -> None:
+    with pytest.raises(ValueError, match="extras_key cannot collide"):
+        ASRStage(
+            adapter_target=_QWEN_ADAPTER_TARGET,
+            model_id="mock/model",
+            max_audio_sec_per_actor=2400.0,
+            extras_key=extras_key,
+        )
+
+
+@pytest.mark.parametrize("pred_text_key", ["_skipme", "additional_notes"])
+def test_control_columns_cannot_be_used_as_prediction_key(pred_text_key: str) -> None:
+    with pytest.raises(ValueError, match="reserved control column"):
+        ASRStage(
+            adapter_target=_QWEN_ADAPTER_TARGET,
+            model_id="mock/model",
+            max_audio_sec_per_actor=2400.0,
+            pred_text_key=pred_text_key,
+        )
+
+
+@pytest.mark.parametrize("keep_waveform", [False, True])
+@pytest.mark.parametrize("output_field", ["skip_me_key", "notes_key", "pred_text_key", "extras_key", "language_key"])
+def test_output_and_control_keys_cannot_alias_waveform_input(output_field: str, keep_waveform: bool) -> None:
+    with pytest.raises(ValueError, match="must not collide with input keys"):
+        ASRStage(
+            max_audio_sec_per_actor=2400.0,
+            adapter_target=_QWEN_ADAPTER_TARGET,
+            model_id="mock/model",
+            waveform_key="waveform",
+            sample_rate_key="sample_rate",
+            keep_waveform=keep_waveform,
+            **{output_field: "waveform"},
+        )
+
+
+def test_output_key_cannot_alias_file_input() -> None:
+    with pytest.raises(ValueError, match="must not collide with input keys"):
+        ASRStage(
+            max_audio_sec_per_actor=2400.0,
+            adapter_target=_QWEN_ADAPTER_TARGET,
+            model_id="mock/model",
+            pred_text_key="resampled_audio_filepath",
+        )
+
+
+@pytest.mark.parametrize(
+    ("result", "expected_reason"),
+    [
+        (ASRResult(text="", skipped=True), "empty_audio"),
+        (ASRResult(text="", skipped=True, skip_reason="decode_failed"), "decode_failed"),
+        (ASRResult(text="", skipped=True, extras={"skip_reason": "ignored"}), "empty_audio"),
+    ],
+)
+def test_skipped_result_sets_typed_skip_reason(result: ASRResult, expected_reason: str) -> None:
+    stage = _make_stage()
+    stage._adapter.transcribe_batch.return_value = [result]
+    results = stage.process_batch([_make_task()])
+    assert results[0].data["_skipme"] == expected_reason
+
+
+@patch("nemo_curator.models.asr.qwen_omni.snapshot_download")
+def test_setup_on_node_downloads_weights(mock_download: MagicMock) -> None:
+    stage = ASRStage(
+        adapter_target=_QWEN_ADAPTER_TARGET,
+        model_id="mock/model",
+        max_audio_sec_per_actor=2400.0,
+        adapter_kwargs={"revision": "abc123"},
+    )
+    stage.setup_on_node()
+    mock_download.assert_called_once_with("mock/model", revision="abc123")
+
+
+@patch("nemo_curator.models.asr.faster_whisper._download_whisper_model")
+def test_setup_on_node_downloads_faster_whisper_weights(mock_download: MagicMock) -> None:
+    stage = ASRStage(
+        adapter_target=_FASTER_WHISPER_ADAPTER_TARGET,
+        model_id="large-v3",
+        max_audio_sec_per_actor=2400.0,
+        adapter_kwargs={"revision": "abc123"},
+    )
+    stage.setup_on_node()
+    mock_download.assert_called_once_with("large-v3", "abc123")
+
+
+@patch(
+    "nemo_curator.models.asr.qwen_omni.snapshot_download",
+    side_effect=RuntimeError("missing auth"),
+)
+def test_setup_on_node_raises_by_default(mock_download: MagicMock) -> None:
+    stage = ASRStage(
+        adapter_target=_QWEN_ADAPTER_TARGET,
+        model_id="mock/model",
+        max_audio_sec_per_actor=2400.0,
+    )
+    with pytest.raises(RuntimeError, match="download_weights_on_node failed"):
+        stage.setup_on_node()
+    mock_download.assert_called_once_with("mock/model")
+
+
+@patch(
+    "nemo_curator.models.asr.qwen_omni.snapshot_download",
+    side_effect=RuntimeError("offline"),
+)
+def test_setup_on_node_can_warn_and_retry_later(mock_download: MagicMock) -> None:
+    stage = ASRStage(
+        adapter_target=_QWEN_ADAPTER_TARGET,
+        model_id="mock/model",
+        max_audio_sec_per_actor=2400.0,
+        prefetch_fail_on_error=False,
+    )
+    stage.setup_on_node()
+    mock_download.assert_called_once_with("mock/model")
+
+
+def test_adapter_target_required() -> None:
+    with pytest.raises(TypeError):
+        ASRStage(model_id="mock/model", max_audio_sec_per_actor=2400.0)
+
+
+def test_model_id_required() -> None:
+    with pytest.raises(TypeError):
+        ASRStage(adapter_target=_QWEN_ADAPTER_TARGET, max_audio_sec_per_actor=2400.0)
+
+
+def test_max_audio_sec_per_actor_required() -> None:
+    with pytest.raises(TypeError):
+        ASRStage(adapter_target=_QWEN_ADAPTER_TARGET, model_id="mock/model")
+
+
+def test_stage_rejects_model_specific_revision_field() -> None:
+    with pytest.raises(TypeError, match="unexpected keyword argument 'revision'"):
+        ASRStage(
+            adapter_target=_QWEN_ADAPTER_TARGET,
+            model_id="mock/model",
+            max_audio_sec_per_actor=2400.0,
+            revision="abc123",  # type: ignore[call-arg]
+        )
+
+
+def test_setup_uses_adapter_target_and_kwargs() -> None:
+    """``setup()`` resolves adapter_target via hydra.utils.get_class and
+    constructs the adapter with model_id plus its explicit adapter_kwargs."""
+    stage = ASRStage(
+        adapter_target=_QWEN_ADAPTER_TARGET,
+        model_id="mock/model",
+        max_audio_sec_per_actor=2400.0,
+        adapter_kwargs={
+            "revision": "abc123",
+            "vllm_kwargs": {
+                "max_model_len": 8192,
+                "enable_prefix_caching": False,
+            },
+        },
+        resources=Resources(gpus=2),
+    )
+
+    fake_adapter = MagicMock()
+    fake_cls = MagicMock(return_value=fake_adapter)
+    with patch("hydra.utils.get_class", return_value=fake_cls) as get_class:
+        stage.setup()
+
+    get_class.assert_called_with(_QWEN_ADAPTER_TARGET)
+    fake_cls.assert_called_once_with(
+        model_id="mock/model",
+        revision="abc123",
+        vllm_kwargs={
+            "max_model_len": 8192,
+            "enable_prefix_caching": False,
+        },
+    )
+    fake_adapter.load_model.assert_called_once_with(num_gpus=2)
+    assert stage._adapter is fake_adapter
+
+
+@pytest.mark.parametrize(
+    ("requested_gpus", "expected_num_gpus"),
+    [(0.0, 0), (0.25, 1), (1.0, 1), (1.5, 2), (2.0, 2)],
+)
+def test_setup_derives_adapter_gpu_count_from_stage_resources(
+    requested_gpus: float,
+    expected_num_gpus: int,
+) -> None:
+    stage = ASRStage(
+        adapter_target="tests.fake.Adapter",
+        model_id="mock/model",
+        max_audio_sec_per_actor=2400.0,
+        resources=Resources(gpus=requested_gpus),
+    )
+    fake_adapter = MagicMock()
+
+    with patch("hydra.utils.get_class", return_value=MagicMock(return_value=fake_adapter)):
+        stage.setup()
+
+    fake_adapter.load_model.assert_called_once_with(num_gpus=expected_num_gpus)
+
+
+@pytest.mark.parametrize("requested_gpus", [-1.0, float("inf"), float("nan")])
+def test_setup_rejects_invalid_stage_gpu_resource(requested_gpus: float) -> None:
+    stage = ASRStage(
+        adapter_target="tests.fake.Adapter",
+        model_id="mock/model",
+        max_audio_sec_per_actor=2400.0,
+        resources=Resources(gpus=requested_gpus),
+    )
+    fake_adapter = MagicMock()
+
+    with (
+        patch("hydra.utils.get_class", return_value=MagicMock(return_value=fake_adapter)),
+        pytest.raises(ValueError, match=r"resources\.gpus must be a finite non-negative value"),
+    ):
+        stage.setup()
+
+    fake_adapter.unload_model.assert_called_once_with()
+
+
+def test_setup_failure_cleans_partial_adapter_and_allows_retry() -> None:
+    stage = ASRStage(
+        adapter_target=_QWEN_ADAPTER_TARGET,
+        model_id="mock/model",
+        max_audio_sec_per_actor=2400.0,
+    )
+    failed_adapter = MagicMock()
+    failed_adapter.load_model.side_effect = RuntimeError("engine init failed")
+    working_adapter = MagicMock()
+    fake_cls = MagicMock(side_effect=[failed_adapter, working_adapter])
+
+    with patch("hydra.utils.get_class", return_value=fake_cls):
+        with pytest.raises(RuntimeError, match="engine init failed"):
+            stage.setup()
+
+        assert stage._adapter is None
+        failed_adapter.unload_model.assert_called_once_with()
+
+        stage.setup()
+
+    assert stage._adapter is working_adapter
+    working_adapter.load_model.assert_called_once_with(num_gpus=1)
+
+
+def test_teardown_delegates_to_adapter_unload_model_once() -> None:
+    stage = _make_stage()
+    adapter = stage._adapter
+
+    stage.teardown()
+    stage.teardown()
+
+    adapter.unload_model.assert_called_once_with()
+    assert stage._adapter is None
+
+
+@pytest.mark.gpu
+@pytest.mark.parametrize("resident", [False, True], ids=["file", "waveform"])
+def test_real_nemo_batch_preserves_language_and_serializable_output(resident: bool) -> None:
+    """Exercise the stage's preparation, bounded inference and assembly with a real model."""
+    fixture = Path(__file__).parents[3] / "fixtures/audio/qwen_omni/audio_1_5s_16khz_mono.wav"
+    data: dict[str, Any] = {"audio_filepath": str(fixture), "source_lang": "en"}
+    if resident:
+        waveform, rate = sf.read(fixture, dtype="int16")
+        data.update({"waveform": waveform, "sample_rate": rate})
+    stage = ASRStage(
+        adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+        model_id="nvidia/stt_en_fastconformer_ctc_large",
+        max_audio_sec_per_actor=10.0,
+        max_inference_duration_s=5.0,
+        audio_filepath_key="audio_filepath",
+        waveform_key="waveform" if resident else None,
+        sample_rate_key="sample_rate",
+        language_key="language",
+        resources=Resources(gpus=1),
+    )
+    stage.setup()
+    try:
+        result = stage.process_batch([AudioTask(data=data)])
+    finally:
+        stage.teardown()
+    assert len(result) == 1
+    assert result[0].data["pred_text"].strip()
+    assert result[0].data["language"] == "en"
+    assert "waveform" not in result[0].data
+    assert "_skipme" not in result[0].data
+    assert json.loads(json.dumps(result[0].data))["pred_text"] == result[0].data["pred_text"]
+    assert rh.build_contract(stage).writes.data_keys == ["pred_text", "language"]
+
+
+@rh.pytest.mark.parametrize("kind", ["pyannote", "whisperx", "sortformer"])
+@rh.pytest.mark.parametrize("resident", [False, True], ids=["file", "waveform"])
+@rh.pytest.mark.parametrize("transcript_key", ["pred_text", "parent_transcript"])
+def test_fanout_children_feed_asr_exact_slices(
+    kind: str, resident: bool, transcript_key: str, tmp_path: Path, monkeypatch: rh.pytest.MonkeyPatch
+) -> None:
+    first_channel = rh.np.arange(12, dtype=rh.np.float32) / 10
+    waveform = rh.np.stack([first_channel, first_channel + 2])
+    audio_path = tmp_path / f"{kind}.wav"
+    rh._write_audio(audio_path, waveform)
+    residency = "waveform" if resident else "file"
+    stage, _seen = rh._make_stage(kind, monkeypatch, input_residency=residency, fanout=True)
+    stage.pred_text_key = transcript_key
+    parent_data: dict[str, Any] = (
+        {
+            "waveform": waveform,
+            "sample_rate": rh._SAMPLE_RATE,
+            "audio_filepath": str(audio_path),
+            "resampled_audio_filepath": str(audio_path),
+        }
+        if resident
+        else {"audio_filepath": str(audio_path), "resampled_audio_filepath": str(audio_path)}
+    )
+    parent_data[transcript_key] = "full recording transcript"
+    children = stage.process_batch([rh.AudioTask(dataset_name="d", data=parent_data)])
+    assert len(children) == 2
+    expected = [waveform[:, 2:6], waveform[:, 7:10]]
+    dropped_containers = {
+        "pyannote": {"segments", "overlap_segments"},
+        "whisperx": {"vad_segments"},
+        "sortformer": {"diar_segments"},
+    }
+    for child, expected_slice in zip(children, expected, strict=True):
+        rh.np.testing.assert_array_equal(child.data["waveform"], expected_slice)
+        assert child.data["waveform"].shape[0] == 2
+        assert child.data["sample_rate"] == rh._SAMPLE_RATE
+        assert not rh.np.shares_memory(child.data["waveform"], waveform)
+        assert {"audio_filepath", "resampled_audio_filepath"}.isdisjoint(child.data)
+        assert dropped_containers[kind].isdisjoint(child.data)
+        assert transcript_key not in child.data
+        assert child.data["original_file"]
+    assert transcript_key in rh.build_contract(stage).removes_keys
+    if kind == "pyannote":
+        assert [child.data["num_speakers"] for child in children] == [1, 1]
+    asr = rh.ASRStage(
+        max_audio_sec_per_actor=2400.0,
+        adapter_target=rh._ASR_TARGET,
+        model_id="mock/model",
+        waveform_key="waveform",
+        sample_rate_key="sample_rate",
+        target_sample_rate=rh._SAMPLE_RATE,
+        keep_waveform=True,
+        pred_text_key=transcript_key,
+        skip_if_output_exists=True,
+    )
+    asr._adapter = rh.MagicMock()
+    asr._adapter.transcribe_batch.return_value = [rh.ASRResult(text="one"), rh.ASRResult(text="two")]
+    asr.process_batch(children)
+    assert [child.data[transcript_key] for child in children] == ["one", "two"]
+    assert all("waveform" in child.data for child in children)
+    asr_items = asr._adapter.transcribe_batch.call_args.args[0]
+    rh.np.testing.assert_array_equal(asr_items[0]["waveform"], expected[0].mean(axis=0))
+    rh.np.testing.assert_array_equal(asr_items[1]["waveform"], expected[1].mean(axis=0))
+
+
+def test_asr_waveform_removal_contract_matches_runtime_including_skips() -> None:
+    removing = rh.ASRStage(
+        max_audio_sec_per_actor=2400.0,
+        adapter_target=rh._ASR_TARGET,
+        model_id="mock/model",
+        waveform_key="waveform",
+        sample_rate_key="sample_rate",
+        skip_if_output_exists=True,
+        keep_waveform=False,
+    )
+    retaining = rh.ASRStage(
+        max_audio_sec_per_actor=2400.0,
+        adapter_target=rh._ASR_TARGET,
+        model_id="mock/model",
+        waveform_key="waveform",
+        sample_rate_key="sample_rate",
+        keep_waveform=True,
+    )
+    assert rh.build_contract(removing).removes_keys == ["waveform"]
+    assert rh.build_contract(retaining).removes_keys == []
+    assert (
+        rh.build_contract(
+            rh.ASRStage(
+                max_audio_sec_per_actor=2400.0, adapter_target=rh._ASR_TARGET, model_id="mock/model", waveform_key=""
+            )
+        ).removes_keys
+        == []
+    )
+    planner_seed = {
+        "initial_roles": {"waveform", "sample_rate"},
+        "initial_keys": {"waveform", "sample_rate"},
+        "initial_task_type": "AudioTask",
+    }
+    after_removal = rh.validate_pipeline([removing, retaining], **planner_seed)
+    after_retention = rh.validate_pipeline([retaining, retaining], **planner_seed)
+    assert not after_removal.ok
+    assert any(issue.code == "key_removed_upstream" for issue in after_removal.issues)
+    assert after_retention.ok
+    removing._adapter = rh.MagicMock()
+    skipped = rh.AudioTask(
+        data={
+            "waveform": rh.np.ones((1, 10), dtype=rh.np.float32),
+            "sample_rate": rh._SAMPLE_RATE,
+            "pred_text": "existing",
+        }
+    )
+    assert removing.process_batch([skipped]) == [skipped]
+    assert "waveform" not in skipped.data
+    assert skipped.data["sample_rate"] == rh._SAMPLE_RATE
+    removing._adapter.transcribe_batch.assert_not_called()
+    runtime = rh.ASRStage(
+        max_audio_sec_per_actor=2400.0,
+        adapter_target=rh._ASR_TARGET,
+        model_id="mock/model",
+        waveform_key="waveform",
+        sample_rate_key="sample_rate",
+        target_sample_rate=rh._SAMPLE_RATE,
+    )
+    runtime._adapter = rh.MagicMock()
+    runtime._adapter.transcribe_batch.return_value = [rh.ASRResult(text="ok")]
+    rh.assert_agent_ready(
+        runtime,
+        lambda: rh.AudioTask(
+            data={"waveform": rh.np.ones((1, 10), dtype=rh.np.float32), "sample_rate": rh._SAMPLE_RATE}
+        ),
+        expected_cardinality="1:1",
+        available_keys={"waveform", "sample_rate"},
+    )
+
+
+class _MetadataReader(AgentReady, ProcessingStage[AudioTask, AudioTask]):
+    def __init__(self, *, optional: bool = False) -> None:
+        self.optional = optional
+
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return [], [] if self.optional else ["asr_extras"]
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return [], []
+
+    def describe(self) -> StageContract:
+        spec = IOSpec(data_keys=["asr_extras"])
+        return StageContract(optional_reads=spec) if self.optional else StageContract(reads=spec)
+
+    def process(self, task: AudioTask) -> AudioTask:
+        if self.optional:
+            task.data.get("asr_extras")
+        else:
+            task.data["asr_extras"]
+        return task
+
+
+@pytest.mark.parametrize("extras", [{}, {"confidence": 0.9}])
+def test_metadata_replacement_does_not_preserve_an_upstream_guarantee(extras: dict[str, Any]) -> None:
+    stage = _make_stage(waveform_key="waveform", keep_waveform=True, extras_key="asr_extras")
+    stage._adapter.transcribe_batch.return_value = [ASRResult(text="hello", extras=extras)]
+    initial_keys = {"waveform", "sampling_rate", "asr_extras"}
+    required_reader = _MetadataReader()
+    report = rh.validate_pipeline([stage, required_reader], initial_keys=initial_keys)
+    assert not report.ok
+    assert "asr_extras" not in report.produced_keys
+    optional_reader = _MetadataReader(optional=True)
+    assert rh.validate_pipeline([stage, optional_reader], initial_keys=initial_keys).ok
+    task = _make_waveform_task()
+    task.data["asr_extras"] = {"stale": True}
+    result = stage.process_batch([task])[0]
+    if extras:
+        assert result.data["asr_extras"] == extras
+        assert required_reader.process(result) is result
+    else:
+        assert "asr_extras" not in result.data
+        with pytest.raises(KeyError, match="asr_extras"):
+            required_reader.process(result)
+    assert optional_reader.process(result) is result
+
+
+@pytest.mark.parametrize("reuse", [False, True])
+def test_language_contract_matches_transcribed_and_reused_rows(reuse: bool) -> None:
+    stage = ASRStage(
+        adapter_target=_QWEN_ADAPTER_TARGET,
+        model_id="mock/model",
+        max_audio_sec_per_actor=2400.0,
+        waveform_key="waveform",
+        language_key="detected_language",
+        skip_if_output_exists=reuse,
+        keep_waveform=True,
+    )
+    stage._adapter = MagicMock()
+    stage._adapter.transcribe_batch.return_value = [ASRResult(text="hello", extras={"language_code": "en"})]
+    task = _make_waveform_task()
+    if reuse:
+        task.data["pred_text"] = "already transcribed"
+    report = rh.validate_pipeline([stage], initial_keys=set(task.data))
+    assert report.ok
+    output = stage.process_batch([task])[0]
+    if reuse:
+        assert "detected_language" not in output.data
+        assert "detected_language" not in report.produced_keys
+        stage._adapter.transcribe_batch.assert_not_called()
+    else:
+        assert output.data["detected_language"] == "en"
+        assert "detected_language" in report.produced_keys

@@ -63,7 +63,7 @@ def malformed_filter(task: DocumentBatch) -> DocumentBatch:
         "output"
     ].str.contains(r"\\boxed", na=False)
     task.data = task.data[~task.data["is_malformed"]]
-    task.data = task.data.drop(columns=["is_malformed"], axis=1)
+    task.data = task.data.drop(columns=["is_malformed"])
     return task
 
 

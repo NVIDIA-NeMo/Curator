@@ -19,7 +19,20 @@ import copy
 import time
 from abc import ABC, ABCMeta, abstractmethod
 from inspect import isabstract
-from typing import TYPE_CHECKING, Any, ClassVar, Generic, TypeVar, final
+from types import UnionType
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    ClassVar,
+    Generic,
+    TypeVar,
+    Union,
+    cast,
+    final,
+    get_args,
+    get_origin,
+    get_type_hints,
+)
 
 from loguru import logger
 
@@ -27,12 +40,47 @@ from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import Task
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 
 X = TypeVar("X", bound=Task)  # Input task type
 Y = TypeVar("Y", bound=Task)  # Output task type
+StageInputSpec = tuple[list[str], list[str]]
+StageInputSpecs = StageInputSpec | dict[type[Task], StageInputSpec]
+_INPUT_SPEC_LENGTH = 2
 
 _STAGE_REGISTRY: dict[str, type[ProcessingStage]] = {}
+
+
+class _UnsetType:
+    __slots__ = ()
+
+
+_UNSET = _UnsetType()
+
+
+def _stage_spec_method(stage_spec: dict[str, Any]) -> Callable[[], dict[str, Any]]:
+    def get_stage_spec() -> dict[str, Any]:
+        return dict(stage_spec)
+
+    return get_stage_spec
+
+
+def _num_workers_method(num_workers: int | None) -> Callable[[], int | None]:
+    def get_num_workers() -> int | None:
+        return num_workers
+
+    return get_num_workers
+
+
+def _num_workers_per_node_method(
+    num_workers_per_node: float | None,
+) -> Callable[[], float | None]:
+    def get_num_workers_per_node() -> float | None:
+        return num_workers_per_node
+
+    return get_num_workers_per_node
 
 
 class StageMeta(ABCMeta):
@@ -57,6 +105,12 @@ class StageMeta(ABCMeta):
             _STAGE_REGISTRY[cls.__name__] = cls  # type: ignore[assignment]
 
         return cls
+
+    def __call__(cls, *args, **kwargs):
+        """Validate worker sizing after the stage is fully constructed."""
+        instance = super().__call__(*args, **kwargs)
+        instance._validate_worker_sizing()
+        return instance
 
 
 def get_stage_class(name: str) -> type[ProcessingStage]:
@@ -87,6 +141,22 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
     batch_size = 1
     runtime_env: ClassVar[dict[str, Any] | None] = None
 
+    # Source / sink role flags. User-overridable on the stage class or
+    # instance. If neither is set explicitly on any stage in the pipeline,
+    # ``Pipeline.build()`` defaults the first stage to source and the last
+    # to sink. The source flag selects content-based ids from
+    # ``Task.get_deterministic_id()`` (when the Task subclass implements
+    # one) for this task's id segment; the sink flag is reserved for the
+    # resumability layer to mark the counter-decrement boundary.
+    is_source_stage: bool = False
+    is_sink_stage: bool = False
+    # Whether this stage is safe to run under resumability (``checkpoint_path``).
+    # Defaults to True; set False only on stages whose input→output mapping isn't
+    # source-attributable (shuffle / fan-in, e.g. the dedup shuffle/LSH/connected-
+    # components stages). ``Pipeline.run(checkpoint_path=...)`` errors if any stage
+    # in the pipeline is not resumable.
+    is_resumable: bool = True
+
     @property
     @final
     def _name(self) -> str:
@@ -105,15 +175,22 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
-        if "_name" in cls.__dict__:
-            msg = f"{cls.__name__} must not override '_name'"
-            raise TypeError(msg)
-        if "_resources" in cls.__dict__:
-            msg = f"{cls.__name__} must not override '_resources'"
-            raise TypeError(msg)
-        if "_batch_size" in cls.__dict__:
-            msg = f"{cls.__name__} must not override '_batch_size'"
-            raise TypeError(msg)
+        for attr in ("_name", "_resources", "_batch_size"):
+            if attr in cls.__dict__:
+                msg = f"{cls.__name__} must not override '{attr}'"
+                raise TypeError(msg)
+
+        for worker_attr in ("num_workers", "num_workers_per_node"):
+            value = cls.__dict__.get(worker_attr)
+            if (value is not None and not callable(value)) or (
+                value is None and worker_attr in cls.__dict__.get("__annotations__", {})
+            ):
+                msg = (
+                    f"{cls.__name__} must not define '{worker_attr}' as a stage attribute. "
+                    f"Override {worker_attr}() for backend worker sizing, or use a different field name "
+                    "for stage-specific worker counts."
+                )
+                raise TypeError(msg)
 
         for attr in ("name", "resources", "batch_size", "runtime_env"):
             if isinstance(cls.__dict__.get(attr), property):
@@ -128,6 +205,36 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
         """Number of workers required. If None, then executor will determine the number of workers."""
         return None
 
+    def num_workers_per_node(self) -> float | None:
+        """Number of workers required per Ray node. If None, executor default sizing is used."""
+        return None
+
+    def _validate_worker_sizing(self) -> None:
+        """Reject ambiguous combinations of backend worker-sizing options."""
+        from nemo_curator.backends.utils import (
+            get_configured_actor_pool_sizing_keys,
+            get_stage_num_workers_per_node,
+        )
+
+        configured = [
+            name
+            for name, value in (
+                ("num_workers()", self.num_workers()),
+                ("num_workers_per_node()", get_stage_num_workers_per_node(self)),
+            )
+            if value is not None
+        ]
+
+        if get_configured_actor_pool_sizing_keys(self.ray_stage_spec()):
+            configured.append("actor-pool sizing keys (min/max/initial_workers)")
+
+        if len(configured) > 1:
+            msg = (
+                f"Stage {self.name} sets multiple worker-sizing options ({', '.join(configured)}); "
+                "use only one of num_workers, num_workers_per_node, or actor-pool sizing keys."
+            )
+            raise ValueError(msg)
+
     def validate_input(self, task: Task) -> bool:
         """Validate input task meets requirements.
         Args:
@@ -135,7 +242,11 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
         Returns:
             True if valid, False otherwise
         """
-        required_top_level_attrs, required_data_attrs = self.inputs()
+        try:
+            required_top_level_attrs, required_data_attrs = self.input_spec_for_task(task)
+        except TypeError as e:
+            logger.error(str(e))
+            return False
 
         # Check required attributes exist
         missing_top_level_attrs = []
@@ -145,8 +256,10 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
 
         # Check required columns exist
         missing_data_attrs = []
+        get_columns = getattr(task, "get_columns", None)
+        data_columns = get_columns() if callable(get_columns) else getattr(task.data, "column_names", ())
         for attr in required_data_attrs:
-            if not hasattr(task.data, attr):
+            if not hasattr(task.data, attr) and attr not in data_columns:
                 missing_data_attrs.append(attr)
 
         # Log warning with missing attributes
@@ -156,6 +269,40 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
             )
 
         return not missing_top_level_attrs and not missing_data_attrs
+
+    def input_spec_for_task(self, task: Task) -> StageInputSpec:
+        """Return the input requirements that apply to ``task``.
+
+        Stages may return either the legacy single input spec or a mapping from
+        supported task type to spec. For mappings, the most specific task type in
+        the task's MRO wins.
+        """
+        input_specs = self.inputs()
+        if isinstance(input_specs, tuple):
+            return self._validate_input_spec(input_specs, "inputs()")
+        if not isinstance(input_specs, dict):
+            msg = f"Stage {self.name} inputs() must return an input spec tuple or dict of task type to input spec"
+            raise TypeError(msg)
+
+        # Search the task's MRO from most to least specific. For example, given
+        # CustomDocumentBatch -> DocumentBatch -> Task, look for an input spec
+        # for CustomDocumentBatch first, then DocumentBatch, and finally Task.
+        for candidate_type in type(task).mro():
+            if candidate_type in input_specs:
+                return self._validate_input_spec(input_specs[candidate_type], f"inputs()[{candidate_type.__name__}]")
+
+        supported_task_types = ", ".join(supported_type.__name__ for supported_type in input_specs) or "<none>"
+        msg = (
+            f"Stage {self.name} does not support input task type {type(task).__name__}. "
+            f"Supported input task types: {supported_task_types}"
+        )
+        raise TypeError(msg)
+
+    def _validate_input_spec(self, input_spec: object, source: str) -> StageInputSpec:
+        if not isinstance(input_spec, tuple) or len(input_spec) != _INPUT_SPEC_LENGTH:
+            msg = f"Stage {self.name} {source} must be a tuple of (required_attributes, required_columns)"
+            raise TypeError(msg)
+        return cast("StageInputSpec", input_spec)
 
     @abstractmethod
     def process(self, task: X) -> Y | list[Y]:
@@ -182,6 +329,14 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
         Note: The returned list should have the same length as the input list,
         with each element corresponding to the result of processing the task
         at the same index.
+
+        ``task_id`` is framework-owned: stages must NOT set it. The executor
+        adapter (``BaseStageAdapter._post_process_task_ids``) assigns a
+        deterministic id to every emitted task — regardless of whether
+        a stage uses this default or overrides ``process_batch``. Where the
+        input→output mapping is ambiguous (e.g. a batch aggregation), the
+        adapter falls back to a random ``"r"``-prefixed id (see
+        ``Task.task_id``); there is no way for a stage to supply its own.
         """
         # Default implementation: process tasks one by one
         # This is only used as a fallback if a stage doesn't override this method
@@ -231,11 +386,12 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
         """String representation of the stage."""
         return f"{self.__class__.__name__}"
 
-    def inputs(self) -> tuple[list[str], list[str]]:
+    def inputs(self) -> StageInputSpecs:
         """Define stage input requirements.
 
-        Returns (tuple[list[str], list[str]]):
-            Tuple of (required_attributes, required_columns) where:
+        Returns:
+            Either a single tuple of (required_attributes, required_columns), or
+            a mapping from supported task type to that tuple. In each tuple:
             - required_top_level_attributes: List of task attributes that must be present
             - required_data_attributes: List of attributes within the data that must be present
         """
@@ -259,12 +415,16 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
         """
         return {}
 
-    def with_(
+    def with_(  # noqa: PLR0913
         self,
         name: str | None = None,
         resources: Resources | None = None,
         batch_size: int | None = None,
         runtime_env: dict[str, Any] | None = None,
+        ray_stage_spec: dict[str, Any] | None = None,
+        xenna_stage_spec: dict[str, Any] | None = None,
+        num_workers: int | None | _UnsetType = _UNSET,
+        num_workers_per_node: float | None | _UnsetType = _UNSET,
     ) -> ProcessingStage:
         """Apply configuration changes to this stage with overridden properties.
 
@@ -275,6 +435,12 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
             resources: Override the resources property
             batch_size: Override the batch_size property
             runtime_env: Override the runtime_env (Ray runtime environment dict)
+            ray_stage_spec: Merge overrides into the Ray stage spec. User-provided keys win.
+            xenna_stage_spec: Merge overrides into the Xenna stage spec. User-provided keys win.
+                Use num_workers instead of setting num_workers in xenna_stage_spec.
+            num_workers: Override the num_workers() result. Passing None explicitly resets to executor default behavior.
+            num_workers_per_node: Override the num_workers_per_node() result. Passing None explicitly resets to
+                executor default behavior.
         """
         new_instance = copy.deepcopy(self)
 
@@ -287,6 +453,35 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
             new_instance.batch_size = batch_size
         if runtime_env is not None:
             new_instance.runtime_env = runtime_env
+
+        if ray_stage_spec is not None:
+            new_instance.ray_stage_spec = _stage_spec_method(
+                {
+                    **new_instance.ray_stage_spec(),
+                    **dict(ray_stage_spec),
+                }
+            )
+
+        if xenna_stage_spec is not None:
+            xenna_stage_spec = dict(xenna_stage_spec)
+            if "num_workers" in xenna_stage_spec:
+                msg = "Use with_(num_workers=...) instead of setting num_workers in xenna_stage_spec."
+                raise ValueError(msg)
+            new_instance.xenna_stage_spec = _stage_spec_method(
+                {
+                    **new_instance.xenna_stage_spec(),
+                    **xenna_stage_spec,
+                }
+            )
+
+        if num_workers is not _UNSET:
+            new_instance.num_workers = _num_workers_method(cast("int | None", num_workers))
+        if num_workers_per_node is not _UNSET:
+            new_instance.num_workers_per_node = _num_workers_per_node_method(
+                cast("float | None", num_workers_per_node)
+            )
+
+        new_instance._validate_worker_sizing()
 
         return new_instance
 
@@ -310,7 +505,34 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
         Returns (dict[str, Any]):
             Dictionary containing Ray-specific configuration
         """
-        return {}
+        return {"is_fanout_stage": self.is_fanout_stage()}
+
+    def is_fanout_stage(self) -> bool:
+        """Infer whether `process()` can fan out one input task into many outputs."""
+        try:
+            process_hints = get_type_hints(type(self).process)
+        except (AttributeError, NameError, TypeError) as exc:
+            logger.debug(
+                "Could not resolve type hints for {}.process; defaulting is_fanout_stage to False: {}",
+                type(self).__name__,
+                exc,
+            )
+            return False
+
+        return self._annotation_contains_list(process_hints.get("return"))
+
+    @classmethod
+    def _annotation_contains_list(cls, annotation: object) -> bool:
+        if annotation is None:
+            return False
+
+        if get_origin(annotation) is list:
+            return True
+
+        if get_origin(annotation) in (UnionType, Union):
+            return any(cls._annotation_contains_list(arg) for arg in get_args(annotation))
+
+        return False
 
     # --- Custom per-stage metrics helpers ---
     def _log_metrics(self, metrics: dict[str, float]) -> None:
@@ -359,7 +581,7 @@ class CompositeStage(ProcessingStage[X, Y], ABC):
     def __init__(self):
         self._with_operations = []
 
-    def inputs(self) -> tuple[list[str], list[str]]:
+    def inputs(self) -> StageInputSpecs:
         """Get the inputs for this stage."""
         return self.decompose()[0].inputs()
 

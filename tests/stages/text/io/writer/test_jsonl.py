@@ -20,10 +20,10 @@ from unittest import mock
 import pandas as pd
 import pytest
 
-import nemo_curator.stages.text.io.writer.utils as writer_utils
 from nemo_curator.stages.text.io.writer import JsonlWriter
 from nemo_curator.stages.text.io.writer import base as writer_base
 from nemo_curator.tasks import DocumentBatch
+from tests.stages.text.io.utils import normalize_string_dtypes
 
 
 class TestJsonlWriter:
@@ -49,7 +49,7 @@ class TestJsonlWriter:
         # Process
         with (
             mock.patch.object(
-                writer_utils, "get_deterministic_hash", return_value="_TEST_FILE_HASH"
+                writer_base, "get_deterministic_hash", return_value="_TEST_FILE_HASH"
             ) as mock_get_deterministic_hash,
             mock.patch.object(uuid, "uuid4", return_value=mock.Mock(hex="_TEST_FILE_HASH")) as mock_uuid4,
         ):
@@ -62,12 +62,12 @@ class TestJsonlWriter:
                 assert mock_get_deterministic_hash.call_count == 1
                 # Verify get_deterministic_hash was called with correct arguments
                 mock_get_deterministic_hash.assert_called_once_with(source_files, document_batch.task_id)
-                # because we call it once for task, and that should be the only one
-                assert mock_uuid4.call_count <= 1
+                # consistent path uses the content hash for the filename; uuid is unused
+                assert mock_uuid4.call_count == 0
             else:
                 assert mock_get_deterministic_hash.call_count == 0
-                # because we call it once for task, and once for the filename
-                assert mock_uuid4.call_count == 2
+                # non-consistent path uses a single uuid for the filename
+                assert mock_uuid4.call_count == 1
 
         # Verify file was created
         assert result.task_id == document_batch.task_id  # Task ID should match input
@@ -91,7 +91,10 @@ class TestJsonlWriter:
         # Verify file extension and content
         assert file_path.endswith(".jsonl"), "JSONL files should have .jsonl extension"
         df = pd.read_json(file_path, lines=True)
-        pd.testing.assert_frame_equal(df, document_batch.to_pandas())
+        pd.testing.assert_frame_equal(
+            normalize_string_dtypes(df),
+            normalize_string_dtypes(document_batch.to_pandas()),
+        )
 
     def test_jsonl_writer_with_columns_subset(self, pandas_document_batch: DocumentBatch, tmpdir: str):
         """Only selected columns should be written when columns are provided."""
@@ -107,12 +110,11 @@ class TestJsonlWriter:
         expected = pandas_document_batch.to_pandas()[["text", "score"]]
         pd.testing.assert_frame_equal(df, expected)
 
-
     def test_jsonl_writer_defaults_to_utf8_output(self, tmpdir: str):
         """JsonlWriter should preserve non-ASCII characters by default."""
         output_dir = os.path.join(tmpdir, "jsonl_utf8")
         writer = JsonlWriter(path=output_dir)
-        batch = DocumentBatch(data=pd.DataFrame({"text": ["你好, 世界"], "id": [1]}), task_id="utf8", dataset_name="test")
+        batch = DocumentBatch(data=pd.DataFrame({"text": ["你好, 世界"], "id": [1]}), dataset_name="test")
 
         writer.setup()
         result = writer.process(batch)
@@ -127,7 +129,7 @@ class TestJsonlWriter:
         """JsonlWriter should still honor user-provided force_ascii=True."""
         output_dir = os.path.join(tmpdir, "jsonl_ascii")
         writer = JsonlWriter(path=output_dir, write_kwargs={"force_ascii": True})
-        batch = DocumentBatch(data=pd.DataFrame({"text": ["你好, 世界"], "id": [1]}), task_id="ascii", dataset_name="test")
+        batch = DocumentBatch(data=pd.DataFrame({"text": ["你好, 世界"], "id": [1]}), dataset_name="test")
 
         writer.setup()
         result = writer.process(batch)

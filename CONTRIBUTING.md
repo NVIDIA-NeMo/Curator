@@ -1,22 +1,65 @@
-# Checklist
+# Contributing to NeMo Curator
 
-We are glad you are contributing to NeMo Curator! Before you make a PR, be sure to read over this guide in detail.
-This project will only accept contributions under the project's Apache2 license.
-This checklist ensures that NeMo Curator stays easy-to-use by both users and developers.
-Not all steps are necessary for some contributions, so read the linked sections for more information about each item.
+We're glad you're contributing to NeMo Curator. This guide explains what kinds of contributions we accept, where to ask questions, how to find a good first issue, and how to set up your environment and open a PR.
 
-- [Checklist](#checklist)
-  - [General principles](#general-principles)
-  - [Python style](#python-style)
-  - [Setup and Dev](#setup-and-dev)
-    - [Prerequisites](#prerequisites)
-    - [Installation](#installation)
-  - [Unit tests](#unit-tests)
-  - [Coverage](#coverage)
-  - [Pull Requests (PR) Guidelines](#pull-requests-pr-guidelines)
-    - [Updating Package Dependencies](#updating-package-dependencies)
+All contributions are accepted under the project's [Apache License 2.0](LICENSE). All participants are expected to follow our [Code of Conduct](CODE_OF_CONDUCT.md).
 
-## General principles
+## Table of Contents
+
+- [Ways to Contribute](#ways-to-contribute)
+- [Your First Contribution](#your-first-contribution)
+- [Asking Questions and Discussing Changes](#asking-questions-and-discussing-changes)
+- [Code of Conduct](#code-of-conduct)
+- [General Principles](#general-principles)
+- [Python Style](#python-style)
+- [Setup and Dev](#setup-and-dev)
+  - [Prerequisites](#prerequisites)
+  - [Installation](#installation)
+- [Unit Tests](#unit-tests)
+- [Coverage](#coverage)
+- [Pull Requests (PR) Guidelines](#pull-requests-pr-guidelines)
+  - [Updating Package Dependencies](#updating-package-dependencies)
+
+## Ways to Contribute
+
+Contributions of any size are welcome. Common types:
+
+- **Bug fixes** — reproducible issues with a failing test where practical.
+- **Documentation** — fixes, clarifications, and new tutorials in `fern/` (the canonical docs source) and the in-repo `tutorials/` directory.
+- **Tests** — extending unit, integration, or GPU test coverage; converting flaky tests into deterministic ones.
+- **New pipeline stages** — modality-aware filters, classifiers, dedupers, loaders, or writers that fit the existing `Stage`/`Pipeline` abstractions.
+- **Recipes and examples** — end-to-end curation workflows that exercise real datasets.
+- **Performance work** — benchmarks, scaling improvements, or executor enhancements (please include before/after numbers).
+- **Build, CI, packaging, and dependency hygiene.**
+
+If you're planning a larger change (new modality, new executor, breaking API change), please open a [Discussion](https://github.com/NVIDIA-NeMo/Curator/discussions) or a draft issue first so we can align on direction before you invest in code.
+
+## Your First Contribution
+
+New to the project? Start here:
+
+1. Browse issues labeled [`good first issue`](https://github.com/NVIDIA-NeMo/Curator/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) — these are scoped to be approachable without deep familiarity with the codebase.
+2. Comment on the issue to claim it before you start work, so we don't duplicate effort.
+3. Read [General Principles](#general-principles) and follow the [PR Guidelines](#pull-requests-pr-guidelines) below.
+
+Good starter areas if no labeled issue catches your eye: docs typos and clarifications, missing docstrings, additional unit-test coverage, and small isolated Python-stage fixes.
+
+## Asking Questions and Discussing Changes
+
+| You want to… | Where to go |
+|--------------|-------------|
+| Ask a "how do I…" or "is this supported?" question | [GitHub Discussions](https://github.com/NVIDIA-NeMo/Curator/discussions) |
+| Propose a non-trivial feature or design change | Open a Discussion or a draft Issue describing the design first |
+| Report a reproducible bug | [GitHub Issues](https://github.com/NVIDIA-NeMo/Curator/issues) using the bug template |
+| Show off a recipe or pipeline | Discussions → "Show and tell" |
+
+These are community channels staffed on a best-effort basis; there is no support SLA. Please avoid opening Issues for usage questions — keep Issues focused on bugs and concrete proposals so the backlog stays tractable.
+
+## Code of Conduct
+
+This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.md). By participating — in issues, discussions, PRs, or any other project space — you agree to abide by its terms. To report unacceptable behavior, follow the reporting instructions in `CODE_OF_CONDUCT.md`.
+
+## General Principles
 1. **User-oriented**: make it easy for end users, even at the cost of writing more code in the background
 1. **Robust**: make it hard for users to make mistakes.
 1. **Reusable**: for every piece of code, think about how it can be reused in the future and make it easy to be reused.
@@ -24,7 +67,7 @@ Not all steps are necessary for some contributions, so read the linked sections 
 1. **Legal**: if you copy even one line of code from the Internet, make sure that the code allows the license that NeMo Curator supports. Give credit and link back to the code.
 1. **Sensible**: code should make sense. If you think a piece of code might be confusing, write comments.
 
-## Python style
+## Python Style
 We use ``ruff`` as our style guide. To fix your format run `pre-commit install && pre-commit run --all`.
 
 **Setting up pre-commit hooks locally (optional)** (one-time setup):
@@ -81,7 +124,7 @@ uv sync --extra all
 
 - If project dependencies are updated, the lock file needs to be regenerated. See [Updating Package Dependencies](#updating-package-dependencies) for the full workflow.
 
-## Unit tests
+## Unit Tests
 Unit tests should be simple and fast.
 Developers should be able to run them frequently while developing without any slowdown.
 ```
@@ -169,3 +212,19 @@ By making a contribution to this project, I certify that:
 
 (d) I understand and agree that this project and the contribution are public and that a record of the contribution (including all personal information I submit with it, including my sign-off) is maintained indefinitely and may be redistributed consistent with this project or the open source license(s) involved.
 ```
+
+## Pull-request reviews
+
+Comment `/review` on a pull request for the formal review service. Use
+`/review mode=strict` for deeper analysis, or add `model=claude` to select a
+Claude reviewer instead of the default Codex reviewer. `/review help` lists
+all options. The retired `/claude review` and `/claude strict-review` commands
+only reply with migration instructions; they do not run or automatically
+request a review.
+
+Curator's review profile in CI-Events selects its local copy of the
+[Ponytail review skill](https://github.com/NVIDIA-NeMo/CI-Events-Workflows/blob/main/skills/ponytail-review/SKILL.md).
+The review service loads an immutable plugin snapshot published from CI-Events'
+protected `main` branch. CI-Events owns profile registration and publication;
+the formal review service owns review output and submission. Before activating
+the profile, verify a Ready `ponytail-skills` snapshot containing `ponytail-review`.

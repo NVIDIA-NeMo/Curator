@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,7 +16,12 @@ import subprocess
 from pathlib import Path
 from unittest import mock
 
+from nemo_curator.stages.text.download.wikipedia.constants import WIKIMEDIA_USER_AGENT
 from nemo_curator.stages.text.download.wikipedia.download import WikipediaDownloader
+
+
+def _wget_command(url: str, path: str) -> list[str]:
+    return ["wget", f"--user-agent={WIKIMEDIA_USER_AGENT}", url, "-O", path]
 
 
 class TestWikipediaDownloader:
@@ -77,7 +82,7 @@ class TestWikipediaDownloader:
         assert success is True
         assert error_message is None
         mock_run.assert_called_once_with(
-            ["wget", url, "-O", temp_path],
+            _wget_command(url, temp_path),
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
         )
@@ -95,7 +100,7 @@ class TestWikipediaDownloader:
         assert success is True
         assert error_message is None
         mock_run.assert_called_once_with(
-            ["wget", url, "-O", temp_path],
+            _wget_command(url, temp_path),
             stdout=None,
             stderr=None,
         )
@@ -113,7 +118,7 @@ class TestWikipediaDownloader:
         assert success is True
         assert error_message is None
         mock_run.assert_called_once_with(
-            ["wget", url, "-O", temp_path],
+            _wget_command(url, temp_path),
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
         )
@@ -131,7 +136,7 @@ class TestWikipediaDownloader:
         assert success is False
         assert error_message == "File not found"
         mock_run.assert_called_once_with(
-            ["wget", url, "-O", temp_path],
+            _wget_command(url, temp_path),
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
         )
@@ -149,7 +154,7 @@ class TestWikipediaDownloader:
         assert success is False
         assert error_message == "Network error"
         mock_run.assert_called_once_with(
-            ["wget", url, "-O", temp_path],
+            _wget_command(url, temp_path),
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
         )
@@ -167,7 +172,7 @@ class TestWikipediaDownloader:
         assert success is False
         assert error_message == "Unknown error"
         mock_run.assert_called_once_with(
-            ["wget", url, "-O", temp_path],
+            _wget_command(url, temp_path),
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
         )
@@ -183,7 +188,7 @@ class TestWikipediaDownloader:
 
         downloader._download_to_path(url, temp_path)
 
-        expected_cmd = ["wget", url, "-O", temp_path]
+        expected_cmd = _wget_command(url, temp_path)
         mock_run.assert_called_once_with(
             expected_cmd,
             stdout=subprocess.DEVNULL,
@@ -234,8 +239,9 @@ class TestWikipediaDownloaderIntegration:
         for i, call in enumerate(mock_run.call_args_list):
             args, kwargs = call
             assert args[0][0] == "wget"
-            assert args[0][1] == test_urls[i]
-            assert args[0][2] == "-O"
+            assert args[0][1] == f"--user-agent={WIKIMEDIA_USER_AGENT}"
+            assert args[0][2] == test_urls[i]
+            assert args[0][3] == "-O"
             assert kwargs["stdout"] is None  # verbose mode
             assert kwargs["stderr"] is None  # verbose mode
 

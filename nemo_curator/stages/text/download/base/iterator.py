@@ -143,7 +143,6 @@ class DocumentIterateExtractStage(ProcessingStage[FileGroupTask, DocumentBatch])
         df = pd.DataFrame(records)
 
         return DocumentBatch(
-            task_id=task.task_id,
             dataset_name=task.dataset_name,
             data=df,
             _metadata={
