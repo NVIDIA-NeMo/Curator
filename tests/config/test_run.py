@@ -33,6 +33,7 @@ from omegaconf import ListConfig, OmegaConf
 from nemo_curator.config.run import create_executor_from_yaml, create_pipeline_from_yaml, main, run_pipeline_from_yaml
 from nemo_curator.models.vllm_model import VLLMModel
 from nemo_curator.pipeline import Pipeline
+from nemo_curator.pipeline.workflow import WorkflowRunResult
 from nemo_curator.stages.audio.alignment import MFAAlignmentStage
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.text.io.reader import JsonlReader, ParquetReader
@@ -562,6 +563,38 @@ def test_empty_phase_does_not_run_downstream_stages() -> None:
 def test_invalid_phase_boundaries_raise(config: dict) -> None:
     with pytest.raises(ValueError, match=r"phases|group_by"):
         run_pipeline_from_yaml(OmegaConf.create(config))
+
+
+@pytest.mark.parametrize(
+    "phases",
+    [
+        [{"workflow": []}],
+        [{"workflow": []}, {"stages": []}],
+        [{"workflow": []}, {"stages": [], "group_by": "conversation_id"}],
+        [{"stages": []}, {"workflow": []}],
+        [{"stages": []}, {"workflow": []}, {"stages": []}],
+        [{"phases": [{"workflow": []}]}],
+        [{"stages": []}, {"phases": [{"stages": []}, {"workflow": []}]}],
+    ],
+)
+def test_workflow_phases_are_rejected_before_execution(phases: list[dict]) -> None:
+    cfg = OmegaConf.create({"phases": phases})
+    with (
+        patch("nemo_curator.config.run.create_pipeline_from_yaml") as build,
+        patch("nemo_curator.config.run.create_executor_from_yaml") as executor,
+        pytest.raises(ValueError, match="phases support stage pipelines only"),
+    ):
+        run_pipeline_from_yaml(cfg)
+    build.assert_not_called()
+    executor.assert_not_called()
+
+
+def test_standalone_workflow_returns_all_pipeline_outputs() -> None:
+    task = AudioTask(data={"conversation_id": "same"})
+    result = WorkflowRunResult(workflow_name="example", pipeline_tasks={"first": [task], "second": []})
+    with patch("nemo_curator.config.run.create_pipeline_from_yaml") as build:
+        build.return_value.run.return_value = result
+        assert run_pipeline_from_yaml(OmegaConf.create({"workflow": []})) is result
 
 
 def test_actor_pool_backend_is_available_in_yaml() -> None:

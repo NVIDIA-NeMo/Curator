@@ -11,6 +11,8 @@ Generate conversation audio from topics with the shared YAML runner:
 
 The generation and merge phases both use the standard executor interfaces. Scheduler batch sizes never define conversation boundaries. No tutorial-specific runner is needed.
 
+Each phase must contain a stage pipeline or nested pipeline phases. Workflows remain available as standalone YAML configurations; workflow result containers cannot cross phase boundaries. Invalid workflow phases are rejected before any phase runs.
+
 ## Requirements
 
 ```bash

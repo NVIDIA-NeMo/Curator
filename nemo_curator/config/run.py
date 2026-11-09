@@ -21,6 +21,7 @@ from omegaconf import DictConfig, OmegaConf
 from nemo_curator.backends.base import BaseExecutor
 from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
+from nemo_curator.pipeline.workflow import WorkflowRunResult
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import Task, group_tasks_by_data_key
 
@@ -123,12 +124,25 @@ def create_pipeline_from_yaml(cfg: DictConfig, *, log_config: bool = True) -> Pi
         raise RuntimeError(msg)
 
 
-def run_pipeline_from_yaml(cfg: DictConfig, *, initial_tasks: list[Task] | None = None) -> list[Task]:
-    """Run one pipeline or ordered phases with explicit keyed grouping boundaries."""
+def _validate_phase_pipelines(cfg: DictConfig) -> None:
+    """Reject workflow containers before any phase produces persistent outputs."""
+    if "workflow" in cfg:
+        msg = "phases support stage pipelines only; run workflows as standalone configurations"
+        raise ValueError(msg)
     if "phases" in cfg:
-        if "stages" in cfg or "workflow" in cfg or not cfg.phases:
+        if "stages" in cfg or not cfg.phases:
             msg = "phases must be nonempty and cannot be combined with stages or workflow"
             raise ValueError(msg)
+        for phase in cfg.phases:
+            _validate_phase_pipelines(phase)
+
+
+def run_pipeline_from_yaml(
+    cfg: DictConfig, *, initial_tasks: list[Task] | None = None
+) -> list[Task] | WorkflowRunResult:
+    """Run one pipeline/workflow or ordered pipeline phases with keyed grouping."""
+    if "phases" in cfg:
+        _validate_phase_pipelines(cfg)
         results = initial_tasks
         for phase in cfg.phases:
             if results == []:

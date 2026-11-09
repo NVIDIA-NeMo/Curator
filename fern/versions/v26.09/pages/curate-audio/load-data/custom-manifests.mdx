@@ -53,6 +53,8 @@ Group an existing per-turn manifest by `conversation_id` before scheduling this 
 
 For generated turn pipelines, the shared YAML runner also accepts an ordered `phases` list. A phase with `group_by: conversation_id` collects the preceding phase's output into `TaskGroup` objects before executing its stages. The merger accepts these groups as well as nested conversation rows, retains member provenance in task metadata, and is non-resumable. Generated turns include `conversation_num_turns`; incomplete groups are rejected before artifact writes.
 
+Phases accept stage pipelines or nested pipeline phases. Run workflows as standalone configurations: their result containers do not define a single task stream for the next phase. Workflow phases are rejected before execution begins.
+
 ```python
 from nemo_curator.backends.ray_data import RayDataExecutor
 from nemo_curator.pipeline import Pipeline
