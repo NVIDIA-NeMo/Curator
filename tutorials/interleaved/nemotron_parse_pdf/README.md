@@ -52,6 +52,10 @@ reuses an existing server; the CPU environment does not load the model.
 Managed Dynamo additionally requires a compatible driver stack and local
 `etcd` and NATS binaries, as described in that section.
 
+For programmatic serving, prefer `NemotronParsePDFReader`. If you compose Parse
+3.5 stages manually, use `PDFPreprocessStage(retain_failures=True)` to retain
+physical page numbers; the HTTP stage rejects input without `page_number`.
+
 ## Run the tutorial
 
 **Step 1 — Create a manifest listing your PDFs:**
@@ -508,6 +512,11 @@ Each measured run writes a result directory containing:
 - `gpu-samples.csv` with one row per GPU per second;
 - `run-summary.json` with elapsed time and per-GPU utilization; and
 - `topology.json` for the Dynamo runner.
+
+Managed Dynamo readiness checks that the model is listed by `/v1/models`; it
+is not a separate readiness acknowledgment from every replica. Verify each
+worker's readiness in its logs before treating a timed interval as excluding
+all replica startup.
 
 The Dynamo summary reports server startup separately and measures GPU
 utilization only around `pipeline.run()`. The direct launchers start vLLM before

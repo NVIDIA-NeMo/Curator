@@ -37,15 +37,25 @@ top of the clone, keeping it pinned to the driver instead of drifting. A
 model needing more (a newer `transformers`, an extra loader package) adds it
 through the same `runtime_env`, merged via `merge_runtime_envs()`.
 
-**This stack targets CUDA 12.x, not CUDA 13.x, everywhere.** `vllm` is
-pinned to `==0.22.0+cu129`; `_ACTOR_VENV_CUDA_TAG` builds the actor venv
-against that same `cu129` wheel index; `nixl-cu13` is explicitly excluded
-(`_ACTOR_VENV_NIXL_CU13_EXCLUSION`) because it has previously been pulled in
-transitively. A `cu13`-tagged wheel landing anywhere in this stack is one
-checkable cause of a startup/kernel-warmup failure — check the CUDA tag on
-any newly-resolved wheel before assuming a model/prompt/config issue. If
-tags check out, the installed CUTLASS/QuACK build may just be too old for
-the GPU architecture, independent of CUDA tagging.
+**Driver and serving environments can use different CUDA stacks.** The locked
+`vllm` extra uses `0.22.0+cu129`, but a served Parse 3.5 CPU driver can instead
+use `interleaved_cpu`, the parser package without inference dependencies, and a
+compatible `ai-dynamo` installation. The actor's `ai-dynamo[vllm]` requirement
+comes from that installed Dynamo release, not necessarily the locked vLLM extra.
+
+`NEMO_CURATOR_DYNAMO_CUDA_TAG` selects `cu129` (default) or `cu130`; set this
+driver-side option before importing Curator serving. It selects the actor's Torch
+backend and the versioned vLLM wheel index. For `cu129`, the override excludes
+`nixl-cu13`; for `cu130`, that exclusion is omitted. If the driver has `+cpu`
+Torch, the actor install explicitly reinstalls Torch and torchvision so cloned
+CPU wheels do not satisfy the serving dependencies. The driver remains unchanged.
+
+Verify the selected tag and actual resolved Torch, vLLM, NIXL, and model-package
+versions in the serving environment. Selecting CUDA 13 does not upgrade Dynamo
+or establish compatibility with a particular model. See the Parse tutorial's
+qualified recipe; do not change installed environments to investigate a mismatch.
+If tags agree, the installed CUTLASS/QuACK build can still be too old for the GPU
+architecture independently of CUDA tagging.
 
 ## Two separate environments, two separate mechanisms
 
@@ -66,11 +76,10 @@ whether a package is involved: `runtime_env["env_vars"]` on one model
 doesn't reach other models' workers (right for a model-specific flag);
 `subprocess_env` is server-wide, so a model-specific flag there leaks onto
 every other model's worker. This isolation isn't absolute — see the
-frontend note below. Never `export` an installer/import-relevant var in the
-driver shell: it won't propagate into the actor's isolated venv, and if it
-reaches Ray itself (not just the worker subprocess) it can make Ray import
-something unexpected and stall startup — scope it to
-`runtime_env`/`subprocess_env` instead.
+frontend note below. Scope worker installer/import-relevant variables to
+`runtime_env`/`subprocess_env` rather than relying on driver-shell propagation.
+The documented `NEMO_CURATOR_DYNAMO_CUDA_TAG` selector is different: Curator reads
+it in the driver to construct actor installation options before startup.
 
 ### Minimal `runtime_env` example
 
@@ -153,16 +162,16 @@ and error:
    creation (before any `dynamo.vllm` subprocess log) is a `runtime_env`/
    actor-venv problem; one inside worker subprocess logs (actor already
    exists) is a `subprocess_env`/installed-package problem.
-2. **Check the CUDA tag on every newly-resolved wheel** against the `cu129`
-   baseline — see "Base venv vs. actor venv" above for what this class of
-   failure looks like and its two causes.
+2. **Check the CUDA tag on every newly-resolved wheel** against the selected
+   `cu129` or `cu130` serving backend — see "Base venv vs. actor venv" above.
+   Do not compare a CPU driver's Torch build to the expected CUDA serving build.
 3. **The additive `runtime_env` install can disturb a pin already cloned
    into the actor venv** (silently upgrade `ray`, or introduce `nixl-cu13`)
-   unless something pins or excludes it. `_ACTOR_VENV_OVERRIDES_PATH` is
-   the existing guard: `ensure_actor_overrides_on_all_nodes()` writes a
+   unless something pins or excludes the incompatible dependency.
+   `_ACTOR_VENV_OVERRIDES_PATH` is the existing guard: `ensure_actor_overrides_on_all_nodes()` writes a
    `--override` file to a fixed node-local path before any actor using
    `DYNAMO_VLLM_RUNTIME_ENV` lands, pinning `ray==<driver version>` and
-   excluding `nixl-cu13`. Reuse this — via `_ACTOR_VENV_UV_OPTIONS`, the
+   excluding `nixl-cu13` only for `cu129`. Reuse this — via `_ACTOR_VENV_UV_OPTIONS`, the
    override file, or a per-model `runtime_env["uv"]["uv_pip_install_options"]`
    — rather than patching an already-built venv.
 4. **Rule out GPU memory contention before chasing a compatibility fix.** A

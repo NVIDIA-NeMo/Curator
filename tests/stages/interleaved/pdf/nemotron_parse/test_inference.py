@@ -98,6 +98,36 @@ def task(colors: tuple[str, ...] = ("red",)):
     return InterleavedBatch(dataset_name="test", data=pa.Table.from_pylist(rows))
 
 
+@pytest.mark.parametrize("retain_failures", [False, True])
+def test_served_composition_requires_physical_page_identity(monkeypatch: pytest.MonkeyPatch, retain_failures: bool):
+    producer = PDFPreprocessStage(retain_failures=retain_failures)
+    images = [Image.new("RGB", (37, 29), color) for color in ("red", "blue")]
+    monkeypatch.setattr(producer, "_get_pdf_bytes", lambda *_args, **_kwargs: b"pdf")
+    monkeypatch.setattr(producer, "_render_with_timeout", lambda *_args: images)
+    batch = producer.process(
+        FileGroupTask(dataset_name="test", data=[json.dumps({"file_name": "pages.pdf", "url": "source"})])
+    )
+    calls = []
+
+    def parse(image: Image.Image, **_kwargs) -> dict:
+        calls.append(image.size)
+        return PARSED_TABLE
+
+    client = inference.NemotronParseHTTPClientStage(
+        endpoint="http://unused/v1", model_name="served", parse_mode="single"
+    )
+    client._parser = StubParser(parse)
+    if not retain_failures:
+        with pytest.raises(ValueError, match="retain_failures=True"):
+            client.process(batch)
+        assert calls == []
+        return
+    result = NemotronParsePostprocessStage().process(client.process(batch)).to_pyarrow().to_pylist()
+    assert len(calls) == 2
+    assert client._custom_metrics["num_valid_pages"] == 2
+    assert [row["page_number"] for row in result if row["modality"] == "table"] == [0, 1]
+
+
 @pytest.mark.parametrize(
     ("mode", "expected"),
     [("single", ["fullpage"]), ("double", ["fullpage", "crop"]), ("triple", ["fullpage", "detection", "crop"])],

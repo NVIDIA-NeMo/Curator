@@ -44,6 +44,36 @@ class TestDynamoBackendValidateGpuRequirementsDisagg:
             DynamoBackend._validate_gpu_requirements(models, topology=[{"num_gpus": 6}])
         assert capacity.call_args.args == (6.0,)
 
+    @pytest.mark.parametrize(
+        "reservations",
+        [
+            [(1, 0.2), (1, 0.4), (1, 0.3), (1, 0.1)],
+            [(1, 0.1), (1, 0.2), (1, 0.7)],
+            [(7, 0.1), (3, 0.1)],
+        ],
+    )
+    def test_fractional_reservations_fill_one_gpu(
+        self, monkeypatch: pytest.MonkeyPatch, reservations: list[tuple[int, float]]
+    ) -> None:
+        monkeypatch.setattr("nemo_curator.backends.utils.get_available_cpu_gpu_resources", lambda **_: (1.0, 1.0))
+        models = [
+            DynamoVLLMModelConfig(model_identifier=f"model-{index}", num_replicas=count, gpu_fraction=fraction)
+            for index, (count, fraction) in enumerate(reservations)
+        ]
+        DynamoBackend._validate_gpu_requirements(models, topology=[{"num_gpus": 1}])
+
+    @pytest.mark.parametrize("fraction", [0.1001, 0.11])
+    def test_fractional_reservations_reject_overcapacity(
+        self, monkeypatch: pytest.MonkeyPatch, fraction: float
+    ) -> None:
+        monkeypatch.setattr("nemo_curator.backends.utils.get_available_cpu_gpu_resources", lambda **_: (1.0, 1.0))
+        models = [
+            DynamoVLLMModelConfig(model_identifier="first", num_replicas=9, gpu_fraction=0.1),
+            DynamoVLLMModelConfig(model_identifier="last", gpu_fraction=fraction),
+        ]
+        with pytest.raises(RuntimeError, match=r"cluster has 1\.0 available"):
+            DynamoBackend._validate_gpu_requirements(models, topology=[{"num_gpus": 1}])
+
     def test_rejects_disagg_tp_larger_than_node(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr("nemo_curator.core.serve.dynamo.backend.check_total_gpu_capacity", lambda *_, **__: None)
         server = InferenceServer(
