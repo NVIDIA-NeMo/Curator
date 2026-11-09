@@ -206,6 +206,26 @@ remains unchanged by Curator. DFlash2 is an optional Parse 3.5 acceleration path
 that requires a compatible serving runtime and a matching drafter configured
 separately; any throughput improvement depends on the workload.
 
+On a runtime with native Parse 3.5 and DFlash2 support, enable it on the vLLM server:
+
+```bash
+vllm serve /models/parse35 \
+    --served-model-name nemotron-parse --trust-remote-code \
+    --speculative-config '{"method":"dflash","model":"/models/parse35/dflash2","num_speculative_tokens":32}'
+```
+
+For a compatible Curator-managed Dynamo **benchmark**, forward the same setting
+with this `--engine-kwargs` option (`main.py` does not accept it):
+
+```text
+--engine-kwargs '{"speculative_config":{"method":"dflash","model":"/models/parse35/dflash2","num_speculative_tokens":32}}'
+```
+
+The matching drafter must exist at that path on the serving workers. `32` is an
+example draft length to tune for the workload. The pinned Dynamo 1.4.2/vLLM 0.26
+recipe below uses MTP and is not DFlash2-qualified; without this opt-in, MTP remains
+the documented default.
+
 The served CLI defaults to Parse 3.5 `single` mode. Use an existing endpoint or
 let Curator manage Dynamo with a complete local model repository. Install the model team's package from the model repository,
 without the weights or its inference dependencies, at the revision that your server runs:
