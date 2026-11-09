@@ -274,6 +274,30 @@ NEMO_CURATOR_DYNAMO_CUDA_TAG=cu130 python tutorials/interleaved/nemotron_parse_p
     --parse-mode single --executor ray-data
 ```
 
+For Dynamo builds that include the forwarding fix in
+[ai-dynamo/dynamo#17797](https://github.com/ai-dynamo/dynamo/pull/17797), configure
+the Python frontend through the existing router options **before starting** the
+server. The Parse 3.5 helper already selects `dyn_chat_processor="vllm"`:
+
+```python
+from nemo_curator.stages.interleaved.pdf.nemotron_parse import create_nemotron_parse_inference_server
+
+server = create_nemotron_parse_inference_server(
+    backend="dynamo",
+    model_path="/models/parse35",
+    nemotron_parse_path="/models/parse35",
+)
+server.backend.router.router_kwargs.update(renderer_num_workers=4, mm_processor_cache_gb=0)
+```
+
+Start the configured server with `with server:` as usual. These values are
+illustrative: zero intentionally disables the multimodal processor cache; omitted
+options keep the installed vLLM defaults. Renderer workers are distinct from multimodal
+executor workers. Put these frontend options in `router_kwargs`, not model-worker
+`engine_kwargs`. The pinned Dynamo 1.4.2 recipe and tags 1.6.1/1.6.2 do not contain
+that forwarding fix; qualify a build containing it before applying this override.
+Performance requires workload-specific validation.
+
 - `single` reads the whole page.
 - `double` also rereads table and chart crops from that answer.
 - `triple` adds a boxes-only detection request before reading the crops;
