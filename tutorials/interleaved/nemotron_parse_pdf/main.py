@@ -39,7 +39,8 @@ def main() -> None:
         parser.error("--reuse-encoded-images requires --parse-mode single")
 
     args.output_dir = os.path.abspath(args.output_dir)
-    os.makedirs(args.output_dir, exist_ok=True)
+    if args.pages_per_task is None:
+        os.makedirs(args.output_dir, exist_ok=True)
 
     if args.parse_mode is not None and args.inference_server_endpoint is None and args.nemotron_parse_path is None:
         parser.error("--parse-mode requires --inference-server-endpoint or --nemotron-parse-path")

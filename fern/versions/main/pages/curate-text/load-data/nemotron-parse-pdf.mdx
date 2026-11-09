@@ -627,7 +627,7 @@ Add `selected_page_indices` to a manifest entry to render selected physical page
 {"file_name": "document.pdf", "selected_page_indices": [0, 4, 12]}
 ```
 
-Use a nonempty list of unique, nonnegative integers. Indexes start at zero in the original PDF and replace the first-`max_pages` selection for that entry. Rendering follows the supplied order and preserves physical page numbers. Served Parse 3.5 retains failed selected pages as error rows; an invalid selection records a manifest error for the document.
+Use a nonempty list of unique, nonnegative integers. Indexes start at zero in the original PDF and replace the first-`max_pages` selection for that entry. Rendering follows the supplied order and preserves physical page numbers. Served Parse 3.5 retains failed selected pages as error rows. PDF-based tasking records an invalid selection as a manifest error for the document; page-based tasking rejects an invalid selection before creating tasks.
 
 ### Parsing Modes and Failures
 

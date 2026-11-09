@@ -179,7 +179,8 @@ def run_nemotron_parse_pdf_benchmark(args: argparse.Namespace) -> dict[str, Any]
     executor = setup_executor(args.executor)
 
     output_dir = Path(args.output_dir).absolute()
-    output_dir.mkdir(parents=True, exist_ok=True)
+    if args.pages_per_task is None:
+        output_dir.mkdir(parents=True, exist_ok=True)
 
     inference_server = None
     inference_server_startup_s = 0.0
