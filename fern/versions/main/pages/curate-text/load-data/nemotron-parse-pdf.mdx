@@ -445,6 +445,11 @@ If startup retries are exhausted, first check the worker log for the original fa
 
 ## Served Nemotron Parse 3.5
 
+One-token MTP is the model package's default for the documented vLLM setup and
+remains unchanged by Curator. DFlash2 is an optional Parse 3.5 acceleration path
+that requires a compatible serving runtime and a matching drafter configured
+separately; any throughput improvement depends on the workload.
+
 The served tutorial and benchmark select `single` by default. In Python, set `parse_mode` to read pages with Nemotron Parse 3.5 through an inference server that you start and stop, or through Curator-managed Dynamo as described in [Curator-Managed Dynamo](#curator-managed-dynamo).
 
 Install the model team's Python package from the model repository, without the weights or its inference dependencies:
