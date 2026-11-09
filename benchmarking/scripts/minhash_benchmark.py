@@ -341,7 +341,11 @@ def main() -> int:
         help="Initial size of the autoscaling Ray Data MinHash actor pool",
     )
 
+    parser.add_argument(
+        "--save-tasks", action=argparse.BooleanOptionalAction, default=True, help="Save completed tasks in tasks.pkl"
+    )
     args = parser.parse_args()
+    save_tasks = vars(args).pop("save_tasks")
     logger.info("=== MinHash Benchmark Starting ===")
     logger.info(f"Arguments: {vars(args)}")
 
@@ -353,7 +357,7 @@ def main() -> int:
     try:
         results.update(run_minhash_benchmark(**vars(args)))
     finally:
-        write_benchmark_results(results, args.benchmark_results_path)
+        write_benchmark_results(results, args.benchmark_results_path, save_tasks=save_tasks)
     return 0 if results["metrics"]["is_success"] else 1
 
 

@@ -19,13 +19,17 @@ from __future__ import annotations
 import hashlib
 import inspect
 import json
+import math
 import re
 import unicodedata
+import uuid
 from collections.abc import Mapping
+from copy import deepcopy
 from string import Template
 from typing import Any, ClassVar
 
 import yaml
+from jsonschema import Draft202012Validator
 from loguru import logger
 
 from nemo_curator.models.vllm_model import VLLMModel
@@ -35,6 +39,7 @@ from nemo_curator.tasks import AudioTask
 
 _MIN_CLEAN_TEXT_LEN = 2
 _MIN_TURNS = 2
+_FIRST_PRINTABLE_CHARACTER = 32
 
 
 class vLLMInference(ProcessingStage[AudioTask, AudioTask]):  # noqa: N801 -- established public stage name
@@ -55,9 +60,14 @@ class vLLMInference(ProcessingStage[AudioTask, AudioTask]):  # noqa: N801 -- est
             ``tokenizer.apply_chat_template()``.
         max_retry_rounds: Maximum number of regeneration rounds for entries
             whose output fails JSON/turn validation.
+        speakers: Exact permitted speaker labels; defaults to prompt YAML metadata
+            or speaker_0 and speaker_1. Every label must appear in a conversation.
+        min_overlap: Minimum permitted overlap in seconds.
+        max_overlap: Maximum permitted overlap in seconds.
     """
 
     name = "vLLMInference"
+    is_resumable = False
     resources = Resources(gpus=1)
 
     _VLLM_MODEL_KEYS: ClassVar[frozenset[str]] = frozenset(
@@ -72,10 +82,13 @@ class vLLMInference(ProcessingStage[AudioTask, AudioTask]):  # noqa: N801 -- est
         model: VLLMModel | dict | None = None,
         apply_chat_template: dict | None = None,
         max_retry_rounds: int = 5,
+        speakers: list[str] | None = None,
+        min_overlap: float = -2.0,
+        max_overlap: float = 2.5,
     ):
         super().__init__()
 
-        if max_retry_rounds < 1:
+        if isinstance(max_retry_rounds, bool) or not isinstance(max_retry_rounds, int) or max_retry_rounds < 1:
             msg = f"max_retry_rounds must be a positive integer, got {max_retry_rounds}"
             raise ValueError(msg)
         self.max_retry_rounds = max_retry_rounds
@@ -87,7 +100,7 @@ class vLLMInference(ProcessingStage[AudioTask, AudioTask]):  # noqa: N801 -- est
         self.prompt = prompt
         self.prompt_field = prompt_field
         self.prompt_file = prompt_file
-        self.chat_template_params = apply_chat_template or {}
+        self.chat_template_params = {"tokenize": False, "add_generation_prompt": True, **(apply_chat_template or {})}
 
         if isinstance(model, VLLMModel):
             self._vllm_model = model
@@ -113,6 +126,51 @@ class vLLMInference(ProcessingStage[AudioTask, AudioTask]):  # noqa: N801 -- est
         else:
             self.prompt_data = None
 
+        if self.prompt_data is not None and not isinstance(self.prompt_data, dict):
+            msg = "Prompt YAML must contain role/content mappings and optional speakers"
+            raise ValueError(msg)
+        configured_speakers = speakers if speakers is not None else (self.prompt_data or {}).get("speakers")
+        self.speakers = configured_speakers if configured_speakers is not None else ["speaker_0", "speaker_1"]
+        if (
+            not isinstance(self.speakers, list)
+            or len(self.speakers) < _MIN_TURNS
+            or any(not self._is_safe_label(speaker) for speaker in self.speakers)
+            or len(set(self.speakers)) != len(self.speakers)
+        ):
+            msg = "speakers must contain at least two distinct, safe string labels"
+            raise ValueError(msg)
+        if (
+            isinstance(min_overlap, bool)
+            or isinstance(max_overlap, bool)
+            or not math.isfinite(min_overlap)
+            or not math.isfinite(max_overlap)
+            or min_overlap > max_overlap
+        ):
+            msg = "overlap bounds must be finite and ordered"
+            raise ValueError(msg)
+        self.conversation_schema = {
+            "type": "object",
+            "properties": {
+                "turns": {
+                    "type": "array",
+                    "minItems": len(self.speakers),
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "speaker": {"type": "string", "enum": self.speakers},
+                            "utterance": {"type": "string", "minLength": _MIN_CLEAN_TEXT_LEN},
+                            "overlap": {"type": "number", "minimum": min_overlap, "maximum": max_overlap},
+                        },
+                        "required": ["speaker", "utterance", "overlap"],
+                        "additionalProperties": False,
+                    },
+                }
+            },
+            "required": ["turns"],
+            "additionalProperties": False,
+        }
+        Draft202012Validator.check_schema(self.conversation_schema)
+
         self.tokenizer = None
 
     def _configure_tensor_parallel_resources(self) -> None:
@@ -129,7 +187,11 @@ class vLLMInference(ProcessingStage[AudioTask, AudioTask]):  # noqa: N801 -- est
             # reserve an explicit count, so its safe default is one GPU.
             tensor_parallel_size = 1
             self._vllm_model.tensor_parallel_size = tensor_parallel_size
-        if not isinstance(tensor_parallel_size, int) or tensor_parallel_size < 1:
+        if (
+            isinstance(tensor_parallel_size, bool)
+            or not isinstance(tensor_parallel_size, int)
+            or tensor_parallel_size < 1
+        ):
             msg = f"tensor_parallel_size must be a positive integer, got {tensor_parallel_size!r}"
             raise ValueError(msg)
         self.resources = Resources(gpus=float(tensor_parallel_size))
@@ -143,18 +205,31 @@ class vLLMInference(ProcessingStage[AudioTask, AudioTask]):  # noqa: N801 -- est
             and value not in {".", ".."}
             and "/" not in value
             and "\\" not in value
+            and not any(char.isspace() or ord(char) < _FIRST_PRINTABLE_CHARACTER for char in value)
         )
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], [self.prompt_field] if self.prompt_field else []
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], ["conversation_id", "turn_index", "speaker", "utterance", "overlap", "topic"]
+        return [], [
+            "conversation_id",
+            "turn_index",
+            "conversation_num_turns",
+            "speaker",
+            "utterance",
+            "overlap",
+            "topic",
+        ]
 
-    def generate_conversation_id(self, turns: list[dict]) -> str:
+    def generate_conversation_id(self, turns: list[dict], source: AudioTask | None = None) -> str:
         """Generate deterministic conversation ID from turns."""
-        conversation_text = "".join(f"{turn['speaker']}:{turn['utterance']}" for turn in turns)
-        return hashlib.sha256(conversation_text.encode()).hexdigest()[:16]
+        identity = {"version": 1, "turns": turns}
+        if source is not None:
+            row_id = source.task_id or source._metadata.setdefault("conversation_input_id", uuid.uuid4().hex)
+            identity["source"] = {"row_id": row_id, "dataset": source.dataset_name, "data": dict(source.data)}
+        canonical = json.dumps(identity, sort_keys=True, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+        return hashlib.sha256(canonical.encode()).hexdigest()[:24]
 
     def _clean_text(self, text: str) -> str:
         """Remove invisible Unicode characters and normalise whitespace."""
@@ -176,30 +251,23 @@ class vLLMInference(ProcessingStage[AudioTask, AudioTask]):  # noqa: N801 -- est
 
     def _turns_are_valid(self, turns: list[dict]) -> bool:
         """Check every turn has a speaker and speakable utterance."""
-        for turn in turns:
-            if not all(k in turn for k in ["speaker", "utterance"]):
-                return False
-            if not self._is_safe_label(turn.get("speaker")):
-                return False
-            if not self._is_valid_text(turn.get("utterance", "")):
-                return False
-            if not isinstance(turn.get("overlap", 0), (int, float)):
-                return False
-        return True
+        return {turn["speaker"] for turn in turns} == set(self.speakers) and all(
+            math.isfinite(turn["overlap"]) and self._is_valid_text(turn["utterance"]) for turn in turns
+        )
 
     def validate_json_output(self, text: str) -> dict | None:
         """Validate and parse JSON output from LLM."""
         try:
-            json_match = re.search(r"\{.*\}", text, re.DOTALL)
-            if not json_match:
+            if not isinstance(text, str):
                 return None
-            parsed = json.loads(json_match.group())
+            fenced = re.fullmatch(r"\s*```(?:json)?\s*(\{.*\})\s*```\s*", text, re.DOTALL)
+            parsed = json.loads(fenced.group(1) if fenced else text)
         except (json.JSONDecodeError, AttributeError):
             return None
 
-        turns = parsed.get("turns") if isinstance(parsed, dict) else None
-        if not isinstance(turns, list) or len(turns) < _MIN_TURNS:
+        if not Draft202012Validator(self.conversation_schema).is_valid(parsed):
             return None
+        turns = parsed["turns"]
         if not self._turns_are_valid(turns):
             return None
 
@@ -221,7 +289,7 @@ class vLLMInference(ProcessingStage[AudioTask, AudioTask]):  # noqa: N801 -- est
             if not current_prompts:
                 break
 
-            generated_texts = self._vllm_model.generate(current_prompts)
+            generated_texts = self._vllm_model.generate(current_prompts, json_schema=self.conversation_schema)
 
             next_prompts: list[str] = []
             next_indices: list[int] = []
@@ -267,12 +335,21 @@ class vLLMInference(ProcessingStage[AudioTask, AudioTask]):  # noqa: N801 -- est
                 raise ValueError(msg)
             topic = entry.get("topic", "")
             prompt = {
-                role: Template(content).safe_substitute(topic=topic) for role, content in self.prompt_data.items()
+                role: Template(content).safe_substitute(topic=topic)
+                for role, content in self.prompt_data.items()
+                if role in {"system", "user", "assistant"}
             }
         else:
             msg = "No prompt source specified"
             raise ValueError(msg)
 
+        prompt = {
+            role: Template(content).safe_substitute(topic=entry.get("topic", "")) for role, content in prompt.items()
+        }
+        prompt["system"] = prompt.get("system", "") + (
+            "\nReturn only JSON matching this schema. Every configured speaker must appear.\n"
+            + json.dumps(self.conversation_schema, ensure_ascii=False)
+        )
         entry_chat = []
         for role in ["system", "user", "assistant"]:
             if role not in prompt:
@@ -288,8 +365,7 @@ class vLLMInference(ProcessingStage[AudioTask, AudioTask]):  # noqa: N801 -- est
 
     def setup(self, worker_metadata: Any = None) -> None:  # noqa: ANN401, ARG002
         """Initialise the VLLMModel engine and tokenizer on the GPU worker."""
-        self._vllm_model.setup()
-        self.tokenizer = self._vllm_model.get_tokenizer()
+        self._ensure_model()
 
     def _ensure_model(self) -> None:
         """Lazy-init fallback when setup() was not called by the executor.
@@ -339,7 +415,7 @@ class vLLMInference(ProcessingStage[AudioTask, AudioTask]):  # noqa: N801 -- est
                 continue
 
             try:
-                conversation_id = self.generate_conversation_id(output_generation["turns"])
+                conversation_id = self.generate_conversation_id(output_generation["turns"], source=task)
                 topic = task.data.get("topic", "unknown")
 
                 for turn_idx, turn in enumerate(output_generation["turns"]):
@@ -347,14 +423,14 @@ class vLLMInference(ProcessingStage[AudioTask, AudioTask]):  # noqa: N801 -- est
                         data={
                             "conversation_id": conversation_id,
                             "turn_index": turn_idx,
+                            "conversation_num_turns": len(output_generation["turns"]),
                             "speaker": turn["speaker"],
                             "utterance": turn["utterance"],
                             "overlap": turn.get("overlap", 0.0),
                             "topic": topic,
                         },
-                        task_id=f"{task.task_id}_conv_{conversation_id}_t{turn_idx}",
                         dataset_name=task.dataset_name,
-                        _metadata=dict(task._metadata),
+                        _metadata=deepcopy(task._metadata),
                         _stage_perf=list(task._stage_perf),
                     )
                     output_task._source_id = task._source_id

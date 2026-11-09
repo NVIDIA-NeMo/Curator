@@ -1,0 +1,14 @@
+# Python dependencies for benchmark runner tooling, not benchmark workloads.
+# Curator workflow dependencies belong to Curator's extras/install helpers.
+# The model-side albumentations dependency below is a temporary exception,
+# pending team discussion of its Curator-owned declaration/setup path.
+
+albumentations==2.0.8  # Nemotron-Parse model-side dependency.
+GitPython
+gpustat
+nvidia-ml-py
+packaging
+pytest
+pyyaml
+rich
+slack_sdk

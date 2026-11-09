@@ -18,19 +18,28 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import signal
 import subprocess
+import sys
+import time
 from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 import pytest
+import soundfile as sf
+from praatio import textgrid
 
+from nemo_curator.backends.ray_actor_pool.utils import calculate_optimal_actors_for_resources
+from nemo_curator.backends.ray_data.adapter import RayDataStageAdapter
+from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.stages.audio.alignment.mfa_alignment import (
     _MFA_CACHE_MARKER_NAME,
     MFAAlignmentStage,
 )
+from nemo_curator.stages.audio.common import PreserveByValueStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
@@ -38,6 +47,13 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 MODULE = "nemo_curator.stages.audio.alignment.mfa_alignment"
+
+
+def _populate_models(root: Path) -> None:
+    for category, extension in (("acoustic", "zip"), ("dictionary", "dict"), ("g2p", "zip")):
+        model = root / "pretrained_models" / category / f"english_us_arpa.{extension}"
+        model.parent.mkdir(parents=True, exist_ok=True)
+        model.write_bytes(b"model-data")
 
 
 def _make_stage(tmp_path: Path, **overrides: object) -> MFAAlignmentStage:
@@ -116,13 +132,10 @@ def _setup_stage(
     return fake_tg_mod
 
 
-def _mock_mfa_writes_textgrid(_wav: Path) -> Callable[..., subprocess.CompletedProcess]:
+def _mock_mfa_writes_textgrid(wav: Path) -> Callable[..., subprocess.CompletedProcess]:
     def _run(cmd: list[str], *_args: object, **_kwargs: object) -> subprocess.CompletedProcess:
-        align_idx = cmd.index("align")
-        corpus_dir = Path(cmd[align_idx + 1])
         tg_dir = _align_textgrid_output_dir(cmd)
-        for corpus_wav in corpus_dir.glob("*.wav"):
-            (tg_dir / f"{corpus_wav.stem}.TextGrid").write_text("fake textgrid")
+        (tg_dir / f"{wav.stem}.TextGrid").write_text("fake textgrid")
         return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
 
     return _run
@@ -140,6 +153,121 @@ def _patch_mfa_subprocess(stage: MFAAlignmentStage, **kwargs: object):  # noqa: 
 
 class TestMFAAlignmentStage:
     """Test suite for MFAAlignmentStage."""
+
+    @pytest.mark.parametrize("fallback", [False, True])
+    def test_artifacts_remain_distinct_across_batches(self, tmp_path: Path, fallback: bool) -> None:
+        stage = _make_stage(tmp_path)
+        stage.setup()
+
+        def align(cmd: list[str], _env: dict[str, str]) -> subprocess.CompletedProcess:
+            if not fallback:
+                corpus = Path(cmd[cmd.index("align") + 1])
+                for transcript in corpus.glob("*.txt"):
+                    grid = textgrid.Textgrid()
+                    grid.addTier(textgrid.IntervalTier("words", [(0.0, 1.0, transcript.read_text())], 0.0, 1.0))
+                    grid.save(
+                        str(_align_textgrid_output_dir(cmd) / f"{transcript.stem}.TextGrid"),
+                        format="long_textgrid",
+                        includeBlankSpaces=True,
+                    )
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+
+        rows = []
+        with _patch_mfa_subprocess(stage, side_effect=align):
+            for word in ("first", "second"):
+                source = tmp_path / word
+                source.mkdir()
+                rows.append(stage.process_batch([_make_task(_make_wav(source, "same.wav"), text=word)])[0])
+
+        for key in ("rttm_filepath", "ctm_filepath"):
+            assert rows[0].data[key] != rows[1].data[key]
+        assert Path(rows[0].data["ctm_filepath"]).read_text().split()[-1] == "first"
+        assert Path(rows[1].data["ctm_filepath"]).read_text().split()[-1] == "second"
+        for row in rows:
+            namespace = Path(row.data["ctm_filepath"]).parent.name
+            assert namespace == Path(row.data["rttm_filepath"]).parent.name
+            if not fallback:
+                assert namespace == Path(row.data["textgrid_filepath"]).parent.name
+
+    def test_backend_worker_policies_are_accepted(self, tmp_path: Path) -> None:
+        stage = _make_stage(tmp_path)
+        dataset = MagicMock()
+        RayDataStageAdapter(stage).process_dataset(dataset)
+        compute = dataset.map_batches.call_args.kwargs["compute"]
+        assert compute.min_size == compute.max_size == 1
+
+        with (
+            patch("nemo_curator.backends.xenna.executor.pipelines_v1.run_pipeline", return_value=[]) as run,
+            patch("nemo_curator.backends.xenna.executor.ray.init"),
+            patch("nemo_curator.backends.xenna.executor.ray.shutdown"),
+        ):
+            XennaExecutor().execute([stage])
+        spec = run.call_args.args[0].stages[0]
+        assert spec.num_workers == 1
+        assert spec.num_workers_per_node is None
+        assert calculate_optimal_actors_for_resources(stage, 1024, (64, 0)) == 1
+
+    def test_default_root_matches_mfa(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("MFA_ROOT_DIR", raising=False)
+        stage = _make_stage(tmp_path, mfa_root_dir=None)
+        assert stage._effective_mfa_root == str(Path.home() / "Documents" / "MFA")
+
+    def test_explicit_root_takes_precedence_over_environment(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        root = str(tmp_path / "environment-root")
+        monkeypatch.setenv("MFA_ROOT_DIR", root)
+        assert _make_stage(tmp_path, mfa_root_dir=None)._effective_mfa_root == root
+        assert _make_stage(tmp_path)._effective_mfa_root == str(tmp_path / "mfa_root")
+
+    @pytest.mark.parametrize("duration_key", ["duration", "seconds"])
+    @pytest.mark.parametrize("audio_state", ["valid", "missing", "unreadable"])
+    def test_skipped_rows_supply_duration_for_downstream_filters(
+        self, tmp_path: Path, duration_key: str, audio_state: str
+    ) -> None:
+        audio = tmp_path / "audio.wav"
+        if audio_state == "valid":
+            sf.write(audio, [0.0] * 16000, 16000)
+        elif audio_state == "unreadable":
+            audio.write_bytes(b"invalid audio")
+        task = _make_task(audio, text=" ")
+        task.data.pop("duration")
+        stage = _make_stage(tmp_path, duration_key=duration_key)
+        stage.setup()
+        with _patch_mfa_subprocess(stage) as run:
+            result = stage.process_batch([task])
+        run.assert_not_called()
+        assert task.data[duration_key] == (1.0 if audio_state == "valid" else -1.0)
+        assert PreserveByValueStage(duration_key, -1.0, operator="ge").process_batch(result) == [task]
+
+    @pytest.mark.parametrize("duration", [0.0, 2.5])
+    def test_skipped_rows_preserve_provided_duration(self, tmp_path: Path, duration: float) -> None:
+        stage = _make_stage(tmp_path)
+        stage.setup()
+        task = _make_task(tmp_path / "missing.wav", text=" ", duration=duration)
+        stage.process_batch([task])
+        assert task.data["duration"] == duration
+
+    def test_non_wav_input_is_skipped_before_mfa(self, tmp_path: Path) -> None:
+        stage = _make_stage(tmp_path)
+        stage.setup()
+        task = _make_task(_make_wav(tmp_path, "recording.flac"))
+        with _patch_mfa_subprocess(stage) as run:
+            assert stage.process_batch([task]) == [task]
+        run.assert_not_called()
+        assert task.data["mfa_skipped"] is True
+        assert task.data["textgrid_filepath"] == ""
+
+    def test_unvalidated_local_cache_does_not_delete_history(self, tmp_path: Path) -> None:
+        stage = _make_stage(tmp_path, copy_models_to_local=True, local_mfa_base_dir=str(tmp_path / "cache"))
+        root = stage._local_cache_dir()
+        root.mkdir(parents=True)
+        history = root / "command_history.yaml"
+        history.write_text("history: []\n")
+        stage._mfa_root = str(root)
+        with _patch_mfa_subprocess(stage, return_value=subprocess.CompletedProcess([], 0, "", "")):
+            stage._run_mfa_align(tmp_path, tmp_path / "textgrids")
+        assert history.read_text() == "history: []\n"
 
     def test_outputs_reflect_create_flags(self, tmp_path: Path) -> None:
         _, data_no_rttm = _make_stage(tmp_path, create_rttm=False).outputs()
@@ -189,8 +317,6 @@ class TestMFAAlignmentStage:
 
         assert isinstance(results, list)
         assert len(results) == len(tasks)
-        assert all(result.data["mfa_skipped"] is False for result in results)
-        assert results[0].data["textgrid_filepath"] == results[1].data["textgrid_filepath"]
 
     def test_process_batch_success(self, tmp_path: Path) -> None:
         wav = _make_wav(tmp_path)
@@ -211,29 +337,6 @@ class TestMFAAlignmentStage:
         assert "ctm_filepath" in results[0].data
         assert Path(results[0].data["rttm_filepath"]).exists()
         assert Path(results[0].data["ctm_filepath"]).exists()
-
-    def test_duplicate_basenames_get_stable_distinct_artifacts_across_batches(self, tmp_path: Path) -> None:
-        """Distinct source files named ``foo.wav`` must never overwrite outputs."""
-        (tmp_path / "a").mkdir()
-        (tmp_path / "b").mkdir()
-        wav_a = _make_wav(tmp_path / "a", name="foo.wav")
-        wav_b = _make_wav(tmp_path / "b", name="foo.wav")
-        stage = _make_stage(tmp_path)
-        _setup_stage(stage, textgrid=_fake_textgrid([_fake_textgrid_entry(0.0, 1.0, "hello")]))
-
-        task_a = _make_task(wav_a, text="hello")
-        task_a.task_id = "source_a"
-        task_b = _make_task(wav_b, text="hello")
-        task_b.task_id = "source_b"
-        with _patch_mfa_subprocess(stage, side_effect=_mock_mfa_writes_textgrid(wav_a)):
-            result_a = stage.process_batch([task_a])[0]
-        with _patch_mfa_subprocess(stage, side_effect=_mock_mfa_writes_textgrid(wav_b)):
-            result_b = stage.process_batch([task_b])[0]
-
-        for key in ("textgrid_filepath", "rttm_filepath", "ctm_filepath"):
-            assert result_a.data[key] != result_b.data[key]
-            assert Path(result_a.data[key]).exists()
-            assert Path(result_b.data[key]).exists()
 
     def test_process_batch_mfa_failure_raises(self, tmp_path: Path) -> None:
         wav = _make_wav(tmp_path)
@@ -488,6 +591,7 @@ class TestMFAAlignmentStage:
             local_mfa_base_dir=str(tmp_path / "local"),
             copy_models_to_local=True,
         )
+        _populate_models(shared_root)
         stage.setup_on_node()
 
         local_root = Path(stage._mfa_root)
@@ -502,10 +606,9 @@ class TestMFAAlignmentStage:
             local_mfa_base_dir=str(local_base),
             copy_models_to_local=True,
         )
+        _populate_models(Path(stage._effective_mfa_root))
+        stage.setup_on_node()
         cache_dir = stage._local_cache_dir()
-        (cache_dir / "pretrained_models").mkdir(parents=True)
-        marker = {"identity": stage._cache_identity(), "complete": True}
-        (cache_dir / _MFA_CACHE_MARKER_NAME).write_text(json.dumps(marker), encoding="utf-8")
 
         with patch(f"{MODULE}.shutil.copytree") as copytree_mock:
             stage.setup_on_node()
@@ -518,6 +621,7 @@ class TestMFAAlignmentStage:
         shared_root = tmp_path / "shared_mfa"
         (shared_root / "pretrained_models").mkdir(parents=True)
         (shared_root / "pretrained_models" / "model.bin").write_bytes(b"real-data")
+        _populate_models(shared_root)
 
         stage = _make_stage(
             tmp_path,
@@ -545,10 +649,12 @@ class TestMFAAlignmentStage:
         source_a = tmp_path / "mfa_root_a"
         (source_a / "pretrained_models").mkdir(parents=True)
         (source_a / "pretrained_models" / "a.model").write_bytes(b"model-a")
+        _populate_models(source_a)
 
         source_b = tmp_path / "mfa_root_b"
         (source_b / "pretrained_models").mkdir(parents=True)
         (source_b / "pretrained_models" / "b.model").write_bytes(b"model-b")
+        _populate_models(source_b)
 
         stage_a = _make_stage(
             tmp_path,
@@ -582,7 +688,68 @@ class TestMFAAlignmentStage:
         stage_mfa = _make_stage(tmp_path, acoustic_model="english_mfa", dictionary="english_mfa")
         assert stage_arpa._local_cache_dir() != stage_mfa._local_cache_dir()
 
-    def test_shared_mfa_root_does_not_delete_command_history(self, tmp_path: Path) -> None:
+    def test_missing_models_never_publish_a_complete_cache(self, tmp_path: Path) -> None:
+        stage = _make_stage(tmp_path, copy_models_to_local=True, local_mfa_base_dir=str(tmp_path / "local"))
+        with pytest.raises(FileNotFoundError, match="model"):
+            stage.setup_on_node()
+        assert not list((tmp_path / "local").rglob(_MFA_CACHE_MARKER_NAME))
+        _populate_models(Path(stage._effective_mfa_root))
+        stage.setup_on_node()
+        assert stage._cache_is_valid(Path(stage._mfa_root))
+
+    def test_model_updates_get_a_fresh_cache(self, tmp_path: Path) -> None:
+        stage = _make_stage(tmp_path, copy_models_to_local=True, local_mfa_base_dir=str(tmp_path / "local"))
+        source = Path(stage._effective_mfa_root)
+        _populate_models(source)
+        stage.setup_on_node()
+        old_cache = Path(stage._mfa_root)
+        relative = Path("pretrained_models/acoustic/english_us_arpa.zip")
+        (source / relative).write_bytes(b"updated-model-data")
+        stage.setup_on_node()
+        assert Path(stage._mfa_root) != old_cache
+        assert (Path(stage._mfa_root) / relative).read_bytes() == b"updated-model-data"
+        assert (old_cache / relative).read_bytes() == b"model-data"
+
+    @pytest.mark.parametrize("relative", ["acoustic/english_us_arpa.zip", "g2p/english_us_arpa.zip"])
+    def test_deleted_cached_model_is_rebuilt(self, tmp_path: Path, relative: str) -> None:
+        stage = _make_stage(tmp_path, copy_models_to_local=True, local_mfa_base_dir=str(tmp_path / "local"))
+        _populate_models(Path(stage._effective_mfa_root))
+        stage.setup_on_node()
+        model = Path(stage._mfa_root) / "pretrained_models" / relative
+        model.unlink()
+        stage.setup_on_node()
+        assert model.read_bytes() == b"model-data"
+
+    def test_optional_missing_g2p_does_not_block_model_copy(self, tmp_path: Path) -> None:
+        stage = _make_stage(tmp_path, copy_models_to_local=True, local_mfa_base_dir=str(tmp_path / "local"))
+        source = Path(stage._effective_mfa_root)
+        _populate_models(source)
+        (source / "pretrained_models/g2p/english_us_arpa.zip").unlink()
+        stage.setup_on_node()
+        assert stage._cache_is_valid(Path(stage._mfa_root))
+
+    def test_source_change_during_copy_is_not_published(self, tmp_path: Path) -> None:
+        stage = _make_stage(tmp_path, copy_models_to_local=True, local_mfa_base_dir=str(tmp_path / "local"))
+        source = Path(stage._effective_mfa_root)
+        _populate_models(source)
+        copytree = shutil.copytree
+
+        def copy_and_update(src: Path, dst: Path, *args: object, **kwargs: object) -> Path:
+            result = copytree(src, dst, *args, **kwargs)
+            (source / "pretrained_models/acoustic/english_us_arpa.zip").write_bytes(b"changed-source")
+            return result
+
+        with (
+            patch(f"{MODULE}.shutil.copytree", side_effect=copy_and_update),
+            pytest.raises(RuntimeError, match="source changed"),
+        ):
+            stage.setup_on_node()
+        assert not list((tmp_path / "local").rglob(_MFA_CACHE_MARKER_NAME))
+        stage.setup_on_node()
+        assert stage._cache_is_valid(Path(stage._mfa_root))
+
+    @pytest.mark.parametrize("copy_models_to_local", [False, True])
+    def test_shared_mfa_root_does_not_delete_command_history(self, tmp_path: Path, copy_models_to_local: bool) -> None:
         shared_root = tmp_path / "shared_mfa"
         shared_root.mkdir()
         history = shared_root / "command_history.yaml"
@@ -591,9 +758,10 @@ class TestMFAAlignmentStage:
         stage = _make_stage(
             tmp_path,
             mfa_root_dir=str(shared_root),
-            copy_models_to_local=False,
+            copy_models_to_local=copy_models_to_local,
+            local_mfa_base_dir=str(tmp_path / "local"),
         )
-        stage._mfa_root = str(shared_root)
+        stage.setup()
         assert stage._is_node_local_mfa_root() is False
 
         corpus = tmp_path / "corpus"
@@ -610,13 +778,15 @@ class TestMFAAlignmentStage:
         assert history.exists()
         assert history.read_text() == "history: []\n"
 
-    def test_num_jobs_must_be_positive(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize("num_jobs", [0, -1, 1.5, True])
+    def test_num_jobs_must_be_positive(self, tmp_path: Path, num_jobs: object) -> None:
         with pytest.raises(ValueError, match="num_jobs must be positive"):
-            _make_stage(tmp_path, num_jobs=0)
+            _make_stage(tmp_path, num_jobs=num_jobs)
 
-    def test_align_timeout_seconds_must_be_positive(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize("timeout", [0, -1, float("nan"), float("inf")])
+    def test_align_timeout_seconds_must_be_positive(self, tmp_path: Path, timeout: float) -> None:
         with pytest.raises(ValueError, match="align_timeout_seconds must be positive"):
-            _make_stage(tmp_path, align_timeout_seconds=0)
+            _make_stage(tmp_path, align_timeout_seconds=timeout)
 
     def test_resources_default_to_num_jobs_cpus(self, tmp_path: Path) -> None:
         """Ray/Xenna must reserve CPUs proportional to the -j jobs MFA forks."""
@@ -656,7 +826,7 @@ class TestMFAAlignmentStage:
             stage._run_mfa_subprocess(["mfa", "align"], {})
 
         assert popen_mock.call_args.kwargs["start_new_session"] is True
-        getpgid_mock.assert_called_once_with(4321)
+        getpgid_mock.assert_not_called()
         killpg_mock.assert_called_once_with(4321, signal.SIGKILL)
 
     def test_run_mfa_subprocess_timeout_diagnostic_is_bounded(self, tmp_path: Path) -> None:
@@ -679,3 +849,25 @@ class TestMFAAlignmentStage:
             stage._run_mfa_subprocess(["mfa", "align"], {})
 
         assert len(str(exc_info.value)) < 5_000
+
+    def test_timeout_after_parent_exit_kills_children_with_open_pipes(self, tmp_path: Path) -> None:
+        stage = _make_stage(tmp_path, align_timeout_seconds=0.3)
+        script = "import os, time\nif os.fork():\n    os._exit(0)\ntime.sleep(30)\n"
+        start = time.monotonic()
+        with pytest.raises(TimeoutError, match="timed out"):
+            stage._run_mfa_subprocess([sys.executable, "-c", script], dict(os.environ))
+        assert time.monotonic() - start < 3
+
+    def test_timeout_final_output_drain_remains_bounded(self, tmp_path: Path) -> None:
+        stage = _make_stage(tmp_path, align_timeout_seconds=0.1)
+        process = MagicMock(pid=4321)
+        process.communicate.side_effect = subprocess.TimeoutExpired(["mfa"], 0.1, output=b"partial stdout")
+        with (
+            patch(f"{MODULE}.subprocess.Popen", return_value=process),
+            patch(f"{MODULE}.os.killpg"),
+            pytest.raises(TimeoutError, match="partial stdout"),
+        ):
+            stage._run_mfa_subprocess(["mfa"], {})
+        assert all(call.kwargs.get("timeout") is not None for call in process.communicate.call_args_list)
+        process.stdout.close.assert_called_once()
+        process.stderr.close.assert_called_once()

@@ -1,0 +1,76 @@
+stage_id: PrepareIndicASRInputStage
+category: preprocess
+summary: "Validate the Hindi reference-input protocol and load one whole 16 kHz clip into resident mono audio for the Indic ASR pipeline."
+tags: []
+model_id: null
+domain: {language: "hi only, checked against the source label", style: "one complete referenced clip per manifest row"}
+constraints: {supported_sample_rates: [16000]}
+resource:
+  cpus: 1.0
+  gpu_mem_gb: 0.0
+  gpu_optional: false
+  bound: cpu
+use_cases:
+  good_for:
+    - "Preparing the documented Hindi Granary-v2 input schema before ASR and reference-based evaluation."
+    - "Preserving the existing reference while creating a waveform/rate pair for a resident ASR adapter."
+  avoid_for:
+    - "General multilingual loading, rate conversion, or offset-based slicing of a longer recording."
+    - "Treating the copied reference fields as generated ASR predictions or verified ground truth."
+composition:
+  typical_upstream: [ManifestReader]
+  typical_downstream: [ASRStage]
+params_of_note:
+  audio_root: "Base directory for relative file paths; required when audio_filepath_key is relative. Absolute paths can be used without it."
+  audio_filepath_key: "Default audio_filepath. Must resolve to an existing local file and is replaced with its absolute resolved path."
+  audio_item_id_key: "Default audio_item_id. Required nonempty string identifying the input clip."
+  duration_key: "Default duration, in seconds. Must match the full decoded clip within absolute tolerance 0.001 seconds; retained unchanged."
+  source_lang_key: "Default source_lang; must equal the exact string hi. This checks a label, not the spoken language."
+  text_key: "Default text. Required nonblank reference string, removed after it is read."
+  granary_v1_prediction_key: "Default granary_v1_prediction. Receives an unchanged reference copy despite the legacy prediction name."
+  reference_text_key: "Default reference_text. Second unchanged copy for downstream reference comparison."
+  notes_key: "Default additional_notes. Preserves a mapping's existing entries, then sets primary_model=indic_canary and recovery_model=parakeet_riva."
+  sample_rate_key: "Default sampling_rate, in Hz. Written from the decoded file and paired with waveform_key."
+  waveform_key: "Default waveform. Resident float32 mono tensor with shape [1, samples]."
+  skip_me_key: "Default _skipme. Always initialized to an empty string after successful preparation."
+param_dependencies:
+  audio_filepath_key: "The stage loads the whole file. Nonzero offset metadata is not used to extract a cut; materialize the intended clip first when its duration differs from the recording."
+  waveform_key: "For ASRStage, configure waveform_key=waveform and sample_rate_key=sampling_rate (or matching custom keys), plus that stage's required adapter/model/capacity settings."
+  text_key: "Downstream text consumers must read a copied reference or a new ASR hypothesis: the original text key has been removed."
+semantic_facts:
+  reference_text:
+    meaning: "Unchanged input reference, copied both to reference_text_key and granary_v1_prediction_key."
+    unit: "text string"
+    provenance: "The input text field; no model has run."
+    scope: "One complete file-backed clip."
+    propagation: "Both copies survive downstream unless explicitly rewritten. The input text key is removed."
+    counterexamples:
+      - "Using granary_v1_prediction as a hypothesis against reference_text immediately after preparation compares the reference with itself."
+      - "A source_lang label of hi does not prove that the recording is Hindi or that the reference is correct."
+  waveform:
+    meaning: "Decoded whole-file audio after downmixing to mono, paired with the configured sample-rate field."
+    unit: "float32 tensor [1, samples], with sampling_rate=16000 Hz"
+    provenance: "Local audio decoding and mono conversion; there is no resampling or model inference."
+    scope: "Full file, not a manifest offset/duration slice."
+    propagation: "Retained on the same task alongside the original duration; JSON-only sinks need an appropriate serialization boundary."
+    counterexamples:
+      - "A 48 kHz file is rejected rather than converted to 16 kHz."
+  additional_notes:
+    meaning: "Protocol initialization labels naming primary and recovery model roles."
+    provenance: "Literal initialization of primary_model and recovery_model."
+    scope: "Task metadata only."
+    propagation: "Existing mapping entries survive except these initialized model-role keys; the shared skip reason is cleared."
+    counterexamples:
+      - "Model-role labels do not show that either model was loaded or that recovery occurred."
+comparison:
+  choose_when: "Use this for the strict Hindi reference protocol. Use general audio preprocessing stages when the goal is only loading, downmixing or converting a mixed-rate corpus."
+  known_limitations: "No language inference, ASR, reference-quality check, rate conversion or offset-aware cut loading."
+caveats:
+  - "Missing files, empty IDs/references, a label other than hi, a non-16-kHz file, or a duration mismatch raise; rows are not silently filtered."
+  - "Preparation clears an existing skip reason after success. Do not insert it late in a pipeline when an earlier rejection must remain authoritative."
+  - "Input fields are mutated during preparation; an exception is not a transaction that restores the original task."
+notes:
+  - "Implementation: nemo_curator/stages/audio/preprocessing/indic_asr.py; conformance and edge cases: tests/stages/audio/preprocessing/test_indic_asr.py."
+  - "The complete model/recovery recipe is tutorials/audio/granary_v2/indic_asr/pipeline.yaml. Its model/engine requirements belong to the later inference stages, not this loader."
+verified: {params: mechanical, tags: mechanical, constraints: mechanical, resource: mechanical, domain: mechanical, use_cases: best_guess, comparison: best_guess, semantic_facts: mechanical}
+provenance: {model_card_url: null, card_version: 2, last_validated: "2026-10-26"}

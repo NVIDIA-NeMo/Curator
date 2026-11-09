@@ -205,7 +205,7 @@ class TestPairwiseCosineSimilarityStage:
         # Create task
         task = FileGroupTask(
             dataset_name="test",
-            data=[str(input_file)],
+            data=[str(tmp_path)],
             _metadata={"centroid_id": 0, "filetype": "parquet"},
         )
 
@@ -310,6 +310,7 @@ class TestPairwiseCosineSimilarityStage:
 
         metrics = stage._consume_custom_metrics()
         assert metrics.keys() == {
+            "pairwise_file_discovery_time",
             "pairwise_footer_scan_time",
             "pairwise_read_time",
             "pairwise_rank_time",

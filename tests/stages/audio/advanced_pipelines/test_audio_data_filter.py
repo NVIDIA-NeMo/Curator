@@ -16,7 +16,10 @@ import pickle
 from pathlib import Path
 
 import pytest
+from omegaconf import OmegaConf
 
+from nemo_curator.stages.audio._agent._agent_registry import build_contract, static_contract
+from nemo_curator.stages.audio._agent._planning import validate_pipeline
 from nemo_curator.stages.audio.advanced_pipelines.audio_data_filter.audio_data_filter import (
     AudioDataFilterStage,
 )
@@ -50,6 +53,12 @@ class TestDeepMerge:
         result = _deep_merge(base, overrides)
         assert result["vad"]["threshold"] == 0.8
         assert result["vad"]["min_duration_sec"] == 2.0
+
+    def test_deep_merge_nested_omegaconf_partial(self) -> None:
+        base = {"vad": {"threshold": 0.5, "cpus": 1.0, "gpus": 0.1}}
+        overrides = OmegaConf.create({"vad": {"threshold": 0.8}})
+        result = _deep_merge(base, overrides)
+        assert result["vad"] == {"threshold": 0.8, "cpus": 1.0, "gpus": 0.1}
 
     def test_deep_merge_does_not_mutate_base(self) -> None:
         base = {"vad": {"threshold": 0.5}}
@@ -117,6 +126,27 @@ class TestValidate:
         cfg["vad"]["threshold"] = 1.5
         with pytest.raises(ValueError, match=r"vad\.threshold"):
             _validate(cfg)
+
+    @pytest.mark.parametrize(
+        ("key", "value"),
+        [
+            ("adapter_target", ""),
+            ("adapter_kwargs", []),
+            ("batch_size", 0),
+            ("batch_size", 2),
+            ("num_workers", 0),
+        ],
+    )
+    def test_validate_vad_adapter_configuration(self, key: str, value: object) -> None:
+        cfg = load_config(None)
+        cfg["vad"][key] = value
+        with pytest.raises((TypeError, ValueError), match=key):
+            _validate(cfg)
+
+    def test_validate_accepts_hydra_adapter_kwargs_mapping(self) -> None:
+        cfg = load_config(None)
+        cfg["vad"]["adapter_kwargs"] = OmegaConf.create({"backend": "onnx"})
+        _validate(cfg)
 
     def test_validate_utmos_threshold_out_of_range(self) -> None:
         cfg = load_config(None)
@@ -227,6 +257,72 @@ class TestDecomposeStageCount:
         assert SpeakerSeparationStage not in stage_types
 
 
+def test_static_contract_defers_adapter_independence_to_configured_contract() -> None:
+    static = static_contract(AudioDataFilterStage)
+    configured = build_contract(AudioDataFilterStage())
+
+    assert static.wrappable is False
+    assert static.gates.per_row_independent is False
+    assert configured.wrappable == static.wrappable
+    assert configured.gates.per_row_independent is True
+
+
+@pytest.mark.parametrize("vad_enabled", [False, True])
+@pytest.mark.parametrize("speaker_enabled", [False, True])
+@pytest.mark.parametrize(
+    "adapter_target",
+    ["nemo_curator.models.audio.vad.silero.SileroVADAdapter", "package.CustomVADAdapter"],
+)
+def test_configured_contract_respects_enabled_vad_adapter(
+    vad_enabled: bool, speaker_enabled: bool, adapter_target: str
+) -> None:
+    stage = AudioDataFilterStage(
+        config={
+            "vad": {"enable": vad_enabled, "adapter_target": adapter_target},
+            "speaker_separation": {"enable": speaker_enabled},
+        }
+    )
+    leaves = stage.decompose()
+    vad_stages = [leaf for leaf in leaves if isinstance(leaf, VADSegmentationStage)]
+    expected = all(vad.describe().gates.per_row_independent is True for vad in vad_stages)
+
+    assert build_contract(stage).gates.per_row_independent is expected
+
+
+@pytest.mark.parametrize(
+    ("vad_enabled", "speaker_enabled", "expected_stage_count"),
+    [
+        (False, False, 5),
+        (True, False, 6),
+        (False, True, 9),
+        (True, True, 12),
+    ],
+)
+def test_every_supported_topology_is_mechanically_composable(
+    vad_enabled: bool,
+    speaker_enabled: bool,
+    expected_stage_count: int,
+) -> None:
+    stage = AudioDataFilterStage(
+        config={
+            "vad": {"enable": vad_enabled},
+            "speaker_separation": {"enable": speaker_enabled},
+        }
+    )
+    leaves = stage.decompose()
+
+    report = validate_pipeline(
+        leaves,
+        initial_keys={"audio_filepath"},
+        initial_roles={"audio_filepath"},
+        initial_task_type="AudioTask",
+    )
+
+    assert len(leaves) == expected_stage_count
+    assert report.ok, report.summary()
+    assert report.keys_ok, report.summary()
+
+
 # ---------------------------------------------------------------------------
 # 6. Decompose: Stage Configuration
 # ---------------------------------------------------------------------------
@@ -254,6 +350,30 @@ class TestDecomposeConfig:
         assert len(utmos_stages) == 2
         for s in utmos_stages:
             assert s.mos_threshold == 4.2
+
+    def test_decompose_vad_adapter_and_worker_configuration(self) -> None:
+        stage = AudioDataFilterStage(
+            config={
+                "vad": {
+                    "adapter_target": "package.CustomVADAdapter",
+                    "adapter_kwargs": {"runtime": "custom"},
+                    "batch_size": 1,
+                    "num_workers": 2,
+                    "cpus": 2.0,
+                    "gpus": 0.5,
+                }
+            }
+        )
+
+        vad_stages = [item for item in stage.decompose() if isinstance(item, VADSegmentationStage)]
+        assert len(vad_stages) == 2
+        for vad_stage in vad_stages:
+            assert vad_stage.adapter_target == "package.CustomVADAdapter"
+            assert vad_stage.adapter_kwargs == {"runtime": "custom"}
+            assert vad_stage.batch_size == 1
+            assert vad_stage.num_workers() == 2
+            assert vad_stage.resources.cpus == 2.0
+            assert vad_stage.resources.gpus == 0.5
 
 
 # ---------------------------------------------------------------------------

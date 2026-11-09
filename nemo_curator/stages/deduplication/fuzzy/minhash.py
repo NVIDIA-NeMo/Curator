@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -202,9 +202,9 @@ class MinHashStage(ProcessingStage[FileGroupTask | DocumentBatch, FileGroupTask]
     ----------
     output_path : str
         Base path where minhash output files will be written
-    text_field : str, default="text"
+    text_field : str, default='text'
         Name of the field containing text to compute minhashes from
-    minhash_field : str, default="_minhash_signature"
+    minhash_field : str, default='_minhash_signature'
         Name of the field where minhash signatures will be stored
     char_ngrams : int, default=24
         Width of character n-grams for minhashing
@@ -217,7 +217,7 @@ class MinHashStage(ProcessingStage[FileGroupTask | DocumentBatch, FileGroupTask]
     normalize_text : bool, default=False
         Whether to normalize text before computing minhashes
         Current normalization is limited to lowercase and trim whitespace
-    read_format : Literal["jsonl", "parquet"] | None, default=None
+    read_format : Literal['jsonl', 'parquet'] | None, default=None
         Format of input files. Only applies to FileGroupTask inputs; ignored for DocumentBatch
         inputs (which are already in memory). May be None when only DocumentBatch inputs are used.
     read_kwargs : dict[str, Any] | None, default=None

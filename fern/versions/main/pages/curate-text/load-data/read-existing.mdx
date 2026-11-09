@@ -1,7 +1,7 @@
 ---
-description: "Read existing JSONL and Parquet datasets using Curator's reader stages."
+description: "Read existing JSONL, Parquet, and Lance datasets using Curator's reader stages."
 categories: ["how-to-guides"]
-tags: ["jsonl", "parquet", "data-loading", "reader", "pipelines"]
+tags: ["jsonl", "parquet", "lance", "data-loading", "reader", "pipelines"]
 personas: ["data-scientist-focused", "mle-focused"]
 difficulty: "beginner"
 content_type: "how-to"
@@ -10,7 +10,7 @@ modality: "text-only"
 
 # Read Existing Data
 
-Use Curator's `JsonlReader` and `ParquetReader` to read existing datasets into a pipeline, then optionally add processing stages.
+Use Curator's `JsonlReader`, `ParquetReader`, and `LanceReader` to read existing datasets into a pipeline, then optionally add processing stages.
 
 <Tabs>
 <Tab title="JSONL Reader">
@@ -103,13 +103,39 @@ ray_client.stop()
 
 </Tab>
 
+<Tab title="Lance Reader">
+:sync: lance
+
+Install the optional Lance dependencies before using this reader:
+
+```bash
+pip install "nemo-curator[lance]"
+```
+
+Add a Lance reader to your pipeline:
+
+```python
+from nemo_curator.stages.text.io.reader import LanceReader
+
+reader = LanceReader(
+    path="/path/to/dataset.lance",
+    fields=["text", "url"],
+)
+pipeline.add_stage(reader)
+```
+
+Use `fields` to select columns. Pass Lance dataset options such as remote-storage credentials
+through `read_kwargs`, for example `read_kwargs={"storage_options": {...}}`.
+
+</Tab>
+
 </Tabs>
 
 ## Reader Configuration
 
 ### Common Parameters
 
-Both `JsonlReader` and `ParquetReader` support these configuration options:
+`JsonlReader` and `ParquetReader` support these configuration options:
 
 | Parameter | Type | Description | Default |
 | --- | --- | --- | --- |
@@ -171,7 +197,7 @@ containing large payloads such as base64-encoded images or PDFs.
 
 ## Output Integration
 
-Both readers produce `DocumentBatch` tasks that integrate seamlessly with:
+These readers produce `DocumentBatch` tasks that integrate seamlessly with:
 
 - **Processing Stages**: Apply filters, transformations, and quality checks
 - **Writer Stages**: Export to JSONL, Parquet, or other formats

@@ -10,9 +10,11 @@ modality: "text-only"
 
 # Inference Server
 
-`InferenceServer` serves one or more local models behind an OpenAI-compatible endpoint on your Ray cluster. Choose a typed backend configuration for either Ray Serve or NVIDIA Dynamo; the client-facing endpoint and lifecycle API stay the same. Both backends support the serving capabilities described in this guide, so benchmark your workload and choose the backend based on measured performance.
+`InferenceServer` serves one or more local models behind an OpenAI-compatible endpoint on your Ray cluster. Choose a typed configuration for Ray Serve or NVIDIA Dynamo. Both backends support this guide's serving capabilities and use the same client endpoint and lifecycle API. Benchmark your workload to select a backend.
 
-| Backend | Model configuration | Server configuration |
+The backend configurations are:
+
+| Backend | Model Configuration | Server Configuration |
 | --- | --- | --- |
 | Ray Serve | `RayServeModelConfig` | `RayServeServerConfig` (default) |
 | NVIDIA Dynamo | `DynamoVLLMModelConfig` | `DynamoServerConfig` |
@@ -32,7 +34,7 @@ The old `InferenceModelConfig` class was removed. Migrate to the backend-specifi
 
 ## Prerequisites
 
-Install the inference-server extra:
+Install the `inference_server` extra with the public CUDA 12.9 PyTorch and vLLM indexes:
 
 ```bash
 uv pip install \
@@ -41,28 +43,35 @@ uv pip install \
   "nemo-curator[inference_server]"
 ```
 
-The default index remains public PyPI. The two additional public indexes provide
-the CUDA 12.9 builds of PyTorch and vLLM; the other dependencies do not require
-the NVIDIA package index.
+The command keeps PyPI as the default index. The additional indexes provide
+CUDA 12.9 builds of PyTorch and vLLM. Other dependencies use PyPI.
 
-Local GPU serving through this extra supports **x86_64 Linux** and **aarch64
-Linux**. The vLLM, ai-dynamo, and NIXL dependencies are not installed on macOS.
-The NeMo Curator container also includes the `etcd` and `nats-server` binaries
-that Dynamo starts. When using a source environment outside the container,
-install them with
-[`docker/common/install_etcd_nats.sh`](https://github.com/NVIDIA-NeMo/Curator/blob/main/docker/common/install_etcd_nats.sh),
-or configure existing endpoints.
+This extra supports local GPU serving on x86_64 Linux and aarch64 Linux. It does
+not install vLLM, ai-dynamo, or NIXL on macOS. The current repository Dockerfile
+installs `etcd` and `nats-server` for Dynamo. For a source environment or other
+image, run the [Dynamo dependency installation script](https://github.com/NVIDIA-NeMo/Curator/blob/main/docker/common/install_etcd_nats.sh)
+or configure existing endpoints with `DynamoServerConfig`. Both services must
+be reachable from every Ray node that can run Dynamo actors:
 
-The stack uses:
+```python
+from nemo_curator.core.serve import DynamoServerConfig
 
-- CUDA 12.9.1 in the NeMo Curator container.
+DynamoServerConfig(
+    etcd_endpoint="http://etcd.example.com:2379",
+    nats_url="nats://nats.example.com:4222",
+)
+```
+
+The current dependency stack uses:
+
+- CUDA 12.9.1 in images built with the repository Dockerfile's defaults.
 - PyTorch 2.11.
 - Ray Serve 2.57.0 or later.
 - vLLM 0.22.0 with CUDA 12.9.
 - A public ai-dynamo release 1.3.1 or later and NIXL 0.10.0 or later for the
   Dynamo backend.
 
-Start or connect to a Ray cluster before creating the server. The examples below use `RayClient`; an externally managed Ray cluster works as well.
+Start Ray or connect to an existing cluster before you create the server. The examples use `RayClient`; you can also use an externally managed cluster.
 
 ## Ray Serve Quickstart
 
@@ -514,7 +523,9 @@ Do not pass Ray Serve's `deployment_config` to `DynamoVLLMModelConfig`. Use `num
 
 ### Dynamo Cannot Start etcd or NATS
 
-Install the NeMo Curator container dependencies, or supply existing `etcd_endpoint` and `nats_url` values in `DynamoServerConfig`.
+For setup options, refer to [Prerequisites](#prerequisites). When using
+existing services, set `etcd_endpoint` and `nats_url` on `DynamoServerConfig`;
+both endpoints must be reachable from all Ray nodes that may run Dynamo actors.
 
 ### Local Multi-GPU Startup Hangs
 
@@ -522,7 +533,7 @@ On PCIe systems without peer-to-peer GPU access, restart Ray or the Python kerne
 
 ### Runtime Environment Times Out
 
-Ensure cluster nodes can reach the package index and share compatible Python, CUDA, and Ray versions. Dynamo actor setup uses a 600-second timeout; prebuild the NeMo Curator container when workers cannot install packages at runtime.
+Confirm that cluster nodes can reach the package index and use compatible Python, CUDA, and Ray versions. Dynamo actor setup times out after 600 seconds. If runtime installation is too slow or unavailable, [build a custom image with the required additional packages](/reference/infra/container-environments#build-an-image) or prepare another environment with those dependencies.
 
 ### General Debugging Tips for Dynamo Startup and Compatibility Issues
 

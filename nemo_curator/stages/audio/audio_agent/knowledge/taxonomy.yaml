@@ -1,0 +1,33 @@
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
+# Licensed under the Apache License, Version 2.0 (see repository LICENSE).
+#
+# The L0 category tree used for coarse-to-fine stage routing. Each category is a
+# functional group of audio stages; the host router prunes irrelevant categories
+# before drilling into card one-liners (L1) and full cards (L2). A stage's
+# category comes from its card's `category` field (defaulting to its module), so
+# a new stage joins the tree automatically -- no arc/verb change.
+
+version: 1
+categories:
+  ingest:
+    description: "Create/read manifests and partition input files (dataset sources, manifest readers)."
+  preprocess:
+    description: "Normalize audio before models: mono conversion and sample-rate resampling."
+  segment:
+    description: "Cut audio into speech chunks: VAD, long-audio splitting, segment concatenation."
+  diarize:
+    description: "Who-spoke-when and per-speaker separation (Sortformer, PyAnnote, speaker separation)."
+  transcribe:
+    description: "ASR transcription and forced word-alignment (NeMo ASR)."
+  text_norm:
+    description: "Text post-processing on transcripts: inverse text normalization, Chinese conversion."
+  quality:
+    description: "Score/gate audio quality: UTMOS, SIGMOS, SQUIM, bandwidth, band filter."
+  filter:
+    description: "Generic value-based row filtering (keep/drop by a numeric or string field)."
+  alm:
+    description: "Audio-language-model data building: windowing, overlap filtering, snippet planning."
+  export:
+    description: "Convert/aggregate and write results: AudioToDocument, manifest/JSONL writers, timestamp mapping, segment extraction."
+  other:
+    description: "Uncategorized helpers."

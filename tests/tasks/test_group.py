@@ -36,3 +36,16 @@ def test_group_tasks_by_data_key_rejects_missing_or_non_string_keys() -> None:
     invalid = AudioTask(dataset_name="audio", data={"conversation_id": 2})
     with pytest.raises(ValueError, match="non-empty string"):
         group_tasks_by_data_key([invalid], "conversation_id")
+
+
+def test_grouping_retains_all_member_provenance_without_aliasing() -> None:
+    members = [_task("conversation", i, str(i)) for i in range(2)]
+    for i, member in enumerate(members):
+        member._source_id = f"source-{i}"
+        member._metadata["nested"] = {"value": i}
+    group = group_tasks_by_data_key(members, "conversation_id")[0]
+    assert group._metadata["source_ids"] == ["source-0", "source-1"]
+    assert group._metadata["member_task_ids"] == ["0", "1"]
+    group._metadata["member_metadata"][0]["nested"]["value"] = "changed"
+    assert members[0]._metadata["nested"]["value"] == 0
+    assert not group._source_id

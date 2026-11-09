@@ -65,22 +65,32 @@ def _run_query(client: NVInferenceClient, **kwargs: object) -> list[str]:
 
 class TestNVInferenceClientSetup:
     def test_setup_raises_when_env_var_missing(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
         monkeypatch.delenv("NVINFERENCE_API_KEY", raising=False)
-        with pytest.raises(RuntimeError, match="NVINFERENCE_API_KEY is not set"):
+        with pytest.raises(RuntimeError, match="NVIDIA_API_KEY is not set"):
             NVInferenceClient().setup()
 
     def test_setup_whitespace_only_treated_as_missing(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("NVINFERENCE_API_KEY", "   ")
-        with pytest.raises(RuntimeError, match="NVINFERENCE_API_KEY is not set"):
+        monkeypatch.setenv("NVIDIA_API_KEY", "   ")
+        monkeypatch.delenv("NVINFERENCE_API_KEY", raising=False)
+        with pytest.raises(RuntimeError, match="NVIDIA_API_KEY is not set"):
             NVInferenceClient().setup()
 
     def test_setup_constructs_asyncopenai_with_resolved_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("NVINFERENCE_API_KEY", "key-xyz")  # pragma: allowlist secret
+        monkeypatch.setenv("NVIDIA_API_KEY", "key-xyz")  # pragma: allowlist secret
+        monkeypatch.setenv("NVINFERENCE_API_KEY", "legacy-key")  # pragma: allowlist secret
         with patch("nemo_curator.models.client.openai_client.AsyncOpenAI") as AsyncOpenAI:  # noqa: N806
             NVInferenceClient(base_url="https://example.test").setup()
             kwargs = AsyncOpenAI.call_args.kwargs
             assert kwargs["base_url"] == "https://example.test"
             assert kwargs["api_key"] == "key-xyz"  # pragma: allowlist secret
+
+    def test_setup_accepts_legacy_env_var(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
+        monkeypatch.setenv("NVINFERENCE_API_KEY", "legacy-key")  # pragma: allowlist secret
+        with patch("nemo_curator.models.client.openai_client.AsyncOpenAI") as AsyncOpenAI:  # noqa: N806
+            NVInferenceClient().setup()
+            assert AsyncOpenAI.call_args.kwargs["api_key"] == "legacy-key"  # pragma: allowlist secret
 
 
 class TestNVInferenceClientStreaming:

@@ -15,12 +15,16 @@
 """Audio transcript filtering stages."""
 
 from .abbreviation_concat import AbbreviationConcatStage
+from .audio_text_llm import AudioTextLLMStage
+from .disfluency_wer_guard import DisfluencyWerGuardStage
 from .regex_substitution import RegexSubstitutionStage
 from .select_best_prediction import SelectBestPredictionStage
 from .whisper_hallucination import WhisperHallucinationStage
 
 __all__ = [
     "AbbreviationConcatStage",
+    "AudioTextLLMStage",
+    "DisfluencyWerGuardStage",
     "RegexSubstitutionStage",
     "SelectBestPredictionStage",
     "WhisperHallucinationStage",

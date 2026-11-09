@@ -19,13 +19,9 @@ import pandas as pd
 import pyarrow as pa
 from loguru import logger
 
+from nemo_curator.utils.column_utils import pyarrow_string_to_pandas_dtype
+
 from .tasks import Task
-
-
-def _pyarrow_to_pandas_dtype(arrow_type: pa.DataType) -> pd.StringDtype | None:
-    if pa.types.is_string(arrow_type) or pa.types.is_large_string(arrow_type):
-        return pd.StringDtype(storage="pyarrow", na_value=np.nan)
-    return None
 
 
 @dataclass
@@ -53,7 +49,10 @@ class DocumentBatch(Task[pa.Table | pd.DataFrame]):
         if isinstance(self.data, pd.DataFrame):
             return self.data
         elif isinstance(self.data, pa.Table):
-            return self.data.to_pandas(types_mapper=_pyarrow_to_pandas_dtype, use_threads=False)
+            return self.data.to_pandas(
+                types_mapper=lambda arrow_type: pyarrow_string_to_pandas_dtype(arrow_type, na_value=np.nan),
+                use_threads=False,
+            )
         else:
             msg = f"Cannot convert {type(self.data)} to Pandas DataFrame"
             raise TypeError(msg)

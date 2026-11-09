@@ -28,7 +28,7 @@ from utils import setup_executor, write_benchmark_results
 
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio import ManifestReader
-from nemo_curator.stages.audio.inference.speaker_diarization.sortformer import InferenceSortformerStage
+from nemo_curator.stages.audio.inference.speaker_diarization.stage import InferenceSortformerStage
 from nemo_curator.stages.resources import Resources
 
 if TYPE_CHECKING:
@@ -122,8 +122,8 @@ def run_audio_sortformer_benchmark(  # noqa: PLR0913
     pipeline.add_stage(ManifestReader(manifest_path=str(input_manifest)))
     pipeline.add_stage(
         InferenceSortformerStage(
-            model_path=model_path,
             rttm_out_dir=rttm_out_dir,
+            adapter_kwargs={"model_path": model_path},
         ).with_(resources=Resources(gpus=1))
     )
     logger.info(pipeline.describe())
@@ -157,7 +157,11 @@ def main() -> int:
     parser.add_argument("--model-path", required=True, help="Pre-staged local Sortformer .nemo checkpoint")
     parser.add_argument("--executor", default="xenna", choices=["xenna", "ray_data", "ray_actors"])
     parser.add_argument("--rttm-out-dir", default=None)
+    parser.add_argument(
+        "--save-tasks", action=argparse.BooleanOptionalAction, default=True, help="Save completed tasks in tasks.pkl"
+    )
     args = parser.parse_args()
+    save_tasks = vars(args).pop("save_tasks")
 
     params = vars(args)
     logger.info(f"Audio Sortformer benchmark arguments: {params}")
@@ -170,7 +174,7 @@ def main() -> int:
         logger.error(f"Benchmark failed: {e}")
         result_dict["metrics"]["error_message"] = str(e)
     finally:
-        write_benchmark_results(result_dict, args.benchmark_results_path)
+        write_benchmark_results(result_dict, args.benchmark_results_path, save_tasks=save_tasks)
     return success_code
 
 

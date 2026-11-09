@@ -52,6 +52,7 @@ pipeline = Pipeline(
             model_identifier="google/embeddinggemma-300m",
             text_field="text",
             embedding_field="embeddings",
+            metadata_fields=["text"],
         ),
         ParquetWriter(path="output/", fields=["text", "embeddings"]),
     ],
@@ -73,9 +74,12 @@ pipeline.run(executor)
 | `pretokenize` | `bool` | `True` | Tokenize text on CPU before passing to vLLM. Whether this improves throughput is model-dependent |
 | `embedding_field` | `str` | `"embeddings"` | Name of the output embedding column |
 | `max_chars` | `int` | `None` | Maximum characters per document (truncates before tokenization) |
+| `model_inference_batch_size` | `int \| None` | `8192` | Maximum number of texts sent to vLLM in each embedding call. Set to `0` or `None` to process the entire input task in one call. Negative values are rejected. |
 | `cache_dir` | `str` | `None` | Directory for caching downloaded model files |
 | `hf_token` | `str` | `None` | Hugging Face token for accessing gated models |
 | `verbose` | `bool` | `False` | Enable verbose logging and progress bars |
+
+Use a smaller `model_inference_batch_size` to reduce memory pressure while preparing each embedding call. The setting does not impose a hard GPU-memory limit or change the size of the input task.
 
 ### vLLM Engine Options
 

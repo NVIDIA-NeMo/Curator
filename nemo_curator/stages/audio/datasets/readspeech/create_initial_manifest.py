@@ -16,9 +16,11 @@ import glob
 import os
 import subprocess
 from dataclasses import dataclass
+from typing import ClassVar
 
 from loguru import logger
 
+from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract, StaticHints
 from nemo_curator.stages.audio.datasets.file_utils import download_file
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask, EmptyTask
@@ -33,7 +35,7 @@ DNS_READSPEECH_URL = (
 
 
 @dataclass
-class CreateInitialManifestReadSpeechStage(ProcessingStage[EmptyTask, AudioTask]):
+class CreateInitialManifestReadSpeechStage(AgentReady, ProcessingStage[EmptyTask, AudioTask]):
     """
     Stage to create initial manifest for the DNS Challenge Read Speech dataset.
 
@@ -47,7 +49,22 @@ class CreateInitialManifestReadSpeechStage(ProcessingStage[EmptyTask, AudioTask]
         raw_data_dir: Directory where data will be downloaded/extracted to.
         max_samples: Maximum number of samples to include (-1 for all).
         auto_download: If True, automatically download and extract dataset.
+        filepath_key: Key name used for each emitted audio path.
+        text_key: Key name used for each emitted transcript.
+        sample_rate_key: Key name used for the constant 48 kHz sample rate.
+        book_id_key: Key name used for the parsed book identifier.
+        reader_id_key: Key name used for the parsed reader identifier.
     """
+
+    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
+        gates=Gates(
+            writes_to_disk=True,
+            output_path_params=["raw_data_dir"],
+            requires_internet_first_run=True,
+            per_row_independent=False,
+        )
+    )
+    INTERNAL_KEY_FIELDS: ClassVar[frozenset[str]] = frozenset({"book_id_key", "reader_id_key"})
 
     raw_data_dir: str
     max_samples: int = 5000
@@ -56,15 +73,66 @@ class CreateInitialManifestReadSpeechStage(ProcessingStage[EmptyTask, AudioTask]
     text_key: str = "text"
     name: str = "CreateInitialManifestReadSpeech"
     batch_size: int = 1
+    sample_rate_key: str = "sample_rate"
+    book_id_key: str = "book_id"
+    reader_id_key: str = "reader_id"
 
     def __post_init__(self):
         super().__init__()
+        output_key_fields = {
+            "filepath_key": self.filepath_key,
+            "text_key": self.text_key,
+            "sample_rate_key": self.sample_rate_key,
+            "book_id_key": self.book_id_key,
+            "reader_id_key": self.reader_id_key,
+        }
+        for field_name, key in output_key_fields.items():
+            if not isinstance(key, str) or not key.strip():
+                msg = f"{field_name} must be a non-empty string"
+                raise ValueError(msg)
+            conflicting_fields = sorted(
+                other_name
+                for other_name, other_key in output_key_fields.items()
+                if other_name != field_name and other_key == key
+            )
+            if conflicting_fields:
+                msg = f"{field_name}={key!r} conflicts with {', '.join(conflicting_fields)}"
+                raise ValueError(msg)
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], []
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.filepath_key, self.text_key]
+        return [], [
+            self.filepath_key,
+            self.text_key,
+            self.sample_rate_key,
+            self.book_id_key,
+            self.reader_id_key,
+        ]
+
+    def describe(self) -> StageContract:
+        return StageContract(
+            writes=IOSpec(
+                data_keys=[
+                    self.filepath_key,
+                    self.text_key,
+                    self.sample_rate_key,
+                    self.book_id_key,
+                    self.reader_id_key,
+                ],
+                produces=["disk"] if self.auto_download else [],
+            ),
+            cardinality="1:N fan-out",
+            gates=Gates(
+                writes_to_disk=self.auto_download,
+                requires_internet_first_run=self.auto_download,
+                output_path_params=["raw_data_dir"] if self.auto_download else [],
+                # A positive max_samples selects a prefix of the globally sorted corpus, so a
+                # delta containing only changed files can admit rows a full run would exclude.
+                per_row_independent=self.max_samples <= 0,
+            ),
+        )
 
     def download_and_extract(self) -> str:
         """Download and extract DNS Challenge Read Speech dataset (~4.88 GB)."""
@@ -249,9 +317,9 @@ class CreateInitialManifestReadSpeechStage(ProcessingStage[EmptyTask, AudioTask]
             entry = {
                 self.filepath_key: os.path.abspath(wav_path),
                 self.text_key: "",
-                "sample_rate": SAMPLE_RATE_48KHZ,
-                "book_id": metadata.get("book_id", ""),
-                "reader_id": metadata.get("reader_id", ""),
+                self.sample_rate_key: SAMPLE_RATE_48KHZ,
+                self.book_id_key: metadata.get("book_id", ""),
+                self.reader_id_key: metadata.get("reader_id", ""),
             }
             entries.append(entry)
 
@@ -286,10 +354,10 @@ class CreateInitialManifestReadSpeechStage(ProcessingStage[EmptyTask, AudioTask]
         unique_readers = set()
         unique_books = set()
         for entry in entries:
-            if entry.get("reader_id"):
-                unique_readers.add(entry["reader_id"])
-            if entry.get("book_id"):
-                unique_books.add(entry["book_id"])
+            if entry.get(self.reader_id_key):
+                unique_readers.add(entry[self.reader_id_key])
+            if entry.get(self.book_id_key):
+                unique_books.add(entry[self.book_id_key])
 
         logger.info(f"Unique readers: {len(unique_readers)}")
         logger.info(f"Unique books: {len(unique_books)}")

@@ -17,7 +17,7 @@
 
 ## What's Hot
 
-Don't miss the latest capabilities developers are picking up:
+Review the latest NeMo Curator capabilities:
 
 | Feature | What it unlocks | Read this |
 |---------|-----------------|-----------|
@@ -62,9 +62,10 @@ NeMo Curator uses [`uv`](https://docs.astral.sh/uv/) for installation. Install i
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-### Path A — CPU smoke test (no GPU required)
+<a id="path-a-cpu-smoke-test-no-gpu-required" />
+### Path A — CPU Basic Verification
 
-Verify your environment and run a tiny text pipeline.
+Verify your environment and run a small text pipeline without a GPU.
 
 ```bash
 uv venv && source .venv/bin/activate
@@ -72,7 +73,8 @@ uv pip install "nemo-curator[text_cpu]"
 python -c "import nemo_curator; print(nemo_curator.__version__)"
 ```
 
-### Path B — GPU text pipeline (CUDA 12, supported Linux)
+<a id="path-b-gpu-text-pipeline-cuda-12-supported-linux" />
+### Path B — GPU Text Pipeline for CUDA 12 on Linux
 
 The bundled quickstart starts Ray, downloads a Hugging Face model, and runs a sentiment classification pipeline on GPU.
 
@@ -96,12 +98,10 @@ that includes `text_cuda12`, including `nemo-curator[all]`, needs the override
 file. From a source checkout, `uv sync --extra text_cuda12` and `uv sync
 --extra all` apply the project override automatically.
 
-### Path C — Docker (recommended for video and audio)
+<a id="path-c-build-a-docker-image" />
+### Path C — Build an Image (Recommended for Audio/Video)
 
-Video and audio pipelines depend on system codec libraries; the published container ships them preconfigured.
-
-- Container: [nemo-curator on NGC](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/nemo-curator)
-- Setup instructions: [Installation Guide](https://docs.nvidia.com/nemo/curator/latest/get-started/installation)
+For audio and video workflows that use FFmpeg, a locally built image packages the system dependency for every worker. The repository Dockerfile remains maintained; add the appropriate FFmpeg build using the [Container Environments reference](https://docs.nvidia.com/nemo/curator/main/reference/infra/container-environments). Starting with 26.09, NVIDIA no longer publishes new NeMo Curator container images on NGC. Existing images remain downloadable. GitHub source and releases continue. Refer to the [Installation Guide](https://docs.nvidia.com/nemo/curator/latest/get-started/installation) for setup instructions.
 
 **Full setup for all paths:** [Installation Guide](https://docs.nvidia.com/nemo/curator/latest/get-started/installation) • [Tutorials](tutorials/)
 
@@ -173,7 +173,7 @@ See the [scaling concepts](https://docs.nvidia.com/nemo/curator/latest/about/con
 | Resource | Link |
 |----------|------|
 | Installation guide (CPU, GPU, Docker, source) | [docs.nvidia.com/nemo/curator/latest/get-started/installation](https://docs.nvidia.com/nemo/curator/latest/get-started/installation) |
-| Container image | [nemo-curator on NGC](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/nemo-curator) |
+| Container environments | [Build and configure a container image](https://docs.nvidia.com/nemo/curator/main/reference/infra/container-environments) |
 | Infrastructure (Slurm, Kubernetes, multi-node) | [Infrastructure docs](https://docs.nvidia.com/nemo/curator/latest/reference/infra) |
 | API reference | [API docs](https://docs.nvidia.com/nemo/curator/latest/api/reference/api-reference) |
 | Concepts | [Concepts](https://docs.nvidia.com/nemo/curator/latest/about/concepts) |

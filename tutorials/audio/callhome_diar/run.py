@@ -40,32 +40,30 @@ from loguru import logger
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.audio.inference.speaker_diarization.sortformer import InferenceSortformerStage
+from nemo_curator.stages.audio.inference.speaker_diarization.stage import InferenceSortformerStage
 from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask, EmptyTask
+from nemo_curator.utils.atomic_io import write_json_atomically
 
 COLLAR = 0.25
 CKPT_HASH_KEY = "_ckpt_hash"
+CKPT_ORDER_KEY = "_ckpt_order"
+CKPT_SUCCESS = "_SUCCESS"
+CKPT_RUN = "_RUN.json"
 
 
 # ---------------------------------------------------------------------------
-# Per-task hash-based checkpointing
+# Stage-boundary checkpointing
 # ---------------------------------------------------------------------------
 
 
 def _task_hash(task: AudioTask) -> str:
-    """Derive a stable content hash for an AudioTask.
-
-    Uses session_name / audio_filepath from the task data as the identity
-    key so the hash stays the same across stages.
-    """
-    if "session_name" in task.data:
-        identity = task.data["session_name"]
-    elif "audio_filepath" in task.data:
-        identity = task.data["audio_filepath"]
-    else:
-        identity = task.task_id
-    return hashlib.sha256(identity.encode()).hexdigest()[:16]
+    """Derive a stable hash within one frozen CallHome file snapshot."""
+    if not task.task_id:
+        msg = "Cannot checkpoint a task before Curator assigns its task_id"
+        raise ValueError(msg)
+    return hashlib.sha256(task.task_id.encode()).hexdigest()[:16]
 
 
 def _stage_ckpt_dir(checkpoint_dir: Path, stage_index: int, stage_name: str) -> Path:
@@ -81,24 +79,69 @@ def _save_task(directory: Path, h: str, task: AudioTask) -> None:
         "data": dict(task.data),
         "_metadata": task._metadata,
     }
-    (directory / f"{h}.json").write_text(json.dumps(payload, indent=2))
+    write_json_atomically(directory / f"{h}.json", payload, indent=2)
 
 
 def _load_task(path: Path) -> AudioTask:
     """Reconstruct a single AudioTask from a checkpoint file."""
     payload = json.loads(path.read_text())
-    return AudioTask(
+    task = AudioTask(
         dataset_name=payload["dataset_name"],
         data=payload["data"],
         _metadata=payload.get("_metadata", {}),
     )
+    task.task_id = payload["task_id"]
+    return task
 
 
 def _load_all_tasks(directory: Path) -> list[AudioTask]:
     """Load every task checkpoint in a stage directory."""
     if not directory.exists():
         return []
-    return [_load_task(p) for p in sorted(directory.glob("*.json"))]
+    tasks = [_load_task(p) for p in directory.glob("*.json")]
+    return sorted(tasks, key=lambda task: task._metadata[CKPT_ORDER_KEY])
+
+
+def _stage_complete(directory: Path) -> bool:
+    return (directory / CKPT_SUCCESS).is_file()
+
+
+def _mark_stage_complete(directory: Path) -> None:
+    directory.mkdir(parents=True, exist_ok=True)
+    write_json_atomically(directory / CKPT_SUCCESS, {})
+
+
+def _bind_checkpoint_run(checkpoint_dir: Path, identity: dict[str, object]) -> None:
+    """Refuse checkpoints created for different inputs or inference settings."""
+    marker = checkpoint_dir / CKPT_RUN
+    if marker.exists():
+        if json.loads(marker.read_text()) != identity:
+            msg = "Checkpoint input or configuration changed; rerun with --clean"
+            raise RuntimeError(msg)
+        return
+    if checkpoint_dir.exists() and any(checkpoint_dir.iterdir()):
+        msg = "Checkpoint provenance is missing; rerun with --clean"
+        raise RuntimeError(msg)
+    write_json_atomically(marker, identity, indent=2)
+
+
+def _callhome_files(data_dir: Path, cha_dir: Path) -> list[dict[str, int | str]]:
+    """Return an inexpensive identity for every matched audio/annotation pair."""
+    files: list[dict[str, int | str]] = []
+    for wav in sorted(data_dir.glob("*.wav")):
+        cha = cha_dir / f"{wav.stem}.cha"
+        if not cha.exists():
+            continue
+        for path in (wav, cha):
+            stat = path.stat()
+            files.append(
+                {
+                    "path": str(path.relative_to(data_dir)),
+                    "size": stat.st_size,
+                    "mtime_ns": stat.st_mtime_ns,
+                }
+            )
+    return files
 
 
 def parse_args() -> argparse.Namespace:
@@ -129,11 +172,10 @@ def parse_args() -> argparse.Namespace:
 
 @dataclass
 class CallHomeReaderStage(ProcessingStage[EmptyTask, AudioTask]):
-    """Discover CallHome WAV files with matching .cha annotations, skipping already-processed."""
+    """Discover CallHome WAV files with matching .cha annotations."""
 
     data_dir: str = ""
     cha_dir: str = ""
-    rttm_out_dir: str = ""
     filepath_key: str = "audio_filepath"
     name: str = "CallHomeReaderStage"
 
@@ -148,11 +190,10 @@ class CallHomeReaderStage(ProcessingStage[EmptyTask, AudioTask]):
 
     def process(self, task: EmptyTask) -> list[AudioTask]:  # noqa: ARG002
         cha_path = Path(self.cha_dir)
-        done = {p.stem for p in Path(self.rttm_out_dir).glob("*.rttm")} if self.rttm_out_dir else set()
         tasks: list[AudioTask] = []
         for wav in sorted(Path(self.data_dir).glob("*.wav")):
             fid = wav.stem
-            if fid in done or not (cha_path / f"{fid}.cha").exists():
+            if not (cha_path / f"{fid}.cha").exists():
                 continue
             tasks.append(
                 AudioTask(
@@ -386,11 +427,11 @@ def _print_summary(results: list[dict], collar: float) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _run_stages_with_checkpoints(
+def _run_stages_with_checkpoints(  # noqa: C901, PLR0912, PLR0915
     stages: list[ProcessingStage],
     checkpoint_dir: Path,
 ) -> list[AudioTask]:
-    """Execute stages one at a time with per-task hash-based checkpointing.
+    """Execute stages one at a time with stage-boundary checkpointing.
 
     For each stage the flow is:
       1. Compute a content hash for every input task.
@@ -399,8 +440,9 @@ def _run_stages_with_checkpoints(
       4. Only the remaining tasks are sent through the executor.
       5. Newly produced outputs are saved to disk, keyed by the *input* hash.
 
-    This means even a partially completed stage is resumable — only the
-    un-processed tasks will be re-run.
+    Complete stages are reused as a whole. A stage interrupted inside
+    ``Pipeline.run`` is rerun as a whole because the executor returns its
+    results only after that stage succeeds.
     """
     executor = XennaExecutor()
     current_tasks: list[AudioTask] | None = None
@@ -409,13 +451,16 @@ def _run_stages_with_checkpoints(
     for idx, stage in enumerate(stages):
         sdir = _stage_ckpt_dir(checkpoint_dir, idx, stage._name)
 
+        if _stage_complete(sdir):
+            cached = _load_all_tasks(sdir)
+            logger.info(f"Stage {idx} ({stage._name}): loaded {len(cached)} cached tasks — skipping execution")
+            current_tasks = cached
+            continue
+
         # --- reader stage (no input tasks) ---
         if current_tasks is None:
-            cached = _load_all_tasks(sdir)
-            if cached:
-                logger.info(f"Stage {idx} ({stage._name}): loaded {len(cached)} cached tasks — skipping execution")
-                current_tasks = cached
-                continue
+            if sdir.exists():
+                shutil.rmtree(sdir)
 
             logger.info(f"Running stage {idx}/{len(stages) - 1}: {stage._name}")
             stage_t0 = time.time()
@@ -423,10 +468,12 @@ def _run_stages_with_checkpoints(
             output = pipeline.run(executor=executor)
             current_tasks = output or []
 
-            for task in current_tasks:
+            for order, task in enumerate(current_tasks):
                 h = _task_hash(task)
                 task._metadata[CKPT_HASH_KEY] = h
+                task._metadata[CKPT_ORDER_KEY] = order
                 _save_task(sdir, h, task)
+            _mark_stage_complete(sdir)
             logger.info(f"Stage {stage._name} done in {time.time() - stage_t0:.1f}s — {len(current_tasks)} tasks")
             continue
 
@@ -439,7 +486,9 @@ def _run_stages_with_checkpoints(
         for task in current_tasks:
             h = task._metadata.get(CKPT_HASH_KEY) or _task_hash(task)
             if h in existing_hashes:
-                cached_tasks.append(_load_task(sdir / f"{h}.json"))
+                cached_task = _load_task(sdir / f"{h}.json")
+                cached_task._metadata[CKPT_ORDER_KEY] = task._metadata[CKPT_ORDER_KEY]
+                cached_tasks.append(cached_task)
             else:
                 task._metadata[CKPT_HASH_KEY] = h
                 todo_tasks.append(task)
@@ -467,11 +516,23 @@ def _run_stages_with_checkpoints(
         else:
             logger.info(f"Stage {idx} ({stage._name}): all tasks cached — skipping execution")
 
+        cached_tasks.sort(key=lambda task: task._metadata[CKPT_ORDER_KEY])
+        active_hashes = {task._metadata[CKPT_HASH_KEY] for task in cached_tasks}
+        for path in sdir.glob("*.json"):
+            if path.stem not in active_hashes:
+                path.unlink()
+        _mark_stage_complete(sdir)
         current_tasks = cached_tasks
 
     total = time.time() - t0
     logger.info(f"All stages done in {total / 60:.1f} min")
     return current_tasks or []
+
+
+def _ensure_safe_clean(output_dir: Path, protected_path: Path) -> None:
+    if protected_path.resolve().is_relative_to(output_dir.resolve()):
+        msg = f"Refusing --clean because output directory contains input path: {protected_path}"
+        raise ValueError(msg)
 
 
 def main() -> None:
@@ -481,50 +542,67 @@ def main() -> None:
     rttm_out: Path = args.rttm_out_dir
     ckpt_dir: Path = args.checkpoint_dir
 
-    ray_client = RayClient()
-    ray_client.start()
-
     if args.clean and args.output_dir.exists():
+        _ensure_safe_clean(args.output_dir, data_dir)
         shutil.rmtree(args.output_dir)
         logger.info(f"Cleaned output directory: {args.output_dir}")
     rttm_out.mkdir(parents=True, exist_ok=True)
 
-    # Pre-check: how many files will the reader emit (same logic as CallHomeReaderStage)
-    done = {p.stem for p in rttm_out.glob("*.rttm")} if rttm_out.exists() else set()
-    wavs_with_cha = [
-        w for w in sorted(data_dir.glob("*.wav")) if w.stem not in done and (cha_dir / f"{w.stem}.cha").exists()
-    ]
-    n_skip = len(done)
+    _bind_checkpoint_run(
+        ckpt_dir,
+        {
+            "version": 1,
+            "data_dir": str(data_dir.resolve()),
+            "source_files": _callhome_files(data_dir, cha_dir),
+            "model": args.model,
+            "collar": args.collar,
+            "chunk_len": args.chunk_len,
+            "chunk_right_context": args.chunk_right_context,
+            "fifo_len": args.fifo_len,
+            "spkcache_update_period": args.spkcache_update_period,
+            "spkcache_len": args.spkcache_len,
+        },
+    )
 
-    has_checkpoint = ckpt_dir.exists() and any(ckpt_dir.iterdir()) if ckpt_dir.exists() else False
+    # Pre-check: how many files will the reader emit (same logic as CallHomeReaderStage)
+    wavs_with_cha = [w for w in sorted(data_dir.glob("*.wav")) if (cha_dir / f"{w.stem}.cha").exists()]
+
+    has_checkpoint = any(ckpt_dir.glob("stage_*"))
     if not wavs_with_cha and not has_checkpoint:
         print(
             f"No files to process: {len(list(data_dir.glob('*.wav')))} WAV(s) in {data_dir}, "
-            f"{n_skip} already have RTTM (skipped). Need WAVs and matching {cha_dir}/<stem>.cha. Use --clean to re-run all.",
+            f"need WAVs and matching {cha_dir}/<stem>.cha.",
             flush=True,
         )
-        ray_client.stop()
         return
-    print(f"Files to process: {len(wavs_with_cha)} (skipping {n_skip} with existing RTTM)", flush=True)
+    print(f"Files to process: {len(wavs_with_cha)}", flush=True)
 
-    stages: list[ProcessingStage] = [
-        CallHomeReaderStage(data_dir=str(data_dir), cha_dir=str(cha_dir), rttm_out_dir=str(rttm_out)),
-        EnsureMonoStage(mono_dir=str(data_dir / "mono")),
-        InferenceSortformerStage(
-            model_name=args.model,
-            rttm_out_dir=str(rttm_out),
-            chunk_len=args.chunk_len,
-            chunk_right_context=args.chunk_right_context,
-            fifo_len=args.fifo_len,
-            spkcache_update_period=args.spkcache_update_period,
-            spkcache_len=args.spkcache_len,
-            inference_batch_size=1,
-        ),
-        DERComputationStage(cha_dir=str(cha_dir), collar=args.collar),
-    ]
+    ray_client = RayClient()
+    ray_client.start()
 
-    print("Starting pipeline with inter-stage checkpointing...", flush=True)
-    output_tasks = _run_stages_with_checkpoints(stages, ckpt_dir)
+    try:
+        stages: list[ProcessingStage] = [
+            CallHomeReaderStage(data_dir=str(data_dir), cha_dir=str(cha_dir)),
+            EnsureMonoStage(mono_dir=str(args.output_dir / "mono")),
+            InferenceSortformerStage(
+                model_id=args.model,
+                rttm_out_dir=str(rttm_out),
+                adapter_kwargs={
+                    "chunk_len": args.chunk_len,
+                    "chunk_right_context": args.chunk_right_context,
+                    "fifo_len": args.fifo_len,
+                    "spkcache_update_period": args.spkcache_update_period,
+                    "spkcache_len": args.spkcache_len,
+                    "inference_batch_size": 1,
+                },
+            ).with_(resources=Resources(gpus=1), batch_size=1),
+            DERComputationStage(cha_dir=str(cha_dir), collar=args.collar),
+        ]
+
+        print("Starting pipeline with inter-stage checkpointing...", flush=True)
+        output_tasks = _run_stages_with_checkpoints(stages, ckpt_dir)
+    finally:
+        ray_client.stop()
 
     output_tasks = output_tasks or []
     results = [
@@ -538,8 +616,6 @@ def main() -> None:
     with open(args.results_json, "w") as f:
         json.dump(results, f, indent=2)
     print(f"\nDetailed results saved to {args.results_json}")
-
-    ray_client.stop()
 
 
 if __name__ == "__main__":

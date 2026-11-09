@@ -38,11 +38,7 @@ Worker scheduling
     MFA/Kaldi is not safe to run concurrently against a shared model directory,
     so each backend is constrained to avoid overlapping workers:
 
-    * Xenna: ``xenna_stage_spec()`` returns ``{"num_workers_per_node": 1}`` to
-      guarantee exactly one MFA worker per node.
-    * Ray Data: the backend has no per-node worker cap, so ``num_workers()``
-      returns ``1`` and ``ray_stage_spec()`` marks this as an actor stage,
-      yielding a single MFA actor cluster-wide (concurrency=1).
+    ``num_workers()`` limits all execution backends to one worker cluster-wide.
 """
 
 from __future__ import annotations
@@ -51,6 +47,7 @@ import contextlib
 import fcntl
 import hashlib
 import json
+import math
 import os
 import shlex
 import shutil
@@ -63,11 +60,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-import soundfile as sf
 from loguru import logger
 from praatio import textgrid as praatio_textgrid
 
 from nemo_curator.backends.utils import RayStageSpecKeys
+from nemo_curator.stages.audio.common.duration import get_audio_duration
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -128,11 +125,10 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
             subprocess invocation. Must be positive. On expiry, the entire
             MFA process group is killed (not just the immediate process) so
             no orphaned Kaldi/MFA worker processes survive, and a bounded
-            ``TimeoutError`` is raised. This stage runs as a single worker
-            cluster-wide (see module docstring), so a wedged MFA process
-            would otherwise stall the whole pipeline indefinitely.
+            ``TimeoutError`` is raised. A wedged MFA process would
+            otherwise block its alignment worker indefinitely.
         mfa_root_dir: MFA root directory containing pretrained models, or
-            ``None`` to use ``MFA_ROOT_DIR`` / ``~/.mfa``.
+            ``None`` to use ``MFA_ROOT_DIR`` / ``~/Documents/MFA``.
         local_mfa_base_dir: Base directory for node-local model copies, or
             ``None`` to use ``tempfile.gettempdir()`` (typically ``/tmp``).
         copy_models_to_local: Whether ``setup_on_node`` should copy models
@@ -179,10 +175,10 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
     _textgrid_mod: Any = field(default=praatio_textgrid, init=False, repr=False)
 
     def __post_init__(self) -> None:
-        if self.num_jobs <= 0:
+        if not isinstance(self.num_jobs, int) or isinstance(self.num_jobs, bool) or self.num_jobs <= 0:
             msg = f"num_jobs must be positive, got {self.num_jobs}"
             raise ValueError(msg)
-        if self.align_timeout_seconds <= 0:
+        if not math.isfinite(self.align_timeout_seconds) or self.align_timeout_seconds <= 0:
             msg = f"align_timeout_seconds must be positive, got {self.align_timeout_seconds}"
             raise ValueError(msg)
 
@@ -193,7 +189,9 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
         if self.resources is None:
             self.resources = Resources(cpus=float(self.num_jobs))
 
-        self._effective_mfa_root = self.mfa_root_dir or os.environ.get("MFA_ROOT_DIR", os.path.expanduser("~/.mfa"))
+        self._effective_mfa_root = str(
+            Path(self.mfa_root_dir or os.environ.get("MFA_ROOT_DIR", "~/Documents/MFA")).expanduser()
+        )
         self._effective_local_base = self.local_mfa_base_dir or tempfile.gettempdir()
         self._textgrid_dir = Path(self.output_dir) / "textgrids"
         self._rttm_dir = Path(self.output_dir) / "rttms"
@@ -210,23 +208,13 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
             data_keys.append("ctm_filepath")
         return [], data_keys
 
-    def xenna_stage_spec(self) -> dict[str, Any]:
-        # Current implementation is meant to run with one worker per node. because the MFA library has issues when running in parallel.
-        # We are copying the MFA models to node-local storage to avoid race conditions and Kaldi errors when multiple distributed nodes share the same model directory.
-        return {"num_workers_per_node": 1}
+    def num_workers(self) -> int:
+        return 1
 
     def ray_stage_spec(self) -> dict[str, Any]:
-        # Ray Data has no per-node worker cap, so run MFA as a single actor
-        # (see num_workers() -> 1). Without this the backend would launch
-        # multiple MFA workers per node, re-introducing the Kaldi/NFS races and
-        # shared-model corruption that this stage is designed to avoid.
-        return {RayStageSpecKeys.IS_ACTOR_STAGE: True}
-
-    def num_workers(self) -> int | None:
-        # Force a single MFA worker cluster-wide on the Ray Data backend
-        # (Xenna instead honours xenna_stage_spec()'s num_workers_per_node=1).
-        # MFA/Kaldi is not safe to run concurrently against a shared model dir.
-        return 1
+        return {
+            RayStageSpecKeys.IS_ACTOR_STAGE: True,
+        }
 
     def setup_on_node(
         self,
@@ -284,21 +272,18 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
         if len(tasks) == 0:
             return []
 
-        # Multiple rows can intentionally name the same source/transcript.
-        # They share one MFA corpus item and artifact, but each row must still
-        # receive its output rather than being silently dropped.
-        stem_to_tasks: dict[str, list[AudioTask]] = {}
+        stem_to_task: dict[str, AudioTask] = {}
         for task in tasks:
             try:
-                file_stem = self._preflight_task(task)
+                file_stem = self._preflight_task(task, stem_to_task)
             except Exception as exc:  # noqa: BLE001
                 logger.warning(f"Skipping task that failed MFA pre-flight: {exc}")
                 self._mark_task_skipped(task)
                 continue
-            stem_to_tasks.setdefault(file_stem, []).append(task)
+            stem_to_task[file_stem] = task
 
         # All tasks failed pre-flight; nothing to align.
-        if not stem_to_tasks:
+        if not stem_to_task:
             return list(tasks)
 
         batch_uuid = uuid.uuid4().hex[:12]
@@ -307,8 +292,7 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
 
         with tempfile.TemporaryDirectory(prefix="mfa_corpus_") as corpus_dir:
             corpus_path = Path(corpus_dir)
-            for corpus_stem, grouped_tasks in stem_to_tasks.items():
-                task = grouped_tasks[0]
+            for corpus_stem, task in stem_to_task.items():
                 audio_path = Path(task.data[self.audio_filepath_key])
                 corpus_wav = corpus_path / f"{corpus_stem}.wav"
                 if not corpus_wav.exists() and not corpus_wav.is_symlink():
@@ -322,25 +306,24 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
             self._run_mfa_align(corpus_path, tg_out_path)
 
             all_tg = {tg.stem: tg for tg in tg_out_path.rglob("*.TextGrid")}
-            missing = {s for s in stem_to_tasks if s not in all_tg}
+            missing = {s for s in stem_to_task if s not in all_tg}
 
             if missing:
                 logger.warning(
-                    f"MFA silently dropped {len(missing)}/{len(stem_to_tasks)} "
+                    f"MFA silently dropped {len(missing)}/{len(stem_to_task)} "
                     f"files (exit code was 0). Creating fallback outputs."
                 )
 
-            for file_stem, grouped_tasks in stem_to_tasks.items():
-                for task in grouped_tasks:
-                    if file_stem in missing:
-                        self._handle_missing_textgrid(file_stem, task)
-                    else:
-                        self._handle_successful_textgrid(file_stem, task, all_tg[file_stem])
+            for file_stem, task in stem_to_task.items():
+                if file_stem in missing:
+                    self._handle_missing_textgrid(file_stem, task, batch_uuid)
+                else:
+                    self._handle_successful_textgrid(file_stem, task, all_tg[file_stem], batch_uuid)
 
         return list(tasks)
 
-    def _preflight_task(self, task: AudioTask) -> str:
-        """Validate one task and return its stable artifact identity.
+    def _preflight_task(self, task: AudioTask, stem_to_task: dict[str, AudioTask]) -> str:
+        """Validate one task and return its unique corpus stem.
 
         Raises ``ValueError``/``FileNotFoundError`` if the task cannot be
         aligned (failed validation, empty text, or a missing audio file);
@@ -355,28 +338,30 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
             msg = f"Empty text for {audio_filepath} (key={self.text_key!r})"
             raise ValueError(msg)
         audio_path = Path(audio_filepath)
-        if not audio_path.exists():
+        if not audio_path.is_file():
             msg = f"Audio file not found: {audio_path}"
             raise FileNotFoundError(msg)
+        if audio_path.suffix.lower() != ".wav":
+            msg = f"MFAAlignmentStage requires WAV input, got {audio_path}"
+            raise ValueError(msg)
 
-        file_stem = self._artifact_stem(audio_path, text, task.task_id)
-        if not task.data.get(self.duration_key):
-            task.data[self.duration_key] = self._get_audio_duration(str(audio_path))
+        file_stem = audio_path.stem
+        if file_stem in stem_to_task:
+            original_stem = file_stem
+            file_stem = f"{file_stem}_{uuid.uuid4().hex[:8]}"
+            logger.warning(f"Duplicate stem '{original_stem}' — renamed to '{file_stem}' to avoid silent data loss")
+        self._ensure_task_duration(task)
+        if task.data[self.duration_key] < 0:
+            msg = f"Cannot determine audio duration for {audio_path}"
+            raise ValueError(msg)
         return file_stem
 
-    @staticmethod
-    def _artifact_stem(audio_path: Path, text: str, task_id: str) -> str:
-        """Deterministic safe name shared by MFA corpus and all output artifacts.
-
-        A basename alone is not an identity: distinct ``foo.wav`` files can
-        arrive in separate batches or workers and otherwise overwrite each
-        other's persistent TextGrid/RTTM/CTM outputs.  The resolved source,
-        transcript, and framework task id together identify an alignment job
-        without putting untrusted path text into a filename.
-        """
-        identity = "\0".join((str(audio_path.resolve()), text, task_id))
-        digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:20]
-        return f"audio_{digest}"
+    def _ensure_task_duration(self, task: AudioTask) -> None:
+        duration = task.data.get(self.duration_key)
+        if isinstance(duration, (int, float)) and not isinstance(duration, bool) and math.isfinite(duration):
+            return
+        audio_path = task.data.get(self.audio_filepath_key)
+        task.data[self.duration_key] = self._get_audio_duration(str(audio_path)) if audio_path else -1.0
 
     def _mark_task_skipped(self, task: AudioTask) -> None:
         """Mark a task as skipped with empty outputs.
@@ -384,6 +369,7 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
         Used for tasks that fail pre-flight so the batch can continue while
         preserving cardinality and the declared output keys.
         """
+        self._ensure_task_duration(task)
         task.data["textgrid_filepath"] = ""
         task.data["mfa_skipped"] = True
         if self.create_rttm:
@@ -391,27 +377,24 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
         if self.create_ctm:
             task.data["ctm_filepath"] = ""
 
-    def _handle_successful_textgrid(self, file_stem: str, task: AudioTask, tg_path: Path) -> None:
-        canonical_textgrid_path = self._textgrid_dir / f"{file_stem}.TextGrid"
-        # MFA writes under a per-invocation directory. Publish a durable,
-        # identity-keyed TextGrid alongside RTTM/CTM so later batches cannot
-        # overwrite a path returned to an earlier task.
-        shutil.copy2(tg_path, canonical_textgrid_path)
-        task.data["textgrid_filepath"] = str(canonical_textgrid_path)
+    def _handle_successful_textgrid(self, file_stem: str, task: AudioTask, tg_path: Path, batch_id: str) -> None:
+        task.data["textgrid_filepath"] = str(tg_path)
         task.data["mfa_skipped"] = False
         speaker = task.data.get(self.speaker_key, "unknown")
 
         if self.create_rttm:
-            rttm_path = self._rttm_dir / f"{file_stem}.rttm"
+            rttm_path = self._rttm_dir / batch_id / f"{file_stem}.rttm"
+            rttm_path.parent.mkdir(parents=True, exist_ok=True)
             self._textgrid_to_rttm(tg_path, file_stem, speaker, rttm_path)
             task.data["rttm_filepath"] = str(rttm_path)
 
         if self.create_ctm:
-            ctm_path = self._ctm_dir / f"{file_stem}.ctm"
+            ctm_path = self._ctm_dir / batch_id / f"{file_stem}.ctm"
+            ctm_path.parent.mkdir(parents=True, exist_ok=True)
             self._textgrid_to_ctm(tg_path, file_stem, ctm_path)
             task.data["ctm_filepath"] = str(ctm_path)
 
-    def _handle_missing_textgrid(self, file_stem: str, task: AudioTask) -> None:
+    def _handle_missing_textgrid(self, file_stem: str, task: AudioTask, batch_id: str) -> None:
         duration = task.data.get(self.duration_key, 0.0)
         text = task.data.get(self.text_key, "").strip()
         speaker = task.data.get(self.speaker_key, "unknown")
@@ -422,12 +405,14 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
         task.data["mfa_skipped"] = True
 
         if self.create_rttm:
-            rttm_path = self._rttm_dir / f"{file_stem}.rttm"
+            rttm_path = self._rttm_dir / batch_id / f"{file_stem}.rttm"
+            rttm_path.parent.mkdir(parents=True, exist_ok=True)
             self._create_duration_fallback_rttm(file_stem, speaker, duration, rttm_path)
             task.data["rttm_filepath"] = str(rttm_path)
 
         if self.create_ctm:
-            ctm_path = self._ctm_dir / f"{file_stem}.ctm"
+            ctm_path = self._ctm_dir / batch_id / f"{file_stem}.ctm"
+            ctm_path.parent.mkdir(parents=True, exist_ok=True)
             self._create_duration_fallback_ctm(file_stem, text, duration, ctm_path)
             task.data["ctm_filepath"] = str(ctm_path)
 
@@ -532,12 +517,19 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
                 f"(pid={process.pid}); killing its process group."
             )
             with contextlib.suppress(ProcessLookupError, PermissionError):
-                os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+                os.killpg(process.pid, signal.SIGKILL)
             try:
                 stdout, stderr = process.communicate(timeout=10)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                stdout, stderr = process.communicate()
+            except subprocess.TimeoutExpired as exc:
+                with contextlib.suppress(ProcessLookupError):
+                    process.kill()
+                for stream in (process.stdout, process.stderr):
+                    if stream is not None:
+                        stream.close()
+                with contextlib.suppress(subprocess.TimeoutExpired):
+                    process.wait(timeout=1)
+                stdout = exc.output.decode(errors="replace") if isinstance(exc.output, bytes) else exc.output
+                stderr = exc.stderr.decode(errors="replace") if isinstance(exc.stderr, bytes) else exc.stderr
             msg = (
                 f"mfa align timed out after {self.align_timeout_seconds:.0f}s "
                 "and its process group was killed.\n"
@@ -581,14 +573,12 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
 
     def _is_node_local_mfa_root(self) -> bool:
         """True when MFA root is the per-node local copy (safe to mutate)."""
-        if self.copy_models_to_local:
-            return True
         try:
             mfa_root = Path(self._mfa_root).resolve()
             local_mfa = self._local_cache_dir().resolve()
         except OSError:
             return False
-        return mfa_root == local_mfa or local_mfa in mfa_root.parents
+        return mfa_root == local_mfa and self._cache_is_valid(local_mfa)
 
     def _textgrid_to_rttm(
         self,
@@ -650,8 +640,7 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
 
     @staticmethod
     def _get_audio_duration(audio_path: str) -> float:
-        with sf.SoundFile(audio_path) as f:
-            return len(f) / f.samplerate
+        return get_audio_duration(audio_path)
 
     @staticmethod
     def _create_duration_fallback_rttm(file_stem: str, speaker: str, duration: float, rttm_path: Path) -> None:
@@ -668,7 +657,59 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
         with open(ctm_path, "w", encoding="utf-8") as f:
             f.writelines(f"{file_stem} 1 {i * word_dur:.3f} {word_dur:.3f} {word}\n" for i, word in enumerate(words))
 
-    def _cache_identity(self) -> dict[str, str]:
+    @staticmethod
+    def _model_inventory(root: Path) -> list[dict[str, str | int]]:
+        inventory = []
+        for subdir in ("pretrained_models", "extracted_models"):
+            for path in sorted((root / subdir).rglob("*")):
+                if path.is_file():
+                    info = path.stat()
+                    inventory.append(
+                        {"path": str(path.relative_to(root)), "size": info.st_size, "mtime_ns": info.st_mtime_ns}
+                    )
+        return inventory
+
+    def _required_models_present(self, root: Path) -> bool:
+        for category, model, extension in (
+            ("acoustic", self.acoustic_model, "zip"),
+            ("dictionary", self.dictionary, "dict"),
+        ):
+            if not model:
+                continue
+            candidates = [
+                Path(model),
+                root / "pretrained_models" / category / model,
+                root / "pretrained_models" / category / f"{model}.{extension}",
+                root / "extracted_models" / category / model,
+                root / "extracted_models" / model,
+            ]
+            if not any(
+                (path.is_file() and path.stat().st_size > 0)
+                or (path.is_dir() and any(child.is_file() and child.stat().st_size > 0 for child in path.rglob("*")))
+                for path in candidates
+            ):
+                return False
+        return True
+
+    @staticmethod
+    def _copy_matches_source(root: Path, inventory: list[dict[str, Any]]) -> bool:
+        return all(
+            (root / item["path"]).is_file() and (root / item["path"]).stat().st_size == item["size"]
+            for item in inventory
+        )
+
+    def _validate_models(self, root: Path, identity: dict[str, Any] | None = None) -> None:
+        if not self._required_models_present(root):
+            msg = f"Requested MFA models are missing or empty under {root}; finish model downloads before setup"
+            raise FileNotFoundError(msg)
+        if identity is not None and self._cache_identity() != identity:
+            msg = "MFA model source changed while copying; retry setup after downloads finish"
+            raise RuntimeError(msg)
+        if identity is not None and not self._copy_matches_source(root, identity["source_files"]):
+            msg = "Copied MFA models are incomplete; retry setup"
+            raise RuntimeError(msg)
+
+    def _cache_identity(self) -> dict[str, Any]:
         """Identity that must match for a node-local model cache to be reused.
 
         Includes the *resolved* shared source root (so two distinct sources
@@ -683,6 +724,7 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
             "acoustic_model": self.acoustic_model,
             "dictionary": self.dictionary,
             "g2p_model": self.g2p_model or "",
+            "source_files": self._model_inventory(Path(resolved_source)),
         }
 
     def _cache_digest(self) -> str:
@@ -710,7 +752,11 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
         """
         marker = self._read_cache_marker(cache_dir)
         return (
-            marker is not None and marker.get("complete") is True and marker.get("identity") == self._cache_identity()
+            marker is not None
+            and marker.get("complete") is True
+            and marker.get("identity") == self._cache_identity()
+            and self._required_models_present(cache_dir)
+            and self._copy_matches_source(cache_dir, marker["identity"]["source_files"])
         )
 
     @contextlib.contextmanager
@@ -766,13 +812,16 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
             staging_dir.mkdir(parents=True)
             try:
                 src = Path(self._effective_mfa_root)
+                identity = self._cache_identity()
+                self._validate_models(src)
                 for subdir in ("pretrained_models", "extracted_models"):
                     src_path = src / subdir
                     if src_path.exists():
                         logger.info(f"  Copying {subdir}...")
                         shutil.copytree(src_path, staging_dir / subdir)
 
-                marker = {"identity": self._cache_identity(), "complete": True}
+                self._validate_models(staging_dir, identity)
+                marker = {"identity": identity, "complete": True}
                 marker_tmp = staging_dir / f"{_MFA_CACHE_MARKER_NAME}.tmp"
                 marker_tmp.write_text(json.dumps(marker), encoding="utf-8")
                 marker_tmp.replace(staging_dir / _MFA_CACHE_MARKER_NAME)

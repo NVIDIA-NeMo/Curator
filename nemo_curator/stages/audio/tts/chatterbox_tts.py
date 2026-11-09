@@ -25,15 +25,16 @@ import os
 import shutil
 import tempfile
 import uuid
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import numpy as np
 import soundfile as sf
 import torch
 import torchaudio as ta
+from filelock import FileLock
 from huggingface_hub import snapshot_download
 from loguru import logger
+from omegaconf import ListConfig
 
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
@@ -103,7 +104,7 @@ _CHATTERBOX_REPO_ID = "ResembleAI/chatterbox"
 # Pin the model repository independently of the Python package.  Loading a
 # moving ``main`` revision would make cache entries irreproducible even with an
 # exact chatterbox-tts version.
-_CHATTERBOX_MODEL_REVISION = "5bb1f6ee58e50c3b8d408bc82a6d3740c2db6e18"
+_CHATTERBOX_MODEL_REVISION = "5bb1f6ee58e50c3b8d408bc82a6d3740c2db6e18"  # pragma: allowlist secret
 _ENGLISH_MODEL_FILES = (
     "ve.safetensors",
     "t3_cfg.safetensors",
@@ -139,8 +140,8 @@ _CHATTERBOX_NATIVE_SR = 24000
 # generation-algorithm change). This invalidates every existing cache entry
 # by changing the filename hash, forcing regeneration instead of silently
 # reusing stale audio.
-_CACHE_SCHEMA_VERSION = 1
-_REFERENCE_PREPROCESSING_SCHEMA_VERSION = 1
+_CACHE_SCHEMA_VERSION = 2
+_REFERENCE_PREPROCESSING_SCHEMA_VERSION = 2
 
 
 class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
@@ -216,7 +217,7 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
         max_reference_duration: float = 60.0,
         sample_rate: int = 24000,
         cfg_weight: float = 0.5,
-        exaggeration: float | list[float] = 0.5,
+        exaggeration: float | list[float] | tuple[float, float] | ListConfig = 0.5,
         temperature: float = 0.8,
         repetition_penalty: float | None = None,
         min_p: float = 0.05,
@@ -253,9 +254,9 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
             self.repetition_penalty = _multilingual_default_penalty if language else 1.2
 
         _exag_range_len = 2
-        if isinstance(exaggeration, (list, tuple)) and len(exaggeration) == _exag_range_len:
-            self.exaggeration_range: tuple[float, float] | None = tuple(exaggeration)
-            self.exaggeration: float = float(exaggeration[0])
+        if isinstance(exaggeration, (list, tuple, ListConfig)) and len(exaggeration) == _exag_range_len:
+            self.exaggeration_range: tuple[float, float] | None = (float(exaggeration[0]), float(exaggeration[1]))
+            self.exaggeration: float = self.exaggeration_range[0]
         else:
             self.exaggeration_range = None
             self.exaggeration = float(exaggeration)
@@ -435,41 +436,43 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
 
     def _process_audio_with_rttm(self, audio_filepath: str, rttm_filepath: str) -> str:  # noqa: C901, PLR0912
         """Strip silences using RTTM speech segments, up to max_reference_duration."""
-        if not os.path.exists(rttm_filepath):
-            return audio_filepath
-
         try:
             audio, sr = ta.load(audio_filepath)
 
             speech_segments: list[tuple[float, float]] = []
             audio_duration = audio.shape[1] / sr
-            with open(rttm_filepath, encoding="utf-8") as f:
-                for line_number, line in enumerate(f, start=1):
-                    parts = line.strip().split()
-                    _min_rttm_fields = 5
-                    if len(parts) >= _min_rttm_fields and parts[0] == "SPEAKER":
-                        try:
-                            start = float(parts[3])
-                            dur = float(parts[4])
-                        except ValueError:
-                            logger.warning(
-                                f"Skipping malformed RTTM record {rttm_filepath}:{line_number}: invalid start/duration"
-                            )
-                            continue
-                        if not (math.isfinite(start) and math.isfinite(dur)) or start < 0 or dur <= 0:
-                            logger.warning(
-                                f"Skipping malformed RTTM record {rttm_filepath}:{line_number}: start and duration must be finite, start >= 0, duration > 0"
-                            )
-                            continue
-                        if start >= audio_duration:
-                            logger.warning(
-                                f"Skipping out-of-bounds RTTM record {rttm_filepath}:{line_number}: start {start} is beyond {audio_duration:.3f}s audio"
-                            )
-                            continue
-                        speech_segments.append((start, min(start + dur, audio_duration)))
+            rttm_lines = []
+            if os.path.exists(rttm_filepath):
+                with open(rttm_filepath, encoding="utf-8") as f:
+                    rttm_lines = f.readlines()
+            for line_number, line in enumerate(rttm_lines, start=1):
+                parts = line.strip().split()
+                _min_rttm_fields = 5
+                if len(parts) >= _min_rttm_fields and parts[0] == "SPEAKER":
+                    try:
+                        start = float(parts[3])
+                        dur = float(parts[4])
+                    except ValueError:
+                        logger.warning(
+                            f"Skipping malformed RTTM record {rttm_filepath}:{line_number}: invalid start/duration"
+                        )
+                        continue
+                    if not (math.isfinite(start) and math.isfinite(dur)) or start < 0 or dur <= 0:
+                        logger.warning(
+                            f"Skipping malformed RTTM record {rttm_filepath}:{line_number}: start and duration must be finite, start >= 0, duration > 0"
+                        )
+                        continue
+                    if start >= audio_duration:
+                        logger.warning(
+                            f"Skipping out-of-bounds RTTM record {rttm_filepath}:{line_number}: start {start} is beyond {audio_duration:.3f}s audio"
+                        )
+                        continue
+                    speech_segments.append((start, min(start + dur, audio_duration)))
 
             if not speech_segments:
-                return audio_filepath
+                if audio_duration <= self.max_reference_duration:
+                    return audio_filepath
+                speech_segments = [(0.0, audio_duration)]
 
             speech_segments.sort()
             chunks: list[torch.Tensor] = []
@@ -560,7 +563,7 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
         # identically for the same speaker.
         files = sorted(
             self._speaker_audio_map[chosen],
-            key=lambda f: self._stable_index(f"{chosen}::{f}", 2**32),
+            key=lambda f: self._stable_index(f"{chosen}::{os.path.relpath(f, self.reference_voices_dataset)}", 2**32),
         )
 
         chunks: list[torch.Tensor] = []
@@ -712,7 +715,7 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
             self.conversation_exaggeration[conversation_id] = lo + frac * (hi - lo)
         return self.conversation_exaggeration[conversation_id]
 
-    def _generate_turn_audio(self, text: str, reference_wav: str, conversation_id: str) -> np.ndarray:
+    def _generate_turn_audio(self, text: str, reference_wav: str, conversation_id: str) -> np.ndarray | None:
         """Run ChatterboxTTS inference for a single turn.
 
         The model always synthesises at its own native rate (``self.model.sr``,
@@ -747,9 +750,9 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
                 wav = self._normalize_audio(wav)
 
             return wav.squeeze(0).cpu().numpy()
-        except Exception as e:  # noqa: BLE001 -- graceful fallback: any failure yields silence
+        except Exception as e:  # noqa: BLE001 -- caller emits an uncached silence placeholder
             logger.error(f"TTS generation failed: {e}")
-            return np.zeros(self.sample_rate * 2)
+            return None
 
     def _normalize_audio(self, wav: torch.Tensor) -> torch.Tensor:
         """RMS-based normalisation with clipping protection."""
@@ -825,33 +828,9 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
         instead of colliding with a previous, differently-configured run.
         """
         conv_hash = hashlib.md5(manifest["conversation_id"].encode("utf-8"), usedforsecurity=False).hexdigest()[:12]
-        speaker_hash = hashlib.sha256(manifest["speaker"].encode("utf-8")).hexdigest()[:12]
         text_hash = hashlib.md5(manifest["text"].encode("utf-8"), usedforsecurity=False).hexdigest()[:10]
         config_hash = cls._hash_manifest(manifest)[:16]
-        return f"{conv_hash}_speaker_{speaker_hash}_{text_hash}_{config_hash}.wav"
-
-    @staticmethod
-    def _validate_label(label_type: str, value: object) -> str:
-        """Reject manifest labels that could be interpreted as path components."""
-        if not isinstance(value, str) or not value.strip() or value in {".", ".."} or "/" in value or "\\" in value:
-            msg = (
-                f"Invalid {label_type}: {value!r}. Labels must be non-empty strings "
-                "without path separators or traversal components."
-            )
-            raise ValueError(msg)
-        return value
-
-    def _output_path(self, filename: str) -> str:
-        """Return a cache path proven to be directly below the configured root."""
-        if Path(filename).name != filename:
-            msg = f"Unsafe generated filename: {filename!r}"
-            raise ValueError(msg)
-        root = Path(self.output_audio_dir).resolve()
-        path = (root / filename).resolve()
-        if path.parent != root:
-            msg = f"Refusing to write outside output_audio_dir: {path}"
-            raise ValueError(msg)
-        return str(path)
+        return f"{conv_hash}_{manifest['speaker']}_{text_hash}_{config_hash}.wav"
 
     @staticmethod
     def _sidecar_path(audio_path: str) -> str:
@@ -897,6 +876,8 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
     def _publish_cache_entry(self, audio_path: str, audio_data: np.ndarray, manifest: dict[str, Any]) -> None:
         """Write the WAV and its sidecar atomically (temp file + rename).
 
+        The caller holds the per-key file lock through cache validation and
+        publication so another actor cannot overwrite a valid entry.
         Ensures no process ever observes a partially written cache entry
         (e.g. a truncated WAV from a crash mid-write) as a valid cache hit.
         The sidecar is published before the WAV, so by the time
@@ -951,8 +932,6 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
             conversation_id = data.get("conversation_id", "unknown")
 
             try:
-                self._validate_label("speaker", speaker)
-                self._validate_label("conversation_id", conversation_id)
                 # Reference selection includes file I/O and RTTM preprocessing,
                 # so it belongs inside the per-task boundary as much as cache I/O.
                 reference_wav, ref_id = self._assign_reference(speaker, conversation_id)
@@ -968,14 +947,24 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
                     exaggeration=exaggeration,
                 )
                 filename = self._output_filename(manifest)
-                audio_path = self._output_path(filename)
-                cached = self._read_cached_audio_if_valid(audio_path, manifest)
-                if cached is not None:
-                    audio_data, audio_sr = cached
-                else:
-                    audio_data = self._generate_turn_audio(text, reference_wav, conversation_id)
-                    audio_sr = self.sample_rate
-                    self._publish_cache_entry(audio_path, audio_data, manifest)
+                audio_path = os.path.join(self.output_audio_dir, filename)
+                # Keep the lock file: unlinking it could let concurrent actors
+                # lock different inodes for the same cache key.
+                with FileLock(f"{audio_path}.lock"):
+                    cached = self._read_cached_audio_if_valid(audio_path, manifest)
+                    if cached is not None:
+                        audio_data, audio_sr = cached
+                    else:
+                        audio_data = self._generate_turn_audio(text, reference_wav, conversation_id)
+                        if audio_data is None:
+                            # Keep failed outputs immutable without caching a transient failure.
+                            stem = os.path.splitext(audio_path)[0]
+                            audio_path = f"{stem}.failed-{uuid.uuid4().hex}.wav"
+                            sf.write(audio_path, np.zeros(self.sample_rate * 2), self.sample_rate)
+                        else:
+                            self._publish_cache_entry(audio_path, audio_data, manifest)
+                        # Report metadata from the published artifact, just as cache hits do.
+                        audio_data, audio_sr = sf.read(audio_path)
             except Exception as e:  # noqa: BLE001 -- isolate a bad reference/record to one task
                 logger.error(f"TTS processing failed for task {task.task_id}: {e}")
                 output_tasks.append(task)
@@ -986,6 +975,8 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
             task.data["audio_filepath"] = audio_path
             task.data["duration"] = duration
             task.data["reference_voice"] = ref_id
+            task.data.pop("waveform", None)
+            task.data.pop("sample_rate", None)
             output_tasks.append(task)
 
             logger.info(f"[TTS] {conversation_id[:8]}/{speaker}: {duration:.2f}s -> {filename}")

@@ -1,244 +1,79 @@
-# Multi-Speaker Conversation Data Generation
+# Multi-speaker Conversation Generation
 
-End-to-end pipeline for generating synthetic multi-speaker conversation audio
-using NeMo Curator. Chains LLM conversation generation, TTS synthesis, forced
-alignment, and SDP-style conversation merging.
+Generate conversation audio from topics with the shared YAML runner:
 
-Generation and merge are separate executor-backed phases. After the first phase
-finishes, its turn tasks are deterministically grouped by `conversation_id` into
-framework `TaskGroup` objects; the non-resumable merge stage consumes one group
-at a time. It never assumes that an executor batch contains one conversation.
+1. `ManifestReader` loads topic rows.
+2. `vLLMInference` generates and validates structured conversation turns.
+3. `ChatterboxTTSStage` synthesizes the turns with consistent speaker voices.
+4. `MFAAlignmentStage` aligns their transcripts.
+5. A `group_by: conversation_id` boundary gathers each complete conversation.
+6. `MergeConversationSDPStage` mixes audio and annotations; `ManifestWriterStage` writes the final JSONL.
 
-## Pipeline Overview
+The generation and merge phases both use the standard executor interfaces. Scheduler batch sizes never define conversation boundaries. No tutorial-specific runner is needed.
 
-```
-Topics JSONL
-    │
-    ▼
-┌──────────────────────┐
-│  vLLMInference       │  GPU — generates multi-turn conversations
-│  (Qwen 2.5 7B)      │       from topic prompts
-└──────────────────────┘
-    │  AudioTask per turn
-    ▼
-┌──────────────────────┐
-│  ChatterboxTTSStage  │  GPU — synthesizes per-turn WAV files
-│  (voice cloning)     │       with reference speaker voices
-└──────────────────────┘
-    │  AudioTask with audio_filepath
-    ▼
-┌──────────────────────┐
-│  MFAAlignmentStage   │  CPU — Montreal Forced Aligner produces
-│  (batch alignment)   │       TextGrid → RTTM + CTM per turn
-└──────────────────────┘
-    │  AudioTask with RTTM/CTM
-    ▼
-┌──────────────────────┐
-│  MergeConversation   │  CPU — merges turns into full conversations
-│  SDPStage            │       with multi-channel audio + combined
-│                      │       RTTM/CTM/seglst
-└──────────────────────┘
-    │
-    ▼
-Merged Manifest JSONL
-```
-
-## Prerequisites
-
-### Software
-
-- Python 3.10+
-- NeMo Curator with audio stages installed
-- Chatterbox TTS is provisioned into the stage's isolated Ray runtime
-  environment; do not install its conflicting dependency set into Curator's
-  main environment
-- Montreal Forced Aligner (`conda install -c conda-forge montreal-forced-aligner`)
-- vLLM (`pip install vllm`)
-
-### MFA Models
-
-Download MFA models before running:
+## Requirements
 
 ```bash
-mfa model download acoustic english_us_arpa
-mfa model download dictionary english_us_arpa
-mfa model download g2p english_us_arpa
+uv sync --extra audio_cuda12 --extra vllm
+source .venv/bin/activate
 ```
 
-### Reference Voices
+Chatterbox uses its separate Ray runtime environment so its Torch/Transformers requirements do not conflict with Curator's vLLM environment. Reference voices and output paths must be accessible to every worker.
 
-Prepare a directory of reference voice WAV files. The stage supports two layouts:
-
-1. **Dialog layout**: `wavs/<dialog>/<speaker>.wav` with optional `rttms/` siblings
-2. **MLS layout**: `<speaker_id>/<book_id>/<segment>.flac`
-
-## Quick Start
-
-From the Curator repo root:
+Install MFA separately with conda or micromamba, then download models to the same root used for alignment:
 
 ```bash
-# 2-speaker dialogs
-python tutorials/audio/data-generation/main.py \
-    --config-path tutorials/audio/data-generation \
-    --config-name pipeline \
-    input_manifest=tutorials/audio/data-generation/topics/topics_dialog.jsonl \
-    output_dir=/data/conversations_2spk \
-    reference_voices_dataset=/data/reference_voices \
-    prompt_file=tutorials/audio/data-generation/prompts/dialog_prompt.yaml
-
-# 3-speaker conversations
-python tutorials/audio/data-generation/main.py \
-    --config-path tutorials/audio/data-generation \
-    --config-name pipeline \
-    input_manifest=tutorials/audio/data-generation/topics/topics_group.jsonl \
-    output_dir=/data/conversations_3spk \
-    reference_voices_dataset=/data/reference_voices \
-    prompt_file=tutorials/audio/data-generation/prompts/triperson_prompt.yaml
-
-# 4-speaker conversations
-python tutorials/audio/data-generation/main.py \
-    --config-path tutorials/audio/data-generation \
-    --config-name pipeline \
-    input_manifest=tutorials/audio/data-generation/topics/topics_group.jsonl \
-    output_dir=/data/conversations_4spk \
-    reference_voices_dataset=/data/reference_voices \
-    prompt_file=tutorials/audio/data-generation/prompts/fourperson_prompt.yaml
+export MFA_ROOT_DIR=/data/mfa
+/path/to/mfa/env/bin/mfa model download acoustic english_us_arpa
+/path/to/mfa/env/bin/mfa model download dictionary english_us_arpa
+# Optional, for out-of-vocabulary words:
+/path/to/mfa/env/bin/mfa model download g2p english_us_arpa
 ```
 
-## Configuration
+Use a CUDA GPU configuration that fits the selected models. The default generation backend, `ray_actor_pool`, releases each stage's actors before starting the next stage, allowing LLM and TTS to use the same GPU in sequence. Set `llm_tensor_parallel_size` to reserve multiple GPUs for the LLM. Ray Data and Xenna are also supported; simultaneous GPU stages require enough devices for all resident models.
 
-All parameters are set in `pipeline.yaml` and can be overridden from the CLI
-using Hydra syntax.
+## Run
 
-### Required Parameters
+From the repository root:
 
-| Parameter | Description |
+```bash
+python nemo_curator/config/run.py \
+    --config-path ../../tutorials/audio/data-generation \
+    --config-name pipeline \
+    input_manifest="$PWD/tutorials/audio/data-generation/topics/topics_dialog.jsonl" \
+    output_dir=/data/conversations/run1 \
+    reference_voices_dataset=/data/reference_voices \
+    prompt_file="$PWD/tutorials/audio/data-generation/prompts/dialog_prompt.yaml" \
+    mfa_command=/path/to/mfa/env/bin/mfa \
+    mfa_root_dir=/data/mfa
+```
+
+Choose a fresh output directory for each run: existing conversation destinations are refused rather than reused.
+
+| Prompt | Speakers |
 |---|---|
-| `input_manifest` | Path to JSONL file with `{"topic": "..."}` entries |
-| `output_dir` | Root directory for all generated outputs |
-| `reference_voices_dataset` | Path to reference voice audio files |
-| `prompt_file` | Path to conversation prompt YAML |
+| `prompts/dialog_prompt.yaml` | `speaker_0`, `speaker_1` |
+| `prompts/triperson_prompt.yaml` | `speaker_0` through `speaker_2` |
+| `prompts/fourperson_prompt.yaml` | `speaker_0` through `speaker_3` |
 
-### LLM Settings
+Each prompt receives the JSON Schema used for constrained generation and validation. Extra fields, wrong types, unknown speakers, non-finite or out-of-range overlaps, and conversations that omit a configured speaker are rejected and retried. Default overlap bounds are -2.0 to 2.5 seconds. Positive overlap requests an interruption; negative overlap inserts a pause.
 
-| Parameter | Default | Description |
-|---|---|---|
-| `llm_model` | `Qwen/Qwen2.5-7B-Instruct` | HuggingFace model ID |
-| `llm_max_model_len` | `4096` | Maximum context length |
-| `llm_max_tokens` | `4096` | Maximum generation tokens |
-| `llm_temperature` | `0.7` | Sampling temperature |
+Input rows contain a topic:
 
-### TTS Settings
-
-| Parameter | Default | Description |
-|---|---|---|
-| `language` | `null` | `null` for English, ISO 639-1 code for multilingual |
-| `tts_sample_rate` | `24000` | Output sample rate (Hz) |
-| `tts_cfg_weight` | `0.5` | Classifier-free guidance weight |
-| `tts_exaggeration` | `0.5` | Emotion exaggeration (float or `[min, max]`) |
-| `tts_temperature` | `0.8` | Sampling temperature |
-
-### MFA Settings
-
-| Parameter | Default | Description |
-|---|---|---|
-| `mfa_acoustic_model` | `english_us_arpa` | MFA acoustic model |
-| `mfa_dictionary` | `english_us_arpa` | MFA pronunciation dictionary |
-| `mfa_g2p_model` | `english_us_arpa` | MFA grapheme-to-phoneme model |
-
-### Merge Settings
-
-| Parameter | Default | Description |
-|---|---|---|
-| `max_pause_duration` | `2.0` | Maximum silence between speakers (seconds) |
-| `max_intra_turn_pause` | `1.0` | Maximum silence within a turn (seconds) |
-
-## Hydra Override Examples
-
-```bash
-# Use a larger LLM
-python tutorials/audio/data-generation/main.py \
-    --config-path tutorials/audio/data-generation --config-name pipeline \
-    input_manifest=topics/topics_dialog.jsonl \
-    output_dir=/data/output \
-    reference_voices_dataset=/data/voices \
-    prompt_file=prompts/dialog_prompt.yaml \
-    llm_model=Qwen/Qwen2.5-7B-Instruct-1M
-
-# Vary TTS expressiveness per conversation
-python tutorials/audio/data-generation/main.py \
-    --config-path tutorials/audio/data-generation --config-name pipeline \
-    input_manifest=topics/topics_dialog.jsonl \
-    output_dir=/data/output \
-    reference_voices_dataset=/data/voices \
-    prompt_file=prompts/dialog_prompt.yaml \
-    "tts_exaggeration=[0.25, 0.85]"
-
-# Use Ray Data backend
-python tutorials/audio/data-generation/main.py \
-    --config-path tutorials/audio/data-generation --config-name pipeline \
-    input_manifest=topics/topics_dialog.jsonl \
-    output_dir=/data/output \
-    reference_voices_dataset=/data/voices \
-    prompt_file=prompts/dialog_prompt.yaml \
-    phase1.backend=ray_data phase2.backend=ray_data
-
-# Multilingual (French)
-python tutorials/audio/data-generation/main.py \
-    --config-path tutorials/audio/data-generation --config-name pipeline \
-    input_manifest=topics/topics_dialog.jsonl \
-    output_dir=/data/output_fr \
-    reference_voices_dataset=/data/voices \
-    prompt_file=prompts/dialog_prompt_french.yaml \
-    language=fr \
-    mfa_acoustic_model=french_mfa \
-    mfa_dictionary=french_mfa \
-    mfa_g2p_model=french_mfa
+```json
+{"topic": "Planning a weekend trip"}
 ```
 
-## Output Structure
+Conversation identity includes canonical turn content and timing plus input row identity and data. Duplicate topic rows remain separate conversations. Each generated turn carries the expected conversation length so incomplete groups cannot be published.
 
-```
-output_dir/
-├── audio/                          # Per-turn WAV files (from TTS)
-│   └── <deterministic-turn-hash>.wav
-├── alignment/                      # Per-turn alignment (from MFA)
-│   ├── textgrids/
-│   ├── rttms/
-│   └── ctms/
-├── conversations/                  # Merged conversations
-│   └── conversation_<hash>/         # Original ID is retained in the manifest
-│       ├── speaker_<hash>.wav       # Per-speaker audio; label-safe filename
-│       ├── multichannel.wav        # Multi-channel (one channel per speaker)
-│       ├── mixed.wav               # Mixed mono
-│       ├── speaker_<hash>.rttm      # Per-speaker RTTM
-│       ├── all.rttm                 # Combined RTTM
-│       ├── all.ctm                  # Combined CTM
-│       └── segments.seglst.json    # Segment list
-└── merged_manifest.jsonl           # Final output manifest
-```
+## Outputs
 
-## Pipeline Stages (Source PRs)
+The final manifest is `merged_manifest.jsonl`. Each conversation has `mixed.wav`, `multichannel.wav`, `all.rttm`, optional `all.ctm`, and `segments.seglst.json`. Per-speaker files use generated names under `speakers/`. The result's `speaker_artifacts` mapping preserves original labels and provides file paths and zero-based channel indices. Missing CTM outputs have empty paths.
 
-| Stage | Source |
-|---|---|
-| `vLLMInference` | Curator main branch (`nemo_curator.models.VLLMModel`) |
-| `ChatterboxTTSStage` | [PR #1976](https://github.com/NVIDIA-NeMo/Curator/pull/1976) |
-| `MFAAlignmentStage` | [PR #1977](https://github.com/NVIDIA-NeMo/Curator/pull/1977) |
-| `MergeConversationSDPStage` | [PR #2031](https://github.com/NVIDIA-NeMo/Curator/pull/2031) |
+Task metadata retains member metadata, task IDs, and available source IDs across grouping. Grouped merging is non-resumable because it combines source lineages. Unreadable audio, inconsistent sample rates, incomplete generated groups, or failed writes reject the affected conversation. Complete artifact directories are published together; other valid groups can continue.
 
-## File Structure
+## Configuration and validation
 
-```
-tutorials/audio/data-generation/
-├── pipeline.yaml                   # Hydra pipeline configuration
-├── main.py                         # Two executor-backed phases + keyed grouping
-├── README.md                       # This file
-├── prompts/
-│   ├── dialog_prompt.yaml          # 2-speaker conversation prompt
-│   ├── triperson_prompt.yaml       # 3-speaker conversation prompt
-│   └── fourperson_prompt.yaml      # 4-speaker conversation prompt
-└── topics/
-    ├── topics_dialog.jsonl         # 25 topics for 2-speaker dialogs
-    └── topics_group.jsonl          # 25 topics for 3-4 speaker discussions
-```
+`pipeline.yaml` exposes LLM sampling and tensor parallelism, TTS sample rate and synthesis settings, MFA command/root/job count/timeout, and merge pause limits. Select executors with `phases.0.backend` and `phases.1.backend`; configure Xenna execution mode within its phase.
+
+Tests cover runner lifecycle and failure propagation, prompt variants, validation/retry, conversation identity, provenance, and the full flow through each executor with lightweight model/synthesis substitutes, real WAVs, TextGrid conversion, merging, and manifest writing. Running the neural models themselves requires compatible CUDA hardware and downloaded weights.

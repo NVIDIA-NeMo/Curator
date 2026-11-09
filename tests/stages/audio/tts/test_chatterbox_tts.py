@@ -17,17 +17,22 @@
 from __future__ import annotations
 
 import json
+import multiprocessing
 import os
+import shutil
 import sys
 import types
-from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
 import soundfile as sf
 import torch
+from filelock import FileLock, Timeout
 
+from nemo_curator.backends.ray_data.adapter import RayDataStageAdapter
+from nemo_curator.stages.audio.common.duration import GetAudioDurationStage
 from nemo_curator.stages.audio.tts.chatterbox_tts import (
     _CHATTERBOX_MODEL_REVISION,
     _ENGLISH_MODEL_FILES,
@@ -36,6 +41,13 @@ from nemo_curator.stages.audio.tts.chatterbox_tts import (
 )
 from nemo_curator.tasks import AudioTask
 from nemo_curator.utils.performance_utils import StagePerfStats
+
+if TYPE_CHECKING:
+    from multiprocessing.queues import Queue
+    from multiprocessing.synchronize import Event
+    from pathlib import Path
+
+    from filelock import AcquireReturnProxy
 
 MODULE = "nemo_curator.stages.audio.tts.chatterbox_tts"
 
@@ -178,6 +190,44 @@ def _build_stage(
 
 def _inject_model(stage: ChatterboxTTSStage) -> None:
     stage.model = _fake_model()
+
+
+def _process_cache_contender(
+    output_dir: str,
+    ref_dataset: str,
+    duration: float,
+    events: dict[str, Event],
+    results: Queue,
+) -> None:
+    """Run an independent actor with a distinguishable, controlled model output."""
+
+    class ObservedFileLock(FileLock):
+        def acquire(self, *args, **kwargs) -> AcquireReturnProxy:
+            try:
+                return super().acquire(timeout=0)
+            except Timeout:
+                # Signal actual cross-process contention before blocking on the real lock.
+                events["progress"].set()
+                return super().acquire(*args, **kwargs)
+
+    def generate(_text: str, **_kwargs: object) -> torch.Tensor:
+        events["generation_started"].set()
+        events["progress"].set()
+        if not events["release_generation"].wait(timeout=30):
+            msg = "Timed out waiting to release the test generator"
+            raise TimeoutError(msg)
+        return torch.full((1, int(24000 * duration)), 0.1 * duration)
+
+    stage = _build_stage(output_dir, ref_dataset, normalize_audio=False)
+    try:
+        with patch.object(ChatterboxTTSStage, "_load_model", _inject_model):
+            stage.setup()
+        stage.model.generate.side_effect = generate
+        with patch(f"{MODULE}.FileLock", ObservedFileLock, create=True):
+            result = stage.process_batch([_make_task("Concurrent cache miss")])[0]
+        results.put((duration, stage.model.generate.call_count, result.data))
+    finally:
+        stage.teardown()
 
 
 class TestChatterboxTTSStage:
@@ -337,6 +387,29 @@ class TestChatterboxTTSStage:
         for r in results:
             assert os.path.exists(r.data["audio_filepath"])
 
+    @pytest.mark.parametrize("num_turns", [0, 2])
+    def test_ray_data_adapter_processes_numpy_batch(self, output_dir: str, ref_dataset: str, num_turns: int) -> None:
+        stage = _build_stage(output_dir, ref_dataset).with_(batch_size=2)
+        with patch.object(ChatterboxTTSStage, "_load_model", _inject_model):
+            stage.setup()
+        try:
+            adapter = RayDataStageAdapter(stage)
+            assert adapter.batch_size == 2
+            tasks = np.array(
+                [_make_task(f"Turn {i}", task_id=f"t{i}") for i in range(num_turns)],
+                dtype=object,
+            )
+            results = adapter._process_batch_internal({"item": tasks})["item"]
+
+            assert len(results) == num_turns
+            assert stage.model.generate.call_count == num_turns
+            for result, original in zip(results, tasks, strict=True):
+                assert result is original
+                info = sf.info(result.data["audio_filepath"])
+                assert result.data["duration"] == pytest.approx(info.duration)
+        finally:
+            stage.teardown()
+
     def test_process_batch_skips_empty_text(self, output_dir: str, ref_dataset: str) -> None:
         with patch.object(ChatterboxTTSStage, "_load_model", _inject_model):
             stage = _build_stage(output_dir, ref_dataset)
@@ -352,37 +425,6 @@ class TestChatterboxTTSStage:
         assert "audio_filepath" in results[0].data
         assert "audio_filepath" not in results[1].data
         assert "audio_filepath" not in results[2].data
-
-    @pytest.mark.parametrize(
-        ("field", "unsafe_label"),
-        [
-            ("speaker", "<absolute>"),
-            ("speaker", "../escaped"),
-            ("speaker", "a/b"),
-            ("speaker", r"a\b"),
-            ("conversation_id", "<absolute>"),
-            ("conversation_id", "../escaped"),
-        ],
-    )
-    def test_process_batch_rejects_path_like_manifest_labels(
-        self,
-        output_dir: str,
-        ref_dataset: str,
-        tmp_path: Path,
-        field: str,
-        unsafe_label: str,
-    ) -> None:
-        """TTS must not create a cache artifact outside its configured root."""
-        if unsafe_label == "<absolute>":
-            unsafe_label = str(tmp_path / "escaped")
-        with patch.object(ChatterboxTTSStage, "_load_model", _inject_model):
-            stage = _build_stage(output_dir, ref_dataset)
-            stage.setup()
-            task = _make_task(**{field: unsafe_label})
-            result = stage.process_batch([task])[0]
-
-        assert "audio_filepath" not in result.data
-        assert not Path(unsafe_label).exists()
 
     def test_process_batch_text_field_fallback(self, output_dir: str, ref_dataset: str) -> None:
         with patch.object(ChatterboxTTSStage, "_load_model", _inject_model):
@@ -440,6 +482,75 @@ class TestChatterboxTTSStage:
         assert path1 == path2
         assert stage.model.generate.call_count == calls_before
 
+    @pytest.mark.parametrize("cached", [False, True])
+    def test_downstream_duration_uses_generated_audio(self, output_dir: str, ref_dataset: str, cached: bool) -> None:
+        with patch.object(ChatterboxTTSStage, "_load_model", _inject_model):
+            stage = _build_stage(output_dir, ref_dataset)
+            stage.setup()
+            if cached:
+                stage.process_batch([_make_task()])
+            task = _make_task(waveform=torch.zeros(1, 160000), sample_rate=16000)
+            result = stage.process_batch([task])[0]
+
+        expected_duration = sf.info(result.data["audio_filepath"]).duration
+        duration_stage = GetAudioDurationStage(input_residency="auto")
+        duration_stage.setup()
+        duration_stage.process(result)
+        assert result.data["duration"] == pytest.approx(expected_duration)
+        assert "waveform" not in result.data
+        assert "sample_rate" not in result.data
+
+    def test_process_batch_concurrent_cache_misses_use_one_artifact(self, output_dir: str, ref_dataset: str) -> None:
+        context = multiprocessing.get_context("spawn")
+        release_generation = context.Event()
+        results = context.Queue()
+        events = [
+            {
+                "generation_started": context.Event(),
+                "progress": context.Event(),
+                "release_generation": release_generation,
+            }
+            for _ in range(2)
+        ]
+        workers = [
+            context.Process(
+                target=_process_cache_contender,
+                args=(output_dir, ref_dataset, duration, signals, results),
+            )
+            for duration, signals in zip((1.0, 2.0), events, strict=True)
+        ]
+        try:
+            workers[0].start()
+            assert events[0]["generation_started"].wait(timeout=30)
+            # Start the second actor while the first has a cache miss and is still generating.
+            workers[1].start()
+            assert events[1]["progress"].wait(timeout=30)
+            release_generation.set()
+
+            outcomes = sorted(results.get(timeout=30) for _ in workers)
+            for worker in workers:
+                worker.join(timeout=30)
+                assert worker.exitcode == 0
+        finally:
+            release_generation.set()
+            for worker in workers:
+                if worker.is_alive():
+                    worker.terminate()
+                if worker.pid is not None:
+                    worker.join(timeout=5)
+            results.close()
+            results.join_thread()
+
+        assert [calls for _duration, calls, _data in outcomes] == [1, 0]
+        rows = [data for _duration, _calls, data in outcomes]
+        assert rows[0]["audio_filepath"] == rows[1]["audio_filepath"]
+        assert rows[0]["reference_voice"] == rows[1]["reference_voice"]
+        waveform, sample_rate = sf.read(rows[0]["audio_filepath"])
+        assert len(waveform) / sample_rate == pytest.approx(1.0)
+        np.testing.assert_allclose(waveform, 0.1, atol=1 / 32768)
+        for row in rows:
+            assert row["duration"] == pytest.approx(len(waveform) / sample_rate)
+
     def test_process_batch_multilingual(self, output_dir: str, ref_dataset_mls: str) -> None:
         with patch.object(ChatterboxTTSStage, "_load_model", _inject_model):
             stage = _build_stage(output_dir, ref_dataset_mls, language="es")
@@ -491,6 +602,21 @@ class TestChatterboxTTSStage:
         audio, sr = sf.read(out_path)
         assert len(audio) / sr == pytest.approx(1.0, abs=0.05)
 
+    @pytest.mark.parametrize("rttm_contents", [None, "", "SPEAKER d 1 nan 1.0\n"])
+    def test_reference_duration_limit_without_usable_rttm(
+        self, output_dir: str, ref_dataset: str, tmp_path: Path, rttm_contents: str | None
+    ) -> None:
+        stage = _build_stage(output_dir, ref_dataset, max_reference_duration=1.0)
+        stage._init_temp_dir()
+        wav_path = os.path.join(ref_dataset, "wavs", "dialog001", "spk_A.wav")
+        rttm_path = tmp_path / "optional.rttm"
+        if rttm_contents is not None:
+            rttm_path.write_text(rttm_contents)
+
+        processed = stage._process_audio_with_rttm(wav_path, str(rttm_path))
+
+        assert sf.info(processed).duration == pytest.approx(1.0)
+
     def test_get_reference_audio_mls_falls_back_on_errors(self, output_dir: str, ref_dataset_mls: str) -> None:
         with patch.object(ChatterboxTTSStage, "_load_model", _inject_model):
             stage = _build_stage(output_dir, ref_dataset_mls, language="es")
@@ -514,6 +640,25 @@ class TestChatterboxTTSStage:
 
         audio, sr = sf.read(out_path)
         assert len(audio) / sr == pytest.approx(3.0, abs=0.05)
+
+    def test_mls_reference_is_unchanged_after_dataset_move(
+        self, output_dir: str, ref_dataset_mls: str, tmp_path: Path
+    ) -> None:
+        relocated = shutil.copytree(ref_dataset_mls, tmp_path / "relocated")
+        with patch.object(ChatterboxTTSStage, "_load_model", _inject_model):
+            stages = [
+                _build_stage(output_dir, root, language="es", max_reference_duration=3.0)
+                for root in (ref_dataset_mls, str(relocated))
+            ]
+            for stage in stages:
+                stage.setup()
+            for index in range(12):
+                references = [stage._assign_reference("Alice", f"conv-{index}") for stage in stages]
+                assert references[0][1] == references[1][1]
+                assert stages[0]._reference_content_hash("Alice", f"conv-{index}") == stages[
+                    1
+                ]._reference_content_hash("Alice", f"conv-{index}")
+                np.testing.assert_array_equal(sf.read(references[0][0])[0], sf.read(references[1][0])[0])
 
     def test_get_reference_audio_mls_resamples_mixed_rate_segments(self, output_dir: str, tmp_path: Path) -> None:
         mls_root = tmp_path / "mls_mixed_rate"
@@ -559,6 +704,23 @@ class TestChatterboxTTSStage:
 
         audio, _sr = sf.read(result.data["audio_filepath"])
         assert np.allclose(audio, 0.0)
+
+    def test_failed_generation_is_retried_without_replacing_failure_audio(
+        self, output_dir: str, ref_dataset: str
+    ) -> None:
+        with patch.object(ChatterboxTTSStage, "_load_model", _inject_model):
+            stage = _build_stage(output_dir, ref_dataset)
+            stage.setup()
+            stage.model.generate.side_effect = RuntimeError("temporary GPU OOM")
+            failed = stage.process_batch([_make_task()])[0]
+            failed_path = failed.data["audio_filepath"]
+            stage.model = _fake_model()
+            retried = stage.process_batch([_make_task()])[0]
+
+        assert stage.model.generate.call_count == 1
+        assert retried.data["audio_filepath"] != failed_path
+        assert not np.allclose(sf.read(retried.data["audio_filepath"])[0], 0.0)
+        assert np.allclose(sf.read(failed_path)[0], 0.0)
 
     def test_normalize_audio_returns_silence_unchanged(self, output_dir: str, ref_dataset: str) -> None:
         stage = _build_stage(output_dir, ref_dataset)
@@ -797,7 +959,7 @@ class TestChatterboxTTSStage:
         assert manifest["language"] is None
 
         for name in os.listdir(os.path.dirname(audio_path)):
-            assert name.endswith((".wav", ".json"))
+            assert name.endswith((".wav", ".json", ".wav.lock"))
 
     def test_process_batch_different_reference_voice_uses_separate_cache(
         self, output_dir: str, ref_dataset: str

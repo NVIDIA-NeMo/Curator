@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections import defaultdict
+from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -69,7 +70,11 @@ def group_tasks_by_data_key(tasks: list[Task], key: str) -> list[TaskGroup]:
             groups[group_key],
             key=lambda task: (getattr(task, "data", {}).get("turn_index", 0), task.task_id),
         )
-        metadata: dict[str, Any] = {}
+        metadata: dict[str, Any] = {
+            "member_metadata": [deepcopy(task._metadata) for task in members],
+            "member_task_ids": [task.task_id for task in members],
+            "source_ids": list(dict.fromkeys(task._source_id for task in members if task._source_id)),
+        }
         source_files = [source_file for task in members for source_file in task._metadata.get("source_files", [])]
         if source_files:
             metadata["source_files"] = list(dict.fromkeys(source_files))

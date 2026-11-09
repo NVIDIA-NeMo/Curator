@@ -61,7 +61,11 @@ documentation: |
 input_manifest: ???
 output_dir: ???
 backend: ray_data
+execution_mode: streaming
 mfa_command: "mfa"
+mfa_root_dir: null
+local_mfa_base_dir: null
+copy_models_to_local: true
 acoustic_model: "english_us_arpa"
 dictionary: "english_us_arpa"
 g2p_model: "english_us_arpa"
@@ -69,6 +73,16 @@ num_jobs: 1
 beam: 100
 retry_beam: 400
 align_timeout_seconds: 3600.0
+audio_filepath_key: audio_filepath
+text_key: text
+speaker_key: speaker
+duration_key: duration
+max_gap_for_merge: 0.3
+single_speaker: true
+clean: true
+use_mp: true
+output_format: long_textgrid
+silence_markers: ["", "sp", "sil", "spn", "<eps>"]
 create_rttm: true
 create_ctm: true
 # Files aligned per `mfa align` invocation (also MFAAlignmentStage.batch_size).
@@ -82,19 +96,32 @@ stages:
   - _target_: nemo_curator.stages.audio.alignment.MFAAlignmentStage
     output_dir: ${output_dir}
     mfa_command: ${mfa_command}
+    mfa_root_dir: ${mfa_root_dir}
+    local_mfa_base_dir: ${local_mfa_base_dir}
+    copy_models_to_local: ${copy_models_to_local}
     acoustic_model: ${acoustic_model}
     dictionary: ${dictionary}
     g2p_model: ${g2p_model}
-    audio_filepath_key: "audio_filepath"
-    text_key: "text"
-    speaker_key: "speaker"
+    audio_filepath_key: ${audio_filepath_key}
+    text_key: ${text_key}
+    speaker_key: ${speaker_key}
+    duration_key: ${duration_key}
+    max_gap_for_merge: ${max_gap_for_merge}
     num_jobs: ${num_jobs}
     beam: ${beam}
     retry_beam: ${retry_beam}
     align_timeout_seconds: ${align_timeout_seconds}
+    single_speaker: ${single_speaker}
+    clean: ${clean}
+    use_mp: ${use_mp}
+    output_format: ${output_format}
+    silence_markers: ${silence_markers}
     create_rttm: ${create_rttm}
     create_ctm: ${create_ctm}
     batch_size: ${batch_size}
+    resources:
+      _target_: nemo_curator.stages.resources.Resources
+      cpus: ${num_jobs}
 
   - _target_: nemo_curator.stages.audio.common.ManifestWriterStage
     output_path: ${output_dir}/result.jsonl

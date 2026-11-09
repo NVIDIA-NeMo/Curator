@@ -22,10 +22,12 @@ from nemo_curator.backends.base import BaseExecutor
 from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.resources import Resources
+from nemo_curator.tasks import Task, group_tasks_by_data_key
 
 _EXECUTOR_TARGETS = {
     "xenna": "nemo_curator.backends.xenna.XennaExecutor",
     "ray_data": "nemo_curator.backends.ray_data.RayDataExecutor",
+    "ray_actor_pool": "nemo_curator.backends.ray_actor_pool.RayActorPoolExecutor",
 }
 _XENNA_EXECUTION_MODES = {"batch", "streaming"}
 
@@ -121,21 +123,45 @@ def create_pipeline_from_yaml(cfg: DictConfig, *, log_config: bool = True) -> Pi
         raise RuntimeError(msg)
 
 
+def run_pipeline_from_yaml(cfg: DictConfig, *, initial_tasks: list[Task] | None = None) -> list[Task]:
+    """Run one pipeline or ordered phases with explicit keyed grouping boundaries."""
+    if "phases" in cfg:
+        if "stages" in cfg or "workflow" in cfg or not cfg.phases:
+            msg = "phases must be nonempty and cannot be combined with stages or workflow"
+            raise ValueError(msg)
+        results = initial_tasks
+        for phase in cfg.phases:
+            if results == []:
+                return []
+            if "group_by" in phase:
+                key = phase.group_by
+                if results is None or not isinstance(key, str) or not key:
+                    msg = "group_by requires prior task output and a nonempty string key"
+                    raise ValueError(msg)
+                results = group_tasks_by_data_key(results, key)
+            results = run_pipeline_from_yaml(phase, initial_tasks=results)
+        return results or []
+    pipeline = create_pipeline_from_yaml(cfg)
+    executor = create_executor_from_yaml(cfg)
+    kwargs = {}
+    if executor is not None:
+        kwargs["executor"] = executor
+    if initial_tasks is not None:
+        kwargs["initial_tasks"] = initial_tasks
+    result = pipeline.run(**kwargs)
+    return [] if result is None else result
+
+
 @hydra.main(version_base=None, config_name="pipeline")
 def main(cfg: DictConfig) -> None:
     ray_client = create_ray_client_from_yaml(cfg)
-    ray_client.start()
-
-    pipeline = create_pipeline_from_yaml(cfg)
-    executor = create_executor_from_yaml(cfg)
-
-    # Execute pipeline
-    print("Starting pipeline execution...")
-    _results = pipeline.run() if executor is None else pipeline.run(executor=executor)
-
-    print("\nPipeline completed!")
-
-    ray_client.stop()
+    try:
+        ray_client.start()
+        print("Starting pipeline execution...")
+        run_pipeline_from_yaml(cfg)
+        print("\nPipeline completed!")
+    finally:
+        ray_client.stop()
 
 
 if __name__ == "__main__":

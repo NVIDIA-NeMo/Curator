@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from copy import copy
 from typing import Any
 
 from loguru import logger
@@ -159,6 +160,8 @@ class VLLMModel(ModelInterface):
     def generate(
         self,
         prompts: list[str],
+        *,
+        json_schema: dict[str, Any] | None = None,
     ) -> list[str]:
         """
         Generate text from prompts.
@@ -166,6 +169,8 @@ class VLLMModel(ModelInterface):
         Args:
             prompts: List of prompt strings or list of message dicts
                 (for chat template).
+            json_schema: Optional schema for constrained JSON generation. Sampling
+                parameters are copied for this request; later requests retain defaults.
 
         Returns:
             List of generated text strings.
@@ -178,9 +183,15 @@ class VLLMModel(ModelInterface):
             raise RuntimeError(msg)
 
         try:
+            sampling_params = self._sampling_params
+            if json_schema is not None:
+                from vllm.sampling_params import StructuredOutputsParams
+
+                sampling_params = copy(sampling_params)
+                sampling_params.structured_outputs = StructuredOutputsParams(json=json_schema)
             outputs = self._llm.generate(
                 prompts,
-                sampling_params=self._sampling_params,
+                sampling_params=sampling_params,
                 use_tqdm=False,
             )
             return [out.outputs[0].text if out.outputs else "" for out in outputs]

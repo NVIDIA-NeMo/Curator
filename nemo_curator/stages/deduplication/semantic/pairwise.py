@@ -29,7 +29,7 @@ from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.deduplication.io_utils import DeduplicationIO
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import EmptyTask, FileGroupTask
-from nemo_curator.utils.file_utils import check_disallowed_kwargs
+from nemo_curator.utils.file_utils import check_disallowed_kwargs, get_all_file_paths_under
 
 from .pairwise_io import ClusterWiseFilePartitioningStage
 from .ranking import RankingStrategy
@@ -263,12 +263,25 @@ class PairwiseCosineSimilarityStage(ProcessingStage[FileGroupTask, FileGroupTask
 
         process_started = time.perf_counter()
 
+        discovery_start = time.perf_counter()
+        input_files = [
+            file
+            for path in task.data
+            for file in get_all_file_paths_under(
+                path,
+                recurse_subdirectories=True,
+                keep_extensions=[".parquet"],
+                storage_options=self.input_storage_options,
+            )
+        ]
+        discovery_time = time.perf_counter() - discovery_start
+
         footer_start = time.perf_counter()
         additional_cols = self.ranking_strategy.metadata_cols if self.ranking_strategy.strategy == "sort" else []
         metadata_cols = list(dict.fromkeys([self.id_field, *additional_cols]))
         columns = [*metadata_cols, self.embedding_field]
         file_info = read_parquet_file_info(
-            task.data,
+            input_files,
             retained_columns=metadata_cols,
             embedding_column=self.embedding_field,
             storage_options=self.input_storage_options,
@@ -314,6 +327,7 @@ class PairwiseCosineSimilarityStage(ProcessingStage[FileGroupTask, FileGroupTask
             )
             self._log_metrics(
                 {
+                    "pairwise_file_discovery_time": discovery_time,
                     "pairwise_footer_scan_time": footer_time,
                     "pairwise_read_time": read_time,
                     "pairwise_rank_time": 0.0,
@@ -406,6 +420,7 @@ class PairwiseCosineSimilarityStage(ProcessingStage[FileGroupTask, FileGroupTask
         write_time = time.perf_counter() - write_start
         self._log_metrics(
             {
+                "pairwise_file_discovery_time": discovery_time,
                 "pairwise_footer_scan_time": footer_time,
                 "pairwise_read_time": read_time,
                 "pairwise_rank_time": rank_time,

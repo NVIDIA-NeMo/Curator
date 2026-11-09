@@ -256,7 +256,11 @@ def main() -> int:
         help="Input metadata field to preserve in output; may be repeated",
     )
 
+    parser.add_argument(
+        "--save-tasks", action=argparse.BooleanOptionalAction, default=True, help="Save completed tasks in tasks.pkl"
+    )
     args = parser.parse_args()
+    save_tasks = vars(args).pop("save_tasks")
 
     logger.info("=== Embedding Generation Benchmark Starting ===")
     logger.info(f"Arguments: {vars(args)}")
@@ -269,7 +273,7 @@ def main() -> int:
         result_dict.update(run_result)
         success_code = 0 if result_dict["metrics"]["is_success"] else 1
     finally:
-        write_benchmark_results(result_dict, args.benchmark_results_path)
+        write_benchmark_results(result_dict, args.benchmark_results_path, save_tasks=save_tasks)
     return success_code
 
 
