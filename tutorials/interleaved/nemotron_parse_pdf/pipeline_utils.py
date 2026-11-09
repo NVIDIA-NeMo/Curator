@@ -74,6 +74,11 @@ def create_nemotron_parse_pdf_argparser() -> argparse.ArgumentParser:
     parser.add_argument("--inference-server-endpoint", default=None, help="Use an existing OpenAI-compatible endpoint")
     parser.add_argument("--inference-server-model-name", default=None, help="Model name exposed by that endpoint")
     parser.add_argument("--client-num-workers", type=int, default=None, help="Number of HTTP client workers")
+    parser.add_argument(
+        "--reuse-encoded-images",
+        action="store_true",
+        help="Reuse verified producer PNGs in served single mode; otherwise encode normally",
+    )
 
     parser.add_argument("--file-name-field", default="file_name", help="JSONL field for single PDF filename")
     parser.add_argument(
@@ -131,6 +136,7 @@ def create_nemotron_parse_pdf_pipeline(
             inference_server_client_num_workers=inference_server_client_num_workers,
             inference_server_request_timeout_s=getattr(args, "inference_server_request_timeout_s", 300.0),
             inference_server_max_retries=getattr(args, "inference_server_max_retries", 3),
+            inference_server_reuse_encoded_images=getattr(args, "reuse_encoded_images", False),
         )
     )
     pipeline.add_stage(

@@ -20,11 +20,17 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
+import cloudpickle
 import pyarrow as pa
 import pytest
 from PIL import Image
 
 from nemo_curator.stages.interleaved.pdf.nemotron_parse import preprocess, utils
+from nemo_curator.stages.interleaved.pdf.nemotron_parse._image_transport import (
+    PNG_METADATA_KEY,
+    has_png_batch_provenance,
+    png_batch_provenance,
+)
 from nemo_curator.tasks import FileGroupTask
 
 
@@ -265,3 +271,82 @@ def test_render_queues_close_even_when_process_cleanup_fails(monkeypatch: pytest
     assert len(queues) == 2
     for result in queues:
         result.close.assert_called_once()
+
+
+@pytest.mark.parametrize("value", [None, 0, 1, "false", "true"])
+def test_encoded_png_reuse_rejects_nonboolean_options(value: object):
+    with pytest.raises(TypeError, match="reuse_encoded_images must be a boolean"):
+        preprocess.PDFPreprocessStage(reuse_encoded_images=value)
+
+
+def test_encoded_png_provenance_binds_actual_producer_and_survives_serialization(monkeypatch: pytest.MonkeyPatch):
+    stage = preprocess.PDFPreprocessStage(retain_failures=True, reuse_encoded_images=True)
+    images = [Image.new("RGB", (13, 9), "red"), None, Image.new("RGB", (7, 11), "blue")]
+    monkeypatch.setattr(stage, "_get_pdf_bytes", lambda *_args, **_kwargs: b"pdf")
+    monkeypatch.setattr(stage, "_render_with_timeout", lambda *_args, **_kwargs: images)
+    metadata = {"source": {"name": "test"}, PNG_METADATA_KEY: {"stale": "marker"}}
+    task = FileGroupTask(
+        dataset_name="test",
+        data=[json.dumps({"file_name": "three.pdf", "selected_page_indices": [5, 1, 9]})],
+        _metadata=metadata,
+    )
+
+    result = stage.process(task)
+    rows = result.to_pyarrow().to_pylist()
+    assert [row["position"] for row in rows] == [5, 1, 9]
+    assert has_png_batch_provenance(result._metadata, (row["binary_content"] for row in rows))
+    assert result._metadata is not metadata
+    assert metadata == {"source": {"name": "test"}, PNG_METADATA_KEY: {"stale": "marker"}}
+    assert set(rows[0]) == set(stage._page_row("three", "three.pdf", "", 5, images[0]))
+    assert json.loads(rows[1]["materialize_error"])["stage"] == "render_pdf"
+    with Image.open(io.BytesIO(rows[0]["binary_content"])) as restored_image:
+        assert restored_image.mode == "RGB"
+        assert restored_image.size == images[0].size
+        assert restored_image.tobytes() == images[0].tobytes()
+    restored = cloudpickle.loads(cloudpickle.dumps(result))
+    assert restored.to_pyarrow().equals(result.to_pyarrow())
+    assert has_png_batch_provenance(restored._metadata, restored.to_pyarrow().column("binary_content").to_pylist())
+
+
+@pytest.mark.parametrize("stale_marker", [False, True])
+def test_disabled_png_reuse_preserves_content_and_drops_stale_provenance(
+    monkeypatch: pytest.MonkeyPatch, stale_marker: bool
+):
+    stage = preprocess.PDFPreprocessStage(retain_failures=True)
+    image = Image.new("RGB", (5, 3), "green")
+    monkeypatch.setattr(stage, "_get_pdf_bytes", lambda *_args, **_kwargs: b"pdf")
+    monkeypatch.setattr(stage, "_render_with_timeout", lambda *_args, **_kwargs: [image])
+    metadata = {"source": "test"}
+    if stale_marker:
+        metadata[PNG_METADATA_KEY] = png_batch_provenance([b"old payload"])
+    original_metadata = metadata.copy()
+    task = FileGroupTask(dataset_name="test", data=[json.dumps({"file_name": "one.pdf"})], _metadata=metadata)
+
+    result = stage.process(task)
+    assert PNG_METADATA_KEY not in result._metadata
+    assert result._metadata == {"source": "test"}
+    assert result.to_pyarrow().column("binary_content").to_pylist() == [utils.image_to_bytes(image)]
+    assert task._metadata == original_metadata
+
+
+@pytest.mark.parametrize(("failure_stage", "rendered"), [("read_pdf", []), ("render_pdf", []), ("render_pdf", [None])])
+@pytest.mark.parametrize("retain_failures", [False, True])
+def test_png_provenance_keeps_empty_and_failed_document_behavior(
+    monkeypatch: pytest.MonkeyPatch, retain_failures: bool, failure_stage: str, rendered: list[None]
+):
+    stage = preprocess.PDFPreprocessStage(retain_failures=retain_failures, reuse_encoded_images=True)
+    monkeypatch.setattr(
+        stage, "_get_pdf_bytes", lambda *_args, **_kwargs: None if failure_stage == "read_pdf" else b"pdf"
+    )
+    monkeypatch.setattr(stage, "_render_with_timeout", lambda *_args, **_kwargs: rendered)
+    task = FileGroupTask(dataset_name="test", data=[json.dumps({"file_name": "missing.pdf"})])
+
+    result = stage.process(task)
+    assert task._metadata == {}
+    if retain_failures:
+        assert result.to_pyarrow().column("binary_content").to_pylist() == [None]
+        assert has_png_batch_provenance(result._metadata, [None])
+        error = json.loads(result.to_pyarrow().to_pylist()[0]["materialize_error"])
+        assert error["stage"] == failure_stage
+    else:
+        assert result is None

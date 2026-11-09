@@ -15,20 +15,30 @@
 """Served parser integration with the actual optional model package."""
 
 import asyncio
+import base64
+import contextlib
 import io
 import json
+import threading
 import urllib.error
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from types import SimpleNamespace
 
 import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 from PIL import Image
 
+from nemo_curator.backends.ray_data import RayDataExecutor
+from nemo_curator.stages.interleaved.io import InterleavedParquetWriterStage
 from nemo_curator.stages.interleaved.pdf.nemotron_parse import inference
+from nemo_curator.stages.interleaved.pdf.nemotron_parse._image_transport import PNG_METADATA_KEY, png_batch_provenance
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.postprocess import NemotronParsePostprocessStage
-from nemo_curator.tasks import InterleavedBatch
+from nemo_curator.stages.interleaved.pdf.nemotron_parse.preprocess import PDFPreprocessStage
+from nemo_curator.tasks import FileGroupTask, InterleavedBatch
 
 TABLE = r"<x_0.1><y_0.1>\begin{tabular}{cc}A & B\\1 & 2\end{tabular}<x_0.9><y_0.9><class_Table>"
 PARSED_TABLE = {"raw_out": TABLE, "blocks": [{"class": "Table", "bbox": [0.1, 0.1, 0.9, 0.9], "content": "<table/>"}]}
@@ -433,3 +443,366 @@ def test_actual_parser_malformed_layout_retains_failure_and_successful_sibling()
         assert any(row["page_number"] == 1 and row["modality"] == "table" for row in rows)
     finally:
         stage.teardown()
+
+
+@pytest.fixture
+def http_endpoint():
+    """Exercise real SDK sockets, response decoding, retries and keep-alive."""
+    state = SimpleNamespace(requests=[], peers=[], statuses=[], outputs={}, entered=threading.Event(), release=None)
+
+    class Handler(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
+        def do_GET(self) -> None:
+            payload = json.dumps({"data": [{"id": "served", "object": "model"}]}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
+        def do_POST(self) -> None:
+            body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            state.requests.append(body)
+            state.peers.append(self.client_address)
+            state.entered.set()
+            if state.release is not None:
+                state.release.wait(timeout=5)
+            status = state.statuses.pop(0) if state.statuses else 200
+            image_url = body["messages"][0]["content"][1]["image_url"]["url"]
+            output, finish_reason = state.outputs.get(image_url, (TABLE, "stop"))
+            response = (
+                {
+                    "id": "test-completion",
+                    "object": "chat.completion",
+                    "created": 0,
+                    "model": "served",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {"role": "assistant", "content": output},
+                            "finish_reason": finish_reason,
+                        }
+                    ],
+                    "usage": {"prompt_tokens": 2, "completion_tokens": 3, "total_tokens": 5},
+                }
+                if status == 200
+                else {
+                    "error": {
+                        "message": "rate limited" if status == 429 else "bad request",
+                        "type": "rate_limit" if status == 429 else "invalid_request",
+                        "code": "rate_limit" if status == 429 else "invalid_request",
+                    }
+                }
+            )
+            payload = json.dumps(response).encode()
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.send_header("Retry-After", "0.01")
+            self.end_headers()
+            with contextlib.suppress(BrokenPipeError, ConnectionResetError):
+                self.wfile.write(payload)
+
+        def log_message(self, *_args) -> None:
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
+    thread.start()
+    state.endpoint = f"http://127.0.0.1:{server.server_port}/v1"
+    try:
+        yield state
+    finally:
+        if state.release is not None:
+            state.release.set()
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+def _http_stage(endpoint: str, **kwargs) -> inference.NemotronParseHTTPClientStage:
+    stage = inference.NemotronParseHTTPClientStage(
+        endpoint=endpoint,
+        model_name="served",
+        parse_mode="single",
+        inference_batch_size=2,
+        request_timeout_s=2,
+        **kwargs,
+    )
+    stage._parser = StubParser(
+        lambda image, **_: {
+            **PARSED_TABLE,
+            **stage._parse_backend(image, prompt="p", stage="fullpage", settings=Settings()),
+        }
+    )
+    return stage
+
+
+def test_reused_producer_pngs_preserve_actual_sdk_parser_and_parquet(
+    http_endpoint: SimpleNamespace, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    pytest.importorskip("nemotron_parse.inference")
+    images = {
+        "alpha.pdf": [Image.new("RGB", (37, 29), color) for color in ("red", "blue")],
+        "beta.pdf": [Image.frombytes("RGB", (31, 23), bytes((i * 17) % 256 for i in range(31 * 23 * 3)))],
+    }
+    original_save = Image.Image.save
+    outputs, requests, encode_counts = [], [], []
+    for enabled in (False, True):
+        producer = PDFPreprocessStage(retain_failures=True, reuse_encoded_images=enabled)
+        monkeypatch.setattr(producer, "_get_pdf_bytes", lambda name, *_args, **_kwargs: name.encode())
+        monkeypatch.setattr(producer, "_render_with_timeout", lambda _data, name, *_args: images[name])
+        batch = producer.process(
+            FileGroupTask(
+                dataset_name="test",
+                data=[json.dumps({"file_name": name}) for name in images],
+                _metadata={"source_files": list(images)},
+            )
+        )
+        rows = batch.to_pyarrow().to_pylist()
+        for row, response in zip(
+            rows, (("unfinished", "length"), (TABLE, "stop"), ("malformed", "stop")), strict=True
+        ):
+            image_url = "data:image/png;base64," + base64.b64encode(row["binary_content"]).decode("ascii")
+            http_endpoint.outputs[image_url] = response
+        client = inference.NemotronParseHTTPClientStage(
+            endpoint=http_endpoint.endpoint,
+            model_name="served",
+            parse_mode="single",
+            inference_batch_size=3,
+            reuse_encoded_images=enabled,
+        )
+        client.setup()
+        encoded = []
+
+        def save(image: Image.Image, *args, _encoded: list[tuple[int, int]] = encoded, **kwargs) -> None:
+            _encoded.append(image.size)
+            return original_save(image, *args, **kwargs)
+
+        start = len(http_endpoint.requests)
+        try:
+            with monkeypatch.context() as patched:
+                patched.setattr(Image.Image, "save", save)
+                inferred = client.process(batch)
+            encode_counts.append(len(encoded))
+            projected = NemotronParsePostprocessStage().process(inferred)
+            table = projected.to_pyarrow()
+            writer = InterleavedParquetWriterStage(
+                path=str(tmp_path / str(enabled)),
+                materialize_on_write=False,
+                on_materialize_error="warn",
+                schema=table.schema,
+            )
+            written = writer.process(projected)
+            outputs.append(pq.read_table(written.data[0]))
+            requests.append(
+                sorted(http_endpoint.requests[start:], key=lambda request: json.dumps(request, sort_keys=True))
+            )
+        finally:
+            client.teardown()
+        assert inference._PARSE_ENCODED_IMAGE.get() is None
+    assert encode_counts == [3, 0]
+    assert requests[0] == requests[1]
+    assert outputs[0].equals(outputs[1])
+    failed = [(row["pdf_name"], row["page_number"]) for row in outputs[1].to_pylist() if row["materialize_error"]]
+    assert sorted(failed) == [("alpha.pdf", 0), ("beta.pdf", 0)]
+    assert any(row["pdf_name"] == "alpha.pdf" and row["page_number"] == 1 for row in outputs[1].to_pylist())
+
+
+@pytest.mark.parametrize(
+    "case", ["eligible", "missing", "unknown", "stale", "rgba", "metadata", "mutated", "in_place", "crop"]
+)
+def test_encoded_image_reuse_falls_back_without_changing_request_pixels(  # noqa: C901, PLR0915
+    http_endpoint: SimpleNamespace, monkeypatch: pytest.MonkeyPatch, case: str
+):
+    batch = task()
+    rows = batch.to_pyarrow().to_pylist()
+    if case == "rgba":
+        image = Image.new("RGBA", (220, 170), (255, 0, 0, 127))
+        stream = io.BytesIO()
+        image.save(stream, format="PNG")
+        rows[0]["binary_content"] = stream.getvalue()
+    elif case == "metadata":
+        from PIL.PngImagePlugin import PngInfo
+
+        info = PngInfo()
+        info.add_text("source", "external")
+        stream = io.BytesIO()
+        Image.new("RGB", (220, 170), "red").save(stream, format="PNG", pnginfo=info)
+        rows[0]["binary_content"] = stream.getvalue()
+    metadata = {PNG_METADATA_KEY: png_batch_provenance(row["binary_content"] for row in rows)}
+    if case == "missing":
+        metadata.clear()
+    elif case == "unknown":
+        metadata[PNG_METADATA_KEY]["pillow"] = "unknown"
+    elif case == "stale":
+        stream = io.BytesIO()
+        Image.new("RGB", (220, 170), "red").save(stream, format="PNG", compress_level=1)
+        assert stream.getvalue() != rows[0]["binary_content"]
+        rows[0]["binary_content"] = stream.getvalue()
+    batch = InterleavedBatch(dataset_name="test", data=pa.Table.from_pylist(rows), _metadata=metadata)
+    client = _http_stage(http_endpoint.endpoint, reuse_encoded_images=True)
+    expected = {}
+
+    def parse(image: Image.Image, **_kwargs) -> dict:
+        if case == "in_place":
+            image.putpixel((0, 0), (0, 255, 0))
+        converted = image.convert("RGB")
+        if case == "mutated":
+            converted.putpixel((0, 0), (0, 255, 0))
+        expected["pixels"] = converted.tobytes()
+        client._parse_backend(
+            converted, prompt="p", stage="crop" if case == "crop" else "fullpage", settings=Settings()
+        )
+        return PARSED_TABLE
+
+    client._parser = StubParser(parse)
+    original_save = Image.Image.save
+    encodes = []
+
+    def save(image: Image.Image, *args, **kwargs) -> None:
+        encodes.append(True)
+        return original_save(image, *args, **kwargs)
+
+    monkeypatch.setattr(Image.Image, "save", save)
+    try:
+        result = client.process(batch)
+        assert not result.to_pyarrow().to_pylist()[0]["materialize_error"]
+    finally:
+        client.teardown()
+    assert len(encodes) == (0 if case == "eligible" else 1)
+    assert client._custom_metrics["image_reuse_count"] == (1 if case == "eligible" else 0)
+    assert client._custom_metrics["image_encode_count"] == len(encodes)
+    assert client._custom_metrics["image_reuse_fallback_count"] == len(encodes)
+    data_url = http_endpoint.requests[-1]["messages"][0]["content"][1]["image_url"]["url"]
+    with Image.open(io.BytesIO(base64.b64decode(data_url.split(",", 1)[1]))) as image:
+        assert image.tobytes() == expected["pixels"]
+    if case == "eligible":
+        assert base64.b64decode(data_url.split(",", 1)[1]) == rows[0]["binary_content"]
+
+
+@pytest.mark.parametrize("failure", [RuntimeError, asyncio.CancelledError])
+def test_encoded_image_context_resets_and_input_stream_closes_after_parser_failure(failure: type[BaseException]):
+    client = inference.NemotronParseHTTPClientStage(
+        endpoint="http://unused/v1", model_name="served", parse_mode="single", reuse_encoded_images=True
+    )
+    seen = []
+
+    def parse(image: Image.Image, **_kwargs) -> dict:
+        seen.append(image)
+        assert inference._PARSE_ENCODED_IMAGE.get() is not None
+        msg = "parser failed"
+        raise failure(msg)
+
+    client._parser = StubParser(parse)
+    assert inference._PARSE_ENCODED_IMAGE.get() is None
+    with pytest.raises(failure, match="parser failed"):
+        client._parse_image(task().to_pyarrow().to_pylist()[0]["binary_content"], True)
+    assert inference._PARSE_ENCODED_IMAGE.get() is None
+    assert seen[0].fp is None
+    assert seen[0]._fp.closed
+
+
+def test_encoded_image_reuse_does_not_leak_to_unmarked_envelopes(
+    http_endpoint: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+):
+    marked = task(("red", "blue"))
+    marked._metadata[PNG_METADATA_KEY] = png_batch_provenance(marked.to_pyarrow().column("binary_content").to_pylist())
+    client = _http_stage(http_endpoint.endpoint, reuse_encoded_images=True)
+    original_save = Image.Image.save
+    encoded = []
+
+    def save(image: Image.Image, *args, **kwargs) -> None:
+        encoded.append(True)
+        return original_save(image, *args, **kwargs)
+
+    unmarked = task(("red", "blue"))
+    monkeypatch.setattr(Image.Image, "save", save)
+    try:
+        assert client.process(marked).to_pyarrow().num_rows == 2
+        assert encoded == []
+        assert client.process(unmarked).to_pyarrow().num_rows == 2
+        assert len(encoded) == 2
+        assert client.process(marked).to_pyarrow().num_rows == 2
+        assert len(encoded) == 2
+    finally:
+        client.teardown()
+
+
+@pytest.mark.parametrize("status", [429, 400])
+def test_encoded_image_reuse_preserves_actual_sdk_retry_and_failure(http_endpoint: SimpleNamespace, status: int):
+    batch = task()
+    payload = batch.to_pyarrow().column("binary_content").to_pylist()
+    batch._metadata[PNG_METADATA_KEY] = png_batch_provenance(payload)
+    http_endpoint.statuses = [status, 200]
+    client = _http_stage(
+        http_endpoint.endpoint,
+        reuse_encoded_images=True,
+        max_retries=1,
+        retry_base_delay_s=0,
+    )
+    try:
+        rows = client.process(batch).to_pyarrow().to_pylist()
+        assert bool(rows[0]["materialize_error"]) is (status == 400)
+        if status == 429:
+            assert len(http_endpoint.requests) == 2
+            assert http_endpoint.requests[0] == http_endpoint.requests[1]
+        else:
+            assert json.loads(rows[0]["materialize_error"])["type"] == "BadRequestError"
+        assert client._custom_metrics["image_reuse_count"] == 1
+        assert client._custom_metrics["image_encode_count"] == 0
+    finally:
+        client.teardown()
+
+
+@pytest.mark.usefixtures("shared_ray_client")
+def test_real_ray_data_preserves_png_reuse_and_page_identity(http_endpoint: SimpleNamespace, tmp_path: Path):
+    pytest.importorskip("nemotron_parse.inference")
+    document = io.BytesIO()
+    images = [Image.new("RGB", (37, 29), color) for color in ("red", "blue")]
+    images[0].save(document, format="PDF", save_all=True, append_images=images[1:])
+    (tmp_path / "two.pdf").write_bytes(document.getvalue())
+    outputs, requests = [], []
+    for enabled in (False, True):
+        start = len(http_endpoint.requests)
+        results = RayDataExecutor().execute(
+            [
+                PDFPreprocessStage(pdf_dir=str(tmp_path), retain_failures=True, reuse_encoded_images=enabled),
+                inference.NemotronParseHTTPClientStage(
+                    endpoint=http_endpoint.endpoint,
+                    model_name="served",
+                    parse_mode="single",
+                    inference_batch_size=2,
+                    reuse_encoded_images=enabled,
+                ).with_(num_workers=1),
+                NemotronParsePostprocessStage(),
+                InterleavedParquetWriterStage(
+                    path=str(tmp_path / str(enabled)),
+                    materialize_on_write=False,
+                    on_materialize_error="warn",
+                ),
+            ],
+            initial_tasks=[
+                FileGroupTask(
+                    dataset_name="test",
+                    data=[json.dumps({"file_name": "two.pdf", "selected_page_indices": [1, 0]})],
+                    _metadata={"source_files": ["two.pdf"]},
+                )
+            ],
+        )
+        assert len(results) == 1
+        table = pq.read_table(results[0].data[0])
+        outputs.append(table)
+        requests.append(
+            sorted(http_endpoint.requests[start:], key=lambda request: json.dumps(request, sort_keys=True))
+        )
+        rows = table.to_pylist()
+        assert {row["page_number"] for row in rows if row["modality"] != "document"} >= {0, 1}
+        assert not any(row["materialize_error"] for row in rows)
+        metrics = results[0]._stage_perf
+        # Real transport must preserve the producer marker, rather than quietly encoding again.
+        assert any(entry.custom_metrics.get("image_reuse_count", 0) == 2 for entry in metrics) is enabled
+    assert len(requests[0]) == len(requests[1]) == 2
+    assert requests[0] == requests[1]
+    assert outputs[0].equals(outputs[1])

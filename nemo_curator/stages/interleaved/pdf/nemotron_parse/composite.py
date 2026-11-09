@@ -94,6 +94,9 @@ class NemotronParsePDFReader(CompositeStage[EmptyTask, InterleavedBatch]):
     inference_server_client_num_workers
         Fixed number of concurrent HTTP client stage workers. Use four times
         the number of inference GPUs.
+    inference_server_reuse_encoded_images
+        Reuse verified unchanged producer PNGs in served single mode. Disabled
+        by default; unverified images keep the ordinary encoding path.
     """
 
     manifest_path: str | None = None
@@ -123,9 +126,18 @@ class NemotronParsePDFReader(CompositeStage[EmptyTask, InterleavedBatch]):
     inference_server_client_num_workers: int = 4
     inference_server_request_timeout_s: float = 300.0
     inference_server_max_retries: int = 3
+    inference_server_reuse_encoded_images: bool = False
 
     def __post_init__(self) -> None:
         super().__init__()
+        if type(self.inference_server_reuse_encoded_images) is not bool:
+            msg = "inference_server_reuse_encoded_images must be a boolean"
+            raise TypeError(msg)
+        if self.inference_server_reuse_encoded_images and (
+            self.parse_mode != "single" or self.inference_server_endpoint is None
+        ):
+            msg = "Encoded image reuse requires served Parse 3.5 single mode"
+            raise ValueError(msg)
         if self.manifest_path is None:
             msg = "manifest_path is required"
             raise ValueError(msg)
@@ -148,6 +160,7 @@ class NemotronParsePDFReader(CompositeStage[EmptyTask, InterleavedBatch]):
             dpi=self.dpi,
             max_pages=self.max_pages,
             retain_failures=self.parse_mode is not None,
+            reuse_encoded_images=self.inference_server_reuse_encoded_images,
         )
         if self.inference_server_endpoint is None:
             self._inference = NemotronParseInferenceStage(
@@ -174,6 +187,7 @@ class NemotronParsePDFReader(CompositeStage[EmptyTask, InterleavedBatch]):
                 max_retries=self.inference_server_max_retries,
                 inference_batch_size=self.inference_batch_size,
                 max_tokens=self.max_tokens,
+                reuse_encoded_images=self.inference_server_reuse_encoded_images,
             ).with_(num_workers=self.inference_server_client_num_workers)
         self._postprocessor = NemotronParsePostprocessStage(
             min_crop_px=self.min_crop_px,

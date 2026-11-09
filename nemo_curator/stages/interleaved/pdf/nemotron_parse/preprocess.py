@@ -31,6 +31,7 @@ from loguru import logger
 from PIL import Image
 
 from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.interleaved.pdf.nemotron_parse._image_transport import PNG_METADATA_KEY, png_batch_provenance
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.utils import (
     extract_pdf_from_jsonl,
     extract_pdf_from_zip,
@@ -78,6 +79,8 @@ class PDFPreprocessStage(ProcessingStage[FileGroupTask, InterleavedBatch]):
         Maximum number of pages to render per PDF.
     retain_failures
         Preserve physical page indexes and failed-page rows for the served parser.
+    reuse_encoded_images
+        Attach private ordered-batch provenance for optional verified PNG reuse.
     """
 
     zip_base_dir: str | None = None
@@ -86,8 +89,14 @@ class PDFPreprocessStage(ProcessingStage[FileGroupTask, InterleavedBatch]):
     dpi: int = 300
     max_pages: int = 50
     retain_failures: bool = False
+    reuse_encoded_images: bool = field(default=False, kw_only=True)
     name: str = "pdf_preprocess"
     resources: Resources = field(default_factory=lambda: Resources(cpus=2.0))
+
+    def __post_init__(self) -> None:
+        if type(self.reuse_encoded_images) is not bool:
+            msg = "reuse_encoded_images must be a boolean"
+            raise TypeError(msg)
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
@@ -381,9 +390,15 @@ class PDFPreprocessStage(ProcessingStage[FileGroupTask, InterleavedBatch]):
         if self.retain_failures:
             # An unopened document has no page number; without this pandas stores the column as float.
             pages_df["page_number"] = pages_df["page_number"].astype("Int64")
+        metadata = {key: value for key, value in task._metadata.items() if key != PNG_METADATA_KEY}
+        metadata = (
+            {**metadata, PNG_METADATA_KEY: png_batch_provenance(row["binary_content"] for row in rows)}
+            if self.reuse_encoded_images
+            else metadata
+        )
         return InterleavedBatch(
             dataset_name=task.dataset_name,
             data=pa.Table.from_pandas(pages_df, preserve_index=False),
-            _metadata=task._metadata,
+            _metadata=metadata,
             _stage_perf=task._stage_perf,
         )

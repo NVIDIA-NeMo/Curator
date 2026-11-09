@@ -40,6 +40,9 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    if args.reuse_encoded_images and args.parse_mode != "single":
+        parser.error("--reuse-encoded-images requires --parse-mode single")
+
     args.output_dir = os.path.abspath(args.output_dir)
     os.makedirs(args.output_dir, exist_ok=True)
 

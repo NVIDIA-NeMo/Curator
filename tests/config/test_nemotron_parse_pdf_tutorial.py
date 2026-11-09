@@ -168,3 +168,81 @@ def test_served_install_declares_pdf_renderer(path: str, section_marker: str):
     optional = tomllib.loads((root / "pyproject.toml").read_text())["project"]["optional-dependencies"]
     dependencies = [requirement for extra in command[1].split(",") for requirement in optional[extra]]
     assert any(re.match(r"^pypdfium2(?:$|[<>=!~;])", requirement) for requirement in dependencies)
+
+
+def test_tutorial_encoded_image_reuse_is_independent_of_transport_reuse(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    module = load_module(monkeypatch, "pipeline_utils")
+    args = module.create_nemotron_parse_pdf_argparser().parse_args(
+        [
+            "--manifest",
+            "input.jsonl",
+            "--pdf-dir",
+            ".",
+            "--output-dir",
+            str(tmp_path),
+            "--parse-mode",
+            "single",
+            "--reuse-encoded-images",
+        ]
+    )
+    pipeline = module.create_nemotron_parse_pdf_pipeline(args, inference_server_endpoint="http://served/v1")
+    reader = pipeline.stages[0]
+    assert reader._preprocessor.reuse_encoded_images
+    assert reader._inference.reuse_encoded_images
+
+
+def test_tutorial_accepts_namespace_without_encoded_image_option(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    module = load_module(monkeypatch, "pipeline_utils")
+    args = module.create_nemotron_parse_pdf_argparser().parse_args(
+        ["--manifest", "input.jsonl", "--pdf-dir", ".", "--output-dir", str(tmp_path)]
+    )
+    del args.reuse_encoded_images
+    pipeline = module.create_nemotron_parse_pdf_pipeline(args, inference_server_endpoint="http://served/v1")
+    reader = pipeline.stages[0]
+    assert not reader._preprocessor.reuse_encoded_images
+    assert not reader._inference.reuse_encoded_images
+
+
+@pytest.mark.parametrize("parse_mode", [None, "double", "triple"])
+def test_tutorial_pipeline_rejects_encoded_image_reuse_outside_single_mode(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, parse_mode: str | None
+):
+    module = load_module(monkeypatch, "pipeline_utils")
+    options = ["--parse-mode", parse_mode] if parse_mode is not None else []
+    args = module.create_nemotron_parse_pdf_argparser().parse_args(
+        [
+            "--manifest",
+            "input.jsonl",
+            "--pdf-dir",
+            ".",
+            "--output-dir",
+            str(tmp_path),
+            "--reuse-encoded-images",
+            *options,
+        ]
+    )
+    with pytest.raises(ValueError, match=r"Encoded image reuse requires served Parse 3\.5 single mode"):
+        module.create_nemotron_parse_pdf_pipeline(args, inference_server_endpoint="http://served/v1")
+
+
+def test_tutorial_pipeline_rejects_encoded_image_reuse_without_endpoint(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    module = load_module(monkeypatch, "pipeline_utils")
+    args = module.create_nemotron_parse_pdf_argparser().parse_args(
+        [
+            "--manifest",
+            "input.jsonl",
+            "--pdf-dir",
+            ".",
+            "--output-dir",
+            str(tmp_path),
+            "--parse-mode",
+            "single",
+            "--reuse-encoded-images",
+        ]
+    )
+    with pytest.raises(ValueError, match=r"Encoded image reuse requires served Parse 3\.5 single mode"):
+        module.create_nemotron_parse_pdf_pipeline(args)

@@ -1,6 +1,6 @@
 # PDF Extraction Pipeline using Nemotron-Parse
 
-Convert PDFs into structured, interleaved parquet — text blocks, tables, images, and captions in reading order — using **Nemotron-Parse v1.2**.
+Convert PDFs into structured, interleaved parquet — text blocks, tables, images, and captions in reading order — using **Nemotron-Parse v1.2** or the served **Nemotron Parse 3.5** path below.
 
 We recommend using NeMo Curator's Dynamo-backed
 `InferenceServer` with the HTTP client stage instead of loading vLLM inside the
@@ -164,6 +164,7 @@ images = [Image.open(io.BytesIO(b)) for b in df[df["modality"] == "image"]["bina
 | `--max-pages` | 50 | Max pages per PDF |
 | `--text-in-pic` | off | Predict text inside images (v1.2+ feature) |
 | `--nemotron-parse-path` | — | Local Parse 3.5 repository for managed Dynamo (`main.py` only); use with `--parse-mode` |
+| `--reuse-encoded-images` | off | Reuse verified rendered PNG bytes for served Parse 3.5 `single` mode only |
 
 ## Served Nemotron Parse 3.5
 
@@ -224,6 +225,27 @@ the initial attempt. Unrecovered pages keep their physical page numbers and erro
 rows. The default v1.2 path keeps its single render attempt. See the
 [Nemotron Parse PDF guide](../../../fern/versions/main/pages/curate-text/load-data/nemotron-parse-pdf.mdx)
 for serving limits and parser behavior.
+
+### Optional PNG reuse
+
+Add `--reuse-encoded-images` to a served `--parse-mode single` command to avoid a
+second PNG encode when preparing full-page requests. The matching Python option is
+`NemotronParsePDFReader.inference_server_reuse_encoded_images=True`; directly
+composed HTTP stages use `NemotronParseHTTPClientStage.reuse_encoded_images=True`.
+All default to `False`, and enabling reuse requires served single-pass mode.
+
+Reuse verifies the ordered producer batch, Pillow and zlib versions, dimensions,
+and unchanged RGB pixels. Crops, altered images, image metadata, and unverified
+inputs fall back to normal PNG encoding. It preserves rendering, parser settings,
+page references, and output handling, and does not depend on page-based tasking
+or a separate persistent HTTP client.
+
+The existing inference-stage custom metrics include `image_reuse_count`,
+`image_encode_count`, and `image_reuse_fallback_count`. The fallback count is a
+subset of normal encodes. These count image preparations for logical parser
+backend calls, rather than HTTP retry attempts, successful pages, or unique physical
+pages. Sum them across tasks to check eligibility; compare pipeline wall time to
+assess the benefit on a CPU-constrained workload.
 
 ## Reproducing the Parse 3.5 serving benchmarks
 

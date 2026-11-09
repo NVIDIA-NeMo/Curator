@@ -42,3 +42,39 @@ def test_served_modes_keep_default_model_and_client_workers():
     legacy = NemotronParsePDFReader(manifest_path="input.jsonl", inference_server_endpoint="http://unused/v1")
     assert not legacy._preprocessor.retain_failures
     assert legacy._inference.ray_stage_spec() == {"is_actor_stage": False}
+
+
+def test_encoded_image_reuse_wires_both_stages_without_changing_execution_controls():
+    settings = {
+        "manifest_path": "input.jsonl",
+        "parse_mode": "single",
+        "inference_server_endpoint": "http://unused/v1",
+    }
+    control = NemotronParsePDFReader(**settings)
+    candidate = NemotronParsePDFReader(**settings, inference_server_reuse_encoded_images=True)
+    assert not control._preprocessor.reuse_encoded_images
+    assert not control._inference.reuse_encoded_images
+    assert candidate._preprocessor.reuse_encoded_images
+    assert candidate._inference.reuse_encoded_images
+    assert candidate._inference.inference_batch_size == control._inference.inference_batch_size
+    assert candidate._inference.num_workers() == control._inference.num_workers()
+
+
+@pytest.mark.parametrize("mode", [None, "double", "triple"])
+def test_encoded_image_reuse_requires_served_single_mode(mode: str | None):
+    with pytest.raises(ValueError, match=r"requires served Parse 3\.5 single mode"):
+        NemotronParsePDFReader(
+            manifest_path="input.jsonl",
+            parse_mode=mode,
+            inference_server_endpoint="http://unused/v1",
+            inference_server_reuse_encoded_images=True,
+        )
+
+
+def test_encoded_image_reuse_requires_endpoint_and_boolean():
+    with pytest.raises(ValueError, match=r"requires served Parse 3\.5 single mode"):
+        NemotronParsePDFReader(
+            manifest_path="input.jsonl", parse_mode="single", inference_server_reuse_encoded_images=True
+        )
+    with pytest.raises(TypeError, match="must be a boolean"):
+        NemotronParsePDFReader(manifest_path="input.jsonl", inference_server_reuse_encoded_images=1)

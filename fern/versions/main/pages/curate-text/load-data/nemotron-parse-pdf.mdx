@@ -95,7 +95,9 @@ The server configuration uses Dynamo's TCP request plane, enables multimodal
 vLLM, and sets the frontend and model-worker options needed by Nemotron-Parse.
 The shared `create_nemotron_parse_inference_server` helper owns those
 model-specific settings so tutorials and benchmarks use the same configuration.
-It does not use `dyn_chat_processor`. See the runnable
+For served Parse 3.5, it selects the Python vLLM chat processor with
+`dyn_chat_processor="vllm"` and applies the model repository's chat template.
+The default v1.2 path leaves that processor setting unset. See the runnable
 [`main.py`](https://github.com/NVIDIA-NeMo/Curator/blob/main/tutorials/interleaved/nemotron_parse_pdf/main.py)
 source for the complete lifecycle and [Inference Server](/curate-text/synthetic/inference-server)
 for the underlying configuration objects. For executor options, refer to
@@ -200,6 +202,7 @@ NemotronParsePDFReader(
 | `inference_server_client_num_workers` | int | `4` | Fixed HTTP stage workers. Set to `4 * num_gpus` for production. |
 | `inference_server_request_timeout_s` | float | `300.0` | Per-page HTTP request timeout. |
 | `inference_server_max_retries` | int | `3` | Retries for transient HTTP failures. |
+| `inference_server_reuse_encoded_images` | bool | `False` | Reuse verified PNG bytes for served Parse 3.5 single-pass full-page requests; see [PNG reuse](#reuse-rendered-png-bytes). |
 
 ### Failure Behavior
 
@@ -391,6 +394,9 @@ With `parse_mode` set, the HTTP stage records these additive custom metrics:
 | `num_failed_requests` | Parser requests that still raise after HTTP retries. A response that fails output validation can fail the page without failing the HTTP request. |
 | `total_prompt_tokens`, `total_output_tokens` | Reported token usage across parser requests, including responses from pages that later fail. Missing usage is not estimated. |
 | `inference_server_request_time` | Wall time spent processing the task's pages in the HTTP stage. |
+| `image_reuse_count` | Full-page requests that reused verified producer PNG bytes. |
+| `image_encode_count` | Requests whose image was encoded normally. |
+| `image_reuse_fallback_count` | Requests encoded normally because PNG reuse was enabled but its checks did not pass. This is a subset of `image_encode_count`. |
 
 ## Retry Behavior
 
@@ -445,6 +451,41 @@ NEMO_CURATOR_DYNAMO_CUDA_TAG=cu130 python tutorials/interleaved/nemotron_parse_p
     --nemotron-parse-path /path/to/nemotron-parse \
     --parse-mode single --executor ray-data
 ```
+
+### Reuse Rendered PNG Bytes
+
+For served Parse 3.5 in `single` mode, set
+`inference_server_reuse_encoded_images=True` on `NemotronParsePDFReader` or pass
+`--reuse-encoded-images` to `main.py`. When composing stages directly, set
+`reuse_encoded_images=True` on `NemotronParseHTTPClientStage`. The option is
+`False` by default and requires an inference-server endpoint and `parse_mode="single"`.
+
+The preprocessor already encodes each rendered page as PNG. Reuse avoids encoding
+that image again when preparing the full-page model request. It checks the ordered
+batch provenance, Pillow and zlib versions, image dimensions, and decoded RGB
+pixels before reusing the producer bytes. Crops, changed images, metadata-bearing
+images, or unverified inputs use the ordinary PNG encoding path. Reuse leaves
+rendering, parser settings, page identities, and output handling unchanged.
+
+For example, add the flag to the served single-pass command:
+
+```bash
+python tutorials/interleaved/nemotron_parse_pdf/main.py \
+    --manifest manifest.jsonl --pdf-dir /path/to/pdfs --output-dir /path/to/output \
+    --inference-server-endpoint http://localhost:8000/v1 \
+    --model-path nvidia/Nemotron-3.5-Parse \
+    --inference-server-model-name nemotron-parse \
+    --parse-mode single --reuse-encoded-images --executor ray-data
+```
+
+Use `image_reuse_count`, `image_encode_count`, and `image_reuse_fallback_count` in
+the existing inference-stage custom metrics to confirm whether reuse applies.
+These count image preparations for logical parser backend calls, rather than HTTP
+retry attempts, successful pages, or unique physical pages.
+Aggregate these additive counters with `_sum` as shown in
+[Inspect Inference Metrics](#inspect-inference-metrics). This saves CPU encoding
+work; measure pipeline wall time to determine whether encoding limits your workload.
+It does not require page-based tasking or a separate HTTP-client reuse option.
 
 ### Select a Page Subset
 

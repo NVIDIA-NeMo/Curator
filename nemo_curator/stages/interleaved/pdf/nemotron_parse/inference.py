@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import contextlib
+import hashlib
 import importlib.metadata
 import io
 import json
@@ -38,6 +39,7 @@ from PIL import Image
 from nemo_curator.models.client.llm_client import GenerationConfig
 from nemo_curator.models.client.openai_client import AsyncOpenAIClient
 from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.interleaved.pdf.nemotron_parse._image_transport import has_png_batch_provenance
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import InterleavedBatch
 
@@ -60,6 +62,10 @@ _NEMOTRON_PARSE_SAMPLING_PARAMS: dict[str, Any] = {
 _OPENAI_GENERATION_CONFIG_FIELDS = {"max_tokens", "seed", "temperature", "top_p"}
 _PARSE_TRANSPORT: ContextVar[tuple[AsyncOpenAIClient, asyncio.AbstractEventLoop]] = ContextVar("parse_transport")
 _PARSE_REQUESTS: ContextVar[list[dict[str, Any]]] = ContextVar("parse_requests")
+_PARSE_ENCODED_IMAGE: ContextVar[tuple[bytes, tuple[int, int], bytes] | None] = ContextVar(
+    "parse_encoded_image", default=None
+)
+_PARSE_IMAGE_METRICS: ContextVar[dict[str, int] | None] = ContextVar("parse_image_metrics", default=None)
 _PARSE_INSTALL_HINT = (
     "Served Parse 3.5 requires the model team's nemotron-parse package. "
     "Install nemo-curator[interleaved_cpu,text_cpu,cv2] for client dependencies, then install nemotron-parse --no-deps."
@@ -440,6 +446,8 @@ class NemotronParseHTTPClientStage(ProcessingStage[InterleavedBatch, Interleaved
     materialize_error rows, and setup fails unless the endpoint lists ``model_name``.
     Model prompts and sampling then come from the package;
     text_in_pic, task_prompt and max_tokens apply only to the legacy path.
+    ``reuse_encoded_images`` reuses verified, unchanged producer PNGs in served
+    single mode. It is disabled by default; unverified inputs are encoded normally.
     """
 
     endpoint: str
@@ -455,10 +463,17 @@ class NemotronParseHTTPClientStage(ProcessingStage[InterleavedBatch, Interleaved
     inference_batch_size: int = 4
     max_tokens: int = DEFAULT_MAX_TOKENS
     proc_size: tuple[int, int] = (2048, 1664)
+    reuse_encoded_images: bool = field(default=False, kw_only=True)
     name: str = "nemotron_parse_inference"
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 
     def __post_init__(self) -> None:
+        if type(self.reuse_encoded_images) is not bool:
+            msg = "reuse_encoded_images must be a boolean"
+            raise TypeError(msg)
+        if self.reuse_encoded_images and self.parse_mode != "single":
+            msg = "Encoded image reuse requires served Parse 3.5 single mode"
+            raise ValueError(msg)
         if self.parse_mode not in (None, "single", "double", "triple"):
             msg = "parse_mode must be single, double or triple"
             raise ValueError(msg)
@@ -522,13 +537,35 @@ class NemotronParseHTTPClientStage(ProcessingStage[InterleavedBatch, Interleaved
 
     def _parse_backend(self, image: Image.Image, *, prompt: str, stage: str, settings: Any) -> dict:  # noqa: ANN401
         client, loop = _PARSE_TRANSPORT.get()
-        stream = io.BytesIO()
-        image.save(stream, format="PNG")
+        prepared = _PARSE_ENCODED_IMAGE.get()
+        if (
+            self.reuse_encoded_images
+            and self.parse_mode == "single"
+            and stage == "fullpage"
+            and prepared is not None
+            and image.mode == "RGB"
+            and image.size == prepared[1]
+            and not image.info
+            and not getattr(image, "encoderinfo", {})
+            and hashlib.sha256(image.tobytes()).digest() == prepared[2]
+        ):
+            image_bytes = prepared[0]
+            reused = True
+        else:
+            stream = io.BytesIO()
+            image.save(stream, format="PNG")
+            image_bytes = stream.getvalue()
+            reused = False
+        if (metrics := _PARSE_IMAGE_METRICS.get()) is not None:
+            key = "image_reuse_count" if reused else "image_encode_count"
+            metrics[key] = metrics.get(key, 0) + 1
+            if self.reuse_encoded_images and not reused:
+                metrics["image_reuse_fallback_count"] = metrics.get("image_reuse_fallback_count", 0) + 1
         generation = _server_generation_config({**asdict(settings), "skip_special_tokens": False})
         response = asyncio.run_coroutine_threadsafe(
             self._query_parse_page(
                 client,
-                stream.getvalue(),
+                image_bytes,
                 prompt=prompt,
                 generation=generation,
                 stage=stage,
@@ -569,7 +606,9 @@ class NemotronParseHTTPClientStage(ProcessingStage[InterleavedBatch, Interleaved
         )
         return response
 
-    async def _parse_pages(self, pages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    async def _parse_pages(
+        self, pages: list[dict[str, Any]], *, reuse_encoded_images: bool = False
+    ) -> list[dict[str, Any]]:
         client = AsyncOpenAIClient(
             max_concurrent_requests=self.inference_batch_size,
             max_retries=self.max_retries,
@@ -589,11 +628,14 @@ class NemotronParseHTTPClientStage(ProcessingStage[InterleavedBatch, Interleaved
                 return {**row, "parse_document": None}
             requests: list[dict[str, Any]] = []
             request_token = _PARSE_REQUESTS.set(requests)
+            image_metrics: dict[str, int] = {}
+            image_token = _PARSE_IMAGE_METRICS.set(image_metrics)
             document = None
             try:
                 async with semaphore:
+                    image_args = (row["binary_content"], True) if reuse_encoded_images else (row["binary_content"],)
                     document = await loop.run_in_executor(
-                        parser_pool, copy_context().run, self._parse_image, row["binary_content"]
+                        parser_pool, copy_context().run, self._parse_image, *image_args
                     )
                 if not isinstance(document, dict) or not document.get("blocks"):
                     error = {
@@ -626,11 +668,13 @@ class NemotronParseHTTPClientStage(ProcessingStage[InterleavedBatch, Interleaved
                 result = {**row, "parse_document": None, "materialize_error": json.dumps(error)}
             finally:
                 _PARSE_REQUESTS.reset(request_token)
+                _PARSE_IMAGE_METRICS.reset(image_token)
             result["_parse_metrics"] = {
                 "num_requests": len(requests),
                 "num_failed_requests": sum("error" in request for request in requests),
                 "total_prompt_tokens": sum(request.get("prompt_tokens", 0) for request in requests),
                 "total_output_tokens": sum(request.get("completion_tokens", 0) for request in requests),
+                **image_metrics,
             }
             return result
 
@@ -644,16 +688,35 @@ class NemotronParseHTTPClientStage(ProcessingStage[InterleavedBatch, Interleaved
                 with contextlib.suppress(Exception):
                     await client.client.close()
 
-    def _parse_image(self, image_bytes: bytes) -> dict[str, Any]:
-        with Image.open(io.BytesIO(image_bytes)) as image:
-            return self._parser.parse(image, mode=self.parse_mode, triple_regions=self.triple_regions)
+    def _parse_image(self, image_bytes: bytes, reuse_encoded_image: bool = False) -> dict[str, Any]:
+        with io.BytesIO(image_bytes) as stream, Image.open(stream) as image:
+            prepared = None
+            if reuse_encoded_image and self.reuse_encoded_images and self.parse_mode == "single":
+                image.load()
+                if (
+                    image.format == "PNG"
+                    and image.mode == "RGB"
+                    and not image.info
+                    and not getattr(image, "encoderinfo", {})
+                    and image.n_frames == 1
+                ):
+                    prepared = (image_bytes, image.size, hashlib.sha256(image.tobytes()).digest())
+            token = _PARSE_ENCODED_IMAGE.set(prepared)
+            try:
+                return self._parser.parse(image, mode=self.parse_mode, triple_regions=self.triple_regions)
+            finally:
+                _PARSE_ENCODED_IMAGE.reset(token)
 
     def _process_parse(self, task: InterleavedBatch) -> InterleavedBatch:
         if getattr(self, "_parser", None) is None:
             msg = "Call setup() before processing served Parse 3.5 pages"
             raise RuntimeError(msg)
         started = time.perf_counter()
-        rows = asyncio.run(self._parse_pages(task.to_pyarrow().to_pylist()))
+        pages = task.to_pyarrow().to_pylist()
+        reuse_encoded_images = self.reuse_encoded_images and has_png_batch_provenance(
+            task._metadata, (row.get("binary_content") for row in pages)
+        )
+        rows = asyncio.run(self._parse_pages(pages, reuse_encoded_images=reuse_encoded_images))
         metrics = {
             "inference_server_request_time": time.perf_counter() - started,
             "num_input_pages": float(sum(row.get("page_number") is not None for row in rows)),
@@ -664,7 +727,15 @@ class NemotronParseHTTPClientStage(ProcessingStage[InterleavedBatch, Interleaved
                 sum(row.get("page_number") is not None and not row.get("materialize_error") for row in rows)
             ),
         }
-        for name in ("num_requests", "num_failed_requests", "total_prompt_tokens", "total_output_tokens"):
+        for name in (
+            "num_requests",
+            "num_failed_requests",
+            "total_prompt_tokens",
+            "total_output_tokens",
+            "image_reuse_count",
+            "image_encode_count",
+            "image_reuse_fallback_count",
+        ):
             metrics[name] = float(sum(row.get("_parse_metrics", {}).get(name, 0) for row in rows))
         for row in rows:
             row.pop("_parse_metrics", None)
