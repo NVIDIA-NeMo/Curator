@@ -933,6 +933,28 @@ class TestHeuristicFilters:
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
 
+    def test_repeatingtopngrams_zh(self) -> None:
+        # Chinese words are not separated by spaces, so the top n-gram must be matched without them.
+        # Each of the four most frequent bigrams (e.g. "我喜欢") covers 3 x 3 of the 21 characters
+        filt = RepeatingTopNGramsFilter(lang="zh")
+        score = filt.score_document("我喜欢吃苹果。我喜欢吃苹果。我喜欢吃苹果。")
+        assert score == pytest.approx(9 / 21)
+        assert filt.keep_document(score) is False
+
+    @pytest.mark.parametrize(
+        ("text", "expected_score"),
+        [
+            # The second "我爱北京" duplicates the first: 4 of the 8 characters
+            ("我爱北京我爱北京", 4 / 8),
+            # The second and third sentences duplicate the first: 14 of the 21 characters
+            ("我喜欢吃苹果。我喜欢吃苹果。我喜欢吃苹果。", 14 / 21),
+        ],
+    )
+    def test_repeatingduplicatengrams_zh(self, text: str, expected_score: float) -> None:
+        # No separator characters exist between Chinese words, so none may be counted
+        filt = RepeatingDuplicateNGramsFilter(lang="zh")
+        assert filt.score_document(text) == pytest.approx(expected_score)
+
     def test_punctuation(self) -> None:
         dataset = list_to_dataset(["not good", "good.", "just\n barely\n fine\n ok\n yep."])
         filters = ScoreFilter(PunctuationFilter(max_num_sentences_without_endmark_ratio=0.8))
