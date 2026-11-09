@@ -33,11 +33,6 @@ def main() -> None:
     parser = create_nemotron_parse_pdf_argparser()
     parser.set_defaults(inference_batch_size=32)
     parser.add_argument("--executor", choices=["ray-data", "xenna"], default="ray-data")
-    parser.add_argument(
-        "--nemotron-parse-path",
-        default=None,
-        help="Local Nemotron Parse 3.5 model repository to serve with --parse-mode",
-    )
     args = parser.parse_args()
 
     if args.reuse_encoded_images and args.parse_mode != "single":

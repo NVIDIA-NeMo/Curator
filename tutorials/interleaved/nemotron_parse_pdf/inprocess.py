@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tutorial: Process PDFs through Nemotron-Parse with in-process inference.
+"""Legacy v1.2 tutorial: process PDFs with in-process inference.
 
 This pipeline reads PDFs (from a directory or CC-MAIN-style zip archives),
 renders each page to an image, runs Nemotron-Parse for structured extraction
@@ -172,8 +172,11 @@ def _write_perf_summary(results: list, output_dir: str, wall_time: float) -> Non
 
 def main() -> None:
     parser = create_nemotron_parse_pdf_argparser()
+    parser.set_defaults(model_path="nvidia/NVIDIA-Nemotron-Parse-v1.2", parse_mode=None)
     parser.add_argument("--backend", default="vllm", choices=["hf", "vllm"], help="In-process inference backend")
     args = parser.parse_args()
+    if args.parse_mode is not None:
+        parser.error("inprocess.py supports v1.2; use main.py for served Parse 3.5")
 
     args.output_dir = os.path.abspath(args.output_dir)
     os.makedirs(args.output_dir, exist_ok=True)

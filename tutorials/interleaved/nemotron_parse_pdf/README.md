@@ -1,6 +1,10 @@
 # PDF Extraction Pipeline using Nemotron-Parse
 
-Convert PDFs into structured, interleaved parquet — text blocks, tables, images, and captions in reading order — using **Nemotron-Parse v1.2** or the served **Nemotron Parse 3.5** path below.
+Convert PDFs into structured, interleaved parquet — text blocks, tables, images,
+and captions in reading order — using **Nemotron Parse 3.5** through an
+OpenAI-compatible endpoint or managed Dynamo. `main.py` defaults to the 3.5 model
+and `single` mode. Explicit legacy selection and `inprocess.py` retain Parse v1.2
+support; the public reader defaults remain unchanged.
 
 We recommend using NeMo Curator's Dynamo-backed
 `InferenceServer` with the HTTP client stage instead of loading vLLM inside the
@@ -8,8 +12,9 @@ pipeline stage. Internal comparisons found this to be the better default
 because the serving layer can batch requests across pipeline tasks and keep
 model replicas fed while PDF rendering and postprocessing scale independently.
 
-We tested the tutorial on 8 H100 GPUs with request concurrency values of 32 and
-64. Use this starting configuration:
+The original tutorial validation used 8 H100 GPUs with request concurrency
+values of 32 and 64. Use this as a starting configuration and validate it for
+your Parse 3.5 workload:
 
 - One inference-server replica per GPU.
 - A fixed HTTP stage pool of `4 * num_gpus` workers.
@@ -24,7 +29,9 @@ We tested the tutorial on 8 H100 GPUs with request concurrency values of 32 and
 git clone https://github.com/NVIDIA-NeMo/Curator.git
 cd Curator
 pip install uv
-uv sync --extra interleaved_cuda12 --extra inference_server --extra cv2
+uv venv
+source .venv/bin/activate
+uv pip install -e ".[interleaved_cpu,text_cpu,cv2]"
 ```
 
 OpenCV is required for PDF page rendering and postprocessing but is not part of
@@ -32,10 +39,11 @@ the `all` extra, so the NeMo Curator container does not include it. Inside the
 container, install it with `uv pip install "nemo-curator[cv2]"`. Verify with
 `python -c "import cv2"`.
 
-The NeMo Curator container includes the `etcd` and `nats-server` binaries that
-Dynamo starts. For a source environment outside the container, install them
-with [`docker/common/install_etcd_nats.sh`](https://github.com/NVIDIA-NeMo/Curator/blob/main/docker/common/install_etcd_nats.sh)
-before running the recommended entry point.
+Install the matching model-team parser package as described in
+[Served Nemotron Parse 3.5](#served-nemotron-parse-35). The first example below
+reuses an existing server; the CPU environment does not load the model.
+Managed Dynamo additionally requires a compatible driver stack and local
+`etcd` and NATS binaries, as described in that section.
 
 ## Run the tutorial
 
@@ -48,42 +56,62 @@ for f in /path/to/pdfs/*.pdf; do
 done
 ```
 
-**Step 2 — Start Dynamo and run the pipeline (recommended):**
+**Step 2 — Run against an existing Parse 3.5 endpoint:**
 
 ```bash
-uv run python tutorials/interleaved/nemotron_parse_pdf/main.py \
+python tutorials/interleaved/nemotron_parse_pdf/main.py \
     --manifest manifest.jsonl \
     --pdf-dir /path/to/pdfs \
     --output-dir /path/to/output \
-    --model-path nvidia/NVIDIA-Nemotron-Parse-v1.2 \
+    --inference-server-endpoint http://localhost:8000/v1 \
+    --model-path nvidia/Nemotron-3.5-Parse \
+    --inference-server-model-name nemotron-parse \
     --inference-batch-size 32
 ```
 
-`main.py` detects the Ray-visible GPUs, starts one Dynamo model replica per GPU,
-waits for the OpenAI-compatible endpoint to become healthy, runs the pipeline,
-and stops Dynamo. No separately managed server process is required. The HTTP
-stage defaults to `4 * num_gpus` workers; override it with `--client-num-workers`.
-Use `CUDA_VISIBLE_DEVICES` or your Ray cluster resources to control which GPUs are used.
+`main.py` starts no model server when given an existing endpoint. It uses four
+HTTP client workers by default; set `--client-num-workers` for your topology.
+The default parse mode is `single`; choose `--parse-mode double` or `triple` for
+additional crop/detection passes.
 
-Without `--inference-server-endpoint`, `main.py` starts Dynamo with vLLM.
-With `--parse-mode`, it serves Parse 3.5 from `--nemotron-parse-path`; see
-[Served Nemotron Parse 3.5](#served-nemotron-parse-35). `main.py` does not expose a
-`--backend` option.
+To let Curator manage Dynamo, provide a complete local repository with
+`--nemotron-parse-path` and `--model-path`; see
+[Served Nemotron Parse 3.5](#served-nemotron-parse-35). Curator detects the
+Ray-visible GPUs, starts one replica per GPU, waits for readiness, runs the
+pipeline, and stops Dynamo. Managed runs use `4 * num_gpus` HTTP workers unless
+`--client-num-workers` is set. Use `CUDA_VISIBLE_DEVICES` or your Ray cluster
+resources to select the GPUs. `main.py` does not expose a `--backend` option.
 
-**Alternative — Run inference in process:**
+**Legacy alternative — Serve Parse v1.2:**
+
+In a compatible v1.2 environment, explicitly select the legacy parser and model:
 
 ```bash
+python tutorials/interleaved/nemotron_parse_pdf/main.py \
+    --manifest manifest.jsonl --pdf-dir /path/to/pdfs --output-dir /path/to/output-v12 \
+    --legacy-parse --model-path nvidia/NVIDIA-Nemotron-Parse-v1.2
+```
+
+Add `--inference-server-endpoint` to reuse an existing v1.2 endpoint. The
+`--legacy-parse` and `--parse-mode` selectors are mutually exclusive.
+
+**Legacy alternative — Run Parse v1.2 in process:**
+
+```bash
+uv sync --extra interleaved_cuda12 --extra inference_server --extra cv2
 uv pip install albumentations==2.0.8  # required by the model's remote processor code
 uv run python tutorials/interleaved/nemotron_parse_pdf/inprocess.py \
     --manifest manifest.jsonl \
     --pdf-dir /path/to/pdfs \
     --output-dir /path/to/output \
+    --model-path nvidia/NVIDIA-Nemotron-Parse-v1.2 \
     --backend vllm \
     --enforce-eager
 ```
 
-Use `inprocess.py` for local validation and debugging when you do not want a
-separate serving topology.
+Use `inprocess.py` for Parse v1.2 local validation and debugging when you do not
+want a separate serving topology. It keeps the v1.2 default and rejects served
+Parse 3.5 modes.
 
 The in-process and Ray Serve paths use Triton attention automatically on
 Ampere GPUs, following the model's A100/A10 guidance. On Blackwell, they also
@@ -154,7 +182,10 @@ images = [Image.open(io.BytesIO(b)) for b in df[df["modality"] == "image"]["bina
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--backend` | `vllm` | In-process engine (`inprocess.py` only); also supports `hf`. |
+| `--model-path` | `nvidia/Nemotron-3.5-Parse` (`main.py`, benchmark); v1.2 (`inprocess.py`) | Served model or local weights; legacy main/benchmark runs require an explicit model. |
+| `--parse-mode` | `single` (`main.py`, benchmark) | Served Parse 3.5 mode: `single`, `double`, or `triple`. |
+| `--legacy-parse` | off (`main.py`, benchmark) | Select the v1.2 path with an explicit `--model-path`; mutually exclusive with `--parse-mode`. |
+| `--backend` | `vllm` | In-process engine (`inprocess.py`); benchmark also supports `hf` for explicit legacy in-process runs. |
 | `--enforce-eager` | off | Skip vLLM CUDA graph capture (~35 min savings on first run) |
 | `--max-num-seqs` | 64 | Max concurrent sequences for vLLM |
 | `--inference-batch-size` | 32 (`main.py`), 4 (`inprocess.py`) | Concurrent requests per HTTP worker, or pages per in-process HF pass |
@@ -165,13 +196,13 @@ images = [Image.open(io.BytesIO(b)) for b in df[df["modality"] == "image"]["bina
 | `--dpi` | 300 | PDF rendering resolution |
 | `--max-pages` | 50 | Legacy per-PDF limit; page mode processes the complete manifest selection |
 | `--text-in-pic` | off | Predict text inside images (v1.2+ feature) |
-| `--nemotron-parse-path` | — | Local Parse 3.5 repository for managed Dynamo (`main.py` only); use with `--parse-mode` |
+| `--nemotron-parse-path` | — | Complete local Parse 3.5 repository required for managed Dynamo in `main.py` or the benchmark |
 | `--reuse-encoded-images` | off | Reuse verified rendered PNG bytes for served Parse 3.5 `single` mode only |
 
 ## Served Nemotron Parse 3.5
 
-Set `--parse-mode` to read pages with Nemotron Parse 3.5 through an inference server
-that you start and stop. Install the model team's package from the model repository,
+The served CLI defaults to Parse 3.5 `single` mode. Use an existing endpoint or
+let Curator manage Dynamo with a complete local model repository. Install the model team's package from the model repository,
 without the weights or its inference dependencies, at the revision that your server runs:
 
 ```bash
@@ -196,7 +227,11 @@ repository and pass it as both `--model-path` and `--nemotron-parse-path`. The
 driver environment needs `ai-dynamo==1.4.2`, which pins vLLM 0.26; Curator's
 locked release pins a vLLM that is older than Parse 3.5 supports. Each serving
 worker installs the repository package with its own dependencies, and Dynamo's
-frontend applies the repository's `chat_template.jinja`. CUDA 13 environments must
+frontend applies the repository's `chat_template.jinja`. Dynamo needs local
+`etcd` and `nats-server` binaries: repository container images include them;
+source environments can use
+[`install_etcd_nats.sh`](https://github.com/NVIDIA-NeMo/Curator/blob/main/docker/common/install_etcd_nats.sh).
+CUDA 13 environments must
 set `NEMO_CURATOR_DYNAMO_CUDA_TAG=cu130`; the default remains Curator's `cu129`
 actor environment. A CPU-only driver can keep CPU PyTorch: serving workers replace
 it with the selected CUDA build.
@@ -225,7 +260,7 @@ also becomes an error row. The served path recovers missing or timed-out render
 results with smaller page windows: the initial attempt has a 60-second timeout,
 then recovery shares a 120-second budget and uses at most seven attempts including
 the initial attempt. Unrecovered pages keep their physical page numbers and error
-rows. The default v1.2 path keeps its single render attempt. See the
+rows. The explicit v1.2 path keeps its single render attempt. See the
 [Nemotron Parse PDF guide](../../../fern/versions/main/pages/curate-text/load-data/nemotron-parse-pdf.mdx)
 for serving limits and parser behavior.
 
@@ -308,6 +343,12 @@ are B200 experiment settings, not portable defaults. These recipes are untested
 on RTX GPUs. Use the parameterized `main.py` entry point for another topology
 and validate its dependencies, memory headroom, output coverage, and failures.
 The benchmark launchers refuse to overwrite existing result directories.
+
+The generic `benchmarking/scripts/nemotron_parse_pdf_benchmark.py` also defaults
+to Parse 3.5 single mode: supply `--nemotron-parse-path` for managed Dynamo, or
+`--inference-server-endpoint` to reuse an existing server, and always provide
+`--benchmark-results-path`. For v1.2 use `--legacy-parse` with an explicit
+`--model-path`; the pinned v1.2 regression configurations retain that selection.
 
 ### Included files
 

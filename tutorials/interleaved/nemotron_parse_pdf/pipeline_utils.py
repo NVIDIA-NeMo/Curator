@@ -44,7 +44,7 @@ def create_nemotron_parse_pdf_argparser() -> argparse.ArgumentParser:
 
     parser.add_argument(
         "--model-path",
-        default="nvidia/NVIDIA-Nemotron-Parse-v1.2",
+        default="nvidia/Nemotron-3.5-Parse",
         help="HuggingFace model ID or local path",
     )
     parser.add_argument(
@@ -91,7 +91,20 @@ def create_nemotron_parse_pdf_argparser() -> argparse.ArgumentParser:
         "utilization enforcement.",
     )
 
-    parser.add_argument("--parse-mode", choices=["single", "double", "triple"], default=None)
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--parse-mode", choices=["single", "double", "triple"], default="single")
+    mode.add_argument(
+        "--legacy-parse",
+        action="store_const",
+        const=None,
+        dest="parse_mode",
+        help="Use the v1.2 inference path; also set --model-path to the v1.2 model",
+    )
+    parser.add_argument(
+        "--nemotron-parse-path",
+        default=None,
+        help="Complete local Parse 3.5 model repository for Curator-managed Dynamo serving",
+    )
     parser.add_argument("--triple-regions", choices=["union", "detector"], default="union")
     parser.add_argument("--inference-server-endpoint", default=None, help="Use an existing OpenAI-compatible endpoint")
     parser.add_argument("--inference-server-model-name", default=None, help="Model name exposed by that endpoint")
