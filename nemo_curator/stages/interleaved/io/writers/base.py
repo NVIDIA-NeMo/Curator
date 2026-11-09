@@ -190,10 +190,10 @@ class BaseInterleavedWriter(ProcessingStage[InterleavedBatch, FileGroupTask], AB
         if self.atomic_local_write:
             self.fs.makedirs(self._fs_path, exist_ok=True)
             temporary_path = self.fs.sep.join(
-                [self._fs_path, f".{filename}.{uuid.uuid4().hex}.partial.{self.file_extension}"]
+                [self._fs_path, f".{filename}.{uuid.uuid4().hex}.{self.file_extension}.partial"]
             )
-            # Keep interrupted temporary files as evidence. Only a closed file
-            # becomes visible at the deterministic final path.
+            # Retain interrupted files without a data suffix so ordinary input
+            # listing cannot consume them before atomic publication.
             self.write_data(task, temporary_path)
             os.replace(temporary_path, file_path)
         else:

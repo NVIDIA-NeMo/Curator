@@ -608,13 +608,20 @@ Set `pages_per_task` on `NemotronParsePDFReader`, or `--pages-per-task` in the
 tutorial, to pack selected pages across PDF boundaries. A long PDF can span several
 tasks; document regrouping restores its page selection and element order before
 writing. The default `None` retains PDF-based tasking. This option requires served
-Parse 3.5 `single` mode and `RayDataExecutor`; other executors are rejected.
+Parse 3.5 `single` mode and `RayDataExecutor`; `Pipeline.run()` rejects other
+executors for this pipeline.
+
+Construct page mode through `NemotronParsePDFReader` or the shared tutorial
+builder, which passes the resolved extraction contract into partitioning. A
+standalone `PDFPartitioningStage(pages_per_task=...)` does not supply that contract
+and is not a complete page-mode pipeline.
 
 A budget of `64` puts 64 selected pages into each task except the final tail. It
 is a scheduling limit, not a page cap or an inference batch size. `pdfs_per_task`
 and the legacy `max_pages` limit are ignored in this mode. Supply an authoritative
 `num_pages` to process every page, or `selected_page_indices` to process an explicit
-selection in its declared order.
+selection in its declared order. This order can differ from ascending physical
+page number; every page retains its original physical page identity.
 
 Use one versioned PDF per manifest record:
 
@@ -666,11 +673,13 @@ python tutorials/interleaved/nemotron_parse_pdf/main.py \
 
 The tutorial uses a fixed schema and rejects undeclared columns. It retains
 explicit page failures, rejects missing or duplicate ranges, and ends with
-`PDFPageBudgetValidationStage` after the writer. This driver check reconciles
-all outputs against the original manifest, including PDFs with no surviving
+`PDFPageBudgetValidationStage` after the writer, consuming the writer's
+`FileGroupTask` results. This driver check reconciles all outputs against the original manifest, including PDFs with no surviving
 chunks. Coverage passing does not mean all pages succeeded or that extraction
-quality was validated. Directly assembled pipelines must include this finalizer;
-the executor rejects a merge pipeline without it.
+quality was validated. A successfully parsed page whose only pictures are below
+`min_crop_px` can have zero retained elements; that existing crop-filtering behavior
+is preserved. Page-success and coverage counts therefore do not imply populated
+content. Directly assembled pipelines must include this finalizer; the executor rejects a merge pipeline without it.
 
 Use a fresh output directory for every run. The page-mode writer enables the
 otherwise default-off `atomic_local_write`, `reject_unknown_columns`, and
@@ -680,12 +689,18 @@ Parquet file is written to a temporary sibling and published with `os.replace`.
 A complete retry replaces the destination; concurrent complete writes leave the
 last replacement. Interrupted temporary files remain available for inspection.
 This is per-file atomic replacement, not crash durability, no-clobber publication,
-exactly-once inference, or a transaction across all documents.
+exactly-once inference, or a transaction across all documents. If writing or final
+validation raises, already-published files remain; their presence alone is not
+evidence of a successful run.
 
 Atomic writing accepts a locally addressed filesystem. A `LocalFileSystem`
 interface does not prove SSD backing or exclude an NFS mount; verify the backing
-mount yourself. Document regrouping remains a global barrier, and planning,
-inventory validation, and final results are materialized in memory. Size the
+mount yourself. For a multi-node pipeline, the output directory must refer to the
+same shared storage at the same absolute path on every node running a writer and
+on the driver performing final validation. A node-local disk on each worker does
+not satisfy this requirement. Input and model/template paths must likewise be
+available on the nodes that read or serve them. Document regrouping remains a
+global barrier, and planning, inventory validation, and final results are materialized in memory. Size the
 workload and driver for these requirements; a page budget does not bound total
 pipeline memory or make regrouping checkpoint-resumable.
 

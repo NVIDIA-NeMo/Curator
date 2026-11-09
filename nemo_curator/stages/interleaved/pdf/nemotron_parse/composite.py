@@ -210,7 +210,6 @@ class NemotronParsePDFReader(CompositeStage[EmptyTask, InterleavedBatch]):
         self._postprocessor = NemotronParsePostprocessStage(
             min_crop_px=self.min_crop_px,
         )
-        self._postprocessor._page_budget = self.pages_per_task is not None
         self._merger = PDFDocumentMergeStage() if self.pages_per_task is not None else None
         if self._merger is not None:
             self._configure_page_budget()

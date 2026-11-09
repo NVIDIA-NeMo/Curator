@@ -101,6 +101,14 @@ def test_driver_validation_checks_even_an_empty_result_list(tmp_path: Path):
         ).process_batch([])
 
 
+def test_driver_validation_requires_writer_file_references(tmp_path: Path):
+    manifest, _, documents, _ = outputs(tmp_path)
+    with pytest.raises(TypeError, match="FileGroupTask outputs from a writer"):
+        PDFPageBudgetValidationStage(
+            manifest_path=str(manifest), expected_output_version=TEST_OUTPUT_VERSION
+        ).process_batch(documents)
+
+
 @pytest.mark.parametrize("mixed", [False, True])
 def test_wrong_or_mixed_output_version_is_rejected(tmp_path: Path, mixed: bool):
     manifest, writer, documents, files = outputs(tmp_path)

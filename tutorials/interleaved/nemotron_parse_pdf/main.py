@@ -41,6 +41,9 @@ def main() -> None:
     args.output_dir = os.path.abspath(args.output_dir)
     if args.pages_per_task is None:
         os.makedirs(args.output_dir, exist_ok=True)
+    elif os.path.exists(args.output_dir):
+        msg = f"Output directory {args.output_dir} already exists"
+        raise FileExistsError(msg)
 
     if args.parse_mode is not None and args.inference_server_endpoint is None and args.nemotron_parse_path is None:
         parser.error("--parse-mode requires --inference-server-endpoint or --nemotron-parse-path")

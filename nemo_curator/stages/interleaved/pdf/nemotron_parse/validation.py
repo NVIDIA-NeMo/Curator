@@ -156,6 +156,9 @@ class PDFPageBudgetValidationStage(ProcessingStage[FileGroupTask, FileGroupTask]
         raise RuntimeError(msg)
 
     def process_batch(self, tasks: list[FileGroupTask]) -> list[FileGroupTask]:
+        if any(not isinstance(task, FileGroupTask) for task in tasks):
+            msg = "PDFPageBudgetValidationStage requires FileGroupTask outputs from a writer"
+            raise TypeError(msg)
         result = validate_page_budget_outputs(
             self.manifest_path,
             [path for task in tasks for path in task.data],

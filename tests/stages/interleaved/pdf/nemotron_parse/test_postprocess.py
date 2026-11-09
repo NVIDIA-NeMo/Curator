@@ -23,10 +23,22 @@ import pyarrow.parquet as pq
 import pytest
 from PIL import Image
 
+from nemo_curator.backends.ray_data.executor import RayDataExecutor
+from nemo_curator.stages.interleaved.io import InterleavedParquetWriterStage
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.postprocess import NemotronParsePostprocessStage
+from nemo_curator.stages.interleaved.pdf.nemotron_parse.reassembly import PDFDocumentMergeStage
+from nemo_curator.stages.interleaved.pdf.nemotron_parse.schema import PAGE_OUTPUT_SCHEMA
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.utils import build_interleaved_rows, image_to_bytes
+from nemo_curator.stages.interleaved.pdf.nemotron_parse.validation import PDFPageBudgetValidationStage
 from nemo_curator.stages.interleaved.stages import BaseInterleavedFilterStage
 from nemo_curator.tasks import FileGroupTask, InterleavedBatch
+from nemo_curator.tasks.utils import TaskPerfUtils
+from nemo_curator.utils.performance_utils import StagePerfStats
+from tests.stages.interleaved.pdf.nemotron_parse._page_budget_helpers import (
+    TEST_EXTRACTION_CONFIG,
+    TEST_OUTPUT_VERSION,
+    partition,
+)
 
 
 def test_landscape_picture_crops_original_content_not_center_padding():
@@ -188,3 +200,94 @@ def test_outputs_with_and_without_errors_read_back_together(tmp_path: Path):
     errors = {row["sample_id"]: row["materialize_error"] for row in rows if row["materialize_error"]}
     assert errors == {"failed": error, "unopened": error}
     assert any(row["sample_id"] == "parsed" and row["text_content"] == "Hello" for row in rows)
+
+
+@pytest.mark.usefixtures("shared_ray_client")
+def test_page_fanout_metrics_survive_real_ray_regrouping(tmp_path: Path):
+    entries = [{"file_name": f"short-{index}.pdf", "num_pages": 2} for index in range(8)]
+    manifest, tasks = partition(tmp_path, [*entries, {"file_name": "long.pdf", "num_pages": 40}], size=16)
+    source_stats = StagePerfStats("source", process_time=0.25)
+    initial = []
+    image = image_to_bytes(Image.new("RGB", (20, 20)))
+    document = json.dumps({"blocks": [{"class": "Text", "bbox": [0.1, 0.1, 0.9, 0.9], "content": "text"}]})
+    for task in tasks:
+        rows = []
+        for serialized in task.data:
+            entry = json.loads(serialized)
+            chunk = entry["_page_chunk"]
+            for page in chunk["page_indices"]:
+                failed = page == 0
+                rows.append(
+                    {
+                        "sample_id": chunk["sample_id"],
+                        "document_id": chunk["document_id"],
+                        "pdf_name": entry["file_name"],
+                        "url": entry["url"],
+                        "page_number": page,
+                        "binary_content": image,
+                        "parse_document": None if failed else document,
+                        "materialize_error": json.dumps({"message": "retained failure"}) if failed else None,
+                    }
+                )
+        valid = sum(row["materialize_error"] is None for row in rows)
+        initial.append(
+            InterleavedBatch(
+                dataset_name="test",
+                data=pa.Table.from_pylist(rows),
+                _metadata={**task._metadata, "parse_mode": "single", "pdf_extraction_config": TEST_EXTRACTION_CONFIG},
+                _stage_perf=[
+                    source_stats,
+                    StagePerfStats(
+                        "nemotron_parse_inference",
+                        process_time=1.0,
+                        num_items_processed=len(rows),
+                        custom_metrics={
+                            "num_input_pages": float(len(rows)),
+                            "num_valid_pages": float(valid),
+                            "num_error_pages": float(len(rows) - valid),
+                            "total_prompt_tokens": float(len(rows) * 10),
+                            "total_output_tokens": float(valid * 4),
+                        },
+                    ),
+                ],
+            )
+        )
+    results = RayDataExecutor().execute(
+        [
+            NemotronParsePostprocessStage(),
+            PDFDocumentMergeStage(),
+            InterleavedParquetWriterStage(
+                path=str(tmp_path / "out"),
+                materialize_on_write=False,
+                on_materialize_error="warn",
+                schema=PAGE_OUTPUT_SCHEMA,
+                reject_unknown_columns=True,
+                atomic_local_write=True,
+                use_output_file_id=True,
+                mode="error",
+            ),
+            PDFPageBudgetValidationStage(manifest_path=str(manifest), expected_output_version=TEST_OUTPUT_VERSION),
+        ],
+        initial_tasks=initial,
+    )
+    assert len(results) == 9
+    validation = results[0]._metadata["pdf_page_budget_validation"]
+    assert validation["pages"] == 56
+    assert validation["successful_pages"] == 47
+    assert validation["failed_pages"] == 9
+    metrics = TaskPerfUtils.aggregate_task_metrics(results)
+    assert metrics["source_process_time_sum"] == 0.25
+    assert metrics["nemotron_parse_inference_process_time_sum"] == 4.0
+    for name, expected in {
+        "num_input_pages": 56,
+        "num_valid_pages": 47,
+        "num_error_pages": 9,
+        "total_prompt_tokens": 560,
+        "total_output_tokens": 188,
+    }.items():
+        assert metrics[f"nemotron_parse_inference_custom.{name}_sum"] == expected
+    stages = TaskPerfUtils.collect_stage_metrics(results)
+    assert len(stages["nemotron_parse_postprocess"]["process_time"]) == len(initial)
+    # InterleavedBatch.num_items counts unique documents, not page rows.
+    assert stages["nemotron_parse_postprocess"]["num_items_processed"].sum() == sum(task.num_items for task in initial)
+    assert (stages["nemotron_parse_postprocess"]["process_time"] > 0).all()

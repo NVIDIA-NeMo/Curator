@@ -26,9 +26,10 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
+from nemo_curator.stages.file_partitioning import FilePartitioningStage
 from nemo_curator.stages.interleaved.io.writers.base import BaseInterleavedWriter
 from nemo_curator.stages.interleaved.io.writers.tabular import InterleavedParquetWriterStage
-from nemo_curator.tasks import InterleavedBatch
+from nemo_curator.tasks import EmptyTask, InterleavedBatch
 from nemo_curator.tasks.interleaved import INTERLEAVED_SCHEMA
 
 _BASE_ROW: dict[str, Any] = {
@@ -59,7 +60,10 @@ def _writer(tmp_path: Path, on_error: str = "error") -> InterleavedParquetWriter
     )
 
 
-def test_atomic_write_preserves_prior_final_and_failed_temporary_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+@pytest.mark.parametrize("completed", [False, True], ids=["truncated", "complete_unpublished"])
+def test_atomic_write_preserves_prior_final_and_failed_temporary_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, completed: bool
+):
     writer = InterleavedParquetWriterStage(
         path=str(tmp_path / "out"), mode="error", atomic_local_write=True, materialize_on_write=False
     )
@@ -68,8 +72,11 @@ def test_atomic_write_preserves_prior_final_and_failed_temporary_file(tmp_path: 
     before = final.read_bytes()
     original_write = writer.write_data
 
-    def interrupted_write(_task: InterleavedBatch, path: str) -> None:
-        Path(path).write_bytes(b"incomplete parquet")
+    def interrupted_write(task: InterleavedBatch, path: str) -> None:
+        if completed:
+            original_write(task, path)
+        else:
+            Path(path).write_bytes(b"incomplete parquet")
         msg = "simulated interrupted write"
         raise OSError(msg)
 
@@ -77,9 +84,16 @@ def test_atomic_write_preserves_prior_final_and_failed_temporary_file(tmp_path: 
     with pytest.raises(OSError, match="interrupted"):
         writer.process(task)
     assert final.read_bytes() == before
-    partials = list(final.parent.glob(".*.partial.parquet"))
+    partials = [path for path in final.parent.iterdir() if path != final]
     assert len(partials) == 1
-    assert partials[0].read_bytes() == b"incomplete parquet"
+    if completed:
+        assert pq.read_table(partials[0]).column("text_content").to_pylist() == ["hello"]
+    else:
+        assert partials[0].read_bytes() == b"incomplete parquet"
+    listed = FilePartitioningStage(file_paths=str(final.parent), file_extensions=[".parquet"]).process(EmptyTask())
+    paths = [path for task in listed for path in task.data]
+    assert paths == [str(final)]
+    assert pq.read_table(paths).num_rows == pq.read_table(final.parent).num_rows == 1
     monkeypatch.setattr(writer, "write_data", original_write)
     assert writer.process(task).data == [str(final)]
     assert pq.read_table(final)["text_content"].to_pylist() == ["hello"]
@@ -102,6 +116,10 @@ def test_interrupted_first_write_exposes_no_final_file(tmp_path: Path, monkeypat
     with pytest.raises(OSError, match="interrupted"):
         writer.process(_make_task([_BASE_ROW]))
     assert all(path.name.startswith(".") for path in (tmp_path / "out").iterdir())
+    assert (
+        FilePartitioningStage(file_paths=str(tmp_path / "out"), file_extensions=[".parquet"]).process(EmptyTask())
+        == []
+    )
 
 
 def test_atomic_write_rejects_nonlocal_filesystem():
@@ -365,3 +383,7 @@ def test_concurrent_atomic_publications_leave_one_complete_file(tmp_path: Path, 
     assert [row["position"] for row in rows] == [0, 1, 2]
     assert {row["text_content"] for row in rows} in ({"first"}, {"second"})
     assert len(list(tmp_path.glob("*.parquet"))) == 1
+    listed = FilePartitioningStage(file_paths=str(tmp_path), file_extensions=[".parquet"]).process(EmptyTask())
+    paths = [path for task in listed for path in task.data]
+    assert paths == results[0].data
+    assert pq.read_table(paths).to_pylist() == pq.read_table(tmp_path).to_pylist() == rows

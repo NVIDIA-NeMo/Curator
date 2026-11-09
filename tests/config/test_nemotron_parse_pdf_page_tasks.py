@@ -82,3 +82,56 @@ def test_page_task_entry_points_require_fresh_output(
         module.main()
     assert run.call_count == int(not existing_output)
     assert output.is_dir()
+
+
+@pytest.mark.parametrize("entry_point", ["main", "benchmark"])
+def test_managed_page_mode_rejects_existing_output_before_serving(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, entry_point: str
+):
+    monkeypatch.syspath_prepend(str(ROOT / "benchmarking/scripts"))
+    monkeypatch.syspath_prepend(str(ROOT / "tutorials/interleaved/nemotron_parse_pdf"))
+    if entry_point == "main":
+        spec = importlib.util.spec_from_file_location(
+            "managed_page_task_main", ROOT / "tutorials/interleaved/nemotron_parse_pdf/main.py"
+        )
+        module = importlib.util.module_from_spec(spec)
+        monkeypatch.setitem(sys.modules, spec.name, module)
+        spec.loader.exec_module(module)
+        probe_name = "get_available_cpu_gpu_resources"
+    else:
+        module = importlib.import_module("nemotron_parse_pdf_benchmark")
+        monkeypatch.setattr(module, "setup_executor", Mock())
+        monkeypatch.setattr(module, "write_benchmark_results", Mock())
+        probe_name = "_available_gpu_count"
+    probe = Mock(side_effect=AssertionError("output validation must precede GPU discovery"))
+    factory = Mock(side_effect=AssertionError("output validation must precede serving"))
+    run = Mock(side_effect=AssertionError("existing output cannot be reused"))
+    monkeypatch.setattr(module, probe_name, probe)
+    monkeypatch.setattr(module, "create_nemotron_parse_inference_server", factory)
+    monkeypatch.setattr(Pipeline, "run", run)
+    argv = [
+        entry_point,
+        "--manifest",
+        str(tmp_path / "manifest.jsonl"),
+        "--pdf-dir",
+        str(tmp_path),
+        "--output-dir",
+        str(tmp_path),
+        "--nemotron-parse-path",
+        str(tmp_path / "model"),
+        "--pages-per-task",
+        "64",
+        "--page-budget-extraction-config",
+        str(tmp_path / "extraction.json"),
+    ]
+    if entry_point == "benchmark":
+        argv.extend(["--benchmark-results-path", str(tmp_path / "results")])
+    monkeypatch.setattr(sys, "argv", argv)
+    if entry_point == "main":
+        with pytest.raises(FileExistsError, match="already exists"):
+            module.main()
+    else:
+        module.main()
+    probe.assert_not_called()
+    factory.assert_not_called()
+    run.assert_not_called()

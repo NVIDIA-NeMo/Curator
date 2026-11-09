@@ -187,6 +187,12 @@ def _benchmark_server_type(args: argparse.Namespace) -> InferenceServerBackend |
     return server_type
 
 
+def _validate_output_directory(output_dir: Path, *, require_fresh: bool) -> None:
+    if require_fresh and output_dir.exists():
+        msg = f"Output directory {output_dir} already exists"
+        raise FileExistsError(msg)
+
+
 def run_nemotron_parse_pdf_benchmark(args: argparse.Namespace) -> dict[str, Any]:
     """Run the Nemotron-Parse PDF benchmark and collect metrics."""
     executor = setup_executor(args.executor)
@@ -215,6 +221,7 @@ def run_nemotron_parse_pdf_benchmark(args: argparse.Namespace) -> dict[str, Any]
     output_tasks: list = []
 
     try:
+        _validate_output_directory(output_dir, require_fresh=args.pages_per_task is not None)
         server_type = _benchmark_server_type(args)
         if server_type is not None:
             if args.backend != "vllm":

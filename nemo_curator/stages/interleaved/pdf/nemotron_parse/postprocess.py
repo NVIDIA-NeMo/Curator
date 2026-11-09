@@ -66,10 +66,10 @@ class NemotronParsePostprocessStage(ProcessingStage[InterleavedBatch, Interleave
     min_crop_px: int = DEFAULT_MIN_CROP_PX
     name: str = "nemotron_parse_postprocess"
     resources: Resources = field(default_factory=lambda: Resources(cpus=2.0))
-    _page_budget: bool = field(default=False, repr=False)
 
     def ray_stage_spec(self) -> dict[str, Any]:
-        return {"is_fanout_stage": self._page_budget}
+        # Page chunks are regrouped by document next; an intermediate repartition is redundant.
+        return {"is_fanout_stage": False}
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []

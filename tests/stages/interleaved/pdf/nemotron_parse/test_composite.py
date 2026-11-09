@@ -137,7 +137,8 @@ def test_page_budget_keeps_http_capacity_and_adds_nonresumable_merge():
     assert reader._inference.inference_batch_size == 64
     assert reader._inference.num_workers() == 36
     assert reader._partitioner.pages_per_task == 64
-    assert reader._postprocessor.ray_stage_spec() == {"is_fanout_stage": True}
+    # Document grouping handles page chunks without an intermediate repartition.
+    assert reader._postprocessor.ray_stage_spec() == {"is_fanout_stage": False}
     assert not reader.decompose()[-1].is_resumable
 
 

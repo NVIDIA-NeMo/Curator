@@ -364,7 +364,10 @@ Use `--pages-per-task 64` with `--parse-mode single --executor ray-data` to pack
 Long PDFs are split for processing and regrouped into complete documents before
 writing. This is a task budget, not an inference batch size or page cap:
 `--pdfs-per-task` and `--max-pages` are ignored. Without the option, the existing
-PDF-based tasking remains unchanged.
+PDF-based tasking remains unchanged. Construct page mode through
+`NemotronParsePDFReader` or this tutorial's shared builder so partitioning receives
+the resolved extraction contract; setting a page budget on a standalone
+`PDFPartitioningStage` is insufficient.
 
 Page mode requires one PDF per manifest record with `source_locator`, an immutable
 `source_version` for its actual bytes, and either `num_pages` (all pages) or
@@ -393,17 +396,26 @@ python tutorials/interleaved/nemotron_parse_pdf/main.py \
 ```
 
 Use a fresh, locally addressed output directory for each run and verify its backing
-mount; a local filesystem API does not prove SSD storage or exclude NFS. The
-builder writes the fixed page-output schema, rejects undeclared columns, retains
+mount; a local filesystem API does not prove SSD storage or exclude NFS. On a
+multi-node cluster, every writer node and the validating driver must access the
+same output directory at the same absolute path. Separate node-local directories
+are insufficient. Input and model/template paths must also be available to their
+respective reader and serving nodes. The builder writes the fixed page-output schema, rejects undeclared columns, retains
 failed-page rows, and runs a mandatory final inventory check after writing. That
 check detects missing whole PDFs as well as missing, duplicate, or substituted
 pages; coverage passing does not establish extraction quality or all-page success.
+A successfully parsed picture-only page can retain zero elements when its pictures
+are all smaller than `min_crop_px`; page-success counts do not imply populated
+content. Selections retain their declared order and physical page identities,
+including when that order is not ascending.
 
 Output filenames derive from verified document/selection/extraction identities.
 The writer publishes each closed temporary Parquet with atomic replacement: a
 complete retry can replace that file, and the last complete concurrent replacement
 wins. It is not crash durability, no-clobber publication, exactly-once inference,
-or a multi-document transaction. Interrupted temporary files are retained.
+or a multi-document transaction. Interrupted temporary files are retained. A run
+that raises during writing or final validation leaves already-published files;
+those files alone do not establish completion.
 Regrouping is a global barrier, with materialized planning/inventory/results and
 no regrouping checkpoint support; the page budget does not bound total memory.
 

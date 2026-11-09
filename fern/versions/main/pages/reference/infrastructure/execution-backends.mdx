@@ -213,14 +213,20 @@ Stages can opt into these Ray Data stage-spec keys through `ray_stage_spec()` or
 Grouped stages introduce a global grouping barrier; they do not provide bounded
 streaming fan-in. Driver stages must form the final suffix after all distributed
 stages and run in order after results are collected. Allow driver memory for the
-result list and any finalizer inventory.
+result list and any finalizer inventory. On the driver, these stages call
+`process_batch()` without `setup()` or `teardown()`. The executor still invokes
+`setup_on_node()` on Ray nodes, which does not initialize the driver instance.
+Driver processing must use its existing environment and initialize any required
+state in the constructor or `process_batch()`.
 
 A stage can declare `required_finalizer` to require a matching driver stage's
 `finalizes` identifier. The executor rejects a pipeline missing that finalizer
 before execution. For example, page-based PDF regrouping requires a final
 manifest-to-output reconciliation so an entirely missing document is detected.
-Pipelines using these grouped or driver-only stages are rejected by the other
-executors. See [page-based PDF tasking](/main/curate-text/load-data/nemotron-parse-pdf#page-based-tasking)
+`Pipeline.run()` rejects other executors for pipelines using these grouped or
+driver-only stages. Calling an executor's `execute()` directly bypasses that
+pipeline-level compatibility check; it is not a supported way to run these stages
+on another backend. See [page-based PDF tasking](/main/curate-text/load-data/nemotron-parse-pdf#page-based-tasking)
 for the complete reader, writer, and validation workflow.
 
 ## Per-Stage Runtime Environments

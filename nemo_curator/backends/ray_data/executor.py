@@ -64,7 +64,8 @@ class RayDataExecutor(BaseExecutor):
         if not stages:
             return []
         driver_stages = [stage for stage in stages if stage.ray_stage_spec().get(RayStageSpecKeys.RUN_ON_DRIVER)]
-        if driver_stages and stages[-len(driver_stages) :] != driver_stages:
+        driver_stage_ids = {id(stage) for stage in driver_stages}
+        if driver_stages and any(id(stage) not in driver_stage_ids for stage in stages[-len(driver_stages) :]):
             msg = "Driver validation stages must follow all distributed stages"
             raise ValueError(msg)
         required = {getattr(stage, "required_finalizer", None) for stage in stages} - {None}
@@ -104,7 +105,7 @@ class RayDataExecutor(BaseExecutor):
 
             # Process through each stage
             for i, stage in enumerate(stages):
-                if stage in driver_stages:
+                if id(stage) in driver_stage_ids:
                     continue
                 # TODO: add pipeline level config for verbosity
                 logger.info(f"Processing stage {i + 1}/{len(stages)}: {stage}")
