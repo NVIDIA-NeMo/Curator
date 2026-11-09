@@ -203,6 +203,11 @@ images = [Image.open(io.BytesIO(b)) for b in df[df["modality"] == "image"]["bina
 
 ## Served Nemotron Parse 3.5
 
+One-token MTP is the model package's default for the documented vLLM setup and
+remains unchanged by Curator. DFlash2 is an optional Parse 3.5 acceleration path
+that requires a compatible serving runtime and a matching drafter configured
+separately; any throughput improvement depends on the workload.
+
 The served CLI defaults to Parse 3.5 `single` mode. Use an existing endpoint or
 let Curator manage Dynamo with a complete local model repository. Install the model team's package from the model repository,
 without the weights or its inference dependencies, at the revision that your server runs:
