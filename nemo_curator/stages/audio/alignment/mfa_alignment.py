@@ -38,10 +38,7 @@ Worker scheduling
     MFA/Kaldi is not safe to run concurrently against a shared model directory,
     so each backend is constrained to avoid overlapping workers:
 
-    * Xenna: ``xenna_stage_spec()`` returns ``{"num_workers_per_node": 1}`` to
-      guarantee exactly one MFA worker per node.
-    * Ray Data: ``ray_stage_spec()`` fixes the actor pool to one worker
-      cluster-wide, independently of Xenna's per-node policy.
+    ``num_workers()`` limits all execution backends to one worker cluster-wide.
 """
 
 from __future__ import annotations
@@ -211,14 +208,12 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
             data_keys.append("ctm_filepath")
         return [], data_keys
 
-    def xenna_stage_spec(self) -> dict[str, Any]:
-        return {"num_workers_per_node": 1}
+    def num_workers(self) -> int:
+        return 1
 
     def ray_stage_spec(self) -> dict[str, Any]:
         return {
             RayStageSpecKeys.IS_ACTOR_STAGE: True,
-            RayStageSpecKeys.MIN_WORKERS: 1,
-            RayStageSpecKeys.MAX_WORKERS: 1,
         }
 
     def setup_on_node(
@@ -522,12 +517,19 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
                 f"(pid={process.pid}); killing its process group."
             )
             with contextlib.suppress(ProcessLookupError, PermissionError):
-                os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+                os.killpg(process.pid, signal.SIGKILL)
             try:
                 stdout, stderr = process.communicate(timeout=10)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                stdout, stderr = process.communicate()
+            except subprocess.TimeoutExpired as exc:
+                with contextlib.suppress(ProcessLookupError):
+                    process.kill()
+                for stream in (process.stdout, process.stderr):
+                    if stream is not None:
+                        stream.close()
+                with contextlib.suppress(subprocess.TimeoutExpired):
+                    process.wait(timeout=1)
+                stdout = exc.output.decode(errors="replace") if isinstance(exc.output, bytes) else exc.output
+                stderr = exc.stderr.decode(errors="replace") if isinstance(exc.stderr, bytes) else exc.stderr
             msg = (
                 f"mfa align timed out after {self.align_timeout_seconds:.0f}s "
                 "and its process group was killed.\n"
@@ -655,7 +657,59 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
         with open(ctm_path, "w", encoding="utf-8") as f:
             f.writelines(f"{file_stem} 1 {i * word_dur:.3f} {word_dur:.3f} {word}\n" for i, word in enumerate(words))
 
-    def _cache_identity(self) -> dict[str, str]:
+    @staticmethod
+    def _model_inventory(root: Path) -> list[dict[str, str | int]]:
+        inventory = []
+        for subdir in ("pretrained_models", "extracted_models"):
+            for path in sorted((root / subdir).rglob("*")):
+                if path.is_file():
+                    info = path.stat()
+                    inventory.append(
+                        {"path": str(path.relative_to(root)), "size": info.st_size, "mtime_ns": info.st_mtime_ns}
+                    )
+        return inventory
+
+    def _required_models_present(self, root: Path) -> bool:
+        for category, model, extension in (
+            ("acoustic", self.acoustic_model, "zip"),
+            ("dictionary", self.dictionary, "dict"),
+        ):
+            if not model:
+                continue
+            candidates = [
+                Path(model),
+                root / "pretrained_models" / category / model,
+                root / "pretrained_models" / category / f"{model}.{extension}",
+                root / "extracted_models" / category / model,
+                root / "extracted_models" / model,
+            ]
+            if not any(
+                (path.is_file() and path.stat().st_size > 0)
+                or (path.is_dir() and any(child.is_file() and child.stat().st_size > 0 for child in path.rglob("*")))
+                for path in candidates
+            ):
+                return False
+        return True
+
+    @staticmethod
+    def _copy_matches_source(root: Path, inventory: list[dict[str, Any]]) -> bool:
+        return all(
+            (root / item["path"]).is_file() and (root / item["path"]).stat().st_size == item["size"]
+            for item in inventory
+        )
+
+    def _validate_models(self, root: Path, identity: dict[str, Any] | None = None) -> None:
+        if not self._required_models_present(root):
+            msg = f"Requested MFA models are missing or empty under {root}; finish model downloads before setup"
+            raise FileNotFoundError(msg)
+        if identity is not None and self._cache_identity() != identity:
+            msg = "MFA model source changed while copying; retry setup after downloads finish"
+            raise RuntimeError(msg)
+        if identity is not None and not self._copy_matches_source(root, identity["source_files"]):
+            msg = "Copied MFA models are incomplete; retry setup"
+            raise RuntimeError(msg)
+
+    def _cache_identity(self) -> dict[str, Any]:
         """Identity that must match for a node-local model cache to be reused.
 
         Includes the *resolved* shared source root (so two distinct sources
@@ -670,6 +724,7 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
             "acoustic_model": self.acoustic_model,
             "dictionary": self.dictionary,
             "g2p_model": self.g2p_model or "",
+            "source_files": self._model_inventory(Path(resolved_source)),
         }
 
     def _cache_digest(self) -> str:
@@ -697,7 +752,11 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
         """
         marker = self._read_cache_marker(cache_dir)
         return (
-            marker is not None and marker.get("complete") is True and marker.get("identity") == self._cache_identity()
+            marker is not None
+            and marker.get("complete") is True
+            and marker.get("identity") == self._cache_identity()
+            and self._required_models_present(cache_dir)
+            and self._copy_matches_source(cache_dir, marker["identity"]["source_files"])
         )
 
     @contextlib.contextmanager
@@ -753,13 +812,16 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
             staging_dir.mkdir(parents=True)
             try:
                 src = Path(self._effective_mfa_root)
+                identity = self._cache_identity()
+                self._validate_models(src)
                 for subdir in ("pretrained_models", "extracted_models"):
                     src_path = src / subdir
                     if src_path.exists():
                         logger.info(f"  Copying {subdir}...")
                         shutil.copytree(src_path, staging_dir / subdir)
 
-                marker = {"identity": self._cache_identity(), "complete": True}
+                self._validate_models(staging_dir, identity)
+                marker = {"identity": identity, "complete": True}
                 marker_tmp = staging_dir / f"{_MFA_CACHE_MARKER_NAME}.tmp"
                 marker_tmp.write_text(json.dumps(marker), encoding="utf-8")
                 marker_tmp.replace(staging_dir / _MFA_CACHE_MARKER_NAME)

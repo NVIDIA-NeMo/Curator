@@ -247,8 +247,8 @@ Fields: `<file-id> <channel> <start> <duration> <word>`
 
 When running on multiple nodes (e.g., via Xenna or Ray cluster), `MFAAlignmentStage` handles distributed MFA gracefully:
 
-- **`setup_on_node()`** copies MFA pretrained models from shared storage (NFS/Lustre) to each node's local storage (e.g., `/tmp`), namespaced by a digest of the resolved source root plus the requested acoustic/dictionary/G2P model identity. The cache is populated atomically under a lock and validated against a completeness marker before reuse, so a stale, wrong-source, or interrupted copy is never silently served. This avoids file-locking issues that Kaldi (used internally by MFA) has with network filesystems.
-- **`xenna_stage_spec()`** requests exactly 1 MFA worker per node under Xenna; the Ray Data backend instead forces a single MFA actor cluster-wide through `ray_stage_spec()`. Either way, MFA's internal parallelism is controlled via `num_jobs` (MFA `-j`).
+- **`setup_on_node()`** copies MFA pretrained models from shared storage (NFS/Lustre) to each node's local storage (e.g., `/tmp`), namespaced by a digest of the resolved source root, requested model identities, and source file sizes and modification times. Setup requires nonempty acoustic and dictionary models before publishing the cache marker. Added or updated source files select a fresh cache, and missing or truncated cached files trigger rebuilding. This avoids file-locking issues that Kaldi (used internally by MFA) has with network filesystems.
+- **`num_workers()`** limits Ray Data, Ray Actor Pool, and Xenna to one MFA worker cluster-wide. MFA's internal parallelism is controlled via `num_jobs` (MFA `-j`).
 - Set `copy_models_to_local=False` if MFA models are already on local storage.
 
 ## Non-English Languages
