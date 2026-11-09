@@ -1,0 +1,16 @@
+{# Copyright (c) 2026 NVIDIA CORPORATION. SPDX-License-Identifier: Apache-2.0 #}
+{%- for message in messages -%}
+    {%- if message['content'] is string -%}
+        {{- raise_exception('NP3.5 native template requires content arrays') -}}
+    {%- endif -%}
+    {%- for part in message['content'] -%}
+        {%- if part['type'] == 'image' or part['type'] == 'image_url' -%}
+            {{- '<pad>\n' -}}
+        {%- endif -%}
+    {%- endfor -%}
+    {%- for part in message['content'] -%}
+        {%- if part['type'] == 'text' -%}
+            {{- part['text'] -}}
+        {%- endif -%}
+    {%- endfor -%}
+{%- endfor -%}
