@@ -10,8 +10,18 @@ import pytest
 TUTORIAL = Path(__file__).parents[2] / "tutorials/interleaved/nemotron_parse_pdf"
 
 
-@pytest.mark.parametrize("script", ["run_8gpu.sh", "run_8gpu_x100_direct.sh", "run_extractions.sh"])
-def test_replica_failure_from_outside_checkout_is_bounded(tmp_path: Path, script: str):
+@pytest.mark.parametrize(
+    ("script", "uncapped_manifest"),
+    [
+        ("run_8gpu.sh", "manifest-uncapped-window50.jsonl"),
+        ("run_8gpu_x100_direct.sh", "manifest-uncapped-window50.jsonl"),
+        ("run_extractions.sh", "manifest-uncapped-window50.jsonl"),
+        ("run_extractions.sh", "manifest-uncapped.jsonl"),
+    ],
+)
+def test_preflight_and_replica_failures_from_outside_checkout_are_bounded(
+    tmp_path: Path, script: str, uncapped_manifest: str
+):
     commands = tmp_path / "bin"
     commands.mkdir()
     for name, body in {
@@ -25,7 +35,7 @@ def test_replica_failure_from_outside_checkout_is_bounded(tmp_path: Path, script
     model, pdfs, results = (tmp_path / name for name in ("model", "pdfs", "results"))
     for directory in (model, pdfs, results):
         directory.mkdir()
-    for name in ("manifest.jsonl", "manifest-capped50.jsonl", "manifest-uncapped-window50.jsonl"):
+    for name in ("manifest.jsonl", "manifest-capped50.jsonl", uncapped_manifest):
         (results / name).write_text("{}\n")
     started = tmp_path / "started"
     environment = {
@@ -49,6 +59,10 @@ def test_replica_failure_from_outside_checkout_is_bounded(tmp_path: Path, script
         check=False,
     )
     assert result.returncode != 0
-    assert "exited before readiness" in result.stderr
-    assert started.is_file()
+    if script == "run_extractions.sh" and uncapped_manifest == "manifest-uncapped.jsonl":
+        assert not started.exists()
+        assert "manifest-uncapped-window50.jsonl" in result.stderr
+    else:
+        assert "exited before readiness" in result.stderr
+        assert started.is_file()
     assert not list(results.glob("*/run-summary.json"))

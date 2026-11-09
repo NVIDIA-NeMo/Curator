@@ -465,7 +465,8 @@ starts the round-robin proxy on port 8000, and runs the Curator pipeline with
 ### Direct vLLM: capped and uncapped DC10K
 
 `run_extractions.sh` expects `manifest-capped50.jsonl` and
-`manifest-uncapped-window50.jsonl` under `ROOT`:
+`manifest-uncapped-window50.jsonl` under `ROOT`. Preflight requires these exact
+filenames before starting the servers:
 
 ```bash
 export CURATOR_ROOT=/path/to/Curator
@@ -527,6 +528,9 @@ utilization measurements; use a separate whole-job monitor to include model
 startup and shutdown. Compare the reported timestamps and per-GPU sample counts,
 and keep idle gaps inside the measured interval. Sampling or command failures
 remain visible in `run-summary.json` instead of producing a successful timing.
+The Dynamo runner also exits nonzero and retains a failed summary when the
+pipeline reports zero successfully processed pages, including empty or all-error
+results.
 
 The launchers trap normal exit and signals and terminate the processes they
 start. After an interrupted Dynamo run, verify that no experiment-owned etcd,

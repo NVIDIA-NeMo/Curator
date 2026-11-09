@@ -37,7 +37,12 @@ case "${condition}" in
 esac
 for label in capped50 uncapped; do
   if [[ "${condition}" == both || "${condition}" == "${label}" ]]; then
-    [[ -f "${ROOT}/manifest-${label}.jsonl" || ( "${label}" == uncapped && -f "${ROOT}/manifest-uncapped-window50.jsonl" ) ]]
+    manifest="${ROOT}/manifest-${label}.jsonl"
+    if [[ "${label}" == uncapped ]]; then manifest="${ROOT}/manifest-uncapped-window50.jsonl"; fi
+    if [[ ! -f "${manifest}" ]]; then
+      echo "Missing manifest: ${manifest}" >&2
+      exit 1
+    fi
     [[ ! -e "${RUN_ROOT}/${label}" ]]
   fi
 done
