@@ -30,6 +30,7 @@ def load_module(monkeypatch: pytest.MonkeyPatch, name: str):
     monkeypatch.syspath_prepend(str(TUTORIAL))
     spec = importlib.util.spec_from_file_location(name, TUTORIAL / (name + ".py"))
     module = importlib.util.module_from_spec(spec)
+    monkeypatch.setitem(sys.modules, name, module)
     spec.loader.exec_module(module)
     return module
 
@@ -74,15 +75,55 @@ def test_external_endpoint_does_not_start_managed_serving(monkeypatch: pytest.Mo
     assert args.executor == "xenna"
 
 
-def test_tutorial_defaults_preserve_legacy_and_warn_writer(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+def test_tutorial_defaults_to_served_parse35_and_warn_writer(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     module = load_module(monkeypatch, "pipeline_utils")
     args = module.create_nemotron_parse_pdf_argparser().parse_args(
         ["--manifest", "input.jsonl", "--pdf-dir", ".", "--output-dir", str(tmp_path)]
     )
-    assert args.parse_mode is None
-    assert args.model_path == "nvidia/NVIDIA-Nemotron-Parse-v1.2"
+    assert args.parse_mode == "single"
+    assert args.model_path == "nvidia/Nemotron-3.5-Parse"
     pipeline = module.create_nemotron_parse_pdf_pipeline(args, inference_server_endpoint="http://served/v1")
     assert pipeline.stages[-1].on_materialize_error == "warn"
+    assert pipeline.stages[0]._inference.parse_mode == "single"
+
+
+def test_tutorial_explicit_legacy_path_remains_available(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    module = load_module(monkeypatch, "pipeline_utils")
+    args = module.create_nemotron_parse_pdf_argparser().parse_args(
+        [
+            "--manifest",
+            "input.jsonl",
+            "--pdf-dir",
+            ".",
+            "--output-dir",
+            str(tmp_path),
+            "--legacy-parse",
+            "--model-path",
+            "nvidia/NVIDIA-Nemotron-Parse-v1.2",
+        ]
+    )
+    pipeline = module.create_nemotron_parse_pdf_pipeline(args, inference_server_endpoint="http://served/v1")
+    assert args.parse_mode is None
+    assert pipeline.stages[0]._inference.parse_mode is None
+    assert pipeline.stages[0].model_path == "nvidia/NVIDIA-Nemotron-Parse-v1.2"
+
+
+def test_tutorial_rejects_conflicting_parse_modes(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    module = load_module(monkeypatch, "pipeline_utils")
+    with pytest.raises(SystemExit, match="2"):
+        module.create_nemotron_parse_pdf_argparser().parse_args(
+            [
+                "--manifest",
+                "input.jsonl",
+                "--pdf-dir",
+                ".",
+                "--output-dir",
+                str(tmp_path),
+                "--legacy-parse",
+                "--parse-mode",
+                "single",
+            ]
+        )
 
 
 def test_tutorial_requires_endpoint_or_path_for_selected_mode(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
@@ -210,7 +251,7 @@ def test_tutorial_pipeline_rejects_encoded_image_reuse_outside_single_mode(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, parse_mode: str | None
 ):
     module = load_module(monkeypatch, "pipeline_utils")
-    options = ["--parse-mode", parse_mode] if parse_mode is not None else []
+    options = ["--parse-mode", parse_mode] if parse_mode is not None else ["--legacy-parse"]
     args = module.create_nemotron_parse_pdf_argparser().parse_args(
         [
             "--manifest",
@@ -246,3 +287,48 @@ def test_tutorial_pipeline_rejects_encoded_image_reuse_without_endpoint(
     )
     with pytest.raises(ValueError, match=r"Encoded image reuse requires served Parse 3\.5 single mode"):
         module.create_nemotron_parse_pdf_pipeline(args)
+
+
+def test_legacy_inprocess_entry_point_keeps_its_model_and_mode(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    module = load_module(monkeypatch, "inprocess")
+    client = Mock()
+    pipeline = Mock()
+    pipeline.run.return_value = []
+    build = Mock(return_value=pipeline)
+    monkeypatch.delenv("SLURM_JOB_ID", raising=False)
+    monkeypatch.setattr(module, "RayClient", Mock(return_value=client))
+    monkeypatch.setattr(module, "XennaExecutor", Mock())
+    monkeypatch.setattr(module, "create_nemotron_parse_pdf_pipeline", build)
+    monkeypatch.setattr(
+        sys, "argv", ["inprocess.py", "--manifest", "input.jsonl", "--pdf-dir", ".", "--output-dir", str(tmp_path)]
+    )
+    module.main()
+    args = build.call_args.args[0]
+    assert args.parse_mode is None
+    assert args.model_path == "nvidia/NVIDIA-Nemotron-Parse-v1.2"
+    client.start.assert_called_once()
+    client.stop.assert_called_once()
+
+
+def test_inprocess_rejects_served_mode_before_ray_start(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    module = load_module(monkeypatch, "inprocess")
+    client = Mock()
+    monkeypatch.setattr(module, "RayClient", client)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "inprocess.py",
+            "--manifest",
+            "input.jsonl",
+            "--pdf-dir",
+            ".",
+            "--output-dir",
+            str(tmp_path),
+            "--parse-mode",
+            "single",
+        ],
+    )
+    with pytest.raises(SystemExit, match="2"):
+        module.main()
+    client.assert_not_called()
