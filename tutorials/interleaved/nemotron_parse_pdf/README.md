@@ -4,7 +4,9 @@ Convert PDFs into structured, interleaved parquet — text blocks, tables, image
 and captions in reading order — using **Nemotron Parse 3.5** through an
 OpenAI-compatible endpoint or managed Dynamo. `main.py` defaults to the 3.5 model
 and `single` mode. Explicit legacy selection and `inprocess.py` retain Parse v1.2
-support; the public reader defaults remain unchanged.
+support; the public reader defaults remain unchanged. New Parse 3.5 and PNG-reuse
+options are keyword-only, preserving existing positional reader and HTTP-client
+calls.
 
 We recommend using NeMo Curator's Dynamo-backed
 `InferenceServer` with the HTTP client stage instead of loading vLLM inside the
@@ -296,6 +298,27 @@ to Parse 3.5 single mode: supply `--nemotron-parse-path` for managed Dynamo, or
 `--inference-server-endpoint` to reuse an existing server, and always provide
 `--benchmark-results-path`. For v1.2 use `--legacy-parse` with an explicit
 `--model-path`; the pinned v1.2 regression configurations retain that selection.
+
+For an external endpoint, the generic benchmark requires explicit positive
+`--num-replicas` and `--inference-server-num-gpus`. Replicas determine the HTTP
+client-worker count; GPU count is only the throughput-normalization denominator.
+It does not use client-side GPU discovery for external endpoints, or discover or
+verify the remote topology. Declare the actual serving topology; managed-server
+GPU discovery is unchanged.
+
+For two replicas sharing one remote GPU:
+
+```bash
+python benchmarking/scripts/nemotron_parse_pdf_benchmark.py \
+    --manifest manifest.jsonl --pdf-dir /path/to/pdfs --output-dir ./benchmark-output \
+    --benchmark-results-path ./benchmark-results \
+    --inference-server-endpoint http://parse-server:8000/v1 \
+    --model-id nemotron-parse --executor ray_data \
+    --num-replicas 2 --inference-server-num-gpus 1
+```
+
+The default four client workers per replica produce eight client workers here;
+per-GPU throughput is divided by one. These flags apply to the benchmark only.
 
 ### Included files
 
