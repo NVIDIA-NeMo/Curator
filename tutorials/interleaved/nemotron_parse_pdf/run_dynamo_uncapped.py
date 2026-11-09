@@ -145,7 +145,15 @@ def execute_run(  # noqa: PLR0913
             server.stop()
         except Exception as exc:  # noqa: BLE001
             cleanup_errors.append(f"Server cleanup failed: {exc}")
-        if cleanup_errors:
+        metrics = (
+            compute_metrics(output_tasks, elapsed, len(GPU_INDEXES), 16)
+            if output_tasks
+            else {"num_pages_processed": 0}
+        )
+        no_valid_pages = exit_code == 0 and metrics.get("num_pages_processed", 0) <= 0
+        if no_valid_pages:
+            error = "Benchmark produced no valid pages"
+        if cleanup_errors or no_valid_pages:
             exit_code = 1
         summary = {
             "schema": "curator.parse35.dynamo-pipeline-only.v1",
@@ -157,11 +165,13 @@ def execute_run(  # noqa: PLR0913
             "inference_server_startup_seconds_excluded": startup_seconds,
             "pipeline_elapsed_seconds": elapsed,
             "num_pdfs_processed": count_pdfs(output_tasks) if output_tasks else 0,
-            **(compute_metrics(output_tasks, elapsed, len(GPU_INDEXES), 16) if output_tasks else {}),
+            **metrics,
             **summarize_gpus(gpu_csv, set(GPU_INDEXES), started_utc=started_utc, finished_utc=finished_utc),
             "topology": topology,
         }
         (run_dir / "run-summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+        if no_valid_pages:
+            raise RuntimeError(error)
         if cleanup_errors and error is None:
             raise RuntimeError("; ".join(cleanup_errors))
 

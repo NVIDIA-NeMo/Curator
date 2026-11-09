@@ -2,6 +2,7 @@
 """Check interpreter identity and managed benchmark cleanup without serving."""
 
 import importlib
+import json
 import os
 import sys
 from pathlib import Path
@@ -9,6 +10,9 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
+
+from nemo_curator.tasks.file_group import FileGroupTask
+from nemo_curator.utils.performance_utils import StagePerfStats
 
 TUTORIAL = Path(__file__).parents[2] / "tutorials/interleaved/nemotron_parse_pdf"
 
@@ -54,6 +58,64 @@ def test_managed_failure_always_cleans_up(monkeypatch: pytest.MonkeyPatch, tmp_p
         backend.stop.assert_called_once()
     sampler.stop.assert_called_once()
     assert (tmp_path / "run-summary.json").is_file()
+
+
+@pytest.mark.parametrize("outcome", ["empty", "all_error", "mixed"])
+def test_managed_success_requires_valid_pages(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, outcome: str):
+    monkeypatch.syspath_prepend(str(TUTORIAL.parents[2] / "benchmarking/scripts"))
+    monkeypatch.syspath_prepend(str(TUTORIAL))
+    module = importlib.import_module("run_dynamo_uncapped")
+    benchmark = importlib.import_module("nemotron_parse_pdf_benchmark")
+    sampler = SimpleNamespace(start=Mock(), stop=Mock())
+    monkeypatch.setattr(module, "GPUSampler", lambda *_args: sampler)
+    monkeypatch.setattr(module.time, "perf_counter", Mock(side_effect=[0.0, 1.0, 2.0, 5.0]))
+    server = SimpleNamespace(_started=True, _backend_impl=None, start=Mock(), stop=Mock())
+    valid_pages = 2 if outcome == "mixed" else 0
+    outputs = []
+    if outcome != "empty":
+        outputs.append(
+            FileGroupTask(
+                dataset_name="pdf",
+                data=[str(tmp_path / "output.parquet")],
+                _metadata={"source_files": ["sample.pdf"]},
+                _stage_perf=[
+                    StagePerfStats(
+                        stage_name="nemotron_parse_inference",
+                        custom_metrics={"num_valid_pages": valid_pages, "num_error_pages": 3 - valid_pages},
+                    )
+                ],
+            )
+        )
+    pipeline = SimpleNamespace(run=Mock(return_value=outputs))
+
+    def execute() -> None:
+        module.execute_run(
+            server,
+            lambda: pipeline,
+            None,
+            run_dir=tmp_path,
+            topology={},
+            compute_metrics=benchmark._compute_pdf_parse_metrics,
+            count_pdfs=benchmark._count_unique_pdfs,
+        )
+
+    if valid_pages:
+        execute()
+    else:
+        with pytest.raises(RuntimeError, match="no valid pages"):
+            execute()
+    summary = json.loads((tmp_path / "run-summary.json").read_text())
+    assert summary["exit_code"] == (0 if valid_pages else 1)
+    assert summary["num_pages_processed"] == valid_pages
+    assert summary["num_pdfs_processed"] == (0 if outcome == "empty" else 1)
+    assert summary["pipeline_elapsed_seconds"] == 3.0
+    assert summary["inference_server_startup_seconds_excluded"] == 1.0
+    if valid_pages:
+        assert summary["error"] is None
+    else:
+        assert "no valid pages" in summary["error"]
+    sampler.stop.assert_called_once()
+    server.stop.assert_called_once()
 
 
 def test_managed_runner_builds_parse35_with_validated_fractional_capacity(
