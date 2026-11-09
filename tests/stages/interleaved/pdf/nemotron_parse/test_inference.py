@@ -823,8 +823,6 @@ def test_extraction_config_does_not_rebind_legacy_positional_client_arguments():
         "http://unused/v1",
         "served",
         None,
-        None,
-        "union",
         False,
         None,
         300.0,

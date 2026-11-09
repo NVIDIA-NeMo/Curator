@@ -64,7 +64,16 @@ def test_page_task_entry_points_require_fresh_output(
         str(config),
     ]
     if entry_point == "benchmark":
-        argv.extend(["--benchmark-results-path", str(tmp_path / "results"), "--num-replicas", "1"])
+        argv.extend(
+            [
+                "--benchmark-results-path",
+                str(tmp_path / "results"),
+                "--num-replicas",
+                "1",
+                "--inference-server-num-gpus",
+                "1",
+            ]
+        )
     monkeypatch.setattr(sys, "argv", argv)
     if entry_point == "main" and existing_output:
         with pytest.raises(FileExistsError, match="already exists"):
