@@ -13,8 +13,10 @@ modality: "universal"
 Convert PDF datasets into interleaved Parquet output using NVIDIA's [Nemotron-Parse](https://huggingface.co/nvidia) vision-language model. Unlike traditional text-only PDF parsers, Nemotron-Parse extracts text, images, and reading order in one pass — producing rows directly compatible with the [interleaved dataset](/curate-text/process-data/interleaved) format.
 
 The served tutorial and benchmark default to **Nemotron Parse 3.5** in `single`
-mode. The public reader still defaults to Parse v1.2 with `parse_mode=None`;
-programmatic callers opt into 3.5 explicitly.
+mode. Choose native vLLM HTTP or Curator-managed Dynamo with vLLM workers and a
+native Rust frontend. Both use the same Curator HTTP extraction pipeline. The
+public reader still defaults to Parse v1.2 with `parse_mode=None`; programmatic
+callers opt into 3.5 explicitly.
 
 ## How it Works
 
@@ -31,8 +33,8 @@ The output is interleaved Parquet ready to be filtered with [Interleaved Filters
 
 Choose your PDF source and confirm the prerequisites:
 
-- **GPU**: Required. Use one inference-server model replica per GPU.
-- **Inference server**: Recommended for production. It lets the serving layer batch page requests across pipeline tasks while rendering and postprocessing scale independently. Internal PDF-pipeline comparisons found this to be the better default; benchmark your corpus before further tuning.
+- **GPU**: Required by the model server. The Curator client can run on CPU with a remote endpoint. Start with one model replica per serving GPU.
+- **Inference server**: Choose native vLLM HTTP or managed Dynamo. Both batch page requests across pipeline tasks while Curator handles PDF rendering and postprocessing. Benchmark your corpus before tuning.
 - **In-process inference**: Retained for Parse v1.2 validation and debugging. Use vLLM when possible, or set `backend="hf"` when vLLM is unavailable. Served Parse 3.5 uses the HTTP stage.
 - **`pypdfium2`**: Required Python dependency for PDF rendering. Installed automatically with the `interleaved_cpu` or `interleaved_cuda12` extras (e.g., `uv sync --extra interleaved_cuda12`).
 - **OpenCV**: Required for PDF rendering plus the postprocessing color conversion and resizing paths. Install the optional extra with `uv pip install "nemo-curator[cv2]"` (or add `--extra cv2` to a source checkout).
@@ -52,11 +54,14 @@ Pass exactly one of `pdf_dir`, `zip_base_dir`, or `jsonl_base_dir` so the prepro
 
 | Topology | When to Use |
 |---------|-------------|
-| Dynamo `InferenceServer` + `NemotronParseHTTPClientStage` (recommended) | Production pipelines. Dynamo owns GPU replicas and batches requests across pipeline tasks. |
-| In-process `vllm` | Parse v1.2 local runs or debugging without a separate server lifecycle. |
-| In-process `hf` | Parse v1.2 fallback when vLLM is unavailable. |
+| Native vLLM HTTP + `NemotronParseHTTPClientStage` | Run vLLM independently and pass its OpenAI-compatible endpoint to Curator. |
+| Curator-managed Dynamo + `NemotronParseHTTPClientStage` | Curator owns server startup and shutdown. Dynamo routes through its native Rust frontend to vLLM model workers. |
 
-For the recommended topology, use a fixed HTTP stage pool of `4 * num_gpus` workers and start with `inference_batch_size=32` concurrent page requests per worker. The original tutorial validation compared 32 and 64 on 8 H100 GPUs and retained 32 because 64 improved aggregate page throughput only slightly while increasing individual request latency. Because the best value depends on the GPU and corpus, benchmark 64 on the target workload and keep it only when it improves throughput without request failures or out-of-memory errors. The in-process stage retries transient port collisions when starting vLLM; non-retryable startup failures fail immediately.
+The Python vLLM compatibility chat processor is an advanced Dynamo alternative,
+not a separate primary serving path. In-process `vllm` and `hf` remain available
+for legacy Parse v1.2 validation and debugging.
+
+For managed serving, use a fixed HTTP stage pool of `4 * num_gpus` workers and start with `inference_batch_size=32` concurrent page requests per worker. The original tutorial validation compared 32 and 64 on 8 H100 GPUs and retained 32 because 64 improved aggregate page throughput only slightly while increasing individual request latency. Because the best value depends on the GPU and corpus, benchmark 64 on the target workload and keep it only when it improves throughput without request failures or out-of-memory errors. The in-process stage retries transient port collisions when starting vLLM; non-retryable startup failures fail immediately.
 
 ---
 
@@ -74,7 +79,8 @@ Create a manifest with one PDF filename per line:
 {"file_name": "document.pdf"}
 ```
 
-Run against an existing Parse 3.5 endpoint:
+**Choice 1 — Native vLLM HTTP:** run the model server separately and pass its
+Parse 3.5 endpoint to Curator:
 
 ```bash
 python tutorials/interleaved/nemotron_parse_pdf/main.py \
@@ -89,7 +95,7 @@ python tutorials/interleaved/nemotron_parse_pdf/main.py \
 
 With an existing endpoint, the entry point starts no model server and uses four
 HTTP client workers by default; set `--client-num-workers` for your topology.
-For [managed Dynamo](#curator-managed-dynamo), pass a complete local repository
+**Choice 2 — [Curator-managed Dynamo](#curator-managed-dynamo):** pass a complete local repository
 through `--nemotron-parse-path` and `--model-path`. The entry point detects the
 Ray-visible GPUs, creates one `DynamoVLLMModelConfig` replica per GPU, waits for
 readiness, runs the pipeline, and stops the server. Its managed HTTP stage pool
@@ -102,9 +108,11 @@ The server configuration uses Dynamo's TCP request plane, enables multimodal
 vLLM, and sets the frontend and model-worker options needed by Nemotron-Parse.
 The shared `create_nemotron_parse_inference_server` helper owns those
 model-specific settings so tutorials and benchmarks use the same configuration.
-For served Parse 3.5, it selects the Python vLLM chat processor with
-`dyn_chat_processor="vllm"` and applies the model repository's chat template.
-The v1.2 path leaves that processor setting unset. See the runnable
+For managed Parse 3.5, it selects `dyn_chat_processor="dynamo"` and configures
+Curator's bundled native multimodal chat template on the vLLM workers. The Rust
+selector applies to frontend chat processing; PDF rendering and model-side image
+processing do not thereby become Rust. The Python compatibility processor is an
+explicit alternative below. The v1.2 path leaves that processor setting unset. See the runnable
 [`main.py`](https://github.com/NVIDIA-NeMo/Curator/blob/main/tutorials/interleaved/nemotron_parse_pdf/main.py)
 source for the complete lifecycle and [Inference Server](/curate-text/synthetic/inference-server)
 for the underlying configuration objects. For executor options, refer to
@@ -497,7 +505,7 @@ Use `--executor xenna` to run the same pipeline on Xenna. The endpoint must serv
 
 ### Curator-Managed Dynamo
 
-Pass `nemotron_parse_path` to `create_nemotron_parse_inference_server`, or `--nemotron-parse-path` to `main.py`, with a complete local copy of the model repository. Each Dynamo serving worker installs the repository package with its own dependencies, and Dynamo's frontend applies the repository's `chat_template.jinja`. A local `model_path` is also passed to the frontend; a Hugging Face model ID is not, because the frontend accepts only local directories. `nemotron_parse_path` requires the `dynamo` backend.
+Pass `nemotron_parse_path` to `create_nemotron_parse_inference_server`, or `--nemotron-parse-path` to `main.py`, with a complete local copy of the model repository. Each Dynamo serving worker installs the repository package with its own dependencies. With `nemotron_parse_path` set, the helper's keyword-only `dynamo_chat_processor` defaults to `"dynamo"`: it selects the native Rust frontend and configures the bundled `parse35_dynamo.jinja` template on the vLLM workers. The processor and matching template are selected together. A local `model_path` is also passed to the frontend; a Hugging Face model ID is not, because the frontend accepts only local directories. `nemotron_parse_path` requires the `dynamo` backend.
 
 Dynamo also needs local `etcd` and `nats-server` binaries. Repository container
 images include them; source environments can use the
@@ -516,10 +524,16 @@ NEMO_CURATOR_DYNAMO_CUDA_TAG=cu130 python tutorials/interleaved/nemotron_parse_p
     --parse-mode single --executor ray-data
 ```
 
-For Dynamo builds that include the forwarding fix in
-[ai-dynamo/dynamo#17797](https://github.com/ai-dynamo/dynamo/pull/17797), configure
-the Python frontend through the existing router options **before starting** the
-server. The Parse 3.5 helper already selects `dyn_chat_processor="vllm"`:
+The native template is referenced by its absolute installed path. That path and
+the local model repository must be visible on the serving nodes. Multi-node
+serving requires a consistent, accessible Curator installation path on every node.
+
+For the advanced Python alternative, pass `dynamo_chat_processor="vllm"` to the
+helper so it selects both the compatibility processor and the model repository's
+Python chat template. Do not switch only the router selector. Renderer/cache
+controls require a qualified Dynamo build containing the forwarding fix in
+[ai-dynamo/dynamo#17797](https://github.com/ai-dynamo/dynamo/pull/17797); set them
+through existing router options **before starting** the server:
 
 ```python
 from nemo_curator.stages.interleaved.pdf.nemotron_parse import create_nemotron_parse_inference_server
@@ -528,17 +542,19 @@ server = create_nemotron_parse_inference_server(
     backend="dynamo",
     model_path="/models/parse35",
     nemotron_parse_path="/models/parse35",
+    dynamo_chat_processor="vllm",
 )
 server.backend.router.router_kwargs.update(renderer_num_workers=4, mm_processor_cache_gb=0)
 ```
 
-Start the configured server with `with server:` as usual. These values are
-illustrative: zero intentionally disables the multimodal processor cache; omitted
-options keep the installed vLLM defaults. Renderer workers are distinct from multimodal
-executor workers. Put these frontend options in `router_kwargs`, not model-worker
-`engine_kwargs`. The pinned Dynamo 1.4.2 recipe and tags 1.6.1/1.6.2 do not contain
-that forwarding fix; qualify a build containing it before applying this override.
-Performance requires workload-specific validation.
+Start the configured server with `with server:` as usual. Renderer/cache values
+are illustrative: zero intentionally disables the multimodal processor cache;
+omitted renderer/cache options keep the installed vLLM defaults. Renderer workers
+are distinct from multimodal executor workers. Put these frontend options in
+`router_kwargs`, not model-worker `engine_kwargs`. The pinned Dynamo 1.4.2 recipe
+and tags 1.6.1/1.6.2 do not contain that forwarding fix; qualify a build containing
+it before using these renderer/cache controls. Performance requires
+workload-specific validation.
 
 ### Reuse Rendered PNG Bytes
 

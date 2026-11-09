@@ -8,11 +8,16 @@ support; the public reader defaults remain unchanged. New Parse 3.5 and PNG-reus
 options are keyword-only, preserving existing positional reader and HTTP-client
 calls.
 
-We recommend using NeMo Curator's Dynamo-backed
-`InferenceServer` with the HTTP client stage instead of loading vLLM inside the
-pipeline stage. Internal comparisons found this to be the better default
-because the serving layer can batch requests across pipeline tasks and keep
-model replicas fed while PDF rendering and postprocessing scale independently.
+Choose one of two serving paths; both use Curator's HTTP extraction stage:
+
+| Serving path | Server ownership and processing |
+| --- | --- |
+| Native vLLM HTTP | Run vLLM separately and pass its OpenAI-compatible endpoint to Curator. |
+| Curator-managed Dynamo | Curator starts and stops Dynamo; a native Rust frontend routes requests to vLLM model workers. |
+
+The Python vLLM compatibility chat processor is an advanced Dynamo alternative.
+It is not a third primary serving path. The Rust selector affects frontend chat
+processing, not PDF rendering or all model-side image processing.
 
 The original tutorial validation used 8 H100 GPUs with request concurrency
 values of 32 and 64. Use this as a starting configuration and validate it for
@@ -58,7 +63,8 @@ for f in /path/to/pdfs/*.pdf; do
 done
 ```
 
-**Step 2 — Run against an existing Parse 3.5 endpoint:**
+**Choice 1 — Native vLLM HTTP:** run the model server separately, then give
+Curator its Parse 3.5 endpoint:
 
 ```bash
 python tutorials/interleaved/nemotron_parse_pdf/main.py \
@@ -76,7 +82,7 @@ HTTP client workers by default; set `--client-num-workers` for your topology.
 The default parse mode is `single`; choose `--parse-mode double` or `triple` for
 additional crop/detection passes.
 
-To let Curator manage Dynamo, provide a complete local repository with
+**Choice 2 — Curator-managed Dynamo:** provide a complete local repository with
 `--nemotron-parse-path` and `--model-path`; see
 [Served Nemotron Parse 3.5](#served-nemotron-parse-35). Curator detects the
 Ray-visible GPUs, starts one replica per GPU, waits for readiness, runs the
@@ -251,9 +257,12 @@ To let the tutorial manage the model through Dynamo instead, download the comple
 repository and pass it as both `--model-path` and `--nemotron-parse-path`. The
 driver environment needs `ai-dynamo==1.4.2`, which pins vLLM 0.26; Curator's
 locked release pins a vLLM that is older than Parse 3.5 supports. Each serving
-worker installs the repository package with its own dependencies, and Dynamo's
-frontend applies the repository's `chat_template.jinja`. Dynamo needs local
-`etcd` and `nats-server` binaries: repository container images include them;
+worker installs the repository package with its own dependencies. For Parse 3.5,
+the helper's keyword-only `dynamo_chat_processor="dynamo"` default selects the native
+Rust frontend and configures the bundled `parse35_dynamo.jinja` template on the
+vLLM workers. These settings form a matched pair; the v1.2 helper path is unchanged.
+Dynamo needs local `etcd` and `nats-server` binaries: repository container images
+include them;
 source environments can use
 [`install_etcd_nats.sh`](https://github.com/NVIDIA-NeMo/Curator/blob/main/docker/common/install_etcd_nats.sh).
 CUDA 13 environments must
@@ -272,10 +281,16 @@ NEMO_CURATOR_DYNAMO_CUDA_TAG=cu130 python tutorials/interleaved/nemotron_parse_p
     --parse-mode single --executor ray-data
 ```
 
-For Dynamo builds that include the forwarding fix in
-[ai-dynamo/dynamo#17797](https://github.com/ai-dynamo/dynamo/pull/17797), configure
-the Python frontend through the existing router options **before starting** the
-server. The Parse 3.5 helper already selects `dyn_chat_processor="vllm"`:
+The native template is referenced by its absolute installed path. That path and
+the local model repository must be visible on the serving nodes. Multi-node
+serving requires a consistent, accessible Curator installation path on every node.
+
+For the advanced Python alternative, pass `dynamo_chat_processor="vllm"` to the
+helper so it selects both the compatibility processor and the model repository's
+Python chat template. Do not switch only the router selector. Renderer/cache
+controls require a qualified Dynamo build containing the forwarding fix in
+[ai-dynamo/dynamo#17797](https://github.com/ai-dynamo/dynamo/pull/17797); set them
+through existing router options **before starting** the server:
 
 ```python
 from nemo_curator.stages.interleaved.pdf.nemotron_parse import create_nemotron_parse_inference_server
@@ -284,17 +299,19 @@ server = create_nemotron_parse_inference_server(
     backend="dynamo",
     model_path="/models/parse35",
     nemotron_parse_path="/models/parse35",
+    dynamo_chat_processor="vllm",
 )
 server.backend.router.router_kwargs.update(renderer_num_workers=4, mm_processor_cache_gb=0)
 ```
 
-Start the configured server with `with server:` as usual. These values are
-illustrative: zero intentionally disables the multimodal processor cache; omitted
-options keep the installed vLLM defaults. Renderer workers are distinct from multimodal
-executor workers. Put these frontend options in `router_kwargs`, not model-worker
-`engine_kwargs`. The pinned Dynamo 1.4.2 recipe and tags 1.6.1/1.6.2 do not contain
-that forwarding fix; qualify a build containing it before applying this override.
-Performance requires workload-specific validation.
+Start the configured server with `with server:` as usual. Renderer/cache values
+are illustrative: zero intentionally disables the multimodal processor cache;
+omitted renderer/cache options keep the installed vLLM defaults. Renderer workers
+are distinct from multimodal executor workers. Put these frontend options in
+`router_kwargs`, not model-worker `engine_kwargs`. The pinned Dynamo 1.4.2 recipe
+and tags 1.6.1/1.6.2 do not contain that forwarding fix; qualify a build containing
+it before using these renderer/cache controls. Performance requires
+workload-specific validation.
 
 - `single` reads the whole page.
 - `double` also rereads table and chart crops from that answer.

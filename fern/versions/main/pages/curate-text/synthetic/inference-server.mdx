@@ -351,8 +351,8 @@ backend = DynamoServerConfig(
 
 Additional `router_kwargs` are forwarded to the Dynamo frontend. Do not put `router_mode` or `router_kv_events` in that dictionary; use the typed fields instead. Boolean false values are emitted as `--no-*` flags.
 
-Python frontend renderer and multimodal-processor cache settings also belong in
-`router_kwargs`, not the model's `engine_kwargs`. Their effective forwarding
+Optional Python frontend renderer and multimodal-processor cache settings belong
+in `router_kwargs`, not the model's `engine_kwargs`. Their effective forwarding
 requires a qualified Dynamo build containing
 [ai-dynamo/dynamo#17797](https://github.com/ai-dynamo/dynamo/pull/17797). See the
 [Parse 3.5 example](/main/curate-text/load-data/nemotron-parse-pdf#curator-managed-dynamo)
@@ -363,7 +363,7 @@ Multimodal workers need their model-specific settings, such as
 `dynamo_kwargs`. Use Dynamo's default frontend processing path.
 
 <Note>
-The default frontend path avoids the slower compatibility processor used by older examples.
+The Parse 3.5 helper pairs its native Rust chat processor with a compatible multimodal template on the vLLM workers. Processor selection concerns frontend chat handling; it does not change all model-side image processing.
 </Note>
 
 ## Runtime Environments and Subprocess Variables

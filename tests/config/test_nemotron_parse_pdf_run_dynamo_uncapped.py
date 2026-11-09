@@ -94,4 +94,6 @@ def test_managed_runner_builds_parse35_with_validated_fractional_capacity(
     assert server.models[0].gpu_fraction == 0.5
     assert server.models[0].num_replicas == 16
     assert str(model) in server.models[0].runtime_env["uv"]["packages"]
-    assert server.backend.router.router_kwargs["dyn_chat_processor"] == "vllm"
+    assert server.backend.router.router_kwargs["dyn_chat_processor"] == "dynamo"
+    assert Path(server.models[0].dynamo_kwargs["custom_jinja_template"]).is_file()
+    assert "chat_template" not in server.backend.router.router_kwargs
