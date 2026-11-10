@@ -12,8 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
+from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
+import fsspec
 import pytest
 
 from nemo_curator.backends.base import WorkerMetadata
@@ -183,6 +186,36 @@ class TestClientPartitioningStage:
         assert len(result[0].data) == 2
         assert len(result[1].data) == 1
 
+    def test_process_json_list_with_protocol_urls(self, empty_task: EmptyTask, tmp_path: Path) -> None:
+        """JSON list entries may be full URLs; entries outside the root are still rejected."""
+        fs = fsspec.filesystem("memory")
+        bucket = tmp_path.name
+        root = f"memory://{bucket}/datasets"
+        json_list = f"memory://{bucket}/lists/videos.json"
+        try:
+            fs.pipe(f"{root}/videos/video1.mp4", b"")
+            fs.pipe(f"{root}/more_videos/video2.webm", b"")
+            fs.pipe(json_list, json.dumps([f"{root}/videos/video1.mp4", f"{root}/more_videos/video2.webm"]).encode())
+            stage = ClientPartitioningStage(
+                file_paths=f"{root}/",
+                input_list_json_path=json_list,
+                files_per_partition=1,
+                file_extensions=[".mp4", ".webm"],
+            )
+            stage.setup()
+            result = stage.process(empty_task)
+
+            fs.pipe(json_list, json.dumps([f"memory://{bucket}/other/video3.mp4"]).encode())
+            with pytest.raises(ValueError, match=f"Input path memory://{bucket}/other/video3.mp4 is not under root"):
+                stage.process(empty_task)
+        finally:
+            fs.rm(f"/{bucket}", recursive=True)
+
+        assert [[str(path) for path in task.data] for task in result] == [
+            [f"/{bucket}/datasets/more_videos/video2.webm"],
+            [f"/{bucket}/datasets/videos/video1.mp4"],
+        ]
+
     def test_process_without_setup(self, empty_task: EmptyTask) -> None:
         """Test process method when setup() hasn't been called."""
         stage = ClientPartitioningStage(file_paths=None)
@@ -210,7 +243,10 @@ class TestReadListJsonRel:
         mock_file.read.return_value = b'["/input/path/video1.mp4", "/input/path/video2.mp4"]'
 
         result = _read_list_json_rel(
-            root="/input/path", json_url="/path/to/list.json", storage_options={"profile_name": "test_profile"}
+            root="/input/path",
+            json_url="/path/to/list.json",
+            storage_options={"profile_name": "test_profile"},
+            fs=fsspec.filesystem("file"),
         )
 
         expected = ["video1.mp4", "video2.mp4"]
@@ -229,12 +265,16 @@ class TestReadListJsonRel:
         mock_file.read.return_value = b'["/different/path/video1.mp4"]'
 
         with pytest.raises(ValueError, match=r"Input path .* is not under root"):
-            _read_list_json_rel(root="/input/path", json_url="/path/to/list.json", storage_options={})
+            _read_list_json_rel(
+                root="/input/path", json_url="/path/to/list.json", storage_options={}, fs=fsspec.filesystem("file")
+            )
 
         # Test file read exception
         mock_fsspec_open.side_effect = Exception("File not found")
         with pytest.raises(Exception, match="File not found"):
-            _read_list_json_rel(root="/input/path", json_url="/path/to/list.json", storage_options={})
+            _read_list_json_rel(
+                root="/input/path", json_url="/path/to/list.json", storage_options={}, fs=fsspec.filesystem("file")
+            )
 
     @patch("nemo_curator.stages.client_partitioning.fsspec.open")
     def test_read_list_json_rel_empty_list(self, mock_fsspec_open: Mock) -> None:
@@ -246,6 +286,8 @@ class TestReadListJsonRel:
 
         mock_file.read.return_value = b"[]"
 
-        result = _read_list_json_rel(root="/input/path", json_url="/path/to/list.json", storage_options={})
+        result = _read_list_json_rel(
+            root="/input/path", json_url="/path/to/list.json", storage_options={}, fs=fsspec.filesystem("file")
+        )
 
         assert result == []
