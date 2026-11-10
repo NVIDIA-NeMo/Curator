@@ -84,6 +84,14 @@ Total: <n> comments across <m> threads.
   url: <html_url>
   > <verbatim comment body>
 
+## Reuse and complexity assessment
+
+<Complete on every review: existing implementations and connected callers
+checked; what is already reused; any redundant code/functions or unnecessary
+abstractions; the smallest behavior-preserving alternative. If none is
+actionable, say so and explain any important contract mismatch that rules out
+an apparent replacement. This is review context, not a mandatory PR comment.>
+
 ## My findings (your review)
 
 ### P0: <title>
@@ -132,6 +140,12 @@ Turn each finding into a review comment you post on the PR. For each:
 - Explain *why* it matters (cite a `.cursor/rules/*.mdc` contract or
   `stages/audio/README.md` when the change deviates).
 - Propose a concrete fix, ideally with a `suggestion` block.
+- Before finalizing comments, complete the required overengineering/redundancy
+  pass in `knowledge-sources.md` section 2.11. A reuse finding must name the
+  redundant code, the verified existing alternative or duplicate location,
+  the concrete cost, and the smallest safe change with preserved behavior/tests.
+  Do not call a stage redundant merely because it uses the same library as
+  another stage; establish that the responsibilities and contracts match.
 - Before posting, check the "OPEN" list in file A - if another reviewer already
   raised it, don't repeat it (optionally +1 their thread instead).
 

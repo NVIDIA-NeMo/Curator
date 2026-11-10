@@ -256,6 +256,44 @@ canonical sources to cite.
   as if sliced: no duplicated builder logic, clear module ownership, a reviewable
   commit sequence.
 
+### 2.11 Overengineering, redundancy, and reuse (required)
+
+Apply this pass on every review and re-review before writing final comments,
+including when correctness tests pass. Read complete changed functions/classes
+and their connected callers, tests, and configurations, not only diff hunks.
+
+- Search current `main` for the same responsibility in existing audio stages,
+  shared models/utilities, and the central configuration/tutorial runner; inspect
+  other modalities when they provide a relevant shared implementation. Also
+  check for duplicated logic within the PR itself.
+- Look for redundant functions, repeated transformations/validation, copied
+  orchestration, unused branches/options, and wrappers or abstractions with no
+  demonstrated need. Before calling something unused, check exports, YAML
+  targets, dynamic registration, documented public APIs, and relevant callers.
+- Verify that a proposed replacement actually fits: input/output types and
+  cardinality, lifecycle, local versus served inference, resource ownership,
+  failure/retry behavior, and side effects. Sharing a dependency or model engine
+  does not make two stages interchangeable. Credit reuse already present; keep
+  necessary domain-specific validation, fan-out, identity, and metadata logic.
+- Prefer deletion, direct reuse, configuration, or a small extension at the
+  existing shared layer. Do not replace a small duplication with a larger new
+  framework, or remove compatibility/security checks just to reduce line count.
+- For each actionable comment, cite the redundant PR code and the existing
+  implementation (or duplicate location), explain the concrete maintenance,
+  correctness, or runtime cost, and name the smallest safe change plus the
+  behavior/tests it must preserve. Separate inherited debt from PR-introduced
+  duplication; severity follows demonstrated impact, not a preference for
+  shorter code. If equivalence is unproven, state the gap rather than asserting
+  that a component can be deleted.
+
+Record a brief reuse/complexity assessment even if no issue qualifies. Do not
+create a review comment merely to report that the check was performed.
+
+**References:** current `nemo_curator/stages/audio/`, `nemo_curator/models/`,
+`nemo_curator/utils/`, `nemo_curator/config/`, `tutorials/audio/`, their callers
+and tests; rules `processing-stage-patterns.mdc`, `composite-stage-patterns.mdc`,
+`pipeline-structure.mdc`. Verify paths against the reviewed tree.
+
 ### Smaller recurring nits
 
 - Missing copyright headers on new files.

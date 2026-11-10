@@ -117,7 +117,7 @@ review comments. The review lenses and every doc/code reference live in
 - [ ] 5. Read the knowledge sources (canonical docs + review lenses + corpus) to ground yourself
 - [ ] 6. Generate the digest + prior-threads file for context
 - [ ] 7. Write the detailed PR overview - only after steps 4-6 - present this first
-- [ ] 8. Review through the lenses, write up findings (P0-P3), and post them after the overview
+- [ ] 8. Review through the lenses, including the required overengineering/redundancy pass, then write findings (P0-P3) after the overview
 ```
 
 ### Step 0 - Locate or shallow-clone the repo
@@ -263,6 +263,16 @@ waveform/tensor memory and manifest serialization, tarred/sharded audio I/O,
 sample-rate and metadata propagation, streaming/throughput, tutorials/docs,
 tests/coverage, and PR reviewability. Cite the linked source by name whenever
 the PR deviates.
+
+**Every review and re-review must explicitly check for overengineering
+(overkill), redundant code/functions, and missed reuse before finalizing review
+comments.** Follow [knowledge-sources.md](knowledge-sources.md#211-overengineering-redundancy-and-reuse-required)
+section 2.11: inspect complete changed implementations and connected callers,
+compare existing implementations on current `main`, and propose the smallest
+behavior-preserving simplification. Record the checked alternatives and outcome
+in the review notes even when no actionable redundancy is found. Do not invent
+a finding to satisfy this check; comments need concrete evidence, not file
+length, naming preferences, or merely sharing a dependency.
 
 For Fern-only audio changes, anchor findings on the changed Fern line and cite
 the implementation path/line that contradicts it. Check navigation and links,
