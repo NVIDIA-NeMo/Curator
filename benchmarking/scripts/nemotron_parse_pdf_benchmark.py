@@ -42,6 +42,7 @@ from pipeline_utils import (
     create_nemotron_parse_pdf_argparser,
     create_nemotron_parse_pdf_pipeline,
     validate_manifest_path,
+    validate_output_directory,
 )
 
 from nemo_curator.backends.utils import get_available_cpu_gpu_resources
@@ -194,6 +195,7 @@ def run_nemotron_parse_pdf_benchmark(args: argparse.Namespace) -> dict[str, Any]
 
     output_dir = Path(args.output_dir).absolute()
     output_dir.mkdir(parents=True, exist_ok=True)
+    validate_output_directory(output_dir)
 
     inference_server = None
     inference_server_startup_s = 0.0

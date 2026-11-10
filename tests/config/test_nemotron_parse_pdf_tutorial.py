@@ -385,3 +385,55 @@ def test_inprocess_rejects_served_mode_before_ray_start(monkeypatch: pytest.Monk
     with pytest.raises(SystemExit, match="2"):
         module.main()
     client.assert_not_called()
+
+
+def test_unwritable_output_fails_before_managed_startup(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    main = load_module(monkeypatch, "main")
+    import pipeline_utils
+
+    manifest = tmp_path / "input.jsonl"
+    manifest.touch()
+    probe = Mock(return_value=(4, 1))
+    factory = MagicMock()
+    monkeypatch.setattr(main, "get_available_cpu_gpu_resources", probe)
+    monkeypatch.setattr(main, "create_nemotron_parse_inference_server", factory)
+    monkeypatch.setattr(
+        pipeline_utils, "make_named_temporary_file", Mock(side_effect=PermissionError("output denied"))
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "main.py",
+            "--manifest",
+            str(manifest),
+            "--pdf-dir",
+            str(tmp_path),
+            "--output-dir",
+            str(tmp_path / "output"),
+            "--nemotron-parse-path",
+            str(tmp_path / "model"),
+        ],
+    )
+    with pytest.raises(PermissionError, match="output denied"):
+        main.main()
+    probe.assert_not_called()
+    factory.assert_not_called()
+
+
+def test_output_write_probe_preserves_existing_files(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    module = load_module(monkeypatch, "pipeline_utils")
+    existing = tmp_path / "existing.parquet"
+    existing.write_bytes(b"untouched output")
+    module.validate_output_directory(tmp_path)
+    assert list(tmp_path.iterdir()) == [existing]
+    assert existing.read_bytes() == b"untouched output"
+
+
+def test_output_write_probe_preserves_fresh_destination(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    module = load_module(monkeypatch, "pipeline_utils")
+    output = tmp_path / "new-parent" / "output"
+    module.validate_output_directory(output)
+    assert not output.exists()
+    assert output.parent.is_dir()
+    assert list(output.parent.iterdir()) == []
