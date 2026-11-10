@@ -706,13 +706,27 @@ pipeline memory or make regrouping checkpoint-resumable.
 
 ### Select a Page Subset
 
-Add `selected_page_indices` to a manifest entry to render selected physical pages:
+Add `selected_page_indices` to a single-PDF manifest entry (`file_name`, or the
+configured `file_name_field`) to render selected physical pages:
 
 ```jsonl
 {"file_name": "document.pdf", "selected_page_indices": [0, 4, 12]}
 ```
 
-Use a nonempty list of unique, nonnegative integers. Indexes start at zero in the original PDF and replace the first-`max_pages` selection for that entry. Rendering follows the supplied order and preserves physical page numbers. Served Parse 3.5 retains failed selected pages as error rows. PDF-based tasking records an invalid selection as a manifest error for the document; page-based tasking rejects an invalid selection before creating tasks.
+Use a nonempty list of unique, nonnegative integers. Indexes start at zero in the
+original PDF and replace the first-`max_pages` selection for that entry. Rendering
+and inference receive the supplied selection order and preserve physical page
+numbers. PDF-based output orders content and failed-page rows by ascending
+physical page number: selection `[2, 0]` produces output for page `0` before page
+`2`. Page-based tasking instead retains the declared selection order during
+document regrouping. Served Parse 3.5 retains failed selected pages as error rows.
+PDF-based tasking records an invalid selection as a manifest error for the
+document; page-based tasking rejects an invalid selection before creating tasks.
+
+Grouped `cc_pdf_file_names` records do not carry per-file selection fields through
+expansion. To select pages from a CC-MAIN dump, expand each group into one
+`file_name` record per PDF, copy its source `url`, and add that PDF's
+`selected_page_indices`. Keep the existing `zip_base_dir` storage configuration.
 
 ### Parsing Modes and Failures
 

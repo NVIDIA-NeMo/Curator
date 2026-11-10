@@ -191,6 +191,7 @@ class NemotronParsePostprocessStage(ProcessingStage[InterleavedBatch, Interleave
         for sample_id, pages in documents.items():
             first = pages[0]
             rendered = [page for page in pages if page.get("page_number") is not None]
+            rendered.sort(key=lambda page: page["page_number"])
             metadata = build_metadata_row(sample_id, first.get("url"), first.get("pdf_name"), len(rendered))
             rows.append({**metadata, "materialize_error": None if rendered else first.get("materialize_error")})
             content = [row for page in rendered for row in self._page_rows(page)]

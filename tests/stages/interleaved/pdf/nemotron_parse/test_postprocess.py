@@ -128,6 +128,63 @@ def test_legacy_selected_pages_keep_pdf_page_numbers():
     assert [json.loads(row["source_ref"])["page"] for row in rows] == [0, 2]
 
 
+@pytest.mark.parametrize("parse_mode", ["single", "double", "triple"])
+@pytest.mark.parametrize("failed_page", [None, 0, 2])
+def test_served_selected_pages_keep_pdf_reading_order_and_failures(
+    tmp_path: Path, parse_mode: str, failed_page: int | None
+):
+    from nemo_curator.stages.interleaved.io import InterleavedParquetWriterStage
+
+    image = image_to_bytes(Image.new("RGB", (220, 170), "red"))
+    error = json.dumps({"stage": "fullpage", "type": "GenerationError", "message": "cut off"})
+    batch = InterleavedBatch(
+        dataset_name="test",
+        data=pa.Table.from_pylist(
+            [
+                {
+                    "sample_id": "selected",
+                    "url": "source",
+                    "pdf_name": "selected.pdf",
+                    "page_number": page,
+                    "binary_content": image,
+                    "parse_document": json.dumps(
+                        {
+                            "blocks": [
+                                {
+                                    "class": "Text",
+                                    "bbox": [0.1, 0.1, 0.9, 0.9],
+                                    "content": f"page {page}, block {block}",
+                                }
+                                for block in (0, 1)
+                            ]
+                        }
+                    ),
+                    "materialize_error": error if page == failed_page else None,
+                }
+                for page in (2, 0)
+            ]
+        ),
+        _metadata={"parse_mode": parse_mode},
+    )
+    original = batch.to_pyarrow()
+    projected = NemotronParsePostprocessStage().process(batch)
+    writer = InterleavedParquetWriterStage(path=str(tmp_path), materialize_on_write=False, on_materialize_error="warn")
+    files = writer.process(projected).data
+    metadata, *rows = pq.read_table(files).to_pylist()
+    expected_pages = [page for page in (0, 2) for _ in range(1 if page == failed_page else 2)]
+    assert [row["page_number"] for row in rows] == expected_pages
+    assert [json.loads(row["source_ref"])["page"] for row in rows] == expected_pages
+    assert [row["position"] for row in rows] == list(range(len(rows)))
+    assert [row["text_content"] for row in rows if not row["materialize_error"]] == [
+        f"page {page}, block {block}" for page in (0, 2) if page != failed_page for block in (0, 1)
+    ]
+    assert [row["materialize_error"] for row in rows if row["materialize_error"]] == (
+        [] if failed_page is None else [error]
+    )
+    assert json.loads(metadata["text_content"])["num_pages"] == 2
+    assert batch.to_pyarrow().equals(original)
+
+
 def test_error_row_roundtrip_uses_writer_warn_policy(tmp_path: Path):
     from nemo_curator.stages.interleaved.io import InterleavedParquetWriterStage
 
