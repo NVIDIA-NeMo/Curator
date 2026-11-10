@@ -66,24 +66,33 @@ def _is_notebook(content: str) -> bool:
         return False
 
 
+def _append_block(parts: list[str], block: str) -> None:
+    # Cell sources and text/plain outputs usually lack a trailing newline.
+    if not block:
+        return
+    if parts and not parts[-1].endswith("\n"):
+        parts.append("\n")
+    parts.append(block)
+
+
 def _notebook_to_text(content: str) -> str:
     data = json.loads(content)
-    out = ""
+    parts: list[str] = []
     for cell in data.get("cells", []):
         t = cell.get("cell_type")
         if t in ["code", "markdown", "raw"]:
-            out += "".join(cell.get("source", []))
+            _append_block(parts, "".join(cell.get("source", [])))
         if t == "code" and "outputs" in cell:
             for o in cell["outputs"]:
                 if o.get("output_type") == "stream":
-                    out += "".join(o.get("text", []))
+                    _append_block(parts, "".join(o.get("text", [])))
                 elif o.get("output_type") in ["execute_result", "display_data"]:
                     d = o.get("data", {})
                     if "text/plain" in d:
-                        out += "".join(d["text/plain"])
+                        _append_block(parts, "".join(d["text/plain"]))
                 elif o.get("output_type") == "text":
-                    out += "".join(o.get("text", []))
-    return out
+                    _append_block(parts, "".join(o.get("text", [])))
+    return "".join(parts)
 
 
 @dataclass

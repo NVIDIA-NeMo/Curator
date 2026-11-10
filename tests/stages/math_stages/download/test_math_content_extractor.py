@@ -107,6 +107,31 @@ class TestMathContentExtractor:
         assert result["url"] == record["url"]
         assert "text" in result
 
+    def test_extract_notebook_separates_cells_and_outputs(
+        self, test_records: dict, comprehensive_notebook_json: str
+    ) -> None:
+        """Cell sources and outputs that do not end with a newline are not glued to the next one."""
+        record = test_records["notebook"].copy()
+        record["binary_content"] = comprehensive_notebook_json.encode("utf-8")
+
+        with mock.patch("magic.Magic") as mock_magic:
+            mock_magic.return_value.from_buffer.return_value = "application/json"
+            result = MathContentExtractor().extract(record)
+
+        assert result is not None
+        assert result["type"] == "notebook"
+        assert result["text"] == (
+            "# Title\n"
+            "This is markdown content.\n"
+            "import numpy as np\n"
+            "print('Hello World')\n"
+            "Hello World\n"
+            "42\n"
+            "Raw cell content\n"
+            "x = 5\n"
+            "<matplotlib.figure.Figure>"
+        )
+
     @mock.patch("magic.Magic")
     def test_extract_with_magic_mime_detection(
         self, mock_magic_class: mock.Mock, sample_text_content: str, sample_urls: dict
