@@ -90,6 +90,19 @@ inference_server:
   backend:
     _target_: nemo_curator.core.serve.DynamoServerConfig
 
+# Shared HTTP-client settings; each stage below supplies its own operation.
+text_stage: &text_stage
+  _target_: nemo_curator.stages.audio.text_filtering.AudioTextLLMStage
+  _convert_: all
+  endpoint: ${endpoint}
+  model_name: ${model_name}
+  language_key: ${language_key}
+  batch_size: ${batch_size}
+  num_workers_override: ${num_workers}
+  max_concurrent_requests: ${max_concurrent_requests}
+  request_timeout_s: ${request_timeout_s}
+  max_retries: ${max_retries}
+
 stages:
   - _target_: nemo_curator.stages.audio.common.ManifestReader
     manifest_path: ${manifest_path}
@@ -434,16 +447,7 @@ stages:
     default_language: en
 
   # 2. Recover named entities.
-  - _target_: nemo_curator.stages.audio.text_filtering.AudioTextLLMStage
-    _convert_: all
-    endpoint: ${endpoint}
-    model_name: ${model_name}
-    language_key: ${language_key}
-    batch_size: ${batch_size}
-    num_workers_override: ${num_workers}
-    max_concurrent_requests: ${max_concurrent_requests}
-    request_timeout_s: ${request_timeout_s}
-    max_retries: ${max_retries}
+  - <<: *text_stage
     name: RecoverEntities
     prompt: "You are given TWO transcriptions of the same audio clip:\n\n- INITIAL: Initial reference with named entity spelling/casing.\n\
       - NORMALIZED: Normalized transcription.\n\nYour task:\n\n1. In the INITIAL text, identify ONLY proper-noun named entities\
@@ -476,16 +480,7 @@ stages:
     ground_truth_key: ${ground_truth_key}
 
   # 3. Restore punctuation and capitalization.
-  - _target_: nemo_curator.stages.audio.text_filtering.AudioTextLLMStage
-    _convert_: all
-    endpoint: ${endpoint}
-    model_name: ${model_name}
-    language_key: ${language_key}
-    batch_size: ${batch_size}
-    num_workers_override: ${num_workers}
-    max_concurrent_requests: ${max_concurrent_requests}
-    request_timeout_s: ${request_timeout_s}
-    max_retries: ${max_retries}
+  - <<: *text_stage
     name: PnCRestoration
     prompt: |-
       Add punctuation and capitalization to the raw ASR transcription in {language} below. That is the ONLY change you are allowed to make.
@@ -502,7 +497,7 @@ stages:
     output_text_key: pnc_text
     validation_mode: itn
     min_word_retention_ratio: 0.3
-    generation_config:
+    generation_config: &text_generation
       max_tokens: 512
       temperature: 0.0
       top_p: 1.0
@@ -513,16 +508,7 @@ stages:
             enable_thinking: false
 
   # 4. Predict and verify the transcript language.
-  - _target_: nemo_curator.stages.audio.text_filtering.AudioTextLLMStage
-    _convert_: all
-    endpoint: ${endpoint}
-    model_name: ${model_name}
-    language_key: ${language_key}
-    batch_size: ${batch_size}
-    num_workers_override: ${num_workers}
-    max_concurrent_requests: ${max_concurrent_requests}
-    request_timeout_s: ${request_timeout_s}
-    max_retries: ${max_retries}
+  - <<: *text_stage
     name: LanguageID
     prompt: |-
       # Language Identification
@@ -570,28 +556,11 @@ stages:
     output_text_key: llm_language_prediction
     validation_mode: none
     min_word_retention_ratio: 0.3
-    generation_config:
-      max_tokens: 512
-      temperature: 0.0
-      top_p: 1.0
-      seed: 0
-      extra_kwargs:
-        extra_body:
-          chat_template_kwargs:
-            enable_thinking: false
+    generation_config: *text_generation
     mode: language_id
 
   # 5. Normalize written text to spoken form.
-  - _target_: nemo_curator.stages.audio.text_filtering.AudioTextLLMStage
-    _convert_: all
-    endpoint: ${endpoint}
-    model_name: ${model_name}
-    language_key: ${language_key}
-    batch_size: ${batch_size}
-    num_workers_override: ${num_workers}
-    max_concurrent_requests: ${max_concurrent_requests}
-    request_timeout_s: ${request_timeout_s}
-    max_retries: ${max_retries}
+  - <<: *text_stage
     name: TextNormalization
     prompt: |-
       # Text Normalization ({language})
@@ -646,27 +615,10 @@ stages:
     output_text_key: tn_raw
     validation_mode: none
     min_word_retention_ratio: 0.3
-    generation_config:
-      max_tokens: 512
-      temperature: 0.0
-      top_p: 1.0
-      seed: 0
-      extra_kwargs:
-        extra_body:
-          chat_template_kwargs:
-            enable_thinking: false
+    generation_config: *text_generation
 
   # 6. Run captioning, code switching, and speech QA concurrently.
-  - _target_: nemo_curator.stages.audio.text_filtering.AudioTextLLMStage
-    _convert_: all
-    endpoint: ${endpoint}
-    model_name: ${model_name}
-    language_key: ${language_key}
-    batch_size: ${batch_size}
-    num_workers_override: ${num_workers}
-    max_concurrent_requests: ${max_concurrent_requests}
-    request_timeout_s: ${request_timeout_s}
-    max_retries: ${max_retries}
+  - <<: *text_stage
     name: FusedTextLLM
     operations:
       - name: Captioning
@@ -674,15 +626,7 @@ stages:
         output_text_key: captioning_text
         validation_mode: none
         min_word_retention_ratio: 0.3
-        generation_config:
-          max_tokens: 512
-          temperature: 0.0
-          top_p: 1.0
-          seed: 0
-          extra_kwargs:
-            extra_body:
-              chat_template_kwargs:
-                enable_thinking: false
+        generation_config: *text_generation
         language_rules: null
         prompt: |-
           # Audio Caption Generation
@@ -715,15 +659,7 @@ stages:
         output_text_key: code_switched_text
         validation_mode: none
         min_word_retention_ratio: 0.3
-        generation_config:
-          max_tokens: 512
-          temperature: 0.0
-          top_p: 1.0
-          seed: 0
-          extra_kwargs:
-            extra_body:
-              chat_template_kwargs:
-                enable_thinking: false
+        generation_config: *text_generation
         language_rules: null
         prompt: |-
           You are a {language} language expert. Your task is to restore code-switching in a {language} transcript: whenever a word in the transcript is actually an English word that was written phonetically in {language} script, rewrite it using its original English (Latin) spelling.
@@ -784,15 +720,7 @@ stages:
         output_text_key: speech_qa_text
         validation_mode: none
         min_word_retention_ratio: 0.3
-        generation_config:
-          max_tokens: 512
-          temperature: 0.0
-          top_p: 1.0
-          seed: 0
-          extra_kwargs:
-            extra_body:
-              chat_template_kwargs:
-                enable_thinking: false
+        generation_config: *text_generation
         language_rules: null
         prompt: |-
           You are given a transcript of a spoken audio segment in {language}. Generate at most one question-answer (Q/A) pair grounded in the transcript content.
@@ -820,16 +748,7 @@ stages:
           {text}
 
   # 7. Restore written-form numbers, dates, and other expressions.
-  - _target_: nemo_curator.stages.audio.text_filtering.AudioTextLLMStage
-    _convert_: all
-    endpoint: ${endpoint}
-    model_name: ${model_name}
-    language_key: ${language_key}
-    batch_size: ${batch_size}
-    num_workers_override: ${num_workers}
-    max_concurrent_requests: ${max_concurrent_requests}
-    request_timeout_s: ${request_timeout_s}
-    max_retries: ${max_retries}
+  - <<: *text_stage
     name: ITNRestoration
     prompt: |-
       # Inverse Text Normalization
@@ -886,27 +805,10 @@ stages:
     output_text_key: itn_raw
     validation_mode: itn
     min_word_retention_ratio: 0.3
-    generation_config:
-      max_tokens: 512
-      temperature: 0.0
-      top_p: 1.0
-      seed: 0
-      extra_kwargs:
-        extra_body:
-          chat_template_kwargs:
-            enable_thinking: false
+    generation_config: *text_generation
 
   # 8. Remove disfluencies.
-  - _target_: nemo_curator.stages.audio.text_filtering.AudioTextLLMStage
-    _convert_: all
-    endpoint: ${endpoint}
-    model_name: ${model_name}
-    language_key: ${language_key}
-    batch_size: ${batch_size}
-    num_workers_override: ${num_workers}
-    max_concurrent_requests: ${max_concurrent_requests}
-    request_timeout_s: ${request_timeout_s}
-    max_retries: ${max_retries}
+  - <<: *text_stage
     name: DisfluencyRemoval
     prompt: |-
       # Disfluency Removal
@@ -935,15 +837,7 @@ stages:
     output_text_key: itn_clean
     validation_mode: itn
     min_word_retention_ratio: 0.5
-    generation_config:
-      max_tokens: 512
-      temperature: 0.0
-      top_p: 1.0
-      seed: 0
-      extra_kwargs:
-        extra_body:
-          chat_template_kwargs:
-            enable_thinking: false
+    generation_config: *text_generation
 
   # 9. Write the enriched audio manifest.
   - _target_: nemo_curator.stages.audio.ManifestWriterStage

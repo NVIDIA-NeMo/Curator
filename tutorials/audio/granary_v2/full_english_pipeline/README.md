@@ -3,8 +3,8 @@
 Turn recordings into English speech clips with metadata, Qwen3-Omni transcripts,
 and enriched text in one pipeline. [pipeline.yaml](pipeline.yaml) combines the
 [metadata](../metadata/README.md), [Qwen Omni ASR](../qwen_omni_asr/README.md), and
-[text](../text_pipeline/README.md) tutorials. [main.py](main.py) manages serving and runs the YAML through Curator's
-existing configuration APIs.
+[text](../text_pipeline/README.md) tutorials. [main.py](main.py) manages serving
+and runs the YAML through Curator's existing configuration APIs.
 
 ```mermaid
 flowchart TD
@@ -140,11 +140,12 @@ The host's `full-english-output/run/` contains:
 | `asr_workspace/audio_resampled/` | English clip WAVs read by Qwen |
 | `speechbrain_cache/` | Language-model loading cache |
 
-Inside the container, check that final rows map to metadata clips and inspect
-flags separately from successful enrichment:
+After the run, check that final rows map to metadata clips and inspect flags
+separately from successful enrichment. This opens the saved outputs read-only:
 
 ```bash
-python - <<'PY'
+docker run --rm -i -v "$ENGLISH_OUTPUT:/output:ro" \
+  --entrypoint python curator-full-english - <<'PY'
 import json
 from pathlib import Path
 
@@ -189,14 +190,8 @@ Dynamo frontend imports, endpoint wiring, cleanup after failures, and rejection
 of unsupported executors or an existing output directory. No test files are
 included in this tutorial. These checks do not exercise GPU inference.
 
-The merged graph was previously exercised with Ray Data at commit `d361d40e`
-on 30,631 LibriSpeech recordings (107.763567 hours), producing 38,417 metadata
-rows and 38,196 English rows, including 44 flagged English rows. Coverage, clip
-identities, paths/offsets and required enrichment fields were checked. That run
-used separate audio and serving clusters and older dependency constraints; it
-does not validate this single-cluster image or its current worker environments.
-A fresh GPU run from the exact pushed commit is required before relying on this
-setup for production. These checks do not establish transcript accuracy.
+GPU inference and end-to-end execution of this single-cluster setup remain
+unverified. Historical runs used a different setup and do not validate it.
 
 The inherited metadata/vLLM environment has conflicting package declarations:
 `uv pip check` is not clean. Other package features and replacement versions

@@ -16,10 +16,10 @@ Choose the ASR tutorial that matches your language and models. Follow each
 tutorial's input contract when passing manifests between steps; the bundled
 examples can also be run independently.
 
-Run commands from the repository root. All tutorials use
-`nemo_curator/config/run.py`; their READMEs provide the configuration paths and
-required arguments. Environment and hardware requirements are specific to each
-tutorial.
+Run commands from the repository root. Follow each tutorial's README for its
+entrypoint, required arguments, environment and hardware requirements. The full
+English and text tutorials manage Dynamo serving through their own `main.py`;
+the other tutorials use `nemo_curator/config/run.py`.
 
 The [benchmarks](../../../benchmarking/README.md#audio-benchmark-data-setup)
 remain under `benchmarking/` and use these tutorial configurations on larger
