@@ -32,12 +32,42 @@ Resolve local manifest paths to absolute paths on the driver before you build th
 
 ## Required Fields
 
+The fields below describe per-recording manifests. Conversation merging uses the nested format described in [Conversation Manifests](#conversation-manifests).
+
 Every audio manifest entry must include:
 
 | Field | Type | Description | Example |
 |-------|------|-------------|---------|
 | `audio_filepath` | string | Absolute filesystem path that resolves on every executor | `/data/audio/sample.wav` |
 | `text` | string | Ground truth transcription | `"hello world"` |
+
+## Conversation Manifests
+
+`MergeConversationSDPStage` consumes one complete conversation per task. Store all of a conversation's turns in a single JSONL row before loading it with `ManifestReader`:
+
+```json
+{"conversation_id": "conversation_001", "turns": [{"turn_index": 0, "speaker": "Alice", "audio_filepath": "/data/alice.wav", "rttm_filepath": "/data/alice.rttm", "ctm_filepath": "/data/alice.ctm", "text": "Hello"}, {"turn_index": 1, "speaker": "Bob", "audio_filepath": "/data/bob.wav", "overlap": -0.5, "text": "Hi"}]}
+```
+
+Group an existing per-turn manifest by `conversation_id` before scheduling this stage. Each conversation must appear exactly once, with unique integer `turn_index` values. A scheduler batch can contain any number of complete conversations. Increasing the batch size does not group independent turns.
+
+```python
+from nemo_curator.backends.ray_data import RayDataExecutor
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.audio.common import ManifestReader
+from nemo_curator.stages.audio.merging import MergeConversationSDPStage
+
+pipeline = Pipeline(name="merge_conversations")
+pipeline.add_stage(ManifestReader(manifest_path="/data/conversations.jsonl"))
+pipeline.add_stage(MergeConversationSDPStage(
+    output_conversations_dir="/data/merged_conversations",
+))
+results = pipeline.run(RayDataExecutor())
+```
+
+All turn audio must have the same sample rate and be accessible on every worker. An unreadable turn or a rate mismatch filters the entire conversation. Missing or unusable RTTM retains the full waveform and sets `mfa_fallback`. Positive `overlap` requests simultaneous speech; negative values insert a pause. RTTM, CTM, and segment-list timestamps follow the samples retained and placed in the output.
+
+Each output directory contains `mixed.wav`, `multichannel.wav`, `all.rttm`, optional `all.ctm`, and `segments.seglst.json`. Per-speaker files use generated names under `speakers/`; the result's `speaker_artifacts` mapping connects original speaker labels to their zero-based channel indices and file paths. An absent CTM has an empty output path. Existing conversation destinations are refused, so select a fresh output directory for reruns.
 
 ## Optional Fields
 
