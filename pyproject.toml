@@ -112,6 +112,7 @@ audio_common = [
     "pyloudnorm",
     "nemo_toolkit[asr]>=2.7.2; platform_machine == 'x86_64' and platform_system != 'Darwin'",
     "soundfile>=0.12.0",
+    "praatio>=6.0",
     "torchaudio",
     "torchcodec; platform_machine == 'x86_64' and platform_system != 'Darwin'",
     "onnx>=1.19.0",

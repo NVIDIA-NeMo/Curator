@@ -1,0 +1,2 @@
+{"session_id":"meeting-001","segment_id":"segment-0001","speaker_id":"speaker-00","audio_filepath":"data/meeting-001/speaker-00.wav","offset":1.25,"duration":2.4,"mfa_textgrid":"data/meeting-001/alignments/segment-0001.TextGrid","text":"This is an example transcript."}
+{"session_id":"meeting-001","segment_id":"segment-0002","speaker_id":"speaker-00","audio_filepath":"data/meeting-001/speaker-00.wav","offset":5.1,"duration":1.8,"mfa_textgrid":"data/meeting-001/alignments/segment-0002.TextGrid","text":"A second aligned segment."}
