@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import importlib.metadata
 import json
 import os
@@ -29,6 +30,7 @@ from loguru import logger
 from packaging.requirements import InvalidRequirement, Requirement
 
 from nemo_curator.core.serve.base import BaseModelConfig
+from nemo_curator.core.serve.dynamo.constants import NEMO_CURATOR_DYNAMO_NAMESPACE
 from nemo_curator.core.serve.dynamo.infra import (
     build_worker_actor_name,
     dynamo_endpoint,
@@ -274,6 +276,15 @@ def build_worker_kv_events_config(
     return json.dumps(template)
 
 
+def _cleanup_failed_launch(pgs: list[PlacementGroup], actors: list[ManagedSubprocess]) -> None:
+    """Roll back owned resources before a launch can return them to its caller."""
+    with contextlib.suppress(Exception):
+        ManagedSubprocess.stop_many(actors)
+    for pg in pgs:
+        with contextlib.suppress(Exception):
+            ray.util.remove_placement_group(pg)
+
+
 def launch_replicas(  # noqa: PLR0913
     model_config: DynamoVLLMModelConfig,
     *,
@@ -304,51 +315,55 @@ def launch_replicas(  # noqa: PLR0913
     worker_actors: list[ManagedSubprocess] = []
     entries: list[dict[str, Any]] = []
 
-    for replica_index in range(model_config.num_replicas):
-        pg_name = f"{actor_name_prefix}_pg_{component}_DP{replica_index}"
-        pg = build_replica_pg(spec, name=pg_name)
-        replica_pgs.append(pg)
+    try:
+        for replica_index in range(model_config.num_replicas):
+            pg_name = f"{actor_name_prefix}_pg_{component}_DP{replica_index}"
+            pg = build_replica_pg(spec, name=pg_name)
+            replica_pgs.append(pg)
 
-        master_addr = get_bundle_node_ip(pg, 0) if spec.is_multi_node else None
-        if spec.is_multi_node:
-            logger.info(
-                f"Replica {replica_index}: multi-node TP across {spec.nnodes} nodes "
-                f"(total {spec.total_gpus} GPUs, master={master_addr})"
-            )
-        else:
-            logger.info(f"Replica {replica_index}: single-node, {spec.total_gpus} GPU(s)")
-
-        for node_rank in range(spec.nnodes):
-            worker_actors.append(
-                _launch_vllm_worker(
-                    model_config=model_config,
-                    base_env=base_env,
-                    pg=pg,
-                    spec=spec,
-                    replica_index=replica_index,
-                    node_rank=node_rank,
-                    master_addr=master_addr,
-                    namespace=namespace,
-                    request_plane=request_plane,
-                    event_plane=event_plane,
-                    runtime_dir=runtime_dir,
-                    actor_name_prefix=actor_name_prefix,
-                    router_mode=router_mode,
-                    router_kv_events=router_kv_events,
+            master_addr = get_bundle_node_ip(pg, 0) if spec.is_multi_node else None
+            if spec.is_multi_node:
+                logger.info(
+                    f"Replica {replica_index}: multi-node TP across {spec.nnodes} nodes "
+                    f"(total {spec.total_gpus} GPUs, master={master_addr})"
                 )
-            )
+            else:
+                logger.info(f"Replica {replica_index}: single-node, {spec.total_gpus} GPU(s)")
 
-        entries.append(
-            {
-                "model": model_name,
-                "replica": replica_index,
-                "nnodes": spec.nnodes,
-                "gpus_per_node": spec.per_node_gpus,
-                "gpu_reservation_per_node": spec.bundles[0]["GPU"],
-                "multi_node": spec.is_multi_node,
-                "master_addr": master_addr,
-            }
-        )
+            for node_rank in range(spec.nnodes):
+                worker_actors.append(
+                    _launch_vllm_worker(
+                        model_config=model_config,
+                        base_env=base_env,
+                        pg=pg,
+                        spec=spec,
+                        replica_index=replica_index,
+                        node_rank=node_rank,
+                        master_addr=master_addr,
+                        namespace=namespace,
+                        request_plane=request_plane,
+                        event_plane=event_plane,
+                        runtime_dir=runtime_dir,
+                        actor_name_prefix=actor_name_prefix,
+                        router_mode=router_mode,
+                        router_kv_events=router_kv_events,
+                    )
+                )
+
+            entries.append(
+                {
+                    "model": model_name,
+                    "replica": replica_index,
+                    "nnodes": spec.nnodes,
+                    "gpus_per_node": spec.per_node_gpus,
+                    "gpu_reservation_per_node": spec.bundles[0]["GPU"],
+                    "multi_node": spec.is_multi_node,
+                    "master_addr": master_addr,
+                }
+            )
+    except Exception:
+        _cleanup_failed_launch(replica_pgs, worker_actors)
+        raise
 
     return replica_pgs, worker_actors, entries
 
@@ -444,6 +459,7 @@ def _launch_vllm_worker(  # noqa: PLR0913
         python_args=python_args,
         runtime_dir=runtime_dir,
         actor_name_prefix=actor_name_prefix,
+        namespace=NEMO_CURATOR_DYNAMO_NAMESPACE,
         subprocess_env=_worker_subprocess_env(base_env, runtime_dir),
         runtime_env=dynamo_runtime_env(model_config),
     )
@@ -490,30 +506,34 @@ def launch_disagg_replicas(  # noqa: PLR0913
 
     worker_index = worker_index_offset
     # Decode first (Dynamo example convention). Only prefill publishes KV events.
-    for role, num_workers, role_ek, publishes_kv_events in (
-        ("decode", num_decode, decode_ek, False),
-        ("prefill", num_prefill, prefill_ek, True),
-    ):
-        role_pgs, role_actors, role_entries, worker_index = _launch_disagg_role(
-            model_config,
-            base_env=base_env,
-            role=role,
-            num_workers=num_workers,
-            engine_kwargs=role_ek,
-            publishes_kv_events=publishes_kv_events,
-            namespace=namespace,
-            request_plane=request_plane,
-            event_plane=event_plane,
-            component=component,
-            kv_transfer_config=kv_transfer_config,
-            worker_index_start=worker_index,
-            runtime_dir=runtime_dir,
-            actor_name_prefix=actor_name_prefix,
-            topology=topology,
-        )
-        replica_pgs.extend(role_pgs)
-        worker_actors.extend(role_actors)
-        entries.extend(role_entries)
+    try:
+        for role, num_workers, role_ek, publishes_kv_events in (
+            ("decode", num_decode, decode_ek, False),
+            ("prefill", num_prefill, prefill_ek, True),
+        ):
+            role_pgs, role_actors, role_entries, worker_index = _launch_disagg_role(
+                model_config,
+                base_env=base_env,
+                role=role,
+                num_workers=num_workers,
+                engine_kwargs=role_ek,
+                publishes_kv_events=publishes_kv_events,
+                namespace=namespace,
+                request_plane=request_plane,
+                event_plane=event_plane,
+                component=component,
+                kv_transfer_config=kv_transfer_config,
+                worker_index_start=worker_index,
+                runtime_dir=runtime_dir,
+                actor_name_prefix=actor_name_prefix,
+                topology=topology,
+            )
+            replica_pgs.extend(role_pgs)
+            worker_actors.extend(role_actors)
+            entries.extend(role_entries)
+    except Exception:
+        _cleanup_failed_launch(replica_pgs, worker_actors)
+        raise
 
     total_gpus = num_decode * decode_tp + num_prefill * prefill_tp
     tp_desc = f"TP={decode_tp}" if decode_tp == prefill_tp else f"prefill_TP={prefill_tp}, decode_TP={decode_tp}"
@@ -552,80 +572,85 @@ def _launch_disagg_role(  # noqa: PLR0913
     entries: list[dict[str, Any]] = []
     worker_index = worker_index_start
 
-    for i in range(num_workers):
-        spec = plan_disagg_shape(tp_size, role=role, worker_index=i, model_name=model_name, topology=topology)
-        pg_name = f"{actor_name_prefix}_pg_{component}_{role}_{i}"
-        pg = build_replica_pg(spec, name=pg_name)
-        replica_pgs.append(pg)
+    try:
+        for i in range(num_workers):
+            spec = plan_disagg_shape(tp_size, role=role, worker_index=i, model_name=model_name, topology=topology)
+            pg_name = f"{actor_name_prefix}_pg_{component}_{role}_{i}"
+            pg = build_replica_pg(spec, name=pg_name)
+            replica_pgs.append(pg)
 
-        # Global-enough seed so concurrent workers on one node don't collide.
-        nixl_port = get_free_port_in_bundle(pg, 0, _DISAGG_NIXL_PORT_SEED + worker_index)
+            # Global-enough seed so concurrent workers on one node don't collide.
+            nixl_port = get_free_port_in_bundle(pg, 0, _DISAGG_NIXL_PORT_SEED + worker_index)
 
-        kv_events_config = None
-        if not explicit_hybrid_kv_cache_manager_enabled(engine_kwargs):
-            kv_events_config = build_worker_kv_events_config(
-                model_config,
-                pg=pg,
-                bundle_index=0,
-                port_seed=_DISAGG_KV_EVENTS_PORT_SEED + worker_index,
-                enabled=publishes_kv_events,
+            kv_events_config = None
+            if not explicit_hybrid_kv_cache_manager_enabled(engine_kwargs):
+                kv_events_config = build_worker_kv_events_config(
+                    model_config,
+                    pg=pg,
+                    bundle_index=0,
+                    port_seed=_DISAGG_KV_EVENTS_PORT_SEED + worker_index,
+                    enabled=publishes_kv_events,
+                )
+
+            python_args: list[str] = [
+                "-m",
+                "dynamo.vllm",
+                "--model",
+                model_config.model_identifier,
+                "--served-model-name",
+                model_name,
+                "--endpoint",
+                dynamo_endpoint(namespace, component, role=role),
+                "--discovery-backend",
+                "etcd",
+                "--request-plane",
+                request_plane,
+                "--event-plane",
+                event_plane,
+                "--disaggregation-mode",
+                role,
+                "--kv-transfer-config",
+                kv_transfer_config,
+            ]
+            if kv_events_config is not None:
+                python_args += ["--kv-events-config", kv_events_config]
+            python_args += engine_kwargs_to_cli_flags(engine_kwargs)
+            python_args += engine_kwargs_to_cli_flags(model_config.dynamo_kwargs)
+
+            label = build_worker_actor_name(model_name, i, 0, tp_size, role=role)
+            logger.info(f"Disagg {role} worker {i}: {spec.per_node_gpus} GPU(s), nixl_port={nixl_port}")
+            proc = ManagedSubprocess.spawn(
+                label,
+                pg,
+                0,
+                num_gpus=spec.per_node_gpus,
+                python_args=python_args,
+                runtime_dir=runtime_dir,
+                actor_name_prefix=actor_name_prefix,
+                namespace=NEMO_CURATOR_DYNAMO_NAMESPACE,
+                subprocess_env={
+                    **_worker_subprocess_env(base_env, runtime_dir),
+                    "VLLM_NIXL_SIDE_CHANNEL_PORT": str(nixl_port),
+                    "PYTHONHASHSEED": "0",
+                },
+                runtime_env=dynamo_runtime_env(model_config),
             )
-
-        python_args: list[str] = [
-            "-m",
-            "dynamo.vllm",
-            "--model",
-            model_config.model_identifier,
-            "--served-model-name",
-            model_name,
-            "--endpoint",
-            dynamo_endpoint(namespace, component, role=role),
-            "--discovery-backend",
-            "etcd",
-            "--request-plane",
-            request_plane,
-            "--event-plane",
-            event_plane,
-            "--disaggregation-mode",
-            role,
-            "--kv-transfer-config",
-            kv_transfer_config,
-        ]
-        if kv_events_config is not None:
-            python_args += ["--kv-events-config", kv_events_config]
-        python_args += engine_kwargs_to_cli_flags(engine_kwargs)
-        python_args += engine_kwargs_to_cli_flags(model_config.dynamo_kwargs)
-
-        label = build_worker_actor_name(model_name, i, 0, tp_size, role=role)
-        logger.info(f"Disagg {role} worker {i}: {spec.per_node_gpus} GPU(s), nixl_port={nixl_port}")
-        proc = ManagedSubprocess.spawn(
-            label,
-            pg,
-            0,
-            num_gpus=spec.per_node_gpus,
-            python_args=python_args,
-            runtime_dir=runtime_dir,
-            actor_name_prefix=actor_name_prefix,
-            subprocess_env={
-                **_worker_subprocess_env(base_env, runtime_dir),
-                "VLLM_NIXL_SIDE_CHANNEL_PORT": str(nixl_port),
-                "PYTHONHASHSEED": "0",
-            },
-            runtime_env=dynamo_runtime_env(model_config),
-        )
-        worker_actors.append(proc)
-        entries.append(
-            {
-                "model": model_name,
-                "replica": i,
-                "mode": "disagg",
-                "role": role,
-                "gpus_per_node": spec.per_node_gpus,
-                "nnodes": 1,
-                "multi_node": False,
-                "master_addr": None,
-            }
-        )
-        worker_index += 1
+            worker_actors.append(proc)
+            entries.append(
+                {
+                    "model": model_name,
+                    "replica": i,
+                    "mode": "disagg",
+                    "role": role,
+                    "gpus_per_node": spec.per_node_gpus,
+                    "nnodes": 1,
+                    "multi_node": False,
+                    "master_addr": None,
+                }
+            )
+            worker_index += 1
+    except Exception:
+        _cleanup_failed_launch(replica_pgs, worker_actors)
+        raise
 
     return replica_pgs, worker_actors, entries, worker_index

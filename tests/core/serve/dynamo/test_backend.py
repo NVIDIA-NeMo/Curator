@@ -25,9 +25,10 @@ from unittest import mock
 import pytest
 
 import nemo_curator.core.serve.dynamo.backend as dynamo_backend
-from nemo_curator.core.serve import DynamoServerConfig, DynamoVLLMModelConfig, InferenceServer
+from nemo_curator.core.serve import DynamoServerConfig, DynamoVLLMModelConfig, InferenceServer, subprocess_mgr
 from nemo_curator.core.serve.dynamo.backend import DynamoBackend
 from nemo_curator.core.serve.dynamo.config import DynamoRoleConfig, DynamoRouterConfig
+from nemo_curator.core.serve.dynamo.constants import NEMO_CURATOR_DYNAMO_NAMESPACE
 
 # ---------------------------------------------------------------------------
 # Backend-level validators
@@ -499,6 +500,7 @@ class TestDynamoBackendLaunchFrontend:
             "nats",
         ]
         assert captured_spawn[0]["subprocess_env"] == {}
+        assert captured_spawn[0]["namespace"] == NEMO_CURATOR_DYNAMO_NAMESPACE
 
     def test_tcp_request_plane_and_timeout_env_passthrough(self, captured_spawn: list[dict[str, Any]]) -> None:
         backend_cfg = DynamoServerConfig(request_plane="tcp")
@@ -570,3 +572,80 @@ class TestDynamoBackendLaunchFrontend:
         assert python_args[python_args.index("--router-mode") + 1] == "kv"
         assert "--router-kv-events" in python_args
         assert "--no-router-kv-events" not in python_args
+
+
+@pytest.mark.parametrize("ambient_namespace", ["anonymous-driver-job", "existing-user-namespace"])
+def test_failed_dynamo_deploy_stops_children_before_removing_pg(ambient_namespace: str) -> None:
+    module = dynamo_backend
+    server = InferenceServer(models=[DynamoVLLMModelConfig(model_identifier="model")], backend=DynamoServerConfig())
+    backend = module.DynamoBackend(server)
+    registry, children_alive, events, spawn_options = {}, {}, [], []
+    pg = mock.Mock()
+
+    def factory(_label: str) -> mock.Mock:
+        def options(**kwargs: object) -> mock.Mock:
+            spawn_options.append(kwargs)
+            actor = mock.Mock()
+            key = (kwargs.get("namespace") or ambient_namespace, kwargs["name"])
+            registry[key] = actor
+            children_alive[key] = True
+            actor.initialize.remote.return_value = "initialized"
+            actor.run.remote.return_value = "running"
+
+            def stop() -> str:
+                children_alive[key] = False
+                events.append(("stop-child", key))
+                return "stopped"
+
+            actor.stop.remote.side_effect = stop
+            return mock.Mock(remote=mock.Mock(return_value=actor))
+
+        return mock.Mock(options=options)
+
+    def get_actor(name: str, namespace: str) -> mock.Mock:
+        try:
+            return registry[(namespace, name)]
+        except KeyError as exc:
+            msg = "actor not in requested namespace"
+            raise ValueError(msg) from exc
+
+    def remove_pg(_pg: object) -> None:
+        events.append(("remove-pg", sum(children_alive.values())))
+
+    def deploy(*_: object) -> None:
+        backend._infra_pg = pg
+        backend._infra_ip = "127.0.0.1"
+        backend._etcd_actor = backend._start_infra_service(
+            label="Dynamo_ETCD", bundle_index=0, port=1234, command=["etcd"]
+        )
+        backend._nats_actor = backend._start_infra_service(
+            label="Dynamo_NATS", bundle_index=1, port=1235, command=["nats-server"]
+        )
+        msg = "worker runtime serialization failed before model load"
+        raise TypeError(msg)
+
+    context = mock.Mock()
+    context.get_temp_dir.return_value = "/unused"
+    context.get_session_name.return_value = "no-runtime-created"
+    with (
+        mock.patch.object(module, "_check_binary"),
+        mock.patch.object(module.ray, "init", return_value=contextlib.nullcontext()),
+        mock.patch.object(module.ray, "get_runtime_context", return_value=context),
+        mock.patch.object(module.ray, "get", side_effect=lambda value, **_: value),
+        mock.patch.object(module.ray, "wait", side_effect=lambda refs, **_: (refs, [])),
+        mock.patch.object(module.ray, "get_actor", side_effect=get_actor),
+        mock.patch.object(module.ray, "kill"),
+        mock.patch.object(module.ray.util, "remove_placement_group", side_effect=remove_pg),
+        mock.patch.object(module.os, "makedirs"),
+        mock.patch.object(module, "ensure_actor_overrides_on_all_nodes"),
+        mock.patch.object(module, "remove_named_pgs_with_prefix"),
+        mock.patch.object(module, "_wait_for_port"),
+        mock.patch.object(subprocess_mgr, "_define_subprocess_actor", side_effect=factory),
+        mock.patch.object(backend, "_sweep_orphan_actors"),
+        mock.patch.object(backend, "_deploy_and_healthcheck", side_effect=deploy),
+        pytest.raises(TypeError, match="worker runtime serialization"),
+    ):
+        backend.start()
+    assert not any(children_alive.values()), {"alive": children_alive, "events": events}
+    assert events[-1] == ("remove-pg", 0)
+    assert all(options.get("namespace") == NEMO_CURATOR_DYNAMO_NAMESPACE for options in spawn_options)

@@ -475,3 +475,73 @@ def test_dynamo_runtime_env_matches_base_environment() -> None:
     assert dynamo_vllm.DYNAMO_VLLM_RUNTIME_ENV["uv"]["packages"] == expected_packages
     assert "https://pypi.nvidia.com" not in dynamo_vllm._ACTOR_VENV_UV_OPTIONS
     assert "--prerelease" not in dynamo_vllm._ACTOR_VENV_UV_OPTIONS
+
+
+@pytest.mark.parametrize(
+    ("mode", "fail_at"), [("aggregate", 1), ("aggregate", 2), ("disagg", 2), ("disagg", 3), ("disagg", 4)]
+)
+@pytest.mark.parametrize("cleanup_raises", [False, True])
+def test_unreturned_worker_and_pg_cleanup(mode: str, fail_at: int, cleanup_raises: bool) -> None:
+    model = (
+        DynamoVLLMModelConfig(model_identifier="fixture", num_replicas=3)
+        if mode == "aggregate"
+        else DynamoVLLMModelConfig(
+            model_identifier="fixture",
+            mode="disagg",
+            decode=DynamoRoleConfig(num_replicas=2),
+            prefill=DynamoRoleConfig(num_replicas=2),
+        )
+    )
+    pgs, workers, events = [], [], []
+
+    def build(*_args: object, **_kwargs: object) -> str:
+        pg = f"pg-{len(pgs)}"
+        pgs.append(pg)
+        return pg
+
+    def spawn(*args: object, **_kwargs: object) -> mock.Mock:
+        if len(pgs) == fail_at:
+            msg = "original-launch-failure"
+            raise TypeError(msg)
+        proc = mock.Mock(label=f"worker-{len(workers)}")
+        proc._probe_pg = args[1]
+        workers.append(proc)
+        return proc
+
+    def stop_many(procs: list[mock.Mock]) -> None:
+        events.extend(("stop", p._probe_pg) for p in procs)
+        if cleanup_raises:
+            msg = "cleanup failure must not replace original launch failure"
+            raise RuntimeError(msg)
+
+    def remove(pg: object) -> None:
+        events.append(("remove", pg))
+        if cleanup_raises:
+            msg = "PG cleanup failure must not replace original launch failure"
+            raise RuntimeError(msg)
+
+    arguments = {
+        "base_env": {},
+        "namespace": "discovery",
+        "request_plane": "tcp",
+        "event_plane": "nats",
+        "runtime_dir": "/unused",
+        "actor_name_prefix": "unique",
+        "topology": [{"node_id": "node", "num_gpus": 8, "is_head": False}],
+    }
+    if mode == "aggregate":
+        arguments.update(router_mode="round_robin", router_kv_events=False)
+    function = dynamo_vllm.launch_replicas if mode == "aggregate" else dynamo_vllm.launch_disagg_replicas
+    with (
+        mock.patch.object(dynamo_vllm, "build_replica_pg", side_effect=build),
+        mock.patch.object(dynamo_vllm, "get_free_port_in_bundle", return_value=12345),
+        mock.patch.object(dynamo_vllm.ManagedSubprocess, "spawn", side_effect=spawn),
+        mock.patch.object(dynamo_vllm.ManagedSubprocess, "stop_many", side_effect=stop_many),
+        mock.patch.object(dynamo_vllm.ray.util, "remove_placement_group", side_effect=remove),
+        pytest.raises(TypeError, match="original-launch-failure"),
+    ):
+        function(model, **arguments)
+    assert {pg for action, pg in events if action == "remove"} == set(pgs), events
+    assert {pg for action, pg in events if action == "stop"} == {p._probe_pg for p in workers}, events
+    for proc in workers:
+        assert events.index(("stop", proc._probe_pg)) < events.index(("remove", proc._probe_pg))

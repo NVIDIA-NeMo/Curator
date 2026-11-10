@@ -354,3 +354,29 @@ class TestSubprocessUtils:
             server.listen(1)
             open_port = server.getsockname()[1]
             _wait_for_port("127.0.0.1", open_port, timeout_s=2, label="open")
+
+
+def test_spawn_initialization_failure_reaps_unreturned_actor() -> None:
+    import ray
+
+    from nemo_curator.core.serve import subprocess_mgr
+
+    actor = mock.Mock()
+    actor.initialize.remote.return_value = "initialize"
+    factory = mock.Mock()
+    factory.options.return_value.remote.return_value = actor
+
+    def get(ref: object, **_kwargs: object) -> object:
+        if ref == "initialize":
+            msg = "original-init-failure"
+            raise RuntimeError(msg)
+        return ref
+
+    with (
+        mock.patch.object(subprocess_mgr, "_define_subprocess_actor", return_value=factory),
+        mock.patch.object(ray, "get", side_effect=get),
+        mock.patch.object(subprocess_mgr, "graceful_stop_actors") as stop,
+        pytest.raises(RuntimeError, match="original-init-failure"),
+    ):
+        subprocess_mgr.ManagedSubprocess.spawn("fixture", mock.Mock(), 0, num_gpus=0, command=["placeholder"])
+    stop.assert_called_once_with([("fixture", actor)])

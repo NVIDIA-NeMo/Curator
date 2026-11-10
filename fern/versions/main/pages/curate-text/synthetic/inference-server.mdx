@@ -145,6 +145,12 @@ finally:
     server.stop()
 ```
 
+Dynamo creates its managed infrastructure, model-worker, and frontend actors in
+the `nemo_curator_dynamo` Ray namespace. Actor creation and cleanup use that
+namespace explicitly, including when the caller has already initialized Ray in
+another namespace. This internal actor namespace is separate from
+`DynamoServerConfig.namespace`, which controls Dynamo service discovery.
+
 ## Ray Serve Configuration
 
 ### `RayServeModelConfig`
