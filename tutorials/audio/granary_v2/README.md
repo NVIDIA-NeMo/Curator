@@ -18,8 +18,8 @@ examples can also be run independently.
 
 Run commands from the repository root. Follow each tutorial's README for its
 entrypoint, required arguments, environment and hardware requirements. The full
-English and text tutorials manage Dynamo serving through their own `main.py`;
-the other tutorials use `nemo_curator/config/run.py`.
+English tutorial manages Dynamo serving through its own `main.py`; the other
+tutorials use `nemo_curator/config/run.py`.
 
 The [benchmarks](../../../benchmarking/README.md#audio-benchmark-data-setup)
 remain under `benchmarking/` and use these tutorial configurations on larger
