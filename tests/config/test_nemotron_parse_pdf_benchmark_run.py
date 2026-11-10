@@ -26,6 +26,8 @@ def test_direct_benchmark_requires_valid_pages_and_retains_outputs(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, outcome: str
 ):
     monkeypatch.syspath_prepend(str(TUTORIAL))
+    manifest = tmp_path / "input.jsonl"
+    manifest.touch()
     module = importlib.import_module("benchmark_run")
     sampler = SimpleNamespace(start=Mock(), check=Mock(), stop=Mock())
     monkeypatch.setattr(module, "GPUSampler", lambda *_args: sampler)
@@ -78,7 +80,7 @@ def test_direct_benchmark_requires_valid_pages_and_retains_outputs(
             sys.executable,
             str(driver),
             "--manifest",
-            "input.jsonl",
+            str(manifest),
             "--pdf-dir",
             str(tmp_path),
             "--output-dir",

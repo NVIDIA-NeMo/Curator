@@ -38,6 +38,8 @@ def load_module(monkeypatch: pytest.MonkeyPatch, name: str):
 
 def test_external_endpoint_does_not_start_managed_serving(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     main = load_module(monkeypatch, "main")
+    manifest = tmp_path / "input.jsonl"
+    manifest.touch()
     run = Mock()
     monkeypatch.setattr(main, "_run_pipeline", run)
     monkeypatch.setattr(main, "get_available_cpu_gpu_resources", Mock(side_effect=AssertionError("no Ray probe")))
@@ -48,7 +50,7 @@ def test_external_endpoint_does_not_start_managed_serving(monkeypatch: pytest.Mo
         [
             "main.py",
             "--manifest",
-            "input.jsonl",
+            str(manifest),
             "--pdf-dir",
             ".",
             "--output-dir",
@@ -74,6 +76,40 @@ def test_external_endpoint_does_not_start_managed_serving(monkeypatch: pytest.Mo
     assert (endpoint, model, workers) == ("http://served/v1", "served-name", 8)
     assert args.parse_mode == "triple"
     assert args.executor == "xenna"
+
+
+@pytest.mark.parametrize("manifest_is_directory", [False, True])
+def test_invalid_manifest_fails_before_managed_startup(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, manifest_is_directory: bool
+):
+    main = load_module(monkeypatch, "main")
+    manifest = tmp_path / "input.jsonl"
+    if manifest_is_directory:
+        manifest.mkdir()
+    probe = Mock(return_value=(4, 1))
+    factory = MagicMock()
+    monkeypatch.setattr(main, "get_available_cpu_gpu_resources", probe)
+    monkeypatch.setattr(main, "create_nemotron_parse_inference_server", factory)
+    monkeypatch.setattr(main, "_run_pipeline", Mock())
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "main.py",
+            "--manifest",
+            str(manifest),
+            "--pdf-dir",
+            str(tmp_path),
+            "--output-dir",
+            str(tmp_path / "output"),
+            "--nemotron-parse-path",
+            str(tmp_path / "model"),
+        ],
+    )
+    with pytest.raises(OSError, match=r"input\.jsonl"):
+        main.main()
+    probe.assert_not_called()
+    factory.assert_not_called()
 
 
 @pytest.mark.parametrize("parse_mode", [None, "single", "double", "triple"])
@@ -165,6 +201,8 @@ def test_tutorial_requires_endpoint_or_path_for_selected_mode(monkeypatch: pytes
 
 def test_managed_parse_mode_starts_model_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     main = load_module(monkeypatch, "main")
+    manifest = tmp_path / "input.jsonl"
+    manifest.touch()
     model_path = str(tmp_path / "parse35")
     server = MagicMock()
     server.endpoint = "http://managed/v1"
@@ -179,7 +217,7 @@ def test_managed_parse_mode_starts_model_server(monkeypatch: pytest.MonkeyPatch,
         [
             "main.py",
             "--manifest",
-            "input.jsonl",
+            str(manifest),
             "--pdf-dir",
             ".",
             "--output-dir",

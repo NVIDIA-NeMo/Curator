@@ -77,6 +77,10 @@ Dynamo. First install Curator's CPU PDF dependencies and the matching model-team
 parser package as described in [Served Nemotron Parse 3.5](#served-nemotron-parse-35).
 The parser package must match the revision served by the endpoint.
 
+The tutorial and generic benchmark open the manifest before GPU discovery or
+managed-server startup. Missing, unreadable, and directory paths fail early;
+manifest records are validated later by the pipeline.
+
 Create a manifest with one PDF filename per line:
 
 ```jsonl
