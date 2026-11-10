@@ -458,3 +458,79 @@ def test_qwen_omni_pipeline_carries_the_same_language_rules() -> None:
 
     assert language_rules(production)
     assert language_rules(inline) == language_rules(production)
+
+
+_GRANARY_REGEX_YAML = (
+    Path(__file__).resolve().parents[4] / "tutorials" / "audio" / "granary_v2" / "indic_asr" / "regex.yaml"
+)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "mình cũng biết mà",  # vi: ũ U+0169
+        "nghĩ về chuyện cũ",  # vi: ĩ U+0129 and ũ
+        "một bác sĩ giỏi",  # vi: ĩ
+        "NOËL",  # fr: Ë U+00CB
+        "AOÛT",  # fr: Û U+00DB
+        "MAÏS",  # fr: Ï U+00CF
+        "όλους τους ανθρώπους",  # el: final sigma ς U+03C2
+        "Ίσως Ύστερα Ώρα",  # el: Ί U+038A, Ύ U+038E, Ώ U+038F
+        "προϋπόθεση ταΐζω",  # el: ϋ U+03CB, ΐ U+0390
+        "ΠΡΟΫΠΟΘΕΣΗ ΤΑΪΖΩ",  # el: Ϋ U+03AB, Ϊ U+03AA
+        "naţiune Ţara",  # ro: legacy cedilla ţ U+0163, Ţ U+0162
+        "\u0391\u0384 Παγκόσμιος Πόλεμος",  # el: numeral sign/keraia U+0384
+        "тя ѝ каза",  # bg: ѝ U+045D
+        "Ѝ и ѐ",  # bg: Ѝ U+040D, ѐ U+0450
+        "ĳsje",  # nl: ĳ U+0133
+        "人々は時々",  # ja: 々 U+3005
+        "二〇二四年",  # zh/ja: ideographic number zero U+3007
+    ],
+)
+def test_production_whitelist_preserves_covered_language_letters(text: str) -> None:
+    """Letters absent from the whitelist are silently replaced by a space.
+
+    Ĩĩ/Ũũ and the uppercase Ë/Ï/Û were missing, so correct predictions lost them
+    mid-word: "cũng" became "c ng" and "NOËL" became "NO L". The same gap hit the
+    Greek final sigma ς ("τους" -> "του "), Romanian cedilla ţ, Bulgarian ѝ and the
+    CJK iteration mark 々 ("人々" -> "人 "). Every one of these languages is in the
+    rule file's declared coverage, so a covered letter must survive intact.
+    """
+    stage = RegexSubstitutionStage(
+        regex_params_yaml=str(_GRANARY_REGEX_YAML),
+        text_key="pred_text",
+        output_text_key="cleaned_text",
+    )
+    stage.setup()
+    task = AudioTask(data={"pred_text": text})
+
+    stage.process(task)
+
+    assert task.data["cleaned_text"] == text
+
+
+def _whitelist_patterns(node: object) -> list[str]:
+    """Collect every character-whitelist pattern (a negated class replaced by a space)."""
+    if isinstance(node, dict):
+        found = [p for v in node.values() for p in _whitelist_patterns(v)]
+        pattern = node.get("pattern")
+        if isinstance(pattern, str) and pattern.startswith("[^") and node.get("repl") == " ":
+            found.append(pattern)
+        return found
+    if isinstance(node, list):
+        return [p for v in node for p in _whitelist_patterns(v)]
+    return []
+
+
+def test_qwen_omni_whitelist_matches_production_rule_file() -> None:
+    """qwen_omni_asr/pipeline.yaml carries an inline copy of the whitelist.
+
+    The copy silently missed the letter fixes made to indic_asr/regex.yaml, so the
+    Qwen-Omni path kept stripping them. Both copies must stay identical.
+    """
+    qwen_yaml = _GRANARY_REGEX_YAML.parents[1] / "qwen_omni_asr" / "pipeline.yaml"
+    production = _whitelist_patterns(yaml.safe_load(_GRANARY_REGEX_YAML.read_text(encoding="utf-8")))
+    inline = _whitelist_patterns(yaml.safe_load(qwen_yaml.read_text(encoding="utf-8")))
+
+    assert len(production) == 1
+    assert inline == production
