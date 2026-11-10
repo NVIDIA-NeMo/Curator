@@ -27,7 +27,6 @@ import tempfile
 import uuid
 from typing import TYPE_CHECKING, Any, ClassVar
 
-import numpy as np
 import soundfile as sf
 import torch
 import torchaudio as ta
@@ -41,6 +40,8 @@ from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
 if TYPE_CHECKING:
+    import numpy as np
+
     from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 
 SUPPORTED_LANGUAGES = frozenset(
@@ -154,8 +155,11 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
 
     Each input ``AudioTask`` represents one conversation turn with fields
     ``utterance`` (or ``text``), ``speaker``, and ``conversation_id``.
-    The output ``AudioTask`` is enriched with ``audio_filepath`` and
-    ``duration``.
+    Each output retains the input task and adds ``audio_filepath``,
+    ``duration`` (seconds), and ``reference_voice``. Skipped or failed turns
+    have empty path/voice fields and zero duration, so downstream stages
+    can reject missing audio. Previous output fields and resident waveform
+    data are cleared before processing, including on retries.
 
     Speaker voices are assigned from a reference dataset and stay
     consistent within a conversation. Reference audio can optionally be
@@ -750,7 +754,7 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
                 wav = self._normalize_audio(wav)
 
             return wav.squeeze(0).cpu().numpy()
-        except Exception as e:  # noqa: BLE001 -- caller emits an uncached silence placeholder
+        except Exception as e:  # noqa: BLE001 -- caller leaves failed turn outputs empty
             logger.error(f"TTS generation failed: {e}")
             return None
 
@@ -920,9 +924,12 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
         output_tasks: list[AudioTask] = []
         for task in tasks:
             data = task.data
+            data.update(audio_filepath="", duration=0.0, reference_voice="")
+            data.pop("waveform", None)
+            data.pop("sample_rate", None)
 
             text = data.get("utterance") or data.get("text", "")
-            if not text or not text.strip():
+            if not isinstance(text, str) or not text.strip():
                 logger.warning(f"Skipping task {task.task_id}: no text")
                 output_tasks.append(task)
                 continue
@@ -957,12 +964,9 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
                     else:
                         audio_data = self._generate_turn_audio(text, reference_wav, conversation_id)
                         if audio_data is None:
-                            # Keep failed outputs immutable without caching a transient failure.
-                            stem = os.path.splitext(audio_path)[0]
-                            audio_path = f"{stem}.failed-{uuid.uuid4().hex}.wav"
-                            sf.write(audio_path, np.zeros(self.sample_rate * 2), self.sample_rate)
-                        else:
-                            self._publish_cache_entry(audio_path, audio_data, manifest)
+                            output_tasks.append(task)
+                            continue
+                        self._publish_cache_entry(audio_path, audio_data, manifest)
                         # Report metadata from the published artifact, just as cache hits do.
                         audio_data, audio_sr = sf.read(audio_path)
             except Exception as e:  # noqa: BLE001 -- isolate a bad reference/record to one task
@@ -975,8 +979,6 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
             task.data["audio_filepath"] = audio_path
             task.data["duration"] = duration
             task.data["reference_voice"] = ref_id
-            task.data.pop("waveform", None)
-            task.data.pop("sample_rate", None)
             output_tasks.append(task)
 
             logger.info(f"[TTS] {conversation_id[:8]}/{speaker}: {duration:.2f}s -> {filename}")

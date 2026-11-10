@@ -22,6 +22,7 @@ import os
 import shutil
 import sys
 import types
+from pathlib import Path
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
@@ -45,7 +46,6 @@ from nemo_curator.utils.performance_utils import StagePerfStats
 if TYPE_CHECKING:
     from multiprocessing.queues import Queue
     from multiprocessing.synchronize import Event
-    from pathlib import Path
 
     from filelock import AcquireReturnProxy
 
@@ -410,7 +410,8 @@ class TestChatterboxTTSStage:
         finally:
             stage.teardown()
 
-    def test_process_batch_skips_empty_text(self, output_dir: str, ref_dataset: str) -> None:
+    @pytest.mark.parametrize("use_adapter", [False, True])
+    def test_process_batch_skips_empty_text(self, output_dir: str, ref_dataset: str, use_adapter: bool) -> None:
         with patch.object(ChatterboxTTSStage, "_load_model", _inject_model):
             stage = _build_stage(output_dir, ref_dataset)
             stage.setup()
@@ -420,11 +421,50 @@ class TestChatterboxTTSStage:
                 _make_task("", "Bob", "conv001", task_id="t2"),
                 _make_task("   ", "Charlie", "conv001", task_id="t3"),
             ]
-            results = stage.process_batch(tasks)
+            if use_adapter:
+                results = RayDataStageAdapter(stage)._process_batch_internal({"item": np.array(tasks, dtype=object)})[
+                    "item"
+                ]
+            else:
+                results = stage.process_batch(tasks)
 
-        assert "audio_filepath" in results[0].data
-        assert "audio_filepath" not in results[1].data
-        assert "audio_filepath" not in results[2].data
+        assert results[0].data["audio_filepath"]
+        assert stage.model.generate.call_count == 1
+        for result, original in zip(results, tasks, strict=True):
+            assert result is original
+        for result in results[1:]:
+            assert result.data["audio_filepath"] == ""
+            assert result.data["duration"] == 0.0
+            assert result.data["reference_voice"] == ""
+
+    @pytest.mark.parametrize("text", ["", " \t\n", None, 42])
+    def test_skipped_retry_clears_previous_audio_and_preserves_lineage(
+        self, output_dir: str, ref_dataset: str, text: object
+    ) -> None:
+        with patch.object(ChatterboxTTSStage, "_load_model", _inject_model):
+            stage = _build_stage(output_dir, ref_dataset)
+            stage.setup()
+            task = _make_task()
+            task._metadata["source"] = "manifest_v1"
+            task._source_id = "input_partition"
+            perf = StagePerfStats(stage_name="upstream", process_time=1.5)
+            task.add_stage_perf(perf)
+            previous_path = stage.process_batch([task])[0].data["audio_filepath"]
+            task.data.update(utterance=text, waveform=torch.ones(1, 100), sample_rate=16000)
+
+            result = stage.process_batch([task])[0]
+
+        assert result is task
+        assert result.data["audio_filepath"] == ""
+        assert result.data["duration"] == 0.0
+        assert result.data["reference_voice"] == ""
+        assert "waveform" not in result.data
+        assert "sample_rate" not in result.data
+        assert result._metadata == {"source": "manifest_v1"}
+        assert result._source_id == "input_partition"
+        assert result._stage_perf == [perf]
+        assert os.path.isfile(previous_path)
+        assert stage.model.generate.call_count == 1
 
     def test_process_batch_text_field_fallback(self, output_dir: str, ref_dataset: str) -> None:
         with patch.object(ChatterboxTTSStage, "_load_model", _inject_model):
@@ -694,7 +734,7 @@ class TestChatterboxTTSStage:
         assert len(results) == 2
         assert results[0].data["reference_voice"] != results[1].data["reference_voice"]
 
-    def test_process_batch_generation_failure_produces_silence(self, output_dir: str, ref_dataset: str) -> None:
+    def test_process_batch_generation_failure_leaves_empty_outputs(self, output_dir: str, ref_dataset: str) -> None:
         with patch.object(ChatterboxTTSStage, "_load_model", _inject_model):
             stage = _build_stage(output_dir, ref_dataset)
             stage.setup()
@@ -702,25 +742,74 @@ class TestChatterboxTTSStage:
 
             result = stage.process_batch([_make_task("This will fail")])[0]
 
-        audio, _sr = sf.read(result.data["audio_filepath"])
-        assert np.allclose(audio, 0.0)
+        assert result.data["audio_filepath"] == ""
+        assert result.data["duration"] == 0.0
+        assert result.data["reference_voice"] == ""
+        assert not list(Path(output_dir).glob("*.wav"))
+        assert not list(Path(output_dir).glob("*.json"))
 
-    def test_failed_generation_is_retried_without_replacing_failure_audio(
-        self, output_dir: str, ref_dataset: str
-    ) -> None:
+    def test_failed_generation_is_retried_without_caching_failure(self, output_dir: str, ref_dataset: str) -> None:
         with patch.object(ChatterboxTTSStage, "_load_model", _inject_model):
             stage = _build_stage(output_dir, ref_dataset)
             stage.setup()
             stage.model.generate.side_effect = RuntimeError("temporary GPU OOM")
-            failed = stage.process_batch([_make_task()])[0]
-            failed_path = failed.data["audio_filepath"]
+            task = _make_task()
+            failed = stage.process_batch([task])[0]
+            assert failed is task
+            assert failed.data["audio_filepath"] == ""
             stage.model = _fake_model()
-            retried = stage.process_batch([_make_task()])[0]
+            retried = stage.process_batch([task])[0]
 
+        assert retried is task
         assert stage.model.generate.call_count == 1
-        assert retried.data["audio_filepath"] != failed_path
+        assert retried.data["audio_filepath"]
+        assert retried.data["duration"] > 0
         assert not np.allclose(sf.read(retried.data["audio_filepath"])[0], 0.0)
-        assert np.allclose(sf.read(failed_path)[0], 0.0)
+
+    def test_generation_failure_does_not_drop_other_turns(self, output_dir: str, ref_dataset: str) -> None:
+        with patch.object(ChatterboxTTSStage, "_load_model", _inject_model):
+            stage = _build_stage(output_dir, ref_dataset)
+            stage.setup()
+            stage.model.generate.side_effect = [RuntimeError("temporary GPU OOM"), torch.ones(1, 2400)]
+            tasks = [_make_task("Failed turn", task_id="bad"), _make_task("Valid turn", task_id="good")]
+
+            results = stage.process_batch(tasks)
+
+        assert len(results) == 2
+        assert results[0] is tasks[0]
+        assert results[0].data["audio_filepath"] == ""
+        assert results[1] is tasks[1]
+        assert os.path.isfile(results[1].data["audio_filepath"])
+        assert results[1].data["duration"] == pytest.approx(0.1)
+
+    @pytest.mark.parametrize("failure_point", ["_assign_reference", "_publish_cache_entry"])
+    def test_processing_failure_clears_stale_outputs_and_can_retry(
+        self, output_dir: str, ref_dataset: str, failure_point: str
+    ) -> None:
+        with patch.object(ChatterboxTTSStage, "_load_model", _inject_model):
+            stage = _build_stage(output_dir, ref_dataset)
+            stage.setup()
+            task = _make_task(
+                audio_filepath="old.wav",
+                duration=5.0,
+                reference_voice="old_voice",
+                waveform=torch.ones(1, 100),
+                sample_rate=16000,
+            )
+            with patch.object(stage, failure_point, side_effect=OSError("unavailable")):
+                failed = stage.process_batch([task])[0]
+            assert failed is task
+            assert failed.data["audio_filepath"] == ""
+            assert failed.data["duration"] == 0.0
+            assert failed.data["reference_voice"] == ""
+            assert "waveform" not in failed.data
+            assert "sample_rate" not in failed.data
+
+            retried = stage.process_batch([task])[0]
+
+        assert retried is task
+        assert os.path.isfile(retried.data["audio_filepath"])
+        assert retried.data["duration"] > 0
 
     def test_normalize_audio_returns_silence_unchanged(self, output_dir: str, ref_dataset: str) -> None:
         stage = _build_stage(output_dir, ref_dataset)
@@ -852,7 +941,10 @@ class TestChatterboxTTSStage:
                 results = stage.process_batch([task])
 
         assert results == [task]
-        assert "audio_filepath" not in results[0].data
+        assert results[0] is task
+        assert results[0].data["audio_filepath"] == ""
+        assert results[0].data["duration"] == 0.0
+        assert results[0].data["reference_voice"] == ""
 
     def test_hash_file_content_reflects_bytes(self, tmp_path: Path) -> None:
         path_a = tmp_path / "a.bin"
@@ -940,7 +1032,10 @@ class TestChatterboxTTSStage:
             with patch.object(stage, "_assign_reference", side_effect=fail_once):
                 results = stage.process_batch(tasks)
 
-        assert "audio_filepath" not in results[0].data
+        assert results[0] is tasks[0]
+        assert results[0].data["audio_filepath"] == ""
+        assert results[0].data["duration"] == 0.0
+        assert results[0].data["reference_voice"] == ""
         assert "audio_filepath" in results[1].data
 
     def test_process_batch_writes_matching_sidecar_and_no_leftover_temp_files(
