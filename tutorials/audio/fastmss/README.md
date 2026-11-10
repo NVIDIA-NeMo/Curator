@@ -1,20 +1,24 @@
 # FastMSS meeting simulation
 
-Install the optional toolkit in an existing Linux Curator environment:
+From a Curator source checkout, install the optional toolkit with uv on Linux:
 
 ```bash
-uv pip install '.[audio_simulation]'
+uv sync --extra audio_simulation
 export FASTMSS_MANIFEST_DIR=/absolute/path/to/source/manifests
 ```
 
-The extra pins upstream FastMSS 0.1.0 to immutable Git revision
-`81fc2c3e4b938cf73343f58df9e013bc106cb77a`. Its code is installed as a separate
+The extra pins FastMSS 0.1.0 to immutable Git revision
+[packaging-only revision](https://github.com/timofeeva16tanya/FastMSS/commit/3f0a17393f0fc1642527aea1a057a8a5a1e9420d). Its code is installed as a separate
 Apache-2.0 dependency; no FastMSS source is copied into Curator.
+The pinned fork changes only package data to include YAML defaults; engine code
+is unchanged from upstream 81fc2c3. FastMSS is not on PyPI, so use the source
+checkout: uv resolves its Git source from tool.uv.sources. Published Curator
+metadata contains only fastmss==0.1.0, without a direct URL.
 
 Provide prepared, word-aligned single-speaker Lhotse cuts from at least two
 speakers in `$FASTMSS_MANIFEST_DIR/source_train.jsonl.gz`. Source audio, configs
-and output paths must be visible on every worker. `meetings.yaml` is a standalone
-example because the upstream wheel does not include recipe YAML files.
+and output paths must be visible on every worker. `meetings.yaml` inherits the
+defaults shipped in the installed FastMSS package.
 
 ```python
 from nemo_curator.backends.ray_actor_pool import RayActorPoolExecutor

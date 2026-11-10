@@ -1,21 +1,15 @@
 # Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-
-# Standalone example: upstream wheels do not include recipe YAML files.
-n_jobs: 1
-stage: 0
-samplerate: 16000
-output_dir: null
-data_dir: null
-rir_dir: null
+# FASTMSS_ROOT is set by the worker to the installed dependency's root.
+defaults:
+  - default
+  - _self_
 hydra:
-  run:
-    dir: ${output_dir}
-
+  searchpath:
+    - file://${oc.env:FASTMSS_ROOT}/recipes
 manifest_dir: ${oc.env:FASTMSS_MANIFEST_DIR}
 manifest_prefix: source
 dset_splits: [train]
-
 n_meetings: 2
 duration: 10
 min_max_spk: [2, 2]
@@ -23,45 +17,5 @@ max_concurrent_speakers: 2
 min_spk_utt: 1
 split_fa_factor: null
 seed: 42
-
 reverberate: false
 add_noise: false
-exclude_speakers: null
-max_utt_duration: 20
-min_utt_duration: 0
-drop_without_align: true
-base_gain: [-35, -8]
-rel_gain: [-12, 5]
-noise_folders: null
-noise_rel_gain: [-20, -3]
-noise_probability_global: 0.5
-multi_noise_sampling: true
-filter_noise_len: 2
-reverb_prob: 0.5
-n_rirs: 100
-n_pos_rirs: 4
-rt60: [0.1, 0.7]
-room_sz: [5, 10]
-room_ceiling: [3, 5]
-delta_dist: 0.5
-use_rand_ism: false
-rand_disp: 0
-max_position_change: 0.5
-mic_type: single
-circular:
-  diameter: [0.08, 0.085]
-  n_mics: 8
-  center_mic: false
-speed_perturb: false
-speed_perturb_range: [0.95, 1.05]
-use_fir: false
-use_markov: false
-hmm_fit_transitions_to: null
-hmm_params:
-  p_ind: [0.25, 0.25, 0.25, 0.25]
-boost_overlap_factor: null
-save_cutset: true
-save_spk: false
-save_anechoic: false
-save_rttm: true
-save_nemo_manifest: true

@@ -11,9 +11,11 @@ modality: "audio-only"
 
 # Multi-Speaker Simulation with FastMSS
 
-Install `nemo-curator[audio_simulation]` in an existing Linux environment.
+Use `uv sync --extra audio_simulation` from a Curator source checkout on Linux.
 The extra installs FastMSS as an external dependency pinned to an immutable
-upstream Git revision. Curator contains only the integration, tests and examples.
+Git revision with a recipe-YAML packaging fix. Curator contains only the
+integration, tests and examples. FastMSS is not yet on PyPI; the Git source is
+configured in `tool.uv.sources`, outside published dependency metadata.
 Source audio, configs and output paths must be shared across executor nodes.
 
 ```python
