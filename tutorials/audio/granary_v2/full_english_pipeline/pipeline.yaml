@@ -13,7 +13,7 @@ hydra:
 
 documentation: |
   Extract metadata and Opus speech clips from recordings, retain English clips,
-  transcribe with Qwen3-Omni, then enrich transcripts through a text-model endpoint.
+  transcribe with Qwen3-Omni and Qwen3-ASR recovery, then enrich the selected text.
   metadata.jsonl retains every metadata result, including rejected/audit rows;
   english.jsonl contains the selected English clips with ASR and text features.
 
@@ -24,10 +24,12 @@ output_path: ${output_dir}/english.jsonl
 workspace_dir: ${output_dir}/asr_workspace
 model_id: Qwen/Qwen3-Omni-30B-A3B-Instruct
 model_revision: 26291f793822fb6be9555850f06dfe95f2d7e695  # pragma: allowlist secret
+recovery_model_id: Qwen/Qwen3-ASR-0.6B
+recovery_model_revision: 5eb144179a02acc5e5ba31e748d22b0cf3e303b0  # pragma: allowlist secret
 endpoint: ???
 text_key: abbreviated_text
-# Use the clip prediction, never an inherited parent-recording transcript.
-ground_truth_key: primary_model_prediction
+# Use the selected clip prediction, never an inherited parent-recording transcript.
+ground_truth_key: best_prediction
 language_key: source_lang
 
 backend: ray_data
@@ -381,8 +383,38 @@ stages:
     long_word_threshold: 25
     long_word_rel_threshold: 3.0
     max_char_rate: 40.0
+
+  - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
+    name: QwenASR_recovery
+    adapter_target: nemo_curator.models.asr.qwen_asr.QwenASRAdapter
+    model_id: ${recovery_model_id}
+    default_language: en
+    supported_language_codes: [en]
+    preserve_existing_skip: true
+    pred_text_key: fallback_model_prediction
+    batch_size: 128
+    max_audio_sec_per_actor: 5120.0
+    adapter_kwargs:
+      revision: ${recovery_model_revision}
+      gpu_memory_utilization: 0.95
+      max_new_tokens: 4096
+      max_inference_batch_size: 128
+
+  - _target_: nemo_curator.stages.audio.text_filtering.WhisperHallucinationStage
+    name: WhisperHallucination_asr
+    common_hall_file: tutorials/audio/whisper_hallucination/phrases.txt
+    text_key: fallback_model_prediction
+    language_key: source_lang
+    overwrite: true
+    recovery_value: Recovered:ASR
+    unique_words_threshold: 0.4
+    long_word_threshold: 25
+    long_word_rel_threshold: 3.0
+    max_char_rate: 40.0
+
   - _target_: nemo_curator.stages.audio.text_filtering.SelectBestPredictionStage
     primary_text_key: primary_model_prediction
+    fallback_text_key: fallback_model_prediction
     reference_text_key: null
     use_reference_on_hallucination: false
     use_ground_truth_for_short_audio: false
