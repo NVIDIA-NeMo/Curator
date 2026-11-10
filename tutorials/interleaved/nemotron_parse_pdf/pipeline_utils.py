@@ -27,12 +27,22 @@ from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import DEFAULT
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.page_budget import output_version, validate_extraction_config
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.schema import PAGE_OUTPUT_SCHEMA
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.validation import PDFPageBudgetValidationStage
+from nemo_curator.utils.operation_utils import make_named_temporary_file
 
 
 def validate_manifest_path(manifest_path: str) -> None:
     """Reject missing or unreadable local manifests before starting serving."""
     with Path(manifest_path).open():
         pass
+
+
+def validate_output_directory(output_dir: str | Path) -> None:
+    """Check local creation/write access without changing existing output files."""
+    output_dir = Path(output_dir)
+    probe_dir = output_dir if output_dir.exists() else output_dir.parent
+    probe_dir.mkdir(parents=True, exist_ok=True)
+    with make_named_temporary_file(target_dir=probe_dir, prefix=".curator-write-check-") as probe:
+        probe.write_bytes(b"\0")
 
 
 def create_nemotron_parse_pdf_argparser() -> argparse.ArgumentParser:

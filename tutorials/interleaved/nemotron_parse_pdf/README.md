@@ -58,9 +58,9 @@ physical page numbers; the HTTP stage rejects input without `page_number`.
 
 ## Run the tutorial
 
-The tutorial and generic benchmark open the manifest before GPU discovery or
-managed-server startup. Missing, unreadable, and directory paths fail early;
-manifest records are validated later by the pipeline.
+The tutorial and generic benchmark check local manifest readability and
+output-directory write access before GPU discovery or managed-server startup.
+These preflights do not validate all manifest records or guarantee later writes.
 
 **Step 1 — Create a manifest listing your PDFs:**
 

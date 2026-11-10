@@ -143,3 +143,59 @@ def test_managed_page_mode_rejects_existing_output_before_serving(
     probe.assert_not_called()
     factory.assert_not_called()
     run.assert_not_called()
+
+
+@pytest.mark.parametrize("entry_point", ["main", "benchmark"])
+def test_page_mode_unwritable_parent_fails_before_serving(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, entry_point: str
+):
+    monkeypatch.syspath_prepend(str(ROOT / "benchmarking/scripts"))
+    monkeypatch.syspath_prepend(str(ROOT / "tutorials/interleaved/nemotron_parse_pdf"))
+    import pipeline_utils
+
+    manifest = tmp_path / "manifest.jsonl"
+    manifest.touch()
+    output = tmp_path / "fresh-output"
+    probe = Mock(side_effect=AssertionError("no GPU discovery"))
+    factory = Mock(side_effect=AssertionError("no serving"))
+    monkeypatch.setattr(
+        pipeline_utils, "make_named_temporary_file", Mock(side_effect=PermissionError("output denied"))
+    )
+    argv = [
+        entry_point,
+        "--manifest",
+        str(manifest),
+        "--pdf-dir",
+        str(tmp_path),
+        "--output-dir",
+        str(output),
+        "--nemotron-parse-path",
+        str(tmp_path / "model"),
+        "--pages-per-task",
+        "64",
+        "--page-budget-extraction-config",
+        str(tmp_path / "extraction.json"),
+    ]
+    if entry_point == "main":
+        spec = importlib.util.spec_from_file_location(
+            "unwritable_page_main", ROOT / "tutorials/interleaved/nemotron_parse_pdf/main.py"
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        monkeypatch.setattr(module, "get_available_cpu_gpu_resources", probe)
+        monkeypatch.setattr(module, "create_nemotron_parse_inference_server", factory)
+        monkeypatch.setattr(sys, "argv", argv)
+        with pytest.raises(PermissionError, match="output denied"):
+            module.main()
+    else:
+        module = importlib.import_module("nemotron_parse_pdf_benchmark")
+        monkeypatch.setattr(module, "setup_executor", Mock())
+        monkeypatch.setattr(module, "write_benchmark_results", Mock())
+        monkeypatch.setattr(module, "_available_gpu_count", probe)
+        monkeypatch.setattr(module, "create_nemotron_parse_inference_server", factory)
+        argv.extend(["--benchmark-results-path", str(tmp_path / "results")])
+        monkeypatch.setattr(sys, "argv", argv)
+        module.main()
+    assert not output.exists()
+    probe.assert_not_called()
+    factory.assert_not_called()

@@ -173,3 +173,19 @@ def test_pinned_legacy_regressions_explicitly_select_their_original_mode(benchma
         args, _ = module.create_nemotron_parse_pdf_argparser().parse_known_args(shlex.split(entry["args"]))
         assert args.parse_mode is None
         assert args.model_path == "{dataset:nemotron_parse_pdf_model,files}"
+
+
+def test_unwritable_output_fails_before_managed_startup(benchmark: tuple, monkeypatch: pytest.MonkeyPatch):
+    module, args, pipeline, build, server, factory, probe = benchmark
+    import pipeline_utils
+
+    monkeypatch.setattr(
+        pipeline_utils, "make_named_temporary_file", Mock(side_effect=PermissionError("output denied"))
+    )
+    with pytest.raises(PermissionError, match="output denied"):
+        module.run_nemotron_parse_pdf_benchmark(args)
+    probe.assert_not_called()
+    factory.assert_not_called()
+    server.start.assert_not_called()
+    build.assert_not_called()
+    pipeline.run.assert_not_called()

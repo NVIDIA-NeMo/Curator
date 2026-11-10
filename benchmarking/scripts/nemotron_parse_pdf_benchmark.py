@@ -42,6 +42,7 @@ from pipeline_utils import (
     create_nemotron_parse_pdf_argparser,
     create_nemotron_parse_pdf_pipeline,
     validate_manifest_path,
+    validate_output_directory,
 )
 
 from nemo_curator.backends.utils import get_available_cpu_gpu_resources
@@ -192,6 +193,8 @@ def _validate_output_directory(output_dir: Path, *, require_fresh: bool) -> None
     if require_fresh and output_dir.exists():
         msg = f"Output directory {output_dir} already exists"
         raise FileExistsError(msg)
+    if require_fresh:
+        validate_output_directory(output_dir)
 
 
 def run_nemotron_parse_pdf_benchmark(args: argparse.Namespace) -> dict[str, Any]:
@@ -201,6 +204,7 @@ def run_nemotron_parse_pdf_benchmark(args: argparse.Namespace) -> dict[str, Any]
     output_dir = Path(args.output_dir).absolute()
     if args.pages_per_task is None:
         output_dir.mkdir(parents=True, exist_ok=True)
+        validate_output_directory(output_dir)
 
     inference_server = None
     inference_server_startup_s = 0.0

@@ -26,6 +26,7 @@ from pipeline_utils import (
     create_nemotron_parse_pdf_argparser,
     create_nemotron_parse_pdf_pipeline,
     validate_manifest_path,
+    validate_output_directory,
 )
 
 from nemo_curator.backends.ray_data import RayDataExecutor
@@ -49,6 +50,7 @@ def main() -> None:
     elif os.path.exists(args.output_dir):
         msg = f"Output directory {args.output_dir} already exists"
         raise FileExistsError(msg)
+    validate_output_directory(args.output_dir)
 
     if args.parse_mode is not None and args.inference_server_endpoint is None and args.nemotron_parse_path is None:
         parser.error("--parse-mode requires --inference-server-endpoint or --nemotron-parse-path")
