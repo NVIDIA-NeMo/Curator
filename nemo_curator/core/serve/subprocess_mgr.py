@@ -132,6 +132,7 @@ class ManagedSubprocess:
         actor_name_prefix: str = "",
         subprocess_env: dict[str, str] | None = None,
         runtime_env: dict[str, Any] | None = None,
+        namespace: str | None = None,
     ) -> ManagedSubprocess:
         """Create a detached Ray actor bound to ``pg``'s bundle *bundle_index* and launch its subprocess.
 
@@ -164,6 +165,8 @@ class ManagedSubprocess:
             subprocess_env: Extra env vars for the subprocess (applied as overrides).
             runtime_env: Ray runtime environment for the actor. Merged with
                 ``NOSET_CUDA_RUNTIME_ENV`` so the NOSET flag is always set.
+            namespace: Ray namespace for the detached actor. ``None`` preserves
+                the current job namespace. Use the same namespace for later lookup.
         """
         if (command is None) == (python_args is None):
             msg = "ManagedSubprocess.spawn requires exactly one of 'command' or 'python_args'"
@@ -186,6 +189,7 @@ class ManagedSubprocess:
 
         actor = actor_cls.options(
             name=actor_name,
+            namespace=namespace,
             lifetime="detached",
             num_gpus=num_gpus,
             runtime_env=merged_runtime_env,
@@ -198,8 +202,14 @@ class ManagedSubprocess:
 
         # One round-trip: the actor injects CUDA_VISIBLE_DEVICES from its
         # Ray-assigned accelerator IDs inside initialize() itself.
-        ray.get(actor.initialize.remote(command, subprocess_env or {}, log_file, python_args=python_args))
-        run_ref = actor.run.remote()
+        try:
+            ray.get(actor.initialize.remote(command, subprocess_env or {}, log_file, python_args=python_args))
+            run_ref = actor.run.remote()
+        except Exception:
+            # The caller cannot track this handle until spawn() returns.
+            with contextlib.suppress(Exception):
+                graceful_stop_actors([(label, actor)])
+            raise
 
         logger.info(f"Launching {label} on bundle {bundle_index} (actor: {actor_name}, gpus={num_gpus})")
         return cls(label=label, actor=actor, run_ref=run_ref)

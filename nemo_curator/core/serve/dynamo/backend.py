@@ -425,6 +425,7 @@ class DynamoBackend(InferenceBackend):
             command=command,
             runtime_dir=self._runtime_dir,
             actor_name_prefix=self._actor_name_prefix,
+            namespace=NEMO_CURATOR_DYNAMO_NAMESPACE,
             subprocess_env=subprocess_env,
         )
         short_label = label.rsplit("_", 1)[-1].lower()
@@ -541,6 +542,7 @@ class DynamoBackend(InferenceBackend):
             python_args=python_args,
             runtime_dir=self._runtime_dir,
             actor_name_prefix=self._actor_name_prefix,
+            namespace=NEMO_CURATOR_DYNAMO_NAMESPACE,
             subprocess_env=frontend_env,
             runtime_env=runtime_env,
         )
