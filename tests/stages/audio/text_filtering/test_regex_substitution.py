@@ -362,12 +362,12 @@ _GRANARY_REGEX_YAML = (
         "προϋπόθεση ταΐζω",  # el: ϋ U+03CB, ΐ U+0390
         "ΠΡΟΫΠΟΘΕΣΗ ΤΑΪΖΩ",  # el: Ϋ U+03AB, Ϊ U+03AA
         "naţiune Ţara",  # ro: legacy cedilla ţ U+0163, Ţ U+0162
-        "Α΄ Παγκόσμιος Πόλεμος",  # el: numeral sign/keraia ΄ U+0384
+        "\u0391\u0384 Παγκόσμιος Πόλεμος",  # el: numeral sign/keraia U+0384
         "тя ѝ каза",  # bg: ѝ U+045D
         "Ѝ и ѐ",  # bg: Ѝ U+040D, ѐ U+0450
         "ĳsje",  # nl: ĳ U+0133
         "人々は時々",  # ja: 々 U+3005
-        "二〇二四年",  # zh/ja: 〇 U+3007
+        "二〇二四年",  # zh/ja: ideographic number zero U+3007
     ],
 )
 def test_production_whitelist_preserves_covered_language_letters(text: str) -> None:
