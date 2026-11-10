@@ -31,6 +31,21 @@ def urls(rows: list[dict]) -> set[str]:
     return {r["url"] for r in rows if r["url"]}
 
 
+@pytest.mark.parametrize(
+    "text", [None, "", "Ordinary text with https://example.test/image.jpg", "Unicode 日本語 🖼 &lt;img&gt;"]
+)
+def test_plain_text_has_independent_zero_diagnostics(text: str | None):
+    rows, diagnostics = scan(text, "https://example.test/page")
+    assert rows == []
+    assert diagnostics["html_attribute_counts"] == {}
+    assert all(value == 0 for name, value in diagnostics.items() if name != "html_attribute_counts")
+    diagnostics["html_attribute_counts"]["src"] = 1
+    diagnostics["uncovered_markers"] = 1
+    _, again = scan(text, "https://example.test/page")
+    assert again["html_attribute_counts"] == {}
+    assert again["uncovered_markers"] == 0
+
+
 def test_image_mentions():
     cases = [
         ("inline", "![x](https://e.test/a.jpg)", {"https://e.test/a.jpg"}),

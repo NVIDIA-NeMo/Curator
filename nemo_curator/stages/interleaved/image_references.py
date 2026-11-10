@@ -301,6 +301,16 @@ def extract_image_references(text: str | None, page_url: str | None) -> tuple[li
     This is not exhaustive discovery of CSS, JavaScript or arbitrary bare URLs.
     """
     text = text or ""
+    if "[" not in text and "<" not in text:
+        return [], {
+            "uncovered_markers": 0,
+            "unresolved_reference_usages": 0,
+            "uncovered_html_tags": 0,
+            "html_fallback_errors": 0,
+            "html_attribute_counts": {},
+            "uncovered_bbcode_images": 0,
+            "review_candidates": 0,
+        }
     rows, diagnostics = _markdown_references(text)
     bbcode_starts = set()
     for match in BBCODE_IMAGE.finditer(text):
