@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import re
+
 from nemo_curator.stages.text.filters.doc_filter import DocumentFilter
 from nemo_curator.stages.text.utils.text_utils import (
     get_ngrams,
@@ -162,11 +164,13 @@ class RepeatingTopNGramsFilter(DocumentFilter):
         counts = {ngram: {"freq": 0, "num_chars": sum(len(word) for word in ngram)} for ngram in unique_ngrams}
         for ngram in ngrams:
             counts[ngram]["freq"] += 1
-        most_frqnt_ngram = " ".join(max(counts, key=lambda x: counts[x]["freq"]))
+        most_frqnt_ngram = max(counts, key=lambda x: counts[x]["freq"])
         # Find the number of characters the most frequent ngram
-        # contributes to the document
+        # contributes to the document. The words were split on any whitespace,
+        # so match them separated by any whitespace, not only a single space.
+        pattern = r"\s+".join(map(re.escape, most_frqnt_ngram))
         nchar = len(text)
-        len_diff = nchar - len(text.replace(most_frqnt_ngram, ""))
+        len_diff = nchar - len(re.sub(pattern, "", text))
         # Remove if the document is empty
         return len_diff / nchar if nchar > 0 else 1.0
 
