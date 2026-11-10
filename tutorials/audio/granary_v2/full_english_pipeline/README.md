@@ -3,7 +3,8 @@
 Turn recordings into English speech clips with metadata, Qwen3-Omni transcripts,
 and enriched text in one pipeline. [pipeline.yaml](pipeline.yaml) combines the
 [metadata](../metadata/README.md), [Qwen Omni ASR](../qwen_omni_asr/README.md), and
-[text](../text_pipeline/README.md) tutorials using the shared YAML runner.
+[text](../text_pipeline/README.md) tutorials. [main.py](main.py) manages serving and runs the YAML through Curator's
+existing configuration APIs.
 
 ```mermaid
 flowchart TD
@@ -25,22 +26,18 @@ whose selected `source_lang` is `en` continue to ASR. ASR or text rejection flag
 remain in the final manifest; this is an enriched audit manifest, not a guarantee
 that every row is suitable for training.
 
-## 1. Prepare the images and models
+Xenna is unsupported for this combined pipeline: its GPU allocation is independent
+of Ray's serving reservations, and Curator rejects GPU stages with Xenna while a
+managed inference server is active. Use Ray Data so both share Ray's GPU scheduler.
 
-Run commands from this checkout's root. The default launcher uses Docker Compose
-on one Linux x86_64 host with **16 H100 80 GB GPUs**: devices 0–7 for the audio
-pipeline and 8–15 for text serving. Provide 256 logical CPUs, at least 500 GiB
-shared memory for the audio Ray object store, and additional RAM for both roles
-(2 TiB recommended). Docker Compose v2 and the NVIDIA Container Toolkit are required.
-The earlier validation used two separate eight-GPU nodes; it did not validate this
-new single-host launcher or establish optimal GPU utilization.
+## 1. Prepare the image and models
 
-The two containers keep incompatible Python/model stacks separate. Xenna assigns
-GPUs independently of Ray, so it cannot safely share its audio GPUs with Dynamo.
-[compose.yaml](compose.yaml) gives each container an explicit, disjoint device
-list and its own Ray cluster. The pipeline remains streaming; no intermediate
-text-only manifest or second processing pass is introduced. Text stages reuse
-one Dynamo server for all nine operations.
+Run commands from this checkout's root. The default configuration requires
+**16 H100 80 GB GPUs**, 256 logical CPUs, 500 GiB shared memory for Ray's object
+store, and additional host RAM (2 TiB recommended). Four Dynamo replicas reserve
+two GPUs each; the remaining eight GPUs are available to the audio stages.
+These reservations persist through the run; idle serving GPUs are not reassigned
+to audio. Docker and the NVIDIA Container Toolkit are required.
 
 Follow the metadata tutorial's [environment and model preparation](../metadata/README.md#1-build-and-prepare-the-shared-environment)
 to build `curator-granary-metadata` and prepare the complete model directory,
@@ -49,7 +46,7 @@ or running its pipeline. The eight-speaker Sortformer checkpoint and Indic Canar
 engine bundle require separately supplied assets, even for this English pipeline:
 language selection still uses all three language models.
 
-Extend that image with the pinned Qwen runtime:
+Build the combined image:
 
 ```bash
 docker buildx build --builder default --load \
@@ -57,22 +54,14 @@ docker buildx build --builder default --load \
   -t curator-full-english .
 ```
 
-The default Docker driver can see the locally loaded metadata base. The
-[Dockerfile](Dockerfile) retains its installed versions while adding vLLM 0.15.1
-and qwen-omni-utils 0.0.9. It preserves the metadata NeMo fork, Torch 2.9.1,
-Transformers 4.57.6, TensorRT engines and CUDA compatibility loader. It disables
-expandable-segment allocations for Qwen's tensor-parallel CUDA memory sharing.
-It also copies this checkout so the runner and tutorial files match the build.
-
-Build `curator-audio-text` from **this same checkout**, following the standalone
-text tutorial's [bounded image-build instructions](../text_pipeline/README.md#1-prepare-the-environment).
-Only build the image; do not start its example container or model server.
-The launcher uses that image for text serving and the audio image for metadata
-and Qwen. There are no tutorial-specific package constraint files or package
-inventory checks. Curator's Dynamo backend creates its normal isolated model
-workers and applies the YAML's model-specific Transformers requirement.
-Worker dependencies are resolved at startup, so these images alone do not freeze
-the entire effective serving environment.
+The [Dockerfile](Dockerfile) preserves the metadata environment while adding the
+pinned Qwen runtime and Dynamo driver dependencies. It installs the existing
+etcd/NATS service binaries and copies this checkout into the image. The audio
+stages use the image's TensorRT/NeMo, Torch 2.9.1, Transformers 4.57.6 and vLLM
+0.15.1 stack. Curator's Dynamo backend creates isolated text-model workers with
+its own vLLM dependencies and the YAML's Transformers 5.8.0 requirement. Worker
+packages resolve at startup, so the image alone does not freeze that environment.
+No separate serving image, package constraint files or server command is needed.
 
 ## 2. Supply a recording manifest
 
@@ -95,14 +84,13 @@ For public sample audio, use the Qwen tutorial's
 in its dedicated environment. Mount the generated directory at the **same
 absolute path** in the audio container so its manifest paths still resolve.
 These short English recordings exercise the graph; their references are not
-used as segment labels. Initialize the audio runtime as shown below before
-running TensorRT models.
+used as segment labels.
 
 ## 3. Run the combined pipeline
 
-Set absolute host paths. The model and recording paths are mounted unchanged so
-absolute manifest paths remain valid. Choose an output directory that does not
-exist; the launcher refuses to reuse it.
+Set absolute host paths. The model and recording directories are mounted unchanged
+so absolute manifest paths remain valid. Choose a fresh output directory; the
+entrypoint refuses to overwrite an existing run.
 
 ```bash
 export ENGLISH_MODELS=/absolute/path/to/prepared/models
@@ -110,51 +98,27 @@ export ENGLISH_DATA=/absolute/path/to/recordings
 export ENGLISH_MANIFEST="$ENGLISH_DATA/manifest.jsonl"
 export ENGLISH_CACHE="$PWD/.cache/full-english"
 export ENGLISH_OUTPUT="$PWD/full-english-output"
-bash tutorials/audio/granary_v2/full_english_pipeline/run.sh
+mkdir -p "$ENGLISH_CACHE" "$ENGLISH_OUTPUT"
+docker run --rm --gpus all --ipc=host \
+  -v "$ENGLISH_MODELS:$ENGLISH_MODELS:ro" \
+  -v "$ENGLISH_DATA:$ENGLISH_DATA:ro" \
+  -v "$ENGLISH_CACHE:/cache" \
+  -v "$ENGLISH_OUTPUT:/output" \
+  curator-full-english bash -lc '
+    source /opt/venv/env.sh
+    set -euo pipefail
+    python -u tutorials/audio/granary_v2/full_english_pipeline/main.py "$@" \
+      2>&1 | tee /output/pipeline.log
+  ' -- manifest_path="$ENGLISH_MANIFEST" model_dir="$ENGLISH_MODELS" \
+  output_dir=/output/run cache_root=/cache/compilation
 ```
 
-That one command starts the text container, waits for a healthy model endpoint,
-then runs [pipeline.yaml](pipeline.yaml) in the audio container. It stops and
-removes both containers and their network on completion or failure. Input data,
-model assets, the cache and output bind mounts remain on the host. Container
-logs are saved together in `full-english-output/compose.log`.
-
-The launcher automatically sources [runtime.sh](runtime.sh) inside both
-containers. This selects the image environment, clears inherited distributed
-ranks, limits native CPU threads, and enables private Ray token authentication.
-No manual server terminal, endpoint file or environment initialization is needed.
-Dynamo's existing `InferenceServer` owns model loading, worker placement, readiness
-and shutdown; [serve.py](serve.py) only holds that context for the container's
-lifetime and handles termination signals.
-
-Xenna streaming is the default. To use Ray Data, append `backend=ray_data` to the
-pipeline command in `compose.yaml` and use a fresh output directory. Keep the two
-GPU device lists disjoint. Smaller GPU/model configurations need their own validation.
-
-If your resources are two separate eight-GPU hosts instead of one 16-GPU host,
-use the same images and YAML with an externally managed text endpoint. On the
-text host, inside `curator-audio-text`, run:
-
-```bash
-source tutorials/audio/granary_v2/full_english_pipeline/runtime.sh
-python -u tutorials/audio/granary_v2/full_english_pipeline/serve.py
-```
-
-Wait for `Ready:` and use the printed network-reachable URL. On the audio host,
-inside `curator-full-english`, run:
-
-```bash
-source tutorials/audio/granary_v2/full_english_pipeline/runtime.sh
-python nemo_curator/config/run.py \
-  --config-path ../../tutorials/audio/granary_v2/full_english_pipeline \
-  --config-name pipeline \
-  manifest_path=/data/manifest.jsonl model_dir=/models output_dir=/output/run \
-  endpoint=http://text-host:8000/v1
-```
-
-Mount the actual manifest, recordings, models and fresh output directory into
-those containers, as required by their absolute paths. Stop the externally
-managed server after the run. Do not connect the audio runner to its Ray cluster.
+The entrypoint starts one Ray cluster, downloads the pinned text model snapshot,
+and enters the YAML's `InferenceServer` context. Dynamo handles worker placement,
+readiness and routing. The pipeline starts after the endpoint is ready and reuses
+it for all nine text operations. On completion or failure, the entrypoint closes
+the server before closing Ray. Logs and outputs remain in the mounted directory.
+Model downloads and worker environment setup can take several minutes on first use.
 
 The graph writes Opus clips before ASR and then resamples those clips, preserving
 their IDs and recording offsets. Qwen therefore transcribes the speech segment,
@@ -220,34 +184,20 @@ an external text server, stop it when it is no longer needed.
 
 ## 5. Validation
 
-The following GPU results are historical validation of `d361d40e`, before the
-current launcher and automatic server lifecycle were introduced. They used the
-now-removed package constraints and inventory gate. They do not validate the
-current Docker/Compose setup or its unconstrained transitive worker dependencies.
-The new lifecycle has CPU-only checks for managed/external endpoints, pinned
-snapshot resolution, cleanup after failures, Compose GPU isolation and launcher
-exit status. A fresh GPU run from the exact pushed commit is still required.
+The combined image builds successfully. CPU checks cover configuration loading,
+Dynamo frontend imports, endpoint wiring, cleanup after failures, and rejection
+of unsupported executors or an existing output directory. No test files are
+included in this tutorial. These checks do not exercise GPU inference.
 
-On 2026-11-08, the complete graph ran on the same frozen 30,631-recording
-LibriSpeech cohort (107.763567 hours). Each arm used eight H100 80 GB GPUs for
-audio and a separate eight-H100 text server, with 128 requested CPUs, all node
-RAM and a 90-minute limit per node. The previously built audio image was reused
-with the clean `d361d40e` checkout; this was not a fresh image build at that commit.
+The merged graph was previously exercised with Ray Data at commit `d361d40e`
+on 30,631 LibriSpeech recordings (107.763567 hours), producing 38,417 metadata
+rows and 38,196 English rows, including 44 flagged English rows. Coverage, clip
+identities, paths/offsets and required enrichment fields were checked. That run
+used separate audio and serving clusters and older dependency constraints; it
+does not validate this single-cluster image or its current worker environments.
+A fresh GPU run from the exact pushed commit is required before relying on this
+setup for production. These checks do not establish transcript accuracy.
 
-| Executor | Metadata rows | English rows | Flagged English rows | Native process seconds |
-| --- | ---: | ---: | ---: | ---: |
-| Xenna streaming | 38,417 | 38,196 | 48 | 1,540.64 |
-| Ray Data | 38,417 | 38,196 | 44 | 2,670.63 |
-
-Validation checked coverage of every source recording, unique clip IDs, exact
-English selection and preserved paths/offsets, plus all required output fields
-and all nine operation notes on unflagged rows. Native process time excludes the
-separate text server's startup. All selected clip IDs and offsets matched across
-executors, but 4,277 raw Qwen predictions differed; exact transcript or generated
-text parity is not claimed.
-
-These checks do not measure transcript accuracy or full GPU scaling. Four
-configured replicas do not establish that all four served requests. The pinned
-metadata/vLLM stack also has conflicting dependency declarations: `uv pip check`
-is not clean. The earlier tested graph worked with that installed stack; other
-package features and replacement versions require separate validation.
+The inherited metadata/vLLM environment has conflicting package declarations:
+`uv pip check` is not clean. Other package features and replacement versions
+require separate validation.

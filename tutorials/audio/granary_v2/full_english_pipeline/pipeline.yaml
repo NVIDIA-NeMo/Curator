@@ -30,8 +30,7 @@ text_key: abbreviated_text
 ground_truth_key: primary_model_prediction
 language_key: source_lang
 
-backend: xenna
-execution_mode: streaming
+backend: ray_data
 batch_size: 128
 num_workers: 2
 max_concurrent_requests: 256
@@ -47,11 +46,11 @@ cache_root: ???
 ray_client:
   _target_: nemo_curator.core.client.RayClient
   include_dashboard: false
-  num_cpus: 128
-  num_gpus: 8
+  num_cpus: 256
+  num_gpus: 16
   object_store_memory: 536870912000
 
-# Start on separate GPUs with the existing InferenceServer API; see README.md.
+# The tutorial entrypoint manages this server on the pipeline's Ray cluster.
 inference_server:
   _target_: nemo_curator.core.serve.InferenceServer
   _convert_: all
