@@ -110,9 +110,8 @@ With an existing endpoint, the unchanged shared `nemo_curator/config/run.py`
 can also consume this YAML directly; it requires an explicit endpoint and does
 not manage serving.
 
-The default executor is Ray Data. Add `backend=xenna execution_mode=streaming`
-to the same command to use Xenna. These processing stages are CPU HTTP clients;
-Dynamo owns the eight GPUs. Both executors use batch size 128, 12 workers per
+The default executor is Ray Data. These processing stages are CPU HTTP clients;
+Dynamo owns the eight GPUs. The pipeline uses batch size 128, 12 workers per
 processing stage and up to 256 concurrent requests per worker.
 
 For your own English JSONL manifest, replace `manifest_path` with a path visible
@@ -202,10 +201,10 @@ normalization permits number expansion; exhausted request retries fail the batch
 
 ## 5. Benchmark the same pipeline (optional)
 
-Follow the [paired benchmark commands](../../../../benchmarking/README.md#audio-text-pipeline-benchmark)
+Follow the [benchmark instructions](../../../../benchmarking/README.md#audio-text-pipeline-benchmark)
 in the same container. The benchmark also starts and stops the YAML-defined
-server automatically when no endpoint is supplied. For comparisons that require
-one shared running server, supply the same external `--endpoint` to both runs.
+server automatically when no endpoint is supplied. Supply an external
+`--endpoint` to reuse an already running server.
 
 ## 6. Leave the container
 

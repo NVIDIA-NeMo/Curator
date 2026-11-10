@@ -11,10 +11,15 @@ RUN uv pip freeze --python /opt/venv/bin/python --exclude-editable > /tmp/granar
     && uv pip install --no-config --no-sources --python /opt/venv/bin/python \
         --overrides /tmp/granary-overrides.txt --only-binary :all: \
         'vllm==0.15.1' 'qwen-omni-utils==0.0.9' \
+        'ai-dynamo==1.3.1' 'nixl-cu12==1.0.0' \
     && rm /tmp/granary-overrides.txt
 
-# Keep the launcher and pipeline at the same checkout as this image build.
-COPY . /opt/Curator
+# Dynamo manages its newer text-model stack in isolated Ray worker environments.
+COPY docker/common/install_etcd_nats.sh /tmp/install_etcd_nats.sh
+RUN bash /tmp/install_etcd_nats.sh && rm /tmp/install_etcd_nats.sh
+
+# Keep the entrypoint and pipeline at the same checkout as this image build.
+COPY --exclude=.git . /opt/Curator
 
 # vLLM tensor-parallel CUDA graphs need CUDA-IPC-compatible allocations.
 # Override the metadata base image's expandable-segment allocator.

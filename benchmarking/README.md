@@ -1169,7 +1169,7 @@ Dynamo replicas with tensor parallelism two (eight GPUs), 12 workers, batches of
 `InferenceServer` API and executor/result helpers. Like the standalone Indic ASR
 benchmark, it has no entries or enablement overlay in the standard nightly matrix.
 
-### Input and paired runs
+### Input and execution
 
 Use one fixed, pre-staged English cohort that fits in driver memory. Every row
 needs a unique string `audio_item_id`, `source_lang: en`, a reference transcript
@@ -1184,11 +1184,9 @@ and mounted directories. Run and inspect the two bundled examples first. Place
 the benchmark cohort at `text_processing_data/english/manifest.jsonl` on the host;
 the container sees it read-only at `/data/english/manifest.jsonl`.
 
-In that container, run the following commands sequentially. Each invocation starts
-the YAML-defined server, runs its complete pipeline and stops serving afterward.
-Both use the same input bytes, model revision and cache. Worker dependencies are
-resolved at startup, so separate invocations do not establish identical effective
-package environments. Use a fresh benchmark results directory:
+In that container, run the following command. It starts the YAML-defined server,
+runs the complete pipeline and stops serving afterward. Worker dependencies are
+resolved at startup. Use a fresh benchmark results directory:
 
 ```bash
 cd /opt/Curator
@@ -1201,28 +1199,19 @@ python benchmarking/scripts/audio_text_llm_benchmark.py \
   --input-manifest=/data/english/manifest.jsonl \
   --expected-num-rows="$input_rows" \
   --expected-manifest-sha256="$input_sha256" \
-  --output-dir=/output/benchmarks/xenna/output \
-  --cache-root=/cache/compilation \
-  --executor=xenna \
-  --benchmark-results-path=/output/benchmarks/xenna
-
-python benchmarking/scripts/audio_text_llm_benchmark.py \
-  --input-manifest=/data/english/manifest.jsonl \
-  --expected-num-rows="$input_rows" \
-  --expected-manifest-sha256="$input_sha256" \
   --output-dir=/output/benchmarks/ray_data/output \
   --cache-root=/cache/compilation \
   --executor=ray_data \
   --benchmark-results-path=/output/benchmarks/ray_data
 ```
 
-The shared row count and SHA-256 checks pin both runs to identical input bytes.
+The row count and SHA-256 checks verify the input bytes before execution.
 Results appear under `text_processing_output/benchmarks/` on the host.
 `--cache-root` is required for managed serving. `--model-path` selects pre-staged
 weights without changing the served model alias.
 
-For comparisons that require one shared serving environment, provide the same
-externally managed `--endpoint=http://inference-host:8000/v1` to both commands.
+To reuse an externally managed server, provide
+`--endpoint=http://inference-host:8000/v1` to the command.
 The benchmark leaves that server running; its owner manages startup and shutdown.
 Do not pass `--model-path` with an external endpoint.
 
@@ -1239,7 +1228,7 @@ The pipeline timer includes reader, all text operations, writer, and executor
 setup/cleanup inside `Pipeline.run`. It excludes input integrity checks,
 Ray/server startup and teardown, output validation and result serialization.
 Server startup is reported separately when the benchmark starts its own
-server, as in the commands above. With an external endpoint it is zero because
+server, as in the command above. With an external endpoint it is zero because
 startup happened outside the benchmark; there is no additional warmup pass.
 Earlier processing-only benchmark results excluded reader/writer execution and
 are not directly comparable to this timer.
