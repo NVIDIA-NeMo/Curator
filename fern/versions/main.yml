@@ -501,6 +501,9 @@ navigation:
               - page: ReadSpeech Tutorial
                 path: ./main/pages/curate-audio/tutorials/readspeech.mdx
                 slug: readspeech
+              - page: Multi-Speaker Simulation with FastMSS
+                path: ./main/pages/curate-audio/tutorials/fastmss.mdx
+                slug: fastmss
           - section: Load Data
             slug: load-data
             contents:

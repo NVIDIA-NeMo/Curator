@@ -1,0 +1,44 @@
+---
+title: "Multi-Speaker Simulation with FastMSS"
+description: "Generate meeting-level training data with the FastMSS toolkit."
+categories: ["audio-curation"]
+tags: ["tutorial", "simulation", "speaker-diarization", "asr"]
+personas: ["mle-focused"]
+difficulty: "intermediate"
+content_type: "tutorial"
+modality: "audio-only"
+---
+
+# Multi-Speaker Simulation with FastMSS
+
+Install `nemo-curator[audio_simulation]` in an existing Linux environment.
+The extra installs FastMSS as an external dependency pinned to an immutable
+upstream Git revision. Curator contains only the integration, tests and examples.
+Source audio, configs and output paths must be shared across executor nodes.
+
+```python
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.audio.simulation import FastMSS
+
+pipeline = Pipeline(name="meeting_simulation", stages=[FastMSS(
+    config_paths=["/shared/configs/meetings.yaml"],
+    output_dir="/shared/generated-meetings",
+    jobs_per_config=2,
+)])
+```
+
+Run with your configured Curator executor. `FilePartitioningStage` distributes
+YAML shards; `FastMSSSimulationStage` invokes the installed toolkit in a child
+process; `ManifestReaderStage` reads one `AudioTask` per complete meeting.
+The inputs are prepared, word-aligned single-speaker Lhotse cuts. The toolkit
+simulates mixtures and ground-truth labels rather than running ASR or diarization
+inference. Existing Curator ASR/diarization adapters remain available downstream.
+
+Audio paths, duration and RTTM refer to the whole mixture. Reference text joins
+generated supervision transcripts in start-time order, retaining overlaps.
+Failed shards emit no tasks and retain diagnostic logs. Retries use fresh output
+directories. Single-speaker meetings are unsupported; saving anechoic references
+requires reverberation enabled with `reverb_prob=1`.
+
+See the [runnable example and configuration](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials/audio/fastmss)
+for installation, source manifest naming and supported settings.
