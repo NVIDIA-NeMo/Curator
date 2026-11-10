@@ -108,6 +108,7 @@ deduplication_cuda12 = [
 ]
 
 audio_common = [
+    "jsonschema>=4.23.0",
     # ASR/diarization stack pulls x86_64-only transitives (kaldialign cp313, torchcodec) — gate to x86_64 Linux
     "pyloudnorm",
     "nemo_toolkit[asr]>=2.7.2; platform_machine == 'x86_64' and platform_system != 'Darwin'",
@@ -119,6 +120,7 @@ audio_common = [
     "librosa",
     "scipy",
     "pydub>=0.25.1",
+    "praatio>=6.0",
     "openai-whisper==20250625; platform_machine == 'x86_64' and platform_system != 'Darwin'",
     "speechbrain>=1.1.0,<2.0; platform_machine == 'x86_64' and platform_system != 'Darwin'",
     "transformers>=4.57.6,<5.0",

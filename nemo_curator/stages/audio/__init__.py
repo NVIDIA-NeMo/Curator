@@ -28,6 +28,9 @@ from importlib import import_module
 # Map each public name to the submodule that defines it. Adding/removing
 # a stage means updating this dict and `__all__` together.
 _LAZY = {
+    "MFAAlignmentStage": "nemo_curator.stages.audio.alignment",
+    "MergeConversationSDPStage": "nemo_curator.stages.audio.merging",
+    "vLLMInference": "nemo_curator.stages.audio.llm",
     "ALMDataBuilderStage": "nemo_curator.stages.audio.alm",
     "ALMDataOverlapStage": "nemo_curator.stages.audio.alm",
     "AbbreviationConcatStage": "nemo_curator.stages.audio.text_filtering",
@@ -66,9 +69,11 @@ __all__ = [
     "ChatterboxTTSStage",
     "CreateInitialManifestAudioFolderStage",
     "GetAudioDurationStage",
+    "MFAAlignmentStage",
     "ManifestCheckpointStage",
     "ManifestReader",
     "ManifestWriterStage",
+    "MergeConversationSDPStage",
     "MonoConversionStage",
     "NeMoSpeechAudioReader",
     "NeMoSpeechWriterStage",
@@ -83,6 +88,7 @@ __all__ = [
     "UTMOSFilterStage",
     "VADSegmentationStage",
     "WhisperHallucinationStage",
+    "vLLMInference",
 ]
 
 

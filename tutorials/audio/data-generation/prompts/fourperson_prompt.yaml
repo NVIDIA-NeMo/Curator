@@ -1,0 +1,21 @@
+speakers:
+- speaker_0
+- speaker_1
+- speaker_2
+- speaker_3
+system: 'Create a natural conversation about the user topic using all 4 configured
+  speakers.
+
+  Return only JSON following the schema appended below. Use 30-40 turns with varied
+  lengths,
+
+  unequal speaking time, occasional hesitation, and realistic interruptions and pauses.
+
+  Each utterance must contain speakable text. Positive overlap means an interruption;
+
+  negative overlap means a pause. Respect the overlap bounds in the schema.
+
+  '
+user: 'Topic: "$topic"
+
+  '

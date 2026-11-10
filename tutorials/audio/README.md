@@ -65,6 +65,8 @@ python nemo_curator/config/run.py \
 | Filter a manifest to keep only single-speaker audio | [**single_speaker_filter/**](single_speaker_filter/) | Yes (~8 GB VRAM) | Requires a pre-existing JSONL manifest |
 | Quality-filter raw audio (MOS, VAD, bandwidth, noise) | [**readspeech/**](readspeech/) | Recommended (~4 GB VRAM) | Auto-downloads DNS Challenge (4.88 GB) |
 | Synthesise multi-speaker conversation audio from text (Chatterbox TTS) | [**tts/**](tts/) | Yes (~4 GB VRAM) | Bring your own turn manifest + reference voices |
+| Align transcripts to audio with Montreal Forced Aligner | [**alignment/**](alignment/) | No (CPU) | Your own audio and transcripts; downloaded MFA models |
+| Generate complete multi-speaker conversations from topics | [**data-generation/**](data-generation/) | Yes (model-dependent) | Topic JSONL and reference voices |
 
 ## Data availability
 
@@ -86,6 +88,8 @@ python nemo_curator/config/run.py \
 | `single_speaker_filter/` | No | Varies | Bring your own NeMo-style JSONL manifest |
 | `readspeech/` | Yes | 4.88 GB compressed | Downloads DNS Challenge Read Speech (14,279 WAV files) |
 | `tts/` | No | Varies | Bring your own turn manifest + reference voices dataset |
+| `alignment/` | No | Varies | Audio/transcript manifest and downloaded MFA models |
+| `data-generation/` | Models only | 25 bundled topics per sample manifest | Supply reference voices and download MFA models |
 
 The Indic ASR tutorial downloads two FLEURS clips. Its separate
 [standalone benchmark](../../benchmarking/README.md#audio-benchmark-data-setup)
@@ -124,6 +128,8 @@ For multi-node Ray or Xenna runs, make FFmpeg available on every executor node a
 | `single_speaker_filter/` | `ffmpeg` | `audio_cuda12` |
 | `readspeech/` | `ffmpeg` | `audio_cuda12` (recommended) or `audio_cpu` |
 | `tts/` | `ffmpeg` | `audio_cuda12` |
+| `alignment/` | MFA in a separate conda/micromamba environment | `audio_cpu` or `audio_cuda12` |
+| `data-generation/` | CUDA, `ffmpeg`, MFA | `audio_cuda12`, `vllm` |
 
 Install pip extras from the repo root:
 

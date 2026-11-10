@@ -30,11 +30,84 @@ import pytest
 from hydra import compose, initialize, initialize_config_dir
 from omegaconf import ListConfig, OmegaConf
 
-from nemo_curator.config.run import create_executor_from_yaml, create_pipeline_from_yaml, main
+from nemo_curator.config.run import create_executor_from_yaml, create_pipeline_from_yaml, main, run_pipeline_from_yaml
+from nemo_curator.models.vllm_model import VLLMModel
 from nemo_curator.pipeline import Pipeline
+from nemo_curator.pipeline.workflow import WorkflowRunResult
+from nemo_curator.stages.audio.alignment import MFAAlignmentStage
+from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.text.io.reader import JsonlReader, ParquetReader
 from nemo_curator.stages.text.io.writer import JsonlWriter, ParquetWriter
-from nemo_curator.tasks import FileGroupTask
+from nemo_curator.tasks import AudioTask, FileGroupTask, TaskGroup
+
+
+class _ConversationTokenizer:
+    def apply_chat_template(self, messages: list[dict], **_kwargs: object) -> str:
+        return "\n".join(message["content"] for message in messages)
+
+
+class _ConversationModel(VLLMModel):
+    def setup(self) -> None:
+        pass
+
+    def get_tokenizer(self) -> _ConversationTokenizer:
+        return _ConversationTokenizer()
+
+    def generate(self, prompts: list[str], *, json_schema: dict | None = None) -> list[str]:
+        assert json_schema is not None
+        labels = json_schema["properties"]["turns"]["items"]["properties"]["speaker"]["enum"]
+        return [
+            json.dumps(
+                {
+                    "turns": [
+                        {
+                            "speaker": speaker,
+                            "utterance": "BROKEN audio" if '"broken"' in prompt else "Hello there",
+                            "overlap": 0,
+                        }
+                        for speaker in labels
+                    ]
+                }
+            )
+            for prompt in prompts
+        ]
+
+
+class _ConversationSynthesis(ProcessingStage[AudioTask, AudioTask]):
+    def __init__(self, output_dir: str):
+        self.output_dir = output_dir
+
+    def process(self, task: AudioTask) -> AudioTask:
+        import numpy as np
+        import soundfile as sf
+
+        if task.data["utterance"].startswith("BROKEN"):
+            task.data.update(audio_filepath="", duration=0)
+            return task
+        path = Path(self.output_dir) / f"{task.data['conversation_id']}_{task.data['turn_index']}.wav"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        sf.write(path, np.full(2000, 0.1), 8000)
+        task.data.update(audio_filepath=str(path), duration=0.25)
+        return task
+
+
+class _ConversationAlignment(MFAAlignmentStage):
+    def _run_mfa_subprocess(self, cmd: list[str], env: dict[str, str]) -> subprocess.CompletedProcess:
+        import soundfile as sf
+        from praatio import textgrid
+
+        corpus, output = Path(cmd[2]), Path(cmd[5])
+        output.mkdir(parents=True, exist_ok=True)
+        for audio in corpus.glob("*.wav"):
+            duration = sf.info(audio).duration
+            words = audio.with_suffix(".txt").read_text().split()
+            intervals = [
+                (i * duration / len(words), (i + 1) * duration / len(words), word) for i, word in enumerate(words)
+            ]
+            grid = textgrid.Textgrid()
+            grid.addTier(textgrid.IntervalTier("words", intervals, minT=0, maxT=duration))
+            grid.save(str(output / f"{audio.stem}.TextGrid"), format="long_textgrid", includeBlankSpaces=True)
+        return subprocess.CompletedProcess(cmd, 0, "", "")
 
 
 def test_pipeline_with_jsonl_reader_stage():
@@ -423,6 +496,191 @@ def test_main_passes_configured_executor_to_pipeline(
     mock_create_ray_client.return_value.start.assert_called_once_with()
     mock_create_pipeline.return_value.run.assert_called_once_with(executor=executor)
     mock_create_ray_client.return_value.stop.assert_called_once_with()
+
+
+@pytest.mark.parametrize("failure_point", ["start", "build", "run"])
+def test_main_stops_ray_after_failure(failure_point: str) -> None:
+    cfg = OmegaConf.create({"stages": []})
+    with (
+        patch("nemo_curator.config.run.create_ray_client_from_yaml") as client,
+        patch("nemo_curator.config.run.create_pipeline_from_yaml") as pipeline,
+    ):
+        error = RuntimeError("pipeline failure")
+        if failure_point == "start":
+            client.return_value.start.side_effect = error
+        elif failure_point == "build":
+            pipeline.side_effect = error
+        else:
+            pipeline.return_value.run.side_effect = error
+        with pytest.raises(RuntimeError, match="pipeline failure"):
+            main.__wrapped__(cfg)
+    client.return_value.stop.assert_called_once_with()
+
+
+def test_phases_group_prior_outputs_and_pass_configured_executors() -> None:
+    tasks = [AudioTask(data={"conversation_id": "same", "turn_index": i}) for i in range(2)]
+    cfg = OmegaConf.create(
+        {
+            "phases": [
+                {"stages": [], "backend": "ray_actor_pool"},
+                {"stages": [], "backend": "ray_data", "group_by": "conversation_id"},
+            ]
+        }
+    )
+    with (
+        patch("nemo_curator.config.run.create_pipeline_from_yaml") as build,
+        patch("nemo_curator.config.run.create_executor_from_yaml") as executor,
+    ):
+        first, second = MagicMock(), MagicMock()
+        first.run.return_value = tasks
+        second.run.return_value = [tasks[0]]
+        build.side_effect = [first, second]
+        assert run_pipeline_from_yaml(cfg) == [tasks[0]]
+    first.run.assert_called_once_with(executor=executor.return_value)
+    grouped = second.run.call_args.kwargs["initial_tasks"]
+    assert len(grouped) == 1
+    assert isinstance(grouped[0], TaskGroup)
+    assert grouped[0].data == tasks
+    assert second.run.call_args.kwargs["executor"] is executor.return_value
+
+
+def test_empty_phase_does_not_run_downstream_stages() -> None:
+    cfg = OmegaConf.create({"phases": [{"stages": []}, {"stages": [], "group_by": "conversation_id"}]})
+    with patch("nemo_curator.config.run.create_pipeline_from_yaml") as build:
+        build.return_value.run.return_value = []
+        assert run_pipeline_from_yaml(cfg) == []
+    assert build.call_count == 1
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        {"phases": []},
+        {"phases": [{"stages": []}], "stages": []},
+        {"phases": [{"stages": [], "group_by": "conversation_id"}]},
+    ],
+)
+def test_invalid_phase_boundaries_raise(config: dict) -> None:
+    with pytest.raises(ValueError, match=r"phases|group_by"):
+        run_pipeline_from_yaml(OmegaConf.create(config))
+
+
+@pytest.mark.parametrize(
+    "phases",
+    [
+        [{"workflow": []}],
+        [{"workflow": []}, {"stages": []}],
+        [{"workflow": []}, {"stages": [], "group_by": "conversation_id"}],
+        [{"stages": []}, {"workflow": []}],
+        [{"stages": []}, {"workflow": []}, {"stages": []}],
+        [{"phases": [{"workflow": []}]}],
+        [{"stages": []}, {"phases": [{"stages": []}, {"workflow": []}]}],
+    ],
+)
+def test_workflow_phases_are_rejected_before_execution(phases: list[dict]) -> None:
+    cfg = OmegaConf.create({"phases": phases})
+    with (
+        patch("nemo_curator.config.run.create_pipeline_from_yaml") as build,
+        patch("nemo_curator.config.run.create_executor_from_yaml") as executor,
+        pytest.raises(ValueError, match="phases support stage pipelines only"),
+    ):
+        run_pipeline_from_yaml(cfg)
+    build.assert_not_called()
+    executor.assert_not_called()
+
+
+def test_standalone_workflow_returns_all_pipeline_outputs() -> None:
+    task = AudioTask(data={"conversation_id": "same"})
+    result = WorkflowRunResult(workflow_name="example", pipeline_tasks={"first": [task], "second": []})
+    with patch("nemo_curator.config.run.create_pipeline_from_yaml") as build:
+        build.return_value.run.return_value = result
+        assert run_pipeline_from_yaml(OmegaConf.create({"workflow": []})) is result
+
+
+def test_actor_pool_backend_is_available_in_yaml() -> None:
+    executor = create_executor_from_yaml(OmegaConf.create({"backend": "ray_actor_pool"}))
+    assert executor.__class__.__name__ == "RayActorPoolExecutor"
+
+
+def test_runner_preserves_workflow_result_without_coercing_truth_value() -> None:
+    import numpy as np
+
+    result = np.array([1, 2])
+    with patch("nemo_curator.config.run.create_pipeline_from_yaml") as build:
+        build.return_value.run.return_value = result
+        assert run_pipeline_from_yaml(OmegaConf.create({"workflow": []})) is result
+
+
+@pytest.mark.parametrize("backend", ["ray_actor_pool", "ray_data", "xenna"])
+def test_conversation_phases_generate_align_group_merge_and_write(tmp_path: Path, backend: str) -> None:
+    manifest = tmp_path / "topics.jsonl"
+    manifest.write_text("\n".join(json.dumps({"topic": topic}) for topic in ("same", "same", "broken")) + "\n")
+    prompt = Path(__file__).parents[2] / "tutorials/audio/data-generation/prompts/dialog_prompt.yaml"
+    output = tmp_path / "result.jsonl"
+    cfg = OmegaConf.create(
+        {
+            "phases": [
+                {
+                    "backend": backend,
+                    "execution_mode": "batch",
+                    "stages": [
+                        {
+                            "_target_": "nemo_curator.stages.audio.common.ManifestReader",
+                            "manifest_path": str(manifest),
+                        },
+                        {
+                            "_target_": "nemo_curator.stages.audio.llm.vllm_inference.vLLMInference",
+                            "prompt_file": str(prompt),
+                            "model": {
+                                "_target_": "tests.config.test_run._ConversationModel",
+                                "model": "test",
+                                "tensor_parallel_size": 1,
+                            },
+                            "resources": {"cpus": 1, "gpus": 0},
+                        },
+                        {
+                            "_target_": "tests.config.test_run._ConversationSynthesis",
+                            "output_dir": str(tmp_path / "waves"),
+                        },
+                        {
+                            "_target_": "tests.config.test_run._ConversationAlignment",
+                            "output_dir": str(tmp_path / "alignment"),
+                            "copy_models_to_local": False,
+                            "text_key": "utterance",
+                        },
+                    ],
+                },
+                {
+                    "backend": backend,
+                    "execution_mode": "batch",
+                    "group_by": "conversation_id",
+                    "stages": [
+                        {
+                            "_target_": "nemo_curator.stages.audio.merging.MergeConversationSDPStage",
+                            "output_conversations_dir": str(tmp_path / "merged"),
+                        },
+                        {
+                            "_target_": "nemo_curator.stages.audio.common.ManifestWriterStage",
+                            "output_path": str(output),
+                        },
+                    ],
+                },
+            ]
+        }
+    )
+    results = run_pipeline_from_yaml(cfg)
+    assert len(results) == 2
+    rows = [json.loads(line) for line in output.read_text().splitlines()]
+    assert len(rows) == 2
+    assert len({row["conversation_id"] for row in rows}) == 2
+    for task, row in zip(results, rows, strict=False):
+        assert row["duration"] == 0.5
+        assert row["num_speakers"] == 2
+        for key in ("audio_filepath", "rttm_filepath", "ctm_filepath", "seglst_filepath"):
+            assert Path(row[key]).is_file()
+        assert len(task._metadata["member_metadata"]) == 2
+        assert len(set(task._metadata["member_task_ids"])) == 2
+        assert all(task._metadata["member_task_ids"])
 
 
 def test_qwen_tutorial_yaml_matches_reference_runner_config():
@@ -928,6 +1186,46 @@ def test_faster_whisper_tutorial_yaml_matches_reference_contract():
     assert executor.config == {}
 
 
+def test_audio_data_generation_yaml_uses_executor_backed_grouped_phases():
+    config_dir = Path(__file__).parents[2] / "tutorials" / "audio" / "data-generation"
+    with initialize_config_dir(config_dir=str(config_dir), version_base=None):
+        cfg = compose(
+            config_name="pipeline",
+            overrides=[
+                "input_manifest=tests/fixtures/audio/tts/sample_turns.jsonl",
+                "output_dir=/data/conversations",
+                "reference_voices_dataset=/data/reference_voices",
+                "prompt_file=tutorials/audio/data-generation/prompts/dialog_prompt.yaml",
+            ],
+        )
+
+    phase1 = create_pipeline_from_yaml(cfg.phases[0], log_config=False)
+    phase2 = create_pipeline_from_yaml(cfg.phases[1], log_config=False)
+    with patch("nemo_curator.config.run.hydra.utils.get_class") as get_class:
+        executor_class = MagicMock()
+        get_class.return_value = executor_class
+        phase1_executor = create_executor_from_yaml(cfg.phases[0])
+        phase2_executor = create_executor_from_yaml(cfg.phases[1])
+
+    assert [stage.__class__.__name__ for stage in phase1.stages] == [
+        "ManifestReader",
+        "vLLMInference",
+        "ChatterboxTTSStage",
+        "MFAAlignmentStage",
+    ]
+    assert phase1.stages[1].resources.gpus == 1
+    assert phase1.stages[1]._vllm_model.tensor_parallel_size == 1
+    assert phase1.stages[3].batch_size == 256
+    assert phase2.stages[0].__class__.__name__ == "MergeConversationSDPStage"
+    assert phase2.stages[0].is_resumable is False
+    assert cfg.phases[0].backend == "ray_actor_pool"
+    assert cfg.phases[1].group_by == "conversation_id"
+    assert phase2.stages[1].__class__.__name__ == "ManifestWriterStage"
+    assert phase1_executor is executor_class.return_value
+    assert phase2_executor is executor_class.return_value
+    assert get_class.call_count == 2
+
+
 def test_nemo_fastconformer_tutorial_yaml_uses_shared_adapter_contract():
     config_dir = Path(__file__).parents[2] / "tutorials" / "audio" / "nemo_fastconformer"
     with initialize_config_dir(config_dir=str(config_dir), version_base=None):
@@ -1118,3 +1416,58 @@ def test_shipped_config_passes_only_arguments_its_targets_accept(config_name: st
                 unaccepted.append(f"{target}: {error}")
 
     assert not unaccepted, f"{config_name} passes arguments nothing accepts: " + "; ".join(unaccepted)
+
+
+@pytest.mark.parametrize("backend", ["ray_data", "xenna"])
+def test_mfa_alignment_tutorial_yaml_matches_reference_runner_config(backend: str):
+    config_dir = Path(__file__).parents[2] / "tutorials" / "audio" / "alignment"
+    with initialize_config_dir(config_dir=str(config_dir), version_base=None):
+        cfg = compose(
+            config_name="pipeline",
+            overrides=[
+                "input_manifest=tests/fixtures/audio/alignment/sample_manifest.jsonl",
+                "output_dir=/data/aligned",
+                "num_jobs=4",
+                "batch_size=17",
+                "mfa_root_dir=/data/mfa",
+                "duration_key=seconds",
+                f"backend={backend}",
+            ],
+        )
+
+    pipeline = create_pipeline_from_yaml(cfg, log_config=False)
+    reader, stage, writer = pipeline.stages
+    executor = create_executor_from_yaml(cfg)
+
+    assert reader.__class__.__name__ == "ManifestReader"
+    assert reader.manifest_path == "tests/fixtures/audio/alignment/sample_manifest.jsonl"
+
+    assert stage.__class__.__name__ == "MFAAlignmentStage"
+    assert stage.output_dir == "/data/aligned"
+    assert stage.mfa_command == "mfa"
+    assert stage.acoustic_model == "english_us_arpa"
+    assert stage.dictionary == "english_us_arpa"
+    assert stage.g2p_model == "english_us_arpa"
+    assert stage.audio_filepath_key == "audio_filepath"
+    assert stage.text_key == "text"
+    assert stage.speaker_key == "speaker"
+    assert stage.num_jobs == 4
+    assert stage.beam == 100
+    assert stage.retry_beam == 400
+    assert stage.align_timeout_seconds == 3600.0
+    assert stage.create_rttm is True
+    assert stage.create_ctm is True
+    assert stage.batch_size == 17
+    assert stage.resources.cpus == 4
+    assert stage.mfa_root_dir == "/data/mfa"
+    assert stage.duration_key == "seconds"
+
+    assert writer.__class__.__name__ == "ManifestWriterStage"
+    assert writer.output_path == "/data/aligned/result.jsonl"
+
+    if backend == "ray_data":
+        assert executor.__class__.__name__ == "RayDataExecutor"
+        assert executor.config == {}
+    else:
+        assert executor.__class__.__name__ == "XennaExecutor"
+        assert executor.config == {"execution_mode": "streaming"}
