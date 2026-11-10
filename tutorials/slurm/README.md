@@ -176,6 +176,8 @@ Use `submit_array.sh` to split a directory of text files across independent SLUR
 
 This pattern is useful when the dataset is naturally represented as many JSONL or Parquet files and you want simple horizontal scaling without coordination between jobs.
 
+> The same array workflow also runs without a cluster on Hugging Face Jobs — see [`tutorials/hf_jobs`](../hf_jobs).
+
 ### 1. Build the Virtual Environment on a Shared Filesystem
 
 The array script activates the virtual environment on the shared checkout:
