@@ -2600,7 +2600,7 @@ wheels = [
 [[package]]
 name = "fastmss"
 version = "0.1.0"
-source = { git = "https://github.com/popcornell/FastMSS.git?rev=81fc2c3e4b938cf73343f58df9e013bc106cb77a#81fc2c3e4b938cf73343f58df9e013bc106cb77a" }
+source = { git = "https://github.com/timofeeva16tanya/FastMSS.git?rev=3f0a17393f0fc1642527aea1a057a8a5a1e9420d#3f0a17393f0fc1642527aea1a057a8a5a1e9420d" }
 dependencies = [
     { name = "hydra-core" },
     { name = "lhotse" },
@@ -6037,7 +6037,7 @@ requires-dist = [
     { name = "datasets", specifier = ">=4.0.0" },
     { name = "easydict", marker = "extra == 'video-cpu'" },
     { name = "einops", marker = "extra == 'video-cpu'" },
-    { name = "fastmss", marker = "sys_platform == 'linux' and extra == 'audio-simulation'", git = "https://github.com/popcornell/FastMSS.git?rev=81fc2c3e4b938cf73343f58df9e013bc106cb77a" },
+    { name = "fastmss", marker = "sys_platform == 'linux' and extra == 'audio-simulation'", git = "https://github.com/timofeeva16tanya/FastMSS.git?rev=3f0a17393f0fc1642527aea1a057a8a5a1e9420d" },
     { name = "fasttext", marker = "extra == 'text-cpu'", specifier = "==0.9.3" },
     { name = "fsspec" },
     { name = "ftfy", marker = "extra == 'text-cpu'", specifier = ">=6.3.1" },

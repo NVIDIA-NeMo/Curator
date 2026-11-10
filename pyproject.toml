@@ -129,7 +129,7 @@ audio_common = [
     "whisperx>=3.8.4; platform_machine == 'x86_64' and platform_system != 'Darwin'",
 ]
 audio_simulation = [
-    "fastmss @ git+https://github.com/popcornell/FastMSS.git@81fc2c3e4b938cf73343f58df9e013bc106cb77a ; sys_platform == 'linux'",
+    "fastmss==0.1.0; sys_platform == 'linux'",
 ]
 
 audio_cpu = [
@@ -398,6 +398,7 @@ url = "https://wheels.vllm.ai/0.22.0/cu129"
 explicit = true
 
 [tool.uv.sources]
+fastmss = { git = "https://github.com/timofeeva16tanya/FastMSS.git", rev = "3f0a17393f0fc1642527aea1a057a8a5a1e9420d" }
 torch = [
     { index = "pytorch", marker = "sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')" },
     { index = "pypi", marker = "sys_platform == 'darwin' or (platform_machine != 'x86_64' and platform_machine != 'aarch64')" },
