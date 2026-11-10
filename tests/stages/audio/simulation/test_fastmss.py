@@ -12,10 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Exercise the bundled FastMSS, child processes and manifest I/O."""
+"""Exercise the installed FastMSS, child processes and manifest I/O."""
 
 import gzip
-import hashlib
 import json
 import subprocess
 import sys
@@ -235,35 +234,7 @@ def test_pipeline_executes_composite_on_actor_pool(checkout: Path, tmp_path: Pat
     assert Path(results[0].data["audio_filepath"]).is_file()
 
 
-def test_documented_yaml_resolves_external_defaults(
-    checkout: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from hydra import compose, initialize_config_dir
-
-    (checkout / "recipes" / "default.yaml").write_text("output_dir: null\nn_jobs: 1\nstage: 0\n")
-    monkeypatch.setenv("FASTMSS_ROOT", str(checkout))
-    monkeypatch.setenv("FASTMSS_MANIFEST_DIR", str(tmp_path / "source"))
-    example_dir = Path(__file__).resolve().parents[4] / "tutorials" / "audio" / "fastmss"
-    with initialize_config_dir(config_dir=str(example_dir), version_base=None):
-        config = compose(config_name="meetings")
-    assert config.manifest_dir == str(tmp_path / "source")
-    assert config.min_max_spk == [2, 2]
-    assert config.n_jobs == 1
-
-
-def test_bundled_upstream_files_are_unmodified(tmp_path: Path) -> None:
-    root = Path(FastMSSSimulationStage(output_dir=str(tmp_path / "output")).fastmss_root)
-    provenance = json.loads((root / "UPSTREAM.json").read_text())
-    assert provenance["revision"] == "81fc2c3e4b938cf73343f58df9e013bc106cb77a"
-    assert provenance["license"] == "Apache-2.0"
-    for name, checksum in provenance["files_sha256"].items():
-        assert hashlib.sha256((root / name).read_bytes()).hexdigest() == checksum, name
-    assert not (root / "fastmss" / "simulator_masr.py").exists()
-
-
-def test_real_upstream_generates_audio_and_diarization_reference(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_real_upstream_generates_audio_and_diarization_reference(tmp_path: Path) -> None:
     pytest.importorskip("lhotse")
     pytest.importorskip("pyroomacoustics")
     import numpy as np
@@ -302,8 +273,48 @@ def test_real_upstream_generates_audio_and_diarization_reference(
             )
         )
     CutSet.from_cuts(cuts).to_file(sources / "source_train.jsonl.gz")
-    monkeypatch.setenv("FASTMSS_MANIFEST_DIR", str(sources))
-    config = Path(__file__).resolve().parents[4] / "tutorials" / "audio" / "fastmss" / "meetings.yaml"
+    from omegaconf import OmegaConf
+
+    config = _config(tmp_path)
+    OmegaConf.save(
+        OmegaConf.create(
+            {
+                "output_dir": None,
+                "data_dir": None,
+                "rir_dir": None,
+                "stage": 0,
+                "n_jobs": 1,
+                "samplerate": sample_rate,
+                "seed": 42,
+                "manifest_dir": str(sources),
+                "manifest_prefix": "source",
+                "dset_splits": ["train"],
+                "min_spk_utt": 1,
+                "min_utt_duration": 0,
+                "max_utt_duration": 20,
+                "drop_without_align": True,
+                "split_fa_factor": None,
+                "n_meetings": 1,
+                "duration": 2,
+                "min_max_spk": [2, 2],
+                "max_concurrent_speakers": 2,
+                "base_gain": [-35, -8],
+                "rel_gain": [-12, 5],
+                "use_fir": False,
+                "reverberate": False,
+                "add_noise": False,
+                "speed_perturb": False,
+                "hmm_params": {"p_ind": [0, 1, 0, 0]},
+                "use_markov": False,
+                "hmm_fit_transitions_to": None,
+                "boost_overlap_factor": None,
+                "save_cutset": True,
+                "save_spk": False,
+                "save_anechoic": False,
+            }
+        ),
+        config,
+    )
     stage = FastMSSSimulationStage(
         output_dir=str(tmp_path / "generated"),
         overrides=["n_meetings=1", "duration=2", "hmm_params.p_ind=[0,1,0,0]"],

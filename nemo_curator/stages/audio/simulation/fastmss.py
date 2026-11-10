@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Run the bundled original FastMSS and ingest recording-level manifests."""
+"""Run the installed FastMSS toolkit and ingest recording-level manifests."""
 
 import contextlib
 import json
@@ -52,12 +52,11 @@ class FastMSSSimulationStage(AgentReady, ProcessingStage[FileGroupTask, FileGrou
     RTTM, waveforms and optional per-speaker references stay in that run's
     directory. It does not emit one task per utterance or flatten overlaps.
 
-    The original Apache-2.0 FastMSS implementation is bundled with Curator.
-    Install its optional simulation dependencies in ``python_executable`` as
-    described in the tutorial. Source speech and noise datasets are provided by users.
+    Install Curator's ``audio_simulation`` extra in ``python_executable``.
+    Source speech and noise datasets are provided by users.
 
     Args:
-        fastmss_root: Optional checkout override; defaults to Curator's bundled upstream snapshot.
+        fastmss_root: Optional checkout override; defaults to the installed FastMSS distribution.
         output_dir: Shared local filesystem directory for generated artifacts.
         script_path: Python entry point relative to the selected FastMSS source root.
         python_executable: Worker Python with FastMSS and its dependencies installed.
@@ -94,17 +93,13 @@ class FastMSSSimulationStage(AgentReady, ProcessingStage[FileGroupTask, FileGrou
             if not separator or key.startswith(("-", "~")) or key.lstrip("+") in _MANAGED_OVERRIDES:
                 msg = f"Unsupported or stage-managed FastMSS override: {override!r}"
                 raise ValueError(msg)
-        root = (
-            Path(self.fastmss_root)
-            if self.fastmss_root is not None
-            else Path(__file__).parents[3] / "_vendor" / "fastmss"
-        )
-        self.fastmss_root = str(root.expanduser().resolve())
         self.output_dir = str(Path(self.output_dir).expanduser().resolve())
-        root = Path(self.fastmss_root)
-        if not (root / self.script_path).resolve().is_relative_to(root):
+        root = Path(self.fastmss_root or ".").expanduser().resolve()
+        if Path(self.script_path).is_absolute() or not (root / self.script_path).resolve().is_relative_to(root):
             msg = "script_path must resolve inside fastmss_root"
             raise ValueError(msg)
+        if self.fastmss_root is not None:
+            self.fastmss_root = str(root)
         self.resources = Resources(cpus=float(self.jobs_per_config))
 
     def describe(self) -> StageContract:
@@ -116,11 +111,12 @@ class FastMSSSimulationStage(AgentReady, ProcessingStage[FileGroupTask, FileGrou
         )
 
     def _run(self, config: Path, run_dir: Path) -> None:
-        script = Path(self.fastmss_root) / self.script_path
+        script = str(Path(self.fastmss_root) / self.script_path) if self.fastmss_root else self.script_path
         command = [
             self.python_executable,
             str(Path(__file__).with_name("_runner.py")),
-            str(script),
+            script,
+            *(["--installed-fastmss"] if self.fastmss_root is None else []),
             f"--config-path={config.parent}",
             f"--config-name={config.stem}",
             *self.overrides,
@@ -133,8 +129,9 @@ class FastMSSSimulationStage(AgentReady, ProcessingStage[FileGroupTask, FileGrou
             "hydra.job.chdir=false",
         ]
         env = os.environ.copy()
-        env["FASTMSS_ROOT"] = self.fastmss_root
-        env["PYTHONPATH"] = os.pathsep.join(filter(None, (self.fastmss_root, env.get("PYTHONPATH"))))
+        if self.fastmss_root is not None:
+            env["FASTMSS_ROOT"] = self.fastmss_root
+            env["PYTHONPATH"] = os.pathsep.join(filter(None, (self.fastmss_root, env.get("PYTHONPATH"))))
         env["OMP_NUM_THREADS"] = "1"
         env["MKL_NUM_THREADS"] = "1"
         log_path = run_dir / "fastmss.log"
@@ -166,8 +163,8 @@ class FastMSSSimulationStage(AgentReady, ProcessingStage[FileGroupTask, FileGrou
             raise RuntimeError(msg)
 
     def process(self, task: FileGroupTask) -> list[FileGroupTask]:
-        script = Path(self.fastmss_root) / self.script_path
-        if not script.is_file():
+        script = Path(self.fastmss_root) / self.script_path if self.fastmss_root else None
+        if script is not None and not script.is_file():
             msg = f"FastMSS entry point does not exist: {script}"
             raise FileNotFoundError(msg)
         configs = [Path(path).expanduser().resolve() for path in task.data]
@@ -216,7 +213,7 @@ class FastMSS(AgentReady, CompositeStage[EmptyTask, AudioTask]):
 
     Args:
         config_paths: Local YAML files, directories or globs for independent shards.
-        fastmss_root: Optional checkout override; defaults to the bundled original FastMSS.
+        fastmss_root: Optional checkout override; defaults to the installed FastMSS distribution.
         output_dir: Shared output directory for mixtures, RTTM and manifests.
         script_path: Hydra Python entry point relative to the checkout.
         python_executable: Python with FastMSS dependencies installed on workers.

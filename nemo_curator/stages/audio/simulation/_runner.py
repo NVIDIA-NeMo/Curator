@@ -21,6 +21,7 @@ out of this module so that only the engine's dependencies are required there.
 import argparse
 import gzip
 import json
+import os
 import runpy
 import sys
 from collections import defaultdict
@@ -83,14 +84,28 @@ def main() -> None:
 
     parser = argparse.ArgumentParser()
     parser.add_argument("script")
+    parser.add_argument("--installed-fastmss", action="store_true")
     parser.add_argument("--config-path", required=True)
     parser.add_argument("--config-name", required=True)
     args, overrides = parser.parse_known_args()
+    if args.installed_fastmss:
+        from importlib.metadata import PackageNotFoundError, distribution
+
+        try:
+            package = distribution("fastmss")
+        except PackageNotFoundError as error:
+            msg = "FastMSS is not installed in the worker Python; install nemo-curator[audio_simulation]."
+            raise RuntimeError(msg) from error
+        if args.script not in {str(path) for path in package.files or []}:
+            msg = f"Installed FastMSS does not provide the recipe: {args.script}"
+            raise FileNotFoundError(msg)
+        args.script = str(package.locate_file(args.script))
+        os.environ["FASTMSS_ROOT"] = str(package.locate_file(""))
     with initialize_config_dir(config_dir=args.config_path, version_base=None):
         config = compose(config_name=args.config_name, overrides=overrides)
         validate_config(OmegaConf.to_container(config, resolve=True))
         output_dir = Path(config.output_dir)
-    sys.argv = [args.script, *sys.argv[2:]]
+    sys.argv = [args.script, f"--config-path={args.config_path}", f"--config-name={args.config_name}", *overrides]
     # Match direct script execution; the sibling Curator fastmss.py would shadow
     # the upstream fastmss package if this runner's directory stayed first.
     sys.path[0] = str(Path(args.script).parent)
