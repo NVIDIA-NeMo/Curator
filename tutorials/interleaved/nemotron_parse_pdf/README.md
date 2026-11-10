@@ -147,7 +147,8 @@ The pipeline supports three input formats selected by a mutually exclusive flag:
 | `--zip-base-dir PATH` | CC-MAIN-style numbered zip archives |
 | `--jsonl-base-dir PATH` | GitHub-style JSONL with base64-encoded PDFs |
 
-For a page-level subset, add `selected_page_indices` to a manifest entry:
+For a page-level subset, add `selected_page_indices` to a single-PDF manifest
+entry (`file_name`, or the configured `file_name_field`):
 
 ```json
 {"file_name": "document.pdf", "selected_page_indices": [0, 4, 12]}
@@ -156,7 +157,15 @@ For a page-level subset, add `selected_page_indices` to a manifest entry:
 Use a nonempty list of unique, nonnegative integers. The values identify physical
 pages in the original PDF, starting at zero. Explicit selection replaces the
 first-`--max-pages` selection for that entry and keeps the original page numbers.
-With served Parse 3.5, failed selected pages retain error rows.
+Rendering and inference receive the declared selection order. PDF-based output
+orders content and error rows by ascending physical page number, so `[2, 0]`
+produces page `0` before page `2`. With served Parse 3.5, failed selected pages
+retain error rows.
+
+Grouped `cc_pdf_file_names` records do not retain per-file selections. For selected
+CC-MAIN pages, expand the group into one `file_name` record per PDF, copy the
+source `url`, and add each PDF's `selected_page_indices`; keep the same
+`--zip-base-dir` storage source.
 
 ## Output schema
 
