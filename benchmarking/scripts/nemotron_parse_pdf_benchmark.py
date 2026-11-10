@@ -41,6 +41,7 @@ sys.path.insert(0, str(REPO_ROOT / "tutorials" / "interleaved" / "nemotron_parse
 from pipeline_utils import (
     create_nemotron_parse_pdf_argparser,
     create_nemotron_parse_pdf_pipeline,
+    validate_manifest_path,
 )
 
 from nemo_curator.backends.utils import get_available_cpu_gpu_resources
@@ -221,6 +222,7 @@ def run_nemotron_parse_pdf_benchmark(args: argparse.Namespace) -> dict[str, Any]
     output_tasks: list = []
 
     try:
+        validate_manifest_path(args.manifest)
         _validate_output_directory(output_dir, require_fresh=args.pages_per_task is not None)
         server_type = _benchmark_server_type(args)
         if server_type is not None:

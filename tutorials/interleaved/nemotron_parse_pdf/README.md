@@ -58,6 +58,10 @@ physical page numbers; the HTTP stage rejects input without `page_number`.
 
 ## Run the tutorial
 
+The tutorial and generic benchmark open the manifest before GPU discovery or
+managed-server startup. Missing, unreadable, and directory paths fail early;
+manifest records are validated later by the pipeline.
+
 **Step 1 — Create a manifest listing your PDFs:**
 
 ```bash
@@ -208,7 +212,7 @@ images = [Image.open(io.BytesIO(b)) for b in df[df["modality"] == "image"]["bina
 | `--parse-mode` | `single` (`main.py`, benchmark) | Served Parse 3.5 mode: `single`, `double`, or `triple`. |
 | `--legacy-parse` | off (`main.py`, benchmark) | Select the v1.2 path with an explicit `--model-path`; mutually exclusive with `--parse-mode`. |
 | `--backend` | `vllm` | In-process engine (`inprocess.py`); benchmark also supports `hf` for explicit legacy in-process runs. |
-| `--enforce-eager` | off | Skip vLLM CUDA graph capture (~35 min savings on first run) |
+| `--enforce-eager` | off | Skip vLLM CUDA graph capture; startup time and throughput depend on runtime, hardware, and workload |
 | `--max-num-seqs` | 64 | Max concurrent sequences for vLLM |
 | `--inference-batch-size` | 32 (`main.py`), 4 (`inprocess.py`) | Concurrent requests per HTTP worker, or pages per in-process HF pass |
 | `--pdfs-per-task` | 10 | PDFs per task; ignored with `--pages-per-task` |

@@ -29,6 +29,12 @@ from nemo_curator.stages.interleaved.pdf.nemotron_parse.schema import PAGE_OUTPU
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.validation import PDFPageBudgetValidationStage
 
 
+def validate_manifest_path(manifest_path: str) -> None:
+    """Reject missing or unreadable local manifests before starting serving."""
+    with Path(manifest_path).open():
+        pass
+
+
 def create_nemotron_parse_pdf_argparser() -> argparse.ArgumentParser:
     """Create the argument parser for the Nemotron-Parse PDF pipeline."""
     parser = argparse.ArgumentParser(description="Process PDFs through Nemotron-Parse into interleaved parquet")
@@ -86,9 +92,8 @@ def create_nemotron_parse_pdf_argparser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--enforce-eager",
         action="store_true",
-        help="Disable vLLM CUDA graph capture (enforce_eager=True). Eliminates ~35min compilation "
-        "idle at startup; slight throughput reduction. Recommended on clusters with GPU "
-        "utilization enforcement.",
+        help="Disable vLLM CUDA graph capture (enforce_eager=True). Startup time and inference throughput "
+        "depend on the runtime, hardware, and workload.",
     )
 
     mode = parser.add_mutually_exclusive_group()

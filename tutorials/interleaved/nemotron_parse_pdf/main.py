@@ -22,7 +22,11 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import argparse
 
-from pipeline_utils import create_nemotron_parse_pdf_argparser, create_nemotron_parse_pdf_pipeline
+from pipeline_utils import (
+    create_nemotron_parse_pdf_argparser,
+    create_nemotron_parse_pdf_pipeline,
+    validate_manifest_path,
+)
 
 from nemo_curator.backends.ray_data import RayDataExecutor
 from nemo_curator.backends.utils import get_available_cpu_gpu_resources
@@ -48,6 +52,7 @@ def main() -> None:
 
     if args.parse_mode is not None and args.inference_server_endpoint is None and args.nemotron_parse_path is None:
         parser.error("--parse-mode requires --inference-server-endpoint or --nemotron-parse-path")
+    validate_manifest_path(args.manifest)
     if args.inference_server_endpoint is not None:
         _run_pipeline(
             args,

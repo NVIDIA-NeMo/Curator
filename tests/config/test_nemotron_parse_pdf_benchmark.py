@@ -19,8 +19,10 @@ def benchmark(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> tuple:
     monkeypatch.syspath_prepend(str(ROOT / "benchmarking/scripts"))
     monkeypatch.syspath_prepend(str(ROOT / "tutorials/interleaved/nemotron_parse_pdf"))
     module = importlib.import_module("nemotron_parse_pdf_benchmark")
+    manifest = tmp_path / "input.jsonl"
+    manifest.touch()
     args = module.create_nemotron_parse_pdf_argparser().parse_args(
-        ["--manifest", "input.jsonl", "--pdf-dir", ".", "--output-dir", str(tmp_path)]
+        ["--manifest", str(manifest), "--pdf-dir", ".", "--output-dir", str(tmp_path)]
     )
     vars(args).update(
         executor="ray_data",
@@ -63,6 +65,22 @@ def test_default_benchmark_routes_parse35_to_managed_dynamo(benchmark: tuple, tm
     pipeline.run.assert_called_once()
     server.start.assert_called_once()
     server.stop.assert_called_once()
+
+
+@pytest.mark.parametrize("manifest_is_directory", [False, True])
+def test_invalid_manifest_fails_before_managed_startup(benchmark: tuple, tmp_path: Path, manifest_is_directory: bool):
+    module, args, pipeline, build, server, factory, probe = benchmark
+    args.manifest = str(tmp_path / "invalid.jsonl")
+    if manifest_is_directory:
+        Path(args.manifest).mkdir()
+    args.nemotron_parse_path = str(tmp_path / "parse35")
+    result = module.run_nemotron_parse_pdf_benchmark(args)
+    assert not result["metrics"]["is_success"]
+    probe.assert_not_called()
+    factory.assert_not_called()
+    server.start.assert_not_called()
+    build.assert_not_called()
+    pipeline.run.assert_not_called()
 
 
 def test_parse35_benchmark_requires_serving_configuration_before_gpu_probe(benchmark: tuple):
