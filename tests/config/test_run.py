@@ -1118,3 +1118,58 @@ def test_shipped_config_passes_only_arguments_its_targets_accept(config_name: st
                 unaccepted.append(f"{target}: {error}")
 
     assert not unaccepted, f"{config_name} passes arguments nothing accepts: " + "; ".join(unaccepted)
+
+
+@pytest.mark.parametrize("backend", ["ray_data", "xenna"])
+def test_mfa_alignment_tutorial_yaml_matches_reference_runner_config(backend: str):
+    config_dir = Path(__file__).parents[2] / "tutorials" / "audio" / "alignment"
+    with initialize_config_dir(config_dir=str(config_dir), version_base=None):
+        cfg = compose(
+            config_name="pipeline",
+            overrides=[
+                "input_manifest=tests/fixtures/audio/alignment/sample_manifest.jsonl",
+                "output_dir=/data/aligned",
+                "num_jobs=4",
+                "batch_size=17",
+                "mfa_root_dir=/data/mfa",
+                "duration_key=seconds",
+                f"backend={backend}",
+            ],
+        )
+
+    pipeline = create_pipeline_from_yaml(cfg, log_config=False)
+    reader, stage, writer = pipeline.stages
+    executor = create_executor_from_yaml(cfg)
+
+    assert reader.__class__.__name__ == "ManifestReader"
+    assert reader.manifest_path == "tests/fixtures/audio/alignment/sample_manifest.jsonl"
+
+    assert stage.__class__.__name__ == "MFAAlignmentStage"
+    assert stage.output_dir == "/data/aligned"
+    assert stage.mfa_command == "mfa"
+    assert stage.acoustic_model == "english_us_arpa"
+    assert stage.dictionary == "english_us_arpa"
+    assert stage.g2p_model == "english_us_arpa"
+    assert stage.audio_filepath_key == "audio_filepath"
+    assert stage.text_key == "text"
+    assert stage.speaker_key == "speaker"
+    assert stage.num_jobs == 4
+    assert stage.beam == 100
+    assert stage.retry_beam == 400
+    assert stage.align_timeout_seconds == 3600.0
+    assert stage.create_rttm is True
+    assert stage.create_ctm is True
+    assert stage.batch_size == 17
+    assert stage.resources.cpus == 4
+    assert stage.mfa_root_dir == "/data/mfa"
+    assert stage.duration_key == "seconds"
+
+    assert writer.__class__.__name__ == "ManifestWriterStage"
+    assert writer.output_path == "/data/aligned/result.jsonl"
+
+    if backend == "ray_data":
+        assert executor.__class__.__name__ == "RayDataExecutor"
+        assert executor.config == {}
+    else:
+        assert executor.__class__.__name__ == "XennaExecutor"
+        assert executor.config == {"execution_mode": "streaming"}
