@@ -27,6 +27,7 @@ from pipeline_utils import create_nemotron_parse_pdf_argparser, create_nemotron_
 from nemo_curator.backends.ray_data import RayDataExecutor
 from nemo_curator.backends.utils import get_available_cpu_gpu_resources
 from nemo_curator.stages.interleaved.pdf.nemotron_parse import create_nemotron_parse_inference_server
+from nemo_curator.tasks.utils import TaskPerfUtils
 
 
 def main() -> None:
@@ -88,7 +89,14 @@ def _run_pipeline(args: argparse.Namespace, endpoint: str, model_name: str, clie
         executor = XennaExecutor()
     else:
         executor = RayDataExecutor()
-    pipeline.run(executor)
+    output_tasks = pipeline.run(executor)
+    if args.parse_mode is not None:
+        valid_pages = TaskPerfUtils.get_aggregated_stage_stat(
+            output_tasks, "nemotron_parse_inference", "custom.num_valid_pages"
+        )
+        if valid_pages <= 0:
+            msg = "Parse 3.5 pipeline produced no valid pages; inspect the retained output errors"
+            raise RuntimeError(msg)
 
 
 if __name__ == "__main__":
