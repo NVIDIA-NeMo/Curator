@@ -15,9 +15,11 @@ flowchart TD
     D --> E[Write Opus clips + metadata.jsonl]
     E --> F[Keep English clips]
     F --> G[Resample clips + Qwen3-Omni ASR]
-    G --> R[Primary hallucination check]
-    R --> S[Qwen3-ASR secondary transcription]
-    S --> H[Recovery hallucination check + selection + cleanup]
+    G --> R{Primary hallucination flagged?}
+    R -->|Yes| S[Qwen3-ASR secondary transcription]
+    S --> T[Recovery hallucination check]
+    T --> H[Selection + cleanup]
+    R -->|No| H
     H --> I[Entity recovery + punctuation + language verification]
     I --> J[Normalization + captioning + code switching + speech QA]
     J --> K[Inverse normalization + disfluency removal]
@@ -83,15 +85,20 @@ The selected ASR clip prediction supplies entity spellings during text cleanup;
 this does not provide independently verified entity recovery. No recording-level
 transcript is used as a human reference.
 
-Following the [integration-test example](https://github.com/nithinraok/Curator/blob/c26a0078b28b32ea8d66cfb77f25a9d81b8fc0bf/examples/audio/qwen_omni_inprocess/run_pipeline.py),
-Qwen3-ASR-0.6B transcribes every selected English clip after the primary
-hallucination check. A clean secondary transcript can clear a primary
-hallucination flag and becomes `best_prediction`; otherwise the existing
-selection stage retains the primary or applies its cross-model agreement rule.
-Unresolved flags remain and suppress later LLM work. Both raw predictions, the
-selected text and `best_prediction_source` are retained. The secondary stage
-uses one GPU per worker from the same eight-GPU audio pool; it does not require
-another server or image. Its model revision is pinned in the YAML.
+The recovery model, recheck and selection follow the [integration-test example](https://github.com/nithinraok/Curator/blob/c26a0078b28b32ea8d66cfb77f25a9d81b8fc0bf/examples/audio/qwen_omni_inprocess/run_pipeline.py),
+but both recovery stages run **only on primary hallucination flags**. Clean
+primary transcripts and non-hallucination rejection flags pass through those
+stages unchanged. This avoids secondary inference for clean clips and prevents
+a bad secondary transcript from rejecting a clean primary transcript.
+
+A clean Qwen3-ASR-0.6B transcript can clear a primary hallucination flag and
+becomes `best_prediction`; otherwise the existing selection stage retains the
+primary or applies its cross-model agreement rule. Unresolved flags remain and
+suppress later LLM work. The primary prediction, selected text and
+`best_prediction_source` are retained; `fallback_model_prediction` is populated
+only when recovery runs and may be absent or empty otherwise. The secondary
+stage uses one GPU per worker from the same eight-GPU audio pool; it does not
+require another server or image. Its model revision is pinned in the YAML.
 
 For public sample audio, use the Qwen tutorial's
 [pinned LibriSpeech preparation](../qwen_omni_asr/README.md#2-prepare-a-small-public-sample)
@@ -171,7 +178,7 @@ actual = {row['audio_item_id']: row for row in english}
 assert len(actual) == len(english) == len(expected)
 assert actual.keys() == expected.keys()
 fields = (
-    'primary_model_prediction', 'fallback_model_prediction', 'best_prediction',
+    'primary_model_prediction', 'best_prediction',
     'abbreviated_text', 'entity_recovered_text',
     'pnc_text', 'llm_language_prediction', 'tn_raw', 'captioning_text',
     'code_switched_text', 'speech_qa_text', 'itn_raw', 'itn_clean',
@@ -179,6 +186,8 @@ fields = (
 flagged = 0
 for clip_id, row in actual.items():
     assert row['source_lang'] == 'en'
+    if row.get('best_prediction_source') == 'fallback':
+        assert row.get('fallback_model_prediction')
     for key in ('audio_filepath', 'original_file', 'start_ms', 'end_ms'):
         assert row[key] == expected[clip_id][key], (clip_id, key)
     assert Path(row['audio_filepath']).is_file()
@@ -202,7 +211,9 @@ an external text server, stop it when it is no longer needed.
 
 The combined image builds successfully. CPU checks cover configuration loading,
 Dynamo frontend imports, endpoint wiring, cleanup after failures, and rejection
-of unsupported executors or an existing output directory. No test files are
+of unsupported executors or an existing output directory. Conditional recovery
+checks cover clean-row bypass, mixed batches, successful and failed recovery,
+and preservation of rejection flags and bypassed waveforms. No test files are
 included in this tutorial. These checks do not exercise GPU inference.
 
 GPU inference and end-to-end execution of this single-cluster setup remain

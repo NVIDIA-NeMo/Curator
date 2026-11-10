@@ -385,6 +385,7 @@ stages:
 
   - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
     name: QwenASR_recovery
+    run_only_if_hallucinated: true
     adapter_target: nemo_curator.models.asr.qwen_asr.QwenASRAdapter
     model_id: ${recovery_model_id}
     default_language: en
@@ -402,6 +403,7 @@ stages:
 
   - _target_: nemo_curator.stages.audio.text_filtering.WhisperHallucinationStage
     name: WhisperHallucination_asr
+    run_only_if_hallucinated: true
     common_hall_file: tutorials/audio/whisper_hallucination/phrases.txt
     text_key: fallback_model_prediction
     language_key: source_lang
