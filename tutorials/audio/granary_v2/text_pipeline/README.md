@@ -74,64 +74,107 @@ Curator creates isolated model-worker environments from the driver environment,
 installs the matching Dynamo vLLM extra using CUDA 12.9 wheels, and applies the
 YAML's Transformers override there. Keep the driver's Transformers version;
 audio dependencies require it. Other worker dependencies are resolved at startup.
-The tutorial entrypoint keeps one server running for every operation in a pipeline
-invocation, then shuts it down. Worker dependencies can resolve differently
-between invocations; use an external endpoint when runs must share one server. Keep
+The commands below keep one server running for the tutorial and both benchmarks,
+so all three runs use the same resolved environment and model weights. Keep
 `/cache` to reuse weights and compilation artifacts with the same runtime and GPU
 architecture.
 
-## 2. Run the two examples
+## 2. Start the model server
 
-Inside the built container, run the tutorial entrypoint. It reuses the shared
-YAML construction helpers without modifying the shared runner. No separate
-server command or second terminal is needed:
+In the container, start a Ray cluster and the existing `InferenceServer` API.
+The Python snippet instantiates the **same `inference_server` block** from the
+pipeline YAML; it does not construct another serving recipe.
+
+```bash
+set -euo pipefail
+cd /opt/Curator
+# Match Curator's state API limits before starting the external Ray cluster.
+export RAY_MAX_LIMIT_FROM_API_SERVER=40000
+export RAY_MAX_LIMIT_FROM_DATA_SOURCE=40000
+ray start --head --node-ip-address=127.0.0.1 --port=6379 --num-gpus=8
+export RAY_ADDRESS=127.0.0.1:6379
+python -u - <<'PY_SERVER' 2>&1 | tee /output/server.log
+from pathlib import Path
+from threading import Event
+
+from huggingface_hub import snapshot_download
+from hydra.utils import instantiate
+from omegaconf import OmegaConf
+
+cfg = OmegaConf.load("tutorials/audio/granary_v2/text_pipeline/text_pipeline.yaml")
+cfg.cache_root = "/cache/compilation"
+cfg.model_name = str(cfg.model_name)
+cfg.model_identifier = snapshot_download(
+    repo_id=cfg.model_identifier,
+    revision=cfg.inference_server.models[0].engine_kwargs.revision,
+)
+with instantiate(cfg.inference_server) as server:
+    Path("/output/endpoint.txt").write_text(server.endpoint + "\n")
+    print(f"Ready: {server.endpoint}. Keep this terminal open; Ctrl-C stops serving.", flush=True)
+    try:
+        Event().wait()
+    except KeyboardInterrupt:
+        pass
+PY_SERVER
+```
+
+The snapshot download fixes the model to the YAML's revision before Dynamo starts;
+its prefetch otherwise resolves the model repository independently of vLLM's
+revision setting. The endpoint keeps the public model name. Cached snapshots are
+reused on subsequent starts.
+
+Wait for `Ready:` before continuing. Initial model download, loading and compilation
+can take several minutes. The server defaults are four TP=2 replicas, context and
+batched-token limits of 8,192, 256 sequences, prefix caching, chunked prefill, and
+95% GPU memory utilization.
+
+## 3. Run the two examples
+
+In a **second host terminal**, enter the running container:
+
+```bash
+docker exec -it curator-audio-text bash
+```
+
+Then run Curator's shared YAML entrypoint:
 
 ```bash
 cd /opt/Curator
-unset RAY_ADDRESS
+export RAY_ADDRESS=127.0.0.1:6379
 set -euo pipefail
 test ! -e /output/english_output.jsonl
-python tutorials/audio/granary_v2/text_pipeline/main.py \
+python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/granary_v2/text_pipeline \
+  --config-name text_pipeline \
   manifest_path=/opt/Curator/tutorials/audio/granary_v2/text_pipeline/sample_input.jsonl \
   output_path=/output/english_output.jsonl \
-  cache_root=/cache/compilation \
+  endpoint="$(cat /output/endpoint.txt)" \
   2>&1 | tee /output/pipeline.log
 ```
 
-When `endpoint` is missing or empty, this entrypoint instantiates the YAML's
-`inference_server`, resolves the pinned model snapshot, waits for readiness,
-and passes the endpoint to every processing stage. The server stays alive
-throughout the pipeline and is stopped on success or failure before it
-stops its Ray cluster. Curator's existing Dynamo backend handles model workers,
-package environments, routing and health checks. A first run may spend several
-minutes downloading and loading the model.
+The default executor is Ray Data. Add `backend=xenna execution_mode=streaming`
+to the same command to use Xenna. Both use batch size 128, 12 workers and up to
+256 concurrent requests per worker. The shared runner connects to the existing
+Ray cluster and model endpoint; it does not start or stop the model server.
 
-With an existing endpoint, the unchanged shared `nemo_curator/config/run.py`
-can also consume this YAML directly; it requires an explicit endpoint and does
-not manage serving.
+Output and logs appear in `text_processing_output/` on the host. The command
+refuses to overwrite an existing result; choose a fresh output path and update
+the guard when running again. Keep the server running while inspecting results
+and running the optional benchmarks below.
 
-Both Ray Data and Xenna are supported; Ray Data is the default. To use Xenna,
-append `backend=xenna execution_mode=streaming` to the tutorial command above
-and choose a fresh `output_path`. Managed Dynamo serving works with either
-executor because all pipeline stages request CPUs only. The text processors
-call Dynamo over HTTP; Dynamo owns the eight GPUs. Both executors use batch size 128, 12 workers per processing
-stage and up to 256 concurrent requests per worker.
+For your own English JSONL manifest, replace `manifest_path` with an absolute
+path visible inside the container and choose a different output path. The default
+fields are `abbreviated_text` (ASR transcript), `text` (reference for entity
+spelling), and `source_lang` (language). Override `text_key`, `ground_truth_key`,
+and `language_key` when your field names differ. Audio paths and other metadata
+are preserved; this pipeline does not open the audio files or filter input by
+language before processing.
 
-For your own English JSONL manifest, replace `manifest_path` with a path visible
-inside the container and choose a fresh output path. The default fields are
-`abbreviated_text` (ASR transcript), `text` (reference for entity spelling), and
-`source_lang` (language). Override `text_key`, `ground_truth_key`, and `language_key`
-when your field names differ. Audio paths and other metadata are preserved;
-this pipeline does not open audio files or filter input by language.
-
-## 3. Reuse an existing endpoint (optional)
-
-Add `endpoint=http://inference-host:8000/v1` and the appropriate `model_name` to
-the same tutorial command. A nonempty endpoint skips server creation, snapshot
-download and server shutdown; `cache_root` is then unnecessary. The endpoint
-must be reachable by every worker. The YAML's serving block does not reconfigure
-an external server. Leave `RAY_ADDRESS` unset to let the entrypoint manage its own
-cluster, or set it deliberately to an existing compatible cluster.
+If you already have a compatible model endpoint, use the shared-runner command
+with that endpoint and its `model_name`; skip step 2 and omit the
+`RAY_ADDRESS` export in step 3. Run `unset RAY_ADDRESS` so the shared runner can
+start its own CPU cluster. The endpoint must be reachable by every worker. Changing the YAML's serving block does not
+reconfigure an independently managed endpoint.
 
 ## 4. Inspect the result
 
@@ -204,17 +247,24 @@ normalization permits number expansion; exhausted request retries fail the batch
 
 ## 5. Benchmark the same pipeline (optional)
 
-Follow the [benchmark instructions](../../../../benchmarking/README.md#audio-text-pipeline-benchmark)
-in the same container. The benchmark also starts and stops the YAML-defined
-server automatically when no endpoint is supplied. Supply an external
-`--endpoint` to reuse an already running server.
+Keep this container, Ray cluster and server running. Follow the
+[paired benchmark commands](../../../../benchmarking/README.md#audio-text-pipeline-benchmark)
+in the second terminal. They reuse `/output/endpoint.txt`, `/cache/compilation`,
+the model, and the complete YAML. Only the cohort size, executor and result paths
+change. Run Xenna and Ray Data sequentially on the same input manifest.
 
-## 6. Leave the container
+## 6. Stop the server
 
-The managed server and Ray cluster stop when the tutorial entrypoint returns. After inspecting
-the output, run `exit` to leave and remove the container. Inputs, outputs and
-caches remain in the mounted host directories. External servers remain under
-their owner's control.
+After inspecting the tutorial and any benchmark results, press Ctrl-C in the
+server terminal. Then run there:
+
+```bash
+ray stop
+exit
+```
+
+The container is removed when it exits. Inputs, outputs and caches remain in the
+three mounted host directories.
 
 ## Observed throughput
 
