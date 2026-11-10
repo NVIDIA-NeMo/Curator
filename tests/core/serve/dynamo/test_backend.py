@@ -649,3 +649,37 @@ def test_failed_dynamo_deploy_stops_children_before_removing_pg(ambient_namespac
     assert not any(children_alive.values()), {"alive": children_alive, "events": events}
     assert events[-1] == ("remove-pg", 0)
     assert all(options.get("namespace") == NEMO_CURATOR_DYNAMO_NAMESPACE for options in spawn_options)
+
+
+@pytest.mark.parametrize("cleanup_raises", [False, True])
+def test_infrastructure_readiness_failure_stops_unreturned_child(cleanup_raises: bool):
+    server = InferenceServer(models=[DynamoVLLMModelConfig(model_identifier="unused")], backend=DynamoServerConfig())
+    backend = DynamoBackend(server)
+    backend._infra_pg = mock.Mock()
+    backend._infra_ip = "127.0.0.1"
+    proc = mock.Mock()
+    events = []
+
+    def stop_child() -> None:
+        events.append("stop-child")
+        if cleanup_raises:
+            msg = "cleanup error must not mask the readiness timeout"
+            raise RuntimeError(msg)
+
+    proc.stop.side_effect = stop_child
+    with (
+        mock.patch.object(dynamo_backend.ManagedSubprocess, "spawn", return_value=proc),
+        mock.patch.object(dynamo_backend, "_wait_for_port", side_effect=TimeoutError("infra readiness failed")),
+        mock.patch.object(dynamo_backend, "reacquire_detached_actor_handles", side_effect=lambda procs, **_: procs),
+        mock.patch.object(dynamo_backend.ManagedSubprocess, "stop_many"),
+        mock.patch.object(
+            dynamo_backend.ray.util, "remove_placement_group", side_effect=lambda _: events.append("remove-pg")
+        ),
+    ):
+        with pytest.raises(TimeoutError, match="infra readiness failed"):
+            backend._etcd_actor = backend._start_infra_service(
+                label="Dynamo_ETCD", bundle_index=0, port=12345, command=["unused"]
+            )
+        backend._teardown_actors_and_pgs()
+    assert events == ["stop-child", "remove-pg"]
+    proc.stop.assert_called_once_with()

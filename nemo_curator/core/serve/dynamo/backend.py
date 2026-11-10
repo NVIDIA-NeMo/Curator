@@ -430,7 +430,13 @@ class DynamoBackend(InferenceBackend):
         )
         short_label = label.rsplit("_", 1)[-1].lower()
         logger.info(f"Starting {short_label} on port {port} via {self._infra_ip}")
-        _wait_for_port(self._infra_ip, port, timeout_s=30, label=short_label)
+        try:
+            _wait_for_port(self._infra_ip, port, timeout_s=30, label=short_label)
+        except Exception:
+            # The caller receives this handle only after readiness succeeds.
+            with contextlib.suppress(Exception):
+                proc.stop()
+            raise
         logger.info(f"{short_label} is ready")
         return proc
 
