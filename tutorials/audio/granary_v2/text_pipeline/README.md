@@ -110,9 +110,12 @@ With an existing endpoint, the unchanged shared `nemo_curator/config/run.py`
 can also consume this YAML directly; it requires an explicit endpoint and does
 not manage serving.
 
-The default executor is Ray Data. These processing stages are CPU HTTP clients;
-Dynamo owns the eight GPUs. The pipeline uses batch size 128, 12 workers per
-processing stage and up to 256 concurrent requests per worker.
+Both Ray Data and Xenna are supported; Ray Data is the default. To use Xenna,
+append `backend=xenna execution_mode=streaming` to the tutorial command above
+and choose a fresh `output_path`. Managed Dynamo serving works with either
+executor because all pipeline stages request CPUs only. The text processors
+call Dynamo over HTTP; Dynamo owns the eight GPUs. Both executors use batch size 128, 12 workers per processing
+stage and up to 256 concurrent requests per worker.
 
 For your own English JSONL manifest, replace `manifest_path` with a path visible
 inside the container and choose a fresh output path. The default fields are
