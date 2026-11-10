@@ -32,6 +32,8 @@ that every row is suitable for training.
 Xenna is unsupported for this combined pipeline: its GPU allocation is independent
 of Ray's serving reservations, and Curator rejects GPU stages with Xenna while a
 managed inference server is active. Use Ray Data so both share Ray's GPU scheduler.
+The [standalone text pipeline](../text_pipeline/README.md#2-run-the-two-examples)
+has only CPU stages and supports both Xenna and Ray Data.
 
 ## 1. Prepare the image and models
 
