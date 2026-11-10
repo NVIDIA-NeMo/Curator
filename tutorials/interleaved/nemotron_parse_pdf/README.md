@@ -593,9 +593,12 @@ utilization measurements; use a separate whole-job monitor to include model
 startup and shutdown. Compare the reported timestamps and per-GPU sample counts,
 and keep idle gaps inside the measured interval. Sampling or command failures
 remain visible in `run-summary.json` instead of producing a successful timing.
-The Dynamo runner also exits nonzero and retains a failed summary when the
-pipeline reports zero successfully processed pages, including empty or all-error
-results.
+For served Parse 3.5, both the Dynamo runner and direct vLLM benchmark launchers
+require at least one successfully processed page. Empty or all-error results exit
+nonzero, with a failed status in `run-summary.json`; direct-run errors are also
+retained in `command.log`. Extracted outputs are preserved. Partial-success runs
+can still pass this check, which does not establish complete page coverage or
+semantic quality.
 
 The launchers trap normal exit and signals and terminate the processes they
 start. After an interrupted Dynamo run, verify that no experiment-owned etcd,

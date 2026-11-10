@@ -13,6 +13,8 @@ from unittest.mock import Mock
 import pytest
 
 from nemo_curator.pipeline import Pipeline
+from nemo_curator.tasks import FileGroupTask
+from nemo_curator.utils.performance_utils import StagePerfStats
 from tests.stages.interleaved.pdf.nemotron_parse._page_budget_helpers import TEST_EXTRACTION_CONFIG, write_manifest
 
 ROOT = Path(__file__).parents[2]
@@ -38,7 +40,13 @@ def test_page_task_entry_points_require_fresh_output(
         monkeypatch.setattr(module, "setup_executor", Mock())
         monkeypatch.setattr(module, "write_benchmark_results", Mock())
         monkeypatch.setattr(module, "_available_gpu_count", Mock(side_effect=AssertionError("no GPU probe")))
-    run = Mock(return_value=[])
+    completed = FileGroupTask(
+        dataset_name="pdf",
+        data=["sample.parquet"],
+        _metadata={"source_files": ["sample.pdf"]},
+        _stage_perf=[StagePerfStats(stage_name="nemotron_parse_inference", custom_metrics={"num_valid_pages": 2})],
+    )
+    run = Mock(return_value=[completed])
     monkeypatch.setattr(Pipeline, "run", run)
     output = tmp_path / "output"
     if existing_output:

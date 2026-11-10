@@ -19,6 +19,7 @@ import re
 import sys
 import tomllib
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock
 
 import pytest
@@ -73,6 +74,20 @@ def test_external_endpoint_does_not_start_managed_serving(monkeypatch: pytest.Mo
     assert (endpoint, model, workers) == ("http://served/v1", "served-name", 8)
     assert args.parse_mode == "triple"
     assert args.executor == "xenna"
+
+
+@pytest.mark.parametrize("parse_mode", [None, "single", "double", "triple"])
+def test_zero_valid_page_check_applies_only_to_served_parse35(monkeypatch: pytest.MonkeyPatch, parse_mode: str | None):
+    main = load_module(monkeypatch, "main")
+    pipeline = SimpleNamespace(run=Mock(return_value=[]))
+    monkeypatch.setattr(main, "create_nemotron_parse_pdf_pipeline", Mock(return_value=pipeline))
+    monkeypatch.setattr(main, "RayDataExecutor", Mock())
+    args = SimpleNamespace(executor="ray-data", parse_mode=parse_mode)
+    if parse_mode is None:
+        main._run_pipeline(args, "http://served/v1", "model", 4)
+    else:
+        with pytest.raises(RuntimeError, match="no valid pages"):
+            main._run_pipeline(args, "http://served/v1", "model", 4)
 
 
 def test_tutorial_defaults_to_served_parse35_and_warn_writer(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):

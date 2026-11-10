@@ -7,15 +7,98 @@ import os
 import signal
 import subprocess
 import sys
+import textwrap
 import threading
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
 TUTORIAL = Path(__file__).parents[2] / "tutorials/interleaved/nemotron_parse_pdf"
+
+
+@pytest.mark.parametrize("outcome", ["empty", "all_error", "mixed", "no_content"])
+def test_direct_benchmark_requires_valid_pages_and_retains_outputs(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, outcome: str
+):
+    monkeypatch.syspath_prepend(str(TUTORIAL))
+    module = importlib.import_module("benchmark_run")
+    sampler = SimpleNamespace(start=Mock(), check=Mock(), stop=Mock())
+    monkeypatch.setattr(module, "GPUSampler", lambda *_args: sampler)
+    valid_pages = 1 if outcome in {"mixed", "no_content"} else 0
+    rows = [{"sample_id": "pdf", "page_number": None, "text_content": "metadata", "materialize_error": None}]
+    if outcome in {"all_error", "mixed"}:
+        rows.append({"sample_id": "pdf", "page_number": 0, "text_content": None, "materialize_error": "HTTP timeout"})
+    if outcome == "mixed":
+        rows.append({"sample_id": "pdf", "page_number": 1, "text_content": "text", "materialize_error": None})
+    fixture = tmp_path / "fixture.parquet"
+    pq.write_table(pa.Table.from_pylist(rows), fixture)
+    original_bytes = fixture.read_bytes()
+    driver = tmp_path / "driver.py"
+    driver.write_text(
+        textwrap.dedent(
+            f"""\
+            import shutil
+            import sys
+            from pathlib import Path
+            from types import SimpleNamespace
+            sys.path.insert(0, {str(TUTORIAL)!r})
+            import main
+            from nemo_curator.tasks.file_group import FileGroupTask
+            from nemo_curator.utils.performance_utils import StagePerfStats
+
+            def build(args, **kwargs):
+                def run(executor):
+                    if {outcome == "empty"!r}:
+                        return []
+                    destination = Path(args.output_dir) / 'output.parquet'
+                    shutil.copyfile({str(fixture)!r}, destination)
+                    return [FileGroupTask(
+                        dataset_name='pdf', data=[str(destination)],
+                        _stage_perf=[StagePerfStats(
+                            stage_name='nemotron_parse_inference',
+                            custom_metrics={{'num_valid_pages': {valid_pages}}},
+                        )],
+                    )]
+                return SimpleNamespace(run=run)
+
+            main.create_nemotron_parse_pdf_pipeline = build
+            main.RayDataExecutor = lambda: None
+            main.main()
+            """
+        )
+    )
+    run_dir = tmp_path / "run"
+    result = module.measure_command(
+        [
+            sys.executable,
+            str(driver),
+            "--manifest",
+            "input.jsonl",
+            "--pdf-dir",
+            str(tmp_path),
+            "--output-dir",
+            str(run_dir / "output"),
+            "--inference-server-endpoint",
+            "http://unused/v1",
+            "--parse-mode",
+            "single",
+        ],
+        run_dir,
+        {0},
+    )
+    summary = json.loads((run_dir / "run-summary.json").read_text())
+    assert result == summary["exit_code"] == summary["command_exit_code"] == (0 if valid_pages else 1)
+    assert summary["cleanup_errors"] == []
+    if not valid_pages:
+        assert "no valid pages" in (run_dir / "command.log").read_text()
+    if outcome != "empty":
+        assert (run_dir / "output/output.parquet").read_bytes() == original_bytes
+    sampler.stop.assert_called_once()
 
 
 def test_sampler_failure_stops_command_and_marks_run_failed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
