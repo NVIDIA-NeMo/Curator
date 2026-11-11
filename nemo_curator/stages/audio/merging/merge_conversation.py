@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import random
@@ -25,6 +26,7 @@ from typing import Any
 
 import numpy as np
 import soundfile as sf
+from filelock import FileLock
 from loguru import logger
 
 from nemo_curator.stages.base import ProcessingStage
@@ -34,6 +36,19 @@ from nemo_curator.utils.operation_utils import make_temporary_dir
 _MIN_FIELDS = 5
 _PEAK_LIMIT = 0.99
 _MIN_RANDOMIZE_PAUSE = 0.5
+_COMMIT_VERSION = 1
+_COMMIT_FILE = ".merge-commit.json"
+_LOCK_DIRECTORY = ".merge-locks"
+_TURN_FIELDS = (
+    "speaker",
+    "turn_index",
+    "overlap",
+    "text",
+    "utterance",
+    "reference_audio",
+    "reference_voice",
+    "mfa_skipped",
+)
 
 
 @dataclass
@@ -87,10 +102,16 @@ class MergeConversationSDPStage(ProcessingStage[AudioTask, AudioTask]):
     ``offset`` is zero. A missing CTM is reported as an empty path.
 
     Unsafe IDs and malformed turn structures raise ``ValueError`` before
-    writes. Unreadable/empty audio, inconsistent sample rates, existing output
-    destinations and write failures filter the whole conversation (``[]``),
-    leaving the input task unchanged. Artifacts are built in a temporary
-    directory and published together. Use a fresh output root for reruns.
+    writes. Unreadable/empty audio, inconsistent sample rates and write
+    failures filter the whole conversation (``[]``), leaving the input task
+    unchanged. Artifacts and a checksummed ``.merge-commit.json`` record are
+    published together. A retry verifies input contents, output-affecting turn
+    fields, configuration and every output file before returning the committed
+    result, including its original randomized pauses. Existing destinations
+    that cannot be verified raise ``FileExistsError``; they are never filtered
+    as successful processing. Use a fresh output root for changed inputs or
+    configuration. Persistent locks under ``.merge-locks/`` serialize workers
+    publishing the same conversation.
 
     Args:
         output_conversations_dir: Root for complete conversation directories.
@@ -150,31 +171,197 @@ class MergeConversationSDPStage(ProcessingStage[AudioTask, AudioTask]):
             return []
         destination = self.output_conversations_dir / conversation_id
         try:
-            self._require_fresh_destination(destination)
-            turns = [self._prepare_turn(entry) for entry in entries]
-            total_samples = self._place_turns(turns)
-            speakers = list(dict.fromkeys(turn.entry["speaker"] for turn in turns))
-            # Original labels never become path components, including reserved aggregate names.
-            stems = {speaker: f"speaker_{i:04d}" for i, speaker in enumerate(speakers)}
-            self.output_conversations_dir.mkdir(parents=True, exist_ok=True)
-            with make_temporary_dir(target_dir=self.output_conversations_dir, prefix=".merge-") as temporary:
-                staging = temporary / "conversation"
-                staging.mkdir()
-                (staging / "speakers").mkdir()
-                self._write_audio(staging, turns, speakers, stems, total_samples)
-                with_ctm = self._write_annotations(staging, conversation_id, turns, stems)
-                self._generate_seglst(staging / "segments.seglst.json", conversation_id, turns, total_samples)
-                result = self._result(
-                    destination, conversation_id, turns, stems, with_ctm, total_samples=total_samples
-                )
-                self._require_fresh_destination(destination)
-                staging.rename(destination)
+            with self._conversation_lock(conversation_id):
+                if destination.exists() or destination.is_symlink():
+                    result = self._reuse_committed_result(destination, conversation_id, entries)
+                else:
+                    result = self._publish_conversation(destination, conversation_id, entries)
+        except FileExistsError:
+            raise
         except (OSError, RuntimeError, ValueError):
             logger.exception(f"Failed to merge conversation {conversation_id}")
             return []
         task.data.clear()
         task.data.update(result)
         return task
+
+    def _conversation_lock(self, conversation_id: str) -> FileLock:
+        self.output_conversations_dir.mkdir(parents=True, exist_ok=True)
+        locks = self.output_conversations_dir / _LOCK_DIRECTORY
+        if locks.is_symlink():
+            msg = f"Conversation lock directory is a symlink: {locks}"
+            raise FileExistsError(msg)
+        locks.mkdir(exist_ok=True)
+        lock = locks / f"{conversation_id}.lock"
+        if lock.is_symlink() or (lock.exists() and not lock.is_file()):
+            msg = f"Conversation lock is not a regular file: {lock}"
+            raise FileExistsError(msg)
+        return FileLock(str(lock))
+
+    def _publish_conversation(
+        self, destination: Path, conversation_id: str, entries: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        request = self._request_digest(conversation_id, entries)
+        turns = [self._prepare_turn(entry) for entry in entries]
+        total_samples = self._place_turns(turns)
+        speakers = list(dict.fromkeys(turn.entry["speaker"] for turn in turns))
+        # Original labels never become path components, including reserved aggregate names.
+        stems = {speaker: f"speaker_{i:04d}" for i, speaker in enumerate(speakers)}
+        with make_temporary_dir(target_dir=self.output_conversations_dir, prefix=".merge-") as temporary:
+            staging = temporary / "conversation"
+            staging.mkdir()
+            (staging / "speakers").mkdir()
+            self._write_audio(staging, turns, speakers, stems, total_samples)
+            with_ctm = self._write_annotations(staging, conversation_id, turns, stems)
+            self._generate_seglst(staging / "segments.seglst.json", conversation_id, turns, total_samples)
+            result = self._result(destination, conversation_id, turns, stems, with_ctm, total_samples=total_samples)
+            payload = {
+                "version": _COMMIT_VERSION,
+                "request": request,
+                "result": result,
+                "artifacts": self._artifact_digests(staging),
+            }
+            (staging / _COMMIT_FILE).write_text(
+                json.dumps(
+                    {"payload": payload, "sha256": self._json_digest(payload)}, sort_keys=True, allow_nan=False
+                ),
+                encoding="utf-8",
+            )
+            if request != self._request_digest(conversation_id, entries):
+                msg = "Conversation inputs changed while outputs were being prepared"
+                raise RuntimeError(msg)
+            self._require_fresh_destination(destination)
+            staging.rename(destination)
+        return result
+
+    @staticmethod
+    def _json_digest(value: Any) -> str:  # noqa: ANN401
+        serialized = json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
+        return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _file_digest(path: Path) -> str:
+        with path.open("rb") as handle:
+            return hashlib.file_digest(handle, "sha256").hexdigest()
+
+    def _request_digest(self, conversation_id: str, entries: list[dict[str, Any]]) -> str:
+        inputs = []
+        for entry in entries:
+            turn = {key: entry[key] for key in _TURN_FIELDS if key in entry}
+            for key in ("audio_filepath", "rttm_filepath", "ctm_filepath"):
+                path = entry.get(key, "")
+                digest = None
+                if path:
+                    try:
+                        digest = self._file_digest(Path(path))
+                    except OSError:
+                        if key == "audio_filepath":
+                            raise
+                turn[key] = {"path": path, "sha256": digest}
+            inputs.append(turn)
+        return self._json_digest(
+            {
+                "version": _COMMIT_VERSION,
+                "conversation_id": conversation_id,
+                "turns": inputs,
+                "config": {
+                    "output_conversations_dir": str(self.output_conversations_dir),
+                    "max_pause_duration": self.max_pause_duration,
+                    "max_intra_turn_pause": self.max_intra_turn_pause,
+                    "randomize_pauses": self.randomize_pauses,
+                    "seglst_offset": self.seglst_offset,
+                },
+            }
+        )
+
+    def _artifact_digests(self, directory: Path) -> dict[str, str]:
+        artifacts = {}
+        for path in sorted(directory.rglob("*")):
+            if path.is_symlink() or not (path.is_file() or path.is_dir()):
+                msg = f"Conversation artifact is not a regular file or directory: {path}"
+                raise ValueError(msg)
+            if path.is_file() and path != directory / _COMMIT_FILE:
+                artifacts[path.relative_to(directory).as_posix()] = self._file_digest(path)
+        return artifacts
+
+    def _reuse_committed_result(
+        self, destination: Path, conversation_id: str, entries: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        try:
+            return self._verify_committed_result(destination, conversation_id, entries)
+        except (OSError, RuntimeError, ValueError, KeyError, TypeError) as exc:
+            msg = f"Conversation destination conflicts with this request or has unverifiable artifacts: {destination}"
+            raise FileExistsError(msg) from exc
+
+    def _verify_committed_result(
+        self, destination: Path, conversation_id: str, entries: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        record_path = destination / _COMMIT_FILE
+        if destination.is_symlink() or record_path.is_symlink():
+            msg = "Conversation directory and commit record must not be symlinks"
+            raise ValueError(msg)
+        record = json.loads(record_path.read_text(encoding="utf-8"))
+        payload = record["payload"]
+        request = self._request_digest(conversation_id, entries)
+        if (
+            payload["version"] != _COMMIT_VERSION
+            or record["sha256"] != self._json_digest(payload)
+            or payload["request"] != request
+            or payload["artifacts"] != self._artifact_digests(destination)
+            or request != self._request_digest(conversation_id, entries)
+        ):
+            msg = "Conversation commit identity or artifact checksums do not match"
+            raise ValueError(msg)
+        result = payload["result"]
+        if (
+            not isinstance(result, dict)
+            or set(result) != set(self.outputs()[1])
+            or result["conversation_id"] != conversation_id
+        ):
+            msg = "Conversation commit does not contain the expected result"
+            raise ValueError(msg)
+        self._verify_result_artifacts(destination, entries, result, payload["artifacts"])
+        return result
+
+    @staticmethod
+    def _verify_result_artifacts(
+        destination: Path, entries: list[dict[str, Any]], result: dict[str, Any], artifacts: dict[str, str]
+    ) -> None:
+        expected = {
+            "audio_filepath": "mixed.wav",
+            "rttm_filepath": "all.rttm",
+            "ctm_filepath": "all.ctm" if "all.ctm" in artifacts else "",
+            "seglst_filepath": "segments.seglst.json",
+        }
+        paths = {"multichannel.wav"} | {name for name in expected.values() if name}
+        for key, name in expected.items():
+            if result[key] != (str(destination / name) if name else ""):
+                msg = f"Committed {key} does not identify its conversation artifact"
+                raise ValueError(msg)
+        speakers = list(dict.fromkeys(entry["speaker"] for entry in entries))
+        speaker_artifacts = {}
+        for index, speaker in enumerate(speakers):
+            stem = f"speakers/speaker_{index:04d}"
+            names = {
+                "audio_filepath": f"{stem}.wav",
+                "rttm_filepath": f"{stem}.rttm",
+                "ctm_filepath": f"{stem}.ctm" if f"{stem}.ctm" in artifacts else "",
+            }
+            paths.update(name for name in names.values() if name)
+            speaker_artifacts[speaker] = {
+                "channel": index,
+                **{key: str(destination / name) if name else "" for key, name in names.items()},
+            }
+        info = sf.info(destination / "mixed.wav")
+        if (
+            set(artifacts) != paths
+            or result["speaker_artifacts"] != speaker_artifacts
+            or result["num_speakers"] != len(speakers)
+            or result["duration"] != info.duration
+            or result["offset"] != 0
+        ):
+            msg = "Committed result does not match its audio and speaker artifacts"
+            raise ValueError(msg)
 
     @staticmethod
     def _require_fresh_destination(destination: Path) -> None:
@@ -192,7 +379,7 @@ class MergeConversationSDPStage(ProcessingStage[AudioTask, AudioTask]):
         if (
             not isinstance(conversation_id, str)
             or not conversation_id
-            or conversation_id in {".", ".."}
+            or conversation_id in {".", "..", _LOCK_DIRECTORY}
             or any(char in conversation_id for char in "/\\\x00")
             or any(char.isspace() for char in conversation_id)
         ):

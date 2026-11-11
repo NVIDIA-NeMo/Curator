@@ -18,7 +18,9 @@ from __future__ import annotations
 
 import copy
 import json
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Barrier
 from typing import Any
 
 import numpy as np
@@ -81,6 +83,10 @@ def _rows(path: str) -> list[list[str]]:
     return [line.split() for line in Path(path).read_text().splitlines()]
 
 
+def _snapshot(directory: Path) -> dict[Path, bytes]:
+    return {path.relative_to(directory): path.read_bytes() for path in directory.rglob("*") if path.is_file()}
+
+
 @pytest.mark.parametrize("backend", ["ray_data", "xenna"])
 @pytest.mark.parametrize("batch_size", [1, 3])
 def test_manifest_conversations_survive_adapter_batches(tmp_path: Path, backend: str, batch_size: int) -> None:
@@ -126,7 +132,7 @@ def test_preserves_parent_provenance(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    "conversation_id", ["../escaped", "/absolute", "..", ".", "a/b", "a\\b", "", "two words", "a\x00b"]
+    "conversation_id", ["../escaped", "/absolute", "..", ".", "a/b", "a\\b", "", "two words", "a\x00b", ".merge-locks"]
 )
 def test_rejects_unsafe_conversation_ids_before_writes(tmp_path: Path, conversation_id: str) -> None:
     with pytest.raises(ValueError, match="conversation_id"):
@@ -313,10 +319,246 @@ def test_same_id_rerun_refuses_existing_artifacts(tmp_path: Path) -> None:
     first = stage.process(_parent([_turn(tmp_path, speaker="Alice", words=[(0, 0.5, "old")])]))
     root = Path(first.data["audio_filepath"]).parent
     before = {path.relative_to(root): path.read_bytes() for path in root.rglob("*") if path.is_file()}
-    assert stage.process(_parent([_turn(tmp_path, index=1, speaker="Bob")])) == []
-    assert stage.process(_parent([{"speaker": "Bob", "turn_index": 0, "audio_filepath": "/missing.wav"}])) == []
+    with pytest.raises(FileExistsError, match="conflicts"):
+        stage.process(_parent([_turn(tmp_path, index=1, speaker="Bob")]))
+    with pytest.raises(FileExistsError, match="conflicts"):
+        stage.process(_parent([{"speaker": "Bob", "turn_index": 0, "audio_filepath": "/missing.wav"}]))
     after = {path.relative_to(root): path.read_bytes() for path in root.rglob("*") if path.is_file()}
     assert before == after
+
+
+@pytest.mark.parametrize("randomize", [False, True])
+def test_commit_then_lost_result_replay_returns_committed_conversation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, randomize: bool
+) -> None:
+    turns = [
+        _turn(tmp_path, segments=[(0, 1)], words=[(0.1, 0.2, "first")]),
+        _turn(tmp_path, index=1, speaker="B", overlap=-2, words=[(0.2, 0.2, "second")]),
+    ]
+    original = _parent(turns)
+    original._metadata["source"] = "input.jsonl"
+    original._source_id = "partition"
+    stage = _stage(tmp_path, randomize_pauses=randomize)
+    destination = tmp_path / "output" / "conversation"
+    rename = Path.rename
+
+    def commit_then_stop(path: Path, target: Path) -> Path:
+        result = rename(path, target)
+        if target == destination:
+            msg = "worker stopped before returning its result"
+            raise SystemExit(msg)
+        return result
+
+    with monkeypatch.context() as crash:
+        crash.setattr(Path, "rename", commit_then_stop)
+        with pytest.raises(SystemExit):
+            stage.process(copy.deepcopy(original))
+    before = {path.relative_to(destination): path.read_bytes() for path in destination.rglob("*") if path.is_file()}
+    retry_stage = _stage(tmp_path, randomize_pauses=randomize)
+
+    def unexpected_randomization(*_args: object) -> None:
+        pytest.fail("A committed placement must not be randomized again")
+
+    monkeypatch.setattr(retry_stage._rng, "uniform", unexpected_randomization)
+    replay = copy.deepcopy(original)
+    result = retry_stage.process(replay)
+    assert result is replay
+    assert result.data["duration"] == sf.info(result.data["audio_filepath"]).duration
+    assert result._metadata == original._metadata
+    assert result._source_id == "partition"
+    assert before == {
+        path.relative_to(destination): path.read_bytes() for path in destination.rglob("*") if path.is_file()
+    }
+
+
+@pytest.mark.parametrize("backend", ["ray_data", "xenna"])
+def test_adapter_replay_emits_result_after_first_reply_is_lost(tmp_path: Path, backend: str) -> None:
+    original = _parent([_turn(tmp_path)])
+
+    def run(task: AudioTask) -> list[AudioTask]:
+        stage = _stage(tmp_path)
+        stage.setup()
+        if backend == "ray_data":
+            return RayDataStageAdapter(stage)._process_batch_internal({"item": np.array([task], dtype=object)})["item"]
+        return XennaStageAdapter(stage).process_data([task])
+
+    first = run(copy.deepcopy(original))
+    assert len(first) == 1
+    replay = run(copy.deepcopy(original))
+    assert len(replay) == 1
+    assert replay[0].data == first[0].data
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [("max_pause_duration", 3), ("max_intra_turn_pause", 2), ("randomize_pauses", True), ("seglst_offset", 0.3)],
+)
+def test_changed_configuration_is_a_visible_conflict(tmp_path: Path, key: str, value: float | bool) -> None:
+    original = _parent([_turn(tmp_path)])
+    _stage(tmp_path).process(copy.deepcopy(original))
+    destination = tmp_path / "output" / "conversation"
+    before = _snapshot(destination)
+    with pytest.raises(FileExistsError, match="conflicts"):
+        _stage(tmp_path, **{key: value}).process(original)
+    assert _snapshot(destination) == before
+    assert "turns" in original.data
+
+
+@pytest.mark.parametrize(
+    "change", ["audio", "rttm", "ctm", "missing_audio", "speaker", "text", "overlap", "reference_voice", "mfa_skipped"]
+)
+def test_changed_input_is_a_visible_conflict(tmp_path: Path, change: str) -> None:
+    turn = _turn(tmp_path, segments=[(0, 1)], words=[(0.1, 0.2, "word")])
+    original = _parent([turn])
+    stage = _stage(tmp_path)
+    stage.process(copy.deepcopy(original))
+    destination = tmp_path / "output" / "conversation"
+    before = _snapshot(destination)
+    if change == "audio":
+        sf.write(turn["audio_filepath"], np.full(SR, 0.4), SR, subtype="FLOAT")
+    elif change == "rttm":
+        Path(turn["rttm_filepath"]).write_text("SPEAKER turn 1 0.1 0.5 <NA> <NA> A <NA> <NA>\n")
+    elif change == "ctm":
+        Path(turn["ctm_filepath"]).write_text("turn 1 0.2 0.3 changed\n")
+    elif change == "missing_audio":
+        Path(turn["audio_filepath"]).unlink()
+    else:
+        turn[change] = {
+            "speaker": "B",
+            "text": "changed",
+            "overlap": 0.5,
+            "reference_voice": "new_voice",
+            "mfa_skipped": True,
+        }[change]
+    with pytest.raises(FileExistsError, match="conflicts"):
+        stage.process(original)
+    assert _snapshot(destination) == before
+
+
+@pytest.mark.parametrize(
+    "damage",
+    [
+        "audio",
+        "annotations",
+        "missing",
+        "extra",
+        "commit_missing",
+        "commit_invalid",
+        "commit_result",
+        "commit_symlink",
+        "artifact_symlink",
+        "directory_symlink",
+    ],
+)
+def test_unverified_committed_output_fails_visibly(tmp_path: Path, damage: str) -> None:
+    original = _parent([_turn(tmp_path, words=[(0.1, 0.2, "word")])])
+    stage = _stage(tmp_path)
+    stage.process(copy.deepcopy(original))
+    destination = tmp_path / "output" / "conversation"
+    record = destination / ".merge-commit.json"
+    if damage == "audio":
+        (destination / "mixed.wav").write_bytes(b"corrupt")
+    elif damage == "annotations":
+        (destination / "all.rttm").write_text("changed\n")
+    elif damage == "missing":
+        (destination / "all.ctm").unlink()
+    elif damage == "extra":
+        (destination / "untracked.wav").write_bytes(b"untracked")
+    elif damage == "commit_missing":
+        record.unlink()
+    elif damage == "commit_invalid":
+        record.write_text("{")
+    elif damage == "commit_result":
+        payload = json.loads(record.read_text())
+        payload["payload"]["result"]["duration"] = 999
+        record.write_text(json.dumps(payload))
+    elif damage in {"commit_symlink", "artifact_symlink"}:
+        path = record if damage == "commit_symlink" else destination / "mixed.wav"
+        outside = tmp_path / "outside"
+        outside.write_bytes(path.read_bytes())
+        path.unlink()
+        path.symlink_to(outside)
+    else:
+        outside = tmp_path / "outside_speakers"
+        (destination / "speakers").rename(outside)
+        (destination / "speakers").symlink_to(outside, target_is_directory=True)
+    with pytest.raises(FileExistsError, match="conflicts"):
+        stage.process(original)
+    assert "turns" in original.data
+
+
+@pytest.mark.parametrize("change", ["aggregate_path", "speaker_path", "duration", "channel"])
+def test_committed_result_must_describe_the_verified_artifacts(tmp_path: Path, change: str) -> None:
+    original = _parent([_turn(tmp_path)])
+    stage = _stage(tmp_path)
+    stage.process(copy.deepcopy(original))
+    record = tmp_path / "output" / "conversation" / ".merge-commit.json"
+    receipt = json.loads(record.read_text())
+    result = receipt["payload"]["result"]
+    if change == "aggregate_path":
+        result["audio_filepath"] = str(tmp_path / "outside.wav")
+    elif change == "speaker_path":
+        result["speaker_artifacts"]["A"]["audio_filepath"] = str(tmp_path / "outside.wav")
+    elif change == "duration":
+        result["duration"] = 999
+    else:
+        result["speaker_artifacts"]["A"]["channel"] = 99
+    receipt["sha256"] = stage._json_digest(receipt["payload"])
+    record.write_text(json.dumps(receipt))
+    with pytest.raises(FileExistsError, match="conflicts"):
+        stage.process(original)
+
+
+@pytest.mark.parametrize("conflict", [False, True])
+def test_concurrent_workers_publish_once_and_verify_the_winner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, conflict: bool
+) -> None:
+    original = _parent([_turn(tmp_path), _turn(tmp_path, index=1, speaker="B", overlap=-2)])
+    barrier = Barrier(2)
+    writes = []
+    write_audio = MergeConversationSDPStage._write_audio
+
+    def count_write(*args: object) -> None:
+        writes.append(1)
+        write_audio(*args)
+
+    monkeypatch.setattr(MergeConversationSDPStage, "_write_audio", staticmethod(count_write))
+
+    def run(index: int) -> AudioTask | list[AudioTask]:
+        stage = _stage(tmp_path, randomize_pauses=True, max_pause_duration=2 + (index if conflict else 0))
+        stage._rng.seed(index)
+        barrier.wait(timeout=10)
+        return stage.process(copy.deepcopy(original))
+
+    results, errors = [], []
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(run, i) for i in range(2)]
+        for future in futures:
+            try:
+                results.append(future.result(timeout=30))
+            except FileExistsError as exc:
+                errors.append(exc)
+    assert len(writes) == 1
+    if conflict:
+        assert len(results) == len(errors) == 1
+    else:
+        assert errors == []
+        assert len(results) == 2
+        assert results[0].data == results[1].data
+
+
+def test_inputs_changed_before_commit_are_not_published(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    turn = _turn(tmp_path)
+    stage = _stage(tmp_path)
+    write_audio = stage._write_audio
+
+    def write_then_change_input(*args: object) -> None:
+        write_audio(*args)
+        sf.write(turn["audio_filepath"], np.zeros(SR), SR)
+
+    monkeypatch.setattr(stage, "_write_audio", write_then_change_input)
+    assert stage.process(_parent([turn])) == []
+    assert not (tmp_path / "output" / "conversation").exists()
 
 
 def test_symlink_destination_is_refused(tmp_path: Path) -> None:
@@ -325,7 +567,8 @@ def test_symlink_destination_is_refused(tmp_path: Path) -> None:
     outside = tmp_path / "outside"
     outside.mkdir()
     (root / "conversation").symlink_to(outside, target_is_directory=True)
-    assert _stage(tmp_path).process(_parent([_turn(tmp_path)])) == []
+    with pytest.raises(FileExistsError, match="conflicts"):
+        _stage(tmp_path).process(_parent([_turn(tmp_path)]))
     assert list(outside.iterdir()) == []
 
 
@@ -348,7 +591,7 @@ def test_write_failure_does_not_publish_partial_artifacts(
     assert stage.process(task) == []
     assert "turns" in task.data
     assert not (tmp_path / "output" / "conversation").exists()
-    assert list((tmp_path / "output").iterdir()) == []
+    assert list((tmp_path / "output").iterdir()) == [tmp_path / "output" / ".merge-locks"]
 
 
 @pytest.mark.parametrize("name", ["max_pause_duration", "max_intra_turn_pause", "seglst_offset"])
@@ -364,6 +607,7 @@ def test_complete_conversations_through_executor(tmp_path: Path, executor_class:
         _parent([_turn(tmp_path, index=100 * length + i, duration=0.05) for i in range(length)], f"executor_{length}")
         for length in (1, 3, 7)
     ]
+    replay_tasks = copy.deepcopy(tasks)
     executor = executor_class({"execution_mode": "batch"}) if executor_class is XennaExecutor else executor_class()
     output = executor.execute([_stage(tmp_path)], initial_tasks=tasks)
     assert len(output) == len(tasks)
@@ -373,6 +617,8 @@ def test_complete_conversations_through_executor(tmp_path: Path, executor_class:
         assert sf.info(result["audio_filepath"]).frames == 400 * length
         assert result["duration"] == pytest.approx(0.05 * length)
         assert len(_rows(result["rttm_filepath"])) == length
+    replay = executor.execute([_stage(tmp_path)], initial_tasks=replay_tasks)
+    assert {task.data["conversation_id"]: task.data for task in replay} == by_id
 
 
 @pytest.mark.parametrize("annotation", ["missing", "malformed", "outside"])
