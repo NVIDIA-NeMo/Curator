@@ -15,14 +15,11 @@
 from __future__ import annotations
 
 import importlib
+import io
 import pathlib
 import sys
 import tarfile
 import types
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    import io
 
 import numpy as np
 import pytest
@@ -184,7 +181,7 @@ def test_construct_base_name_deterministic_and_random(monkeypatch: pytest.Monkey
     assert b3 == "images-deadbeefcafebabe"
 
 
-def test_encode_image_to_bytes_modes(tmp_path: pathlib.Path) -> None:
+def test_encode_image_to_bytes_modes(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
     _module, image_writer_stage_cls = _import_writer_with_stubbed_pyarrow()
     stage = image_writer_stage_cls(output_dir=str(tmp_path))
 
@@ -204,7 +201,7 @@ def test_encode_image_to_bytes_modes(tmp_path: pathlib.Path) -> None:
 
     pil_pkg = types.ModuleType("PIL")
     pil_pkg.Image = _StubImageModule  # type: ignore[attr-defined]
-    sys.modules["PIL"] = pil_pkg
+    monkeypatch.setitem(sys.modules, "PIL", pil_pkg)
 
     # Grayscale float -> converts to uint8 and mode L
     gray = (np.random.rand(3, 4) * 300).astype(np.float32)  # noqa: NPY002
@@ -220,11 +217,19 @@ def test_encode_image_to_bytes_modes(tmp_path: pathlib.Path) -> None:
     assert ext == ".jpg"
     assert captured[-1][1] == "RGB"
 
-    # RGBA uint8 -> mode RGBA
+    # RGBA uint8 -> alpha dropped (JPEG cannot store it), mode RGB
     rgba = np.zeros((2, 2, 4), dtype=np.uint8)
     _b, ext = stage._encode_image_to_bytes(rgba)
     assert ext == ".jpg"
-    assert captured[-1][1] == "RGBA"
+    assert captured[-1][0] == (2, 2, 3)
+    assert captured[-1][1] == "RGB"
+
+    # (H, W, 1) and (H, W, 2) -> single gray channel, mode L
+    for channels in (1, 2):
+        _b, ext = stage._encode_image_to_bytes(np.zeros((2, 2, channels), dtype=np.uint8))
+        assert ext == ".jpg"
+        assert captured[-1][0] == (2, 2)
+        assert captured[-1][1] == "L"
 
     # >3 channels -> cropped to 3 and mode RGB, dtype coerced to uint8
     five = np.zeros((2, 2, 5), dtype=np.uint16)
@@ -234,6 +239,27 @@ def test_encode_image_to_bytes_modes(tmp_path: pathlib.Path) -> None:
     assert shape == (2, 2, 3)
     assert mode == "RGB"
     assert dtype == np.uint8
+
+
+@pytest.mark.parametrize(
+    ("shape", "expected_mode"),
+    [((6, 5), "L"), ((6, 5, 1), "L"), ((6, 5, 2), "L"), ((6, 5, 3), "RGB"), ((6, 5, 4), "RGB")],
+)
+def test_encode_image_to_bytes_produces_decodable_jpeg(
+    tmp_path: pathlib.Path, shape: tuple[int, ...], expected_mode: str
+) -> None:
+    """With real PIL, every supported channel layout must encode to a JPEG that decodes."""
+    pil_image = pytest.importorskip("PIL.Image")
+    _module, image_writer_stage_cls = _import_writer_with_stubbed_pyarrow()
+    stage = image_writer_stage_cls(output_dir=str(tmp_path))
+
+    payload, ext = stage._encode_image_to_bytes(np.full(shape, 128, dtype=np.uint8))
+
+    assert ext == ".jpg"
+    with pil_image.open(io.BytesIO(payload)) as decoded:
+        assert decoded.format == "JPEG"
+        assert decoded.mode == expected_mode
+        assert decoded.size == (shape[1], shape[0])
 
 
 def test_write_tar_collision_and_content(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
