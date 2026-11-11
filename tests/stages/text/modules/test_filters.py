@@ -14,6 +14,8 @@
 
 import os
 import re
+import subprocess
+import sys
 
 import pandas as pd
 import pytest
@@ -920,6 +922,36 @@ class TestHeuristicFilters:
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
+
+    def test_repeatingtopngrams_tie_break(self) -> None:
+        # "a b c" and "longer words here" both appear 4 times; the tie goes to the
+        # ngram that covers more characters.
+        doc = " ".join(["a b c"] * 4 + ["longer words here"] * 4 + [f"w{i}" for i in range(40)])
+        score = RepeatingTopNGramsFilter(n=3).score_document(doc)
+        assert score == pytest.approx((len(doc) - len(doc.replace("longer words here", ""))) / len(doc))
+
+        # Full ties (same frequency and length) go to the ngram that appears first.
+        doc = "x y z q r s x y z q r s"
+        score = RepeatingTopNGramsFilter(n=3).score_document(doc)
+        assert score == pytest.approx((len(doc) - len(doc.replace("x y z", ""))) / len(doc))
+
+    def test_repeatingtopngrams_independent_of_hash_seed(self) -> None:
+        doc = " ".join(["a b c"] * 4 + ["longer words here"] * 4 + [f"w{i}" for i in range(40)])
+        code = (
+            "from nemo_curator.stages.text.filters.heuristic.repetition import RepeatingTopNGramsFilter\n"
+            f"print(RepeatingTopNGramsFilter(n=3).score_document({doc!r}))"
+        )
+        scores = set()
+        for seed in range(6):
+            result = subprocess.run(  # noqa: S603
+                [sys.executable, "-c", code],
+                env={**os.environ, "PYTHONHASHSEED": str(seed)},
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            scores.add(result.stdout.strip())
+        assert len(scores) == 1, scores
 
     def test_repeatingduplicatengrams(self) -> None:
         dataset = list_to_dataset(["a a b b a a b b", "totally fine", "a a a a this should be fine as well"])
