@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""CPU-only lifecycle and inference-contract tests for Indic Canary."""
+"""CPU-only lifecycle and inference-contract tests for Indic Transcribe."""
 
 from pathlib import Path
 from types import SimpleNamespace
@@ -22,8 +22,8 @@ import numpy as np
 import pytest
 
 from nemo_curator.models.asr.base import ASRAdapter
-from nemo_curator.models.asr.indic_canary import IndicCanaryTRTLLMASR
-from nemo_curator.stages.audio.inference import indic_canary_trtllm_runtime
+from nemo_curator.models.asr.indic_transcribe import IndicTranscribeTRTLLMASR
+from nemo_curator.stages.audio.inference import indic_transcribe_trtllm_runtime
 
 _SAMPLE_RATE = 16_000
 _REQUIRED_ENGINE_FILES = (
@@ -95,7 +95,7 @@ class _RecordingRuntime:
 
 
 def test_adapter_conforms_to_asr_protocol() -> None:
-    assert isinstance(IndicCanaryTRTLLMASR("/models/indic-canary"), ASRAdapter)
+    assert isinstance(IndicTranscribeTRTLLMASR("/models/indic-transcribe"), ASRAdapter)
 
 
 @pytest.mark.parametrize(
@@ -116,11 +116,11 @@ def test_adapter_conforms_to_asr_protocol() -> None:
 )
 def test_adapter_rejects_invalid_configuration(kwargs: dict[str, object], message: str) -> None:
     with pytest.raises(ValueError, match=message):
-        IndicCanaryTRTLLMASR(**kwargs)  # type: ignore[arg-type]
+        IndicTranscribeTRTLLMASR(**kwargs)  # type: ignore[arg-type]
 
 
 def test_download_weights_validates_required_engine_files(tmp_path: Path) -> None:
-    adapter = IndicCanaryTRTLLMASR(str(tmp_path))
+    adapter = IndicTranscribeTRTLLMASR(str(tmp_path))
 
     with pytest.raises(FileNotFoundError, match="missing required file"):
         adapter.download_weights_on_node()
@@ -136,8 +136,8 @@ def test_load_model_validates_then_constructs_runtime_once(
     _write_engine_files(tmp_path)
     runtime = MagicMock()
     runtime_cls = MagicMock(return_value=runtime)
-    monkeypatch.setattr(indic_canary_trtllm_runtime, "CanaryTRTLLM", runtime_cls)
-    adapter = IndicCanaryTRTLLMASR(
+    monkeypatch.setattr(indic_transcribe_trtllm_runtime, "CanaryTRTLLM", runtime_cls)
+    adapter = IndicTranscribeTRTLLMASR(
         str(tmp_path),
         kv_cache_free_gpu_memory_fraction=0.1,
         cross_kv_cache_fraction=0.3,
@@ -157,18 +157,18 @@ def test_load_model_validates_then_constructs_runtime_once(
 
 @pytest.mark.parametrize("num_gpus", [0, 2, -1, 0.5, True])
 def test_load_model_requires_exactly_one_gpu(num_gpus: object) -> None:
-    adapter = IndicCanaryTRTLLMASR("/models/indic-canary")
+    adapter = IndicTranscribeTRTLLMASR("/models/indic-transcribe")
 
     with pytest.raises(ValueError, match="requires exactly one GPU"):
         adapter.load_model(num_gpus=num_gpus)  # type: ignore[arg-type]
 
 
 def test_unload_model_releases_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
-    adapter = IndicCanaryTRTLLMASR("/models/indic-canary")
+    adapter = IndicTranscribeTRTLLMASR("/models/indic-transcribe")
     adapter._model = object()
     collect = MagicMock()
     empty_cache = MagicMock()
-    monkeypatch.setattr("nemo_curator.models.asr.indic_canary.gc.collect", collect)
+    monkeypatch.setattr("nemo_curator.models.asr.indic_transcribe.gc.collect", collect)
     monkeypatch.setattr("torch.cuda.empty_cache", empty_cache)
 
     adapter.unload_model()
@@ -179,7 +179,7 @@ def test_unload_model_releases_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_language_normalization_and_prompt_contract() -> None:
-    adapter = IndicCanaryTRTLLMASR("/models/indic-canary", pnc=True)
+    adapter = IndicTranscribeTRTLLMASR("/models/indic-transcribe", pnc=True)
     adapter._model = _RecordingRuntime(languages=("hi",))
 
     assert adapter._normalize_language("hi-IN") == "hi"
@@ -198,7 +198,7 @@ def test_language_normalization_and_prompt_contract() -> None:
 
 def test_transcribe_batch_preserves_order_in_one_engine_call() -> None:
     runtime = _RecordingRuntime()
-    adapter = IndicCanaryTRTLLMASR("/models/indic-canary", num_beams=3, max_new_tokens=77)
+    adapter = IndicTranscribeTRTLLMASR("/models/indic-transcribe", num_beams=3, max_new_tokens=77)
     adapter._model = runtime
 
     results = adapter.transcribe_batch(
@@ -228,7 +228,7 @@ def test_transcribe_batch_preserves_order_in_one_engine_call() -> None:
 
 def test_transcribe_batch_splits_to_the_engine_batch_limit_and_preserves_order() -> None:
     runtime = _RecordingRuntime(max_batch_size=2)
-    adapter = IndicCanaryTRTLLMASR("/models/indic-canary")
+    adapter = IndicTranscribeTRTLLMASR("/models/indic-transcribe")
     adapter._model = runtime
 
     results = adapter.transcribe_batch([_item("hi"), _item("ta"), _item("zz"), _item("hi"), _item("ta"), _item("hi")])
@@ -246,7 +246,7 @@ def test_transcribe_batch_splits_to_the_engine_batch_limit_and_preserves_order()
 
 def test_transcribe_batch_does_not_call_engine_when_all_languages_are_unsupported() -> None:
     runtime = _RecordingRuntime()
-    adapter = IndicCanaryTRTLLMASR("/models/indic-canary")
+    adapter = IndicTranscribeTRTLLMASR("/models/indic-transcribe")
     adapter._model = runtime
 
     results = adapter.transcribe_batch([_item("zz"), _item("xx")])
@@ -256,7 +256,7 @@ def test_transcribe_batch_does_not_call_engine_when_all_languages_are_unsupporte
 
 
 def test_transcribe_batch_requires_loaded_runtime() -> None:
-    adapter = IndicCanaryTRTLLMASR("/models/indic-canary")
+    adapter = IndicTranscribeTRTLLMASR("/models/indic-transcribe")
 
     with pytest.raises(RuntimeError, match="not initialized"):
         adapter.transcribe_batch([_item("hi")])
@@ -275,7 +275,7 @@ def test_transcribe_batch_requires_loaded_runtime() -> None:
     ],
 )
 def test_transcribe_batch_rejects_invalid_audio(item: dict[str, object], message: str) -> None:
-    adapter = IndicCanaryTRTLLMASR("/models/indic-canary")
+    adapter = IndicTranscribeTRTLLMASR("/models/indic-transcribe")
     adapter._model = _RecordingRuntime()
 
     with pytest.raises(ValueError, match=message):
@@ -283,7 +283,7 @@ def test_transcribe_batch_rejects_invalid_audio(item: dict[str, object], message
 
 
 def test_transcribe_batch_rejects_runtime_cardinality_mismatch() -> None:
-    adapter = IndicCanaryTRTLLMASR("/models/indic-canary")
+    adapter = IndicTranscribeTRTLLMASR("/models/indic-transcribe")
     runtime = _RecordingRuntime()
     runtime.process_batch = MagicMock(return_value=[])
     adapter._model = runtime

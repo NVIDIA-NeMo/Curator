@@ -29,7 +29,7 @@ params_of_note:
   text_key: "Default text. Required nonblank reference string, removed after it is read."
   granary_v1_prediction_key: "Default granary_v1_prediction. Receives an unchanged reference copy despite the legacy prediction name."
   reference_text_key: "Default reference_text. Second unchanged copy for downstream reference comparison."
-  notes_key: "Default additional_notes. Preserves a mapping's existing entries, then sets primary_model=indic_canary and recovery_model=parakeet_riva."
+  notes_key: "Default additional_notes. Preserves a mapping's existing entries, then sets primary_model=indic_transcribe and recovery_model=parakeet_riva."
   sample_rate_key: "Default sampling_rate, in Hz. Written from the decoded file and paired with waveform_key."
   waveform_key: "Default waveform. Resident float32 mono tensor with shape [1, samples]."
   skip_me_key: "Default _skipme. Always initialized to an empty string after successful preparation."

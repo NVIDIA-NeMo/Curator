@@ -12,7 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Indic Canary TensorRT-LLM implementation of the audio-LID adapter."""
+"""Indic Transcribe TensorRT-LLM implementation of the audio-LID adapter.
+
+Uses the Indic Transcribe model (bodhan-ai/indic-transcribe-core) for language
+identification across 25 Indian languages. Model available at:
+https://huggingface.co/bodhan-ai/indic-transcribe-core
+"""
 
 from __future__ import annotations
 
@@ -35,7 +40,7 @@ from .base import (
 
 _TARGET_SAMPLE_RATE = 16_000
 _MIN_MODEL_SAMPLES = 400
-_DEFAULT_RUNTIME_CLASS_PATH = "nemo_curator.stages.audio.inference.indic_canary_trtllm_runtime.CanaryTRTLLM"
+_DEFAULT_RUNTIME_CLASS_PATH = "nemo_curator.stages.audio.inference.indic_transcribe_trtllm_runtime.CanaryTRTLLM"
 _ENGINE_FILES = (
     "encoder/encoder.plan",
     "encoder/config.json",
@@ -51,7 +56,7 @@ _MAX_LANGUAGE_CODE_PARTS = 2
 _COUNTRY_CODE_LENGTH = 2
 
 
-def _validate_engine_dir(engine_dir: str | Path, owner: str = "IndicCanaryLIDAdapter") -> Path:
+def _validate_engine_dir(engine_dir: str | Path, owner: str = "IndicTranscribeLIDAdapter") -> Path:
     """Validate the portable engine artifacts required by the runtime."""
     if not str(engine_dir):
         msg = f"{owner} requires engine_dir to point at a prebuilt TensorRT-LLM engine"
@@ -90,20 +95,20 @@ def _normalize_candidate_languages(candidate_languages: list[str] | None) -> fro
 def _resolve_runtime_class(path: str) -> type:
     module_name, separator, class_name = path.rpartition(".")
     if not separator or not module_name or not class_name:
-        msg = f"IndicCanaryLIDAdapter.runtime_class_path must be a fully qualified class path, got {path!r}"
+        msg = f"IndicTranscribeLIDAdapter.runtime_class_path must be a fully qualified class path, got {path!r}"
         raise ValueError(msg)
     try:
         module = importlib.import_module(module_name)
     except ImportError as exc:
         msg = (
-            "Indic Canary LID requires its TensorRT-LLM runtime dependencies. "
+            "Indic Transcribe LID requires its TensorRT-LLM runtime dependencies. "
             "Use docker/audio/Dockerfile.trt_llm and run "
             "python docker/audio/check_trt_llm.py on a compatible GPU."
         )
         raise ImportError(msg) from exc
     runtime_class = getattr(module, class_name, None)
     if not isinstance(runtime_class, type):
-        msg = f"Indic Canary runtime class not found: {path}"
+        msg = f"Indic Transcribe runtime class not found: {path}"
         raise TypeError(msg)
     return runtime_class
 
@@ -116,8 +121,8 @@ def _pad_or_trim(audio: torch.Tensor, length: int) -> torch.Tensor:
 
 
 @dataclass
-class IndicCanaryLIDAdapter:
-    """Identify language tokens emitted by a prebuilt Indic Canary engine."""
+class IndicTranscribeLIDAdapter:
+    """Identify language tokens emitted by a prebuilt Indic Transcribe engine."""
 
     engine_dir: str = ""
     sample_rate: int = _TARGET_SAMPLE_RATE
@@ -142,28 +147,28 @@ class IndicCanaryLIDAdapter:
     def __post_init__(self) -> None:
         self.sample_rate = _validate_sample_rate(self.sample_rate, owner=type(self).__name__)
         if self.sample_rate != _TARGET_SAMPLE_RATE:
-            msg = f"IndicCanaryLIDAdapter requires sample_rate={_TARGET_SAMPLE_RATE}, got {self.sample_rate}"
+            msg = f"IndicTranscribeLIDAdapter requires sample_rate={_TARGET_SAMPLE_RATE}, got {self.sample_rate}"
             raise ValueError(msg)
         for field_name in ("num_beams", "max_new_tokens", "model_batch_size"):
             value = getattr(self, field_name)
             if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
-                msg = f"IndicCanaryLIDAdapter.{field_name} must be a positive integer, got {value!r}"
+                msg = f"IndicTranscribeLIDAdapter.{field_name} must be a positive integer, got {value!r}"
                 raise ValueError(msg)
         for field_name in ("max_duration_sec", "min_duration_sec"):
             value = getattr(self, field_name)
             if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
-                msg = f"IndicCanaryLIDAdapter.{field_name} must be a finite non-negative number, got {value!r}"
+                msg = f"IndicTranscribeLIDAdapter.{field_name} must be a finite non-negative number, got {value!r}"
                 raise ValueError(msg)
         if self.max_duration_sec <= 0 or self.min_duration_sec > self.max_duration_sec:
-            msg = "IndicCanaryLIDAdapter duration bounds require 0 <= min_duration_sec <= max_duration_sec"
+            msg = "IndicTranscribeLIDAdapter duration bounds require 0 <= min_duration_sec <= max_duration_sec"
             raise ValueError(msg)
         for field_name in ("kv_cache_free_gpu_memory_fraction", "cross_kv_cache_fraction"):
             value = getattr(self, field_name)
             if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0.0 <= value <= 1.0:
-                msg = f"IndicCanaryLIDAdapter.{field_name} must be in [0, 1], got {value!r}"
+                msg = f"IndicTranscribeLIDAdapter.{field_name} must be in [0, 1], got {value!r}"
                 raise ValueError(msg)
         if not isinstance(self.runtime_class_path, str) or not self.runtime_class_path.strip():
-            msg = "IndicCanaryLIDAdapter.runtime_class_path must be a non-empty string"
+            msg = "IndicTranscribeLIDAdapter.runtime_class_path must be a non-empty string"
             raise ValueError(msg)
 
     @property
@@ -184,7 +189,7 @@ class IndicCanaryLIDAdapter:
             return
         _validate_single_device_gpu_count(num_gpus, owner=type(self).__name__, gpu_required=True)
         if not torch.cuda.is_available():
-            msg = "IndicCanaryLIDAdapter requires CUDA, but CUDA is not available"
+            msg = "IndicTranscribeLIDAdapter requires CUDA, but CUDA is not available"
             raise RuntimeError(msg)
         engine_dir = _validate_engine_dir(self.engine_dir, type(self).__name__)
         runtime_class = self.runtime_class or _resolve_runtime_class(self.runtime_class_path)
@@ -196,10 +201,10 @@ class IndicCanaryLIDAdapter:
         )
         self._language_by_token_id = self._collect_language_token_ids()
         if not self._language_by_token_id:
-            msg = "Indic Canary tokenizer has no language special tokens matching candidate_languages"
+            msg = "Indic Transcribe tokenizer has no language special tokens matching candidate_languages"
             raise RuntimeError(msg)
         logger.info(
-            "Loaded Indic Canary LID engine {} with {} candidate language tokens",
+            "Loaded Indic Transcribe LID engine {} with {} candidate language tokens",
             engine_dir,
             len(self._language_by_token_id),
         )
@@ -262,7 +267,7 @@ class IndicCanaryLIDAdapter:
         prompt_ids = self._lid_prompt_ids()
         decoder_max_input = int(getattr(self._model.decoder, "max_input_len", 0))
         if len(prompt_ids) > decoder_max_input:
-            msg = f"Indic Canary LID prompt length {len(prompt_ids)} exceeds decoder max_input_len {decoder_max_input}"
+            msg = f"Indic Transcribe LID prompt length {len(prompt_ids)} exceeds decoder max_input_len {decoder_max_input}"
             raise ValueError(msg)
 
         runtime_batch_size = max(1, int(self._model.max_batch_size))
@@ -288,7 +293,7 @@ class IndicCanaryLIDAdapter:
                 num_beams=self.num_beams,
             )
             if len(output_ids) != len(chunk):
-                msg = f"Indic Canary returned {len(output_ids)} predictions for {len(chunk)} inputs"
+                msg = f"Indic Transcribe returned {len(output_ids)} predictions for {len(chunk)} inputs"
                 raise RuntimeError(msg)
             for row in output_ids:
                 sequence = row[0] if row and isinstance(row[0], (list, tuple)) else row
@@ -296,11 +301,11 @@ class IndicCanaryLIDAdapter:
         return results
 
     def identify_batch(self, items: list[dict[str, Any]]) -> list[AudioLIDResult]:
-        """Run Indic Canary LID while preserving empty and short input rows."""
+        """Run Indic Transcribe LID while preserving empty and short input rows."""
         if not items:
             return []
         if self._model is None:
-            msg = "IndicCanaryLIDAdapter is not initialized; call load_model() first"
+            msg = "IndicTranscribeLIDAdapter is not initialized; call load_model() first"
             raise RuntimeError(msg)
 
         results = [AudioLIDResult("", 0.0) for _ in items]
@@ -316,7 +321,7 @@ class IndicCanaryLIDAdapter:
 
         predictions = self._identify_waveforms(waveforms)
         if len(predictions) != len(valid_indices):
-            msg = f"Indic Canary returned {len(predictions)} predictions for {len(valid_indices)} inputs"
+            msg = f"Indic Transcribe returned {len(predictions)} predictions for {len(valid_indices)} inputs"
             raise RuntimeError(msg)
         for item_index, prediction in zip(valid_indices, predictions, strict=True):
             results[item_index] = prediction

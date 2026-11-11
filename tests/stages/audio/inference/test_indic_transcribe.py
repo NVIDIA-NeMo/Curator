@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""CPU-only contract tests for the Indic Canary compatibility stage."""
+"""CPU-only contract tests for the Indic Transcribe compatibility stage."""
 
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -21,8 +21,8 @@ import numpy as np
 import pytest
 
 from nemo_curator.models.asr.base import ASRResult
-from nemo_curator.models.asr.indic_canary import IndicCanaryTRTLLMASR
-from nemo_curator.stages.audio.inference.indic_canary import InferenceIndicCanaryStage
+from nemo_curator.models.asr.indic_transcribe import IndicTranscribeTRTLLMASR
+from nemo_curator.stages.audio.inference.indic_transcribe import InferenceIndicTranscribeStage
 from nemo_curator.tasks import AudioTask
 
 _SAMPLE_RATE = 16_000
@@ -56,22 +56,22 @@ def _write_engine_files(engine_dir: Path) -> None:
 
 
 def test_stage_exposes_integration_pipeline_contract() -> None:
-    stage = InferenceIndicCanaryStage(engine_dir="/models/indic-canary", num_workers_override=4)
+    stage = InferenceIndicTranscribeStage(engine_dir="/models/indic-transcribe", num_workers_override=4)
 
     assert stage.inputs() == ([], ["waveform", "sampling_rate"])
     assert stage.outputs() == (
         [],
         ["asr_prediction", "_skipme", "additional_notes", "asr_language"],
     )
-    assert stage.model_id == "/models/indic-canary"
-    assert stage.name == "IndicCanary_inference"
+    assert stage.model_id == "/models/indic-transcribe"
+    assert stage.name == "IndicTranscribe_inference"
     assert stage.max_audio_sec_per_actor == 2400.0
     assert stage.num_workers() == 4
 
 
 def test_stage_builds_adapter_with_engine_options() -> None:
-    stage = InferenceIndicCanaryStage(
-        engine_dir="/models/indic-canary",
+    stage = InferenceIndicTranscribeStage(
+        engine_dir="/models/indic-transcribe",
         num_beams=2,
         max_new_tokens=99,
         pnc=True,
@@ -83,8 +83,8 @@ def test_stage_builds_adapter_with_engine_options() -> None:
 
     adapter = stage._create_adapter()
 
-    assert isinstance(adapter, IndicCanaryTRTLLMASR)
-    assert adapter.engine_dir == "/models/indic-canary"
+    assert isinstance(adapter, IndicTranscribeTRTLLMASR)
+    assert adapter.engine_dir == "/models/indic-transcribe"
     assert adapter.num_beams == 2
     assert adapter.max_new_tokens == 99
     assert adapter.pnc is True
@@ -95,7 +95,7 @@ def test_stage_builds_adapter_with_engine_options() -> None:
 
 
 def test_stage_writes_canary_unsupported_language_contract() -> None:
-    stage = InferenceIndicCanaryStage(engine_dir="/models/indic-canary")
+    stage = InferenceIndicTranscribeStage(engine_dir="/models/indic-transcribe")
     adapter = MagicMock()
     adapter.transcribe_batch.return_value = [
         ASRResult(text="namaste", extras={"language_code": "hi", "audio_duration_sec": 0.05}),
@@ -123,7 +123,7 @@ def test_stage_writes_canary_unsupported_language_contract() -> None:
 
 
 def test_stage_preserves_existing_skip_for_unsupported_language() -> None:
-    stage = InferenceIndicCanaryStage(engine_dir="/models/indic-canary", keep_waveform=True)
+    stage = InferenceIndicTranscribeStage(engine_dir="/models/indic-transcribe", keep_waveform=True)
     adapter = MagicMock()
     adapter.transcribe_batch.return_value = [
         ASRResult(
@@ -143,7 +143,7 @@ def test_stage_preserves_existing_skip_for_unsupported_language() -> None:
 
 
 def test_stage_adds_long_audio_truncation_note() -> None:
-    stage = InferenceIndicCanaryStage(engine_dir="/models/indic-canary", max_duration_sec=40.0)
+    stage = InferenceIndicTranscribeStage(engine_dir="/models/indic-transcribe", max_duration_sec=40.0)
     adapter = MagicMock()
     adapter.transcribe_batch.return_value = [
         ASRResult(
@@ -159,7 +159,7 @@ def test_stage_adds_long_audio_truncation_note() -> None:
 
 
 def test_stage_does_not_mark_exact_encoder_window_as_truncated() -> None:
-    stage = InferenceIndicCanaryStage(engine_dir="/models/indic-canary", max_duration_sec=40.0)
+    stage = InferenceIndicTranscribeStage(engine_dir="/models/indic-transcribe", max_duration_sec=40.0)
     adapter = MagicMock()
     adapter.transcribe_batch.return_value = [
         ASRResult(
@@ -176,7 +176,7 @@ def test_stage_does_not_mark_exact_encoder_window_as_truncated() -> None:
 
 def test_setup_on_node_only_validates_engine_artifacts(tmp_path: Path) -> None:
     _write_engine_files(tmp_path)
-    stage = InferenceIndicCanaryStage(engine_dir=str(tmp_path))
+    stage = InferenceIndicTranscribeStage(engine_dir=str(tmp_path))
 
     stage.setup_on_node()
 
@@ -184,7 +184,7 @@ def test_setup_on_node_only_validates_engine_artifacts(tmp_path: Path) -> None:
 
 
 def test_missing_engine_directory_is_rejected_during_prefetch() -> None:
-    stage = InferenceIndicCanaryStage(engine_dir="")
+    stage = InferenceIndicTranscribeStage(engine_dir="")
 
     with pytest.raises(RuntimeError, match="download_weights_on_node failed") as exc_info:
         stage.setup_on_node()

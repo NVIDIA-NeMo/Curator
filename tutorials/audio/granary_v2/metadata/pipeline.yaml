@@ -133,9 +133,9 @@ stages:
       gpu_memory_gb: 8
 
   - _target_: nemo_curator.stages.audio.inference.lid.AudioLIDInferenceStage
-    name: IndicCanaryLangID
-    adapter_target: nemo_curator.models.audio.lid.indic_canary.IndicCanaryLIDAdapter
-    model_id: IndicCanaryLangID
+    name: IndicTranscribeLangID
+    adapter_target: nemo_curator.models.audio.lid.indic_transcribe.IndicTranscribeLIDAdapter
+    model_id: IndicTranscribeLangID
     tag: secondary
     waveform_key: waveform
     min_duration_sec: 1
@@ -144,7 +144,7 @@ stages:
     num_workers_override: 1
     fail_on_audio_error: true
     adapter_kwargs:
-      engine_dir: ${model_dir}/indic_canary
+      engine_dir: ${model_dir}/indic_transcribe
       num_beams: 1
       max_new_tokens: 1
       model_batch_size: 16

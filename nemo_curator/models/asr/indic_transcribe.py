@@ -12,7 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Adapter for an Indic Canary model exported as a TensorRT-LLM engine."""
+"""Adapter for an Indic Transcribe model exported as a TensorRT-LLM engine.
+
+The Indic Transcribe model (bodhan-ai/indic-transcribe-core on Hugging Face)
+supports 25 Indian languages with native-script transcription and built-in
+language identification. See https://huggingface.co/bodhan-ai/indic-transcribe-core
+for model details and download instructions.
+"""
 
 from __future__ import annotations
 
@@ -42,8 +48,8 @@ _REQUIRED_ENGINE_FILES = (
 )
 
 
-class IndicCanaryTRTLLMASR:
-    """Run static-batch Indic Canary inference from a prebuilt engine directory."""
+class IndicTranscribeTRTLLMASR:
+    """Run static-batch Indic Transcribe inference from a prebuilt engine directory."""
 
     def __init__(  # noqa: PLR0913
         self,
@@ -58,7 +64,7 @@ class IndicCanaryTRTLLMASR:
         cross_kv_cache_fraction: float = 0.2,
     ) -> None:
         if not engine_dir:
-            msg = "IndicCanaryTRTLLMASR.engine_dir must point at a prebuilt engine directory"
+            msg = "IndicTranscribeTRTLLMASR.engine_dir must point at a prebuilt engine directory"
             raise ValueError(msg)
         if num_beams < 1 or max_new_tokens < 1:
             msg = "num_beams and max_new_tokens must both be at least 1"
@@ -117,12 +123,12 @@ class IndicCanaryTRTLLMASR:
         if self._model is not None:
             return
         if isinstance(num_gpus, bool) or not isinstance(num_gpus, Integral) or num_gpus != 1:
-            msg = f"IndicCanaryTRTLLMASR requires exactly one GPU, got {num_gpus!r}"
+            msg = f"IndicTranscribeTRTLLMASR requires exactly one GPU, got {num_gpus!r}"
             raise ValueError(msg)
         self.download_weights_on_node()
-        from nemo_curator.stages.audio.inference.indic_canary_trtllm_runtime import CanaryTRTLLM
+        from nemo_curator.stages.audio.inference.indic_transcribe_trtllm_runtime import CanaryTRTLLM
 
-        logger.info("Loading Indic Canary TensorRT-LLM engine from {}", self.engine_dir)
+        logger.info("Loading Indic Transcribe TensorRT-LLM engine from {}", self.engine_dir)
         self._model = CanaryTRTLLM(
             self.engine_dir,
             device="cuda:0",
@@ -180,7 +186,7 @@ class IndicCanaryTRTLLMASR:
             or not isinstance(runtime_batch_size, Integral)
             or runtime_batch_size < 1
         ):
-            msg = f"Indic Canary runtime reported an invalid max_batch_size: {runtime_batch_size!r}"
+            msg = f"Indic Transcribe runtime reported an invalid max_batch_size: {runtime_batch_size!r}"
             raise RuntimeError(msg)
 
         predictions: list[str] = []
@@ -195,7 +201,7 @@ class IndicCanaryTRTLLMASR:
             )
             expected_count = len(padded[start:stop])
             if len(batch_predictions) != expected_count:
-                msg = f"Indic Canary returned {len(batch_predictions)} transcriptions for {expected_count} inputs"
+                msg = f"Indic Transcribe returned {len(batch_predictions)} transcriptions for {expected_count} inputs"
                 raise RuntimeError(msg)
             predictions.extend(batch_predictions)
         return predictions
@@ -205,12 +211,12 @@ class IndicCanaryTRTLLMASR:
         if not items:
             return []
         if self._model is None:
-            msg = "IndicCanaryTRTLLMASR is not initialized; call load_model() first"
+            msg = "IndicTranscribeTRTLLMASR is not initialized; call load_model() first"
             raise RuntimeError(msg)
 
         import torch
 
-        from nemo_curator.stages.audio.inference.indic_canary_trtllm_runtime import pad_or_trim
+        from nemo_curator.stages.audio.inference.indic_transcribe_trtllm_runtime import pad_or_trim
 
         results = [ASRResult(text="") for _ in items]
         prepared: list[Any] = []
@@ -271,4 +277,4 @@ class IndicCanaryTRTLLMASR:
         return results
 
 
-__all__ = ["IndicCanaryTRTLLMASR"]
+__all__ = ["IndicTranscribeTRTLLMASR"]

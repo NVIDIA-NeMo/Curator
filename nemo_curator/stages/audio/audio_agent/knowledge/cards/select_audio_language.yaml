@@ -25,7 +25,7 @@ params_of_note:
   confidence_key: "Chosen component's numeric confidence inside notes_key, default source_lid_confidence; zero on rejection."
   skip_me_key: "Default _skipme. Rejection sets a selector-owned reason; acceptance clears only this selector's own three rejection reasons."
   speechbrain_model_id: "Primary slot, default SpeechBrainLangID. This configures identity, not a model download."
-  indic_canary_model_id: "Canary slot, default IndicCanaryLangID. Its confidence is selected in the three-way-agreement branch."
+  indic_transcribe_model_id: "Canary slot, default IndicTranscribeLangID. Its confidence is selected in the three-way-agreement branch."
   whisper_model_id: "Whisper slot, default WhisperLangID. English wins, and Whisper also supplies the confidence for non-Indic primary/Whisper agreement."
   indic_languages: "Exact policy set requiring three-way agreement; defaults: hi, ta, bn, ur, gu, mr, ml, kn, te, or, as, pa, ne, sa, sd, si, kok, mai, doi, ks, mni, sat, brx, bo. This is not a model-coverage declaration."
 param_dependencies:

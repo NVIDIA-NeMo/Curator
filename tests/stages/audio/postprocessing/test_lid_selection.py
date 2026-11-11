@@ -23,7 +23,7 @@ from nemo_curator.stages.audio.postprocessing.lid_selection import SelectAudioLa
 from nemo_curator.tasks import AudioTask
 
 _SPEECHBRAIN = "SpeechBrainLangID"
-_CANARY = "IndicCanaryLangID"
+_CANARY = "IndicTranscribeLangID"
 _WHISPER = "WhisperLangID"
 
 
@@ -133,14 +133,14 @@ def test_component_notes_record_model_prediction_and_three_decimal_confidence() 
     assert notes["primary_lid_model"] == "speechbrain"
     assert notes["primary_lid_prediction"] == "hi"
     assert notes["primary_lid_confidence"] == "0.700"
-    assert notes["secondary_lid_model"] == "indic_canary"
+    assert notes["secondary_lid_model"] == "indic_transcribe"
     assert notes["tertiary_lid_model"] == "whisper"
 
 
 def test_custom_model_ids_and_notes_key_work_on_the_english_fast_path() -> None:
     stage = SelectAudioLanguageStage(
         speechbrain_model_id="primary-id",
-        indic_canary_model_id="canary-id",
+        indic_transcribe_model_id="canary-id",
         whisper_model_id="whisper-id",
         notes_key="audit",
     )
@@ -287,7 +287,7 @@ def test_selector_declares_its_io_contract() -> None:
 
 def test_duplicate_configured_model_ids_are_rejected() -> None:
     with pytest.raises(ValueError, match="must be distinct"):
-        SelectAudioLanguageStage(indic_canary_model_id=_SPEECHBRAIN)
+        SelectAudioLanguageStage(indic_transcribe_model_id=_SPEECHBRAIN)
 
 
 @pytest.mark.parametrize("scenario", ["accepted", "missing", "disagreement", "upstream_skip"])

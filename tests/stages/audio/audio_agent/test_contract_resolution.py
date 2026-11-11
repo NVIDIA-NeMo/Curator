@@ -479,7 +479,7 @@ class TestConstructingAStageTouchesNothing:
 @pytest.mark.parametrize(
     ("module", "name"),
     [
-        ("nemo_curator.stages.audio.inference.indic_canary", "InferenceIndicCanaryStage"),
+        ("nemo_curator.stages.audio.inference.indic_transcribe", "InferenceIndicTranscribeStage"),
         ("nemo_curator.stages.audio.inference.indic_conformer_hybrid", "InferenceIndicConformerHybridStage"),
         ("nemo_curator.stages.audio.inference.parakeet", "InferenceParakeetStage"),
     ],
