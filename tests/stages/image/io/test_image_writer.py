@@ -242,13 +242,40 @@ def test_encode_image_to_bytes_modes(monkeypatch: pytest.MonkeyPatch, tmp_path: 
 
 
 @pytest.mark.parametrize(
-    ("shape", "expected_mode"),
-    [((6, 5), "L"), ((6, 5, 1), "L"), ((6, 5, 2), "L"), ((6, 5, 3), "RGB"), ((6, 5, 4), "RGB")],
+    ("pixel", "expected_mode", "expected_values"),
+    [
+        ((180,), "L", (180,)),  # (H, W, 1) gray
+        ((180, 40), "L", (180,)),  # gray + alpha: gray kept, alpha dropped
+        ((200, 100, 30), "RGB", (200, 100, 30)),
+        ((200, 100, 30, 77), "RGB", (200, 100, 30)),  # alpha dropped, RGB kept in order
+    ],
 )
-def test_encode_image_to_bytes_produces_decodable_jpeg(
-    tmp_path: pathlib.Path, shape: tuple[int, ...], expected_mode: str
+def test_encode_image_to_bytes_keeps_channel_values(
+    tmp_path: pathlib.Path, pixel: tuple[int, ...], expected_mode: str, expected_values: tuple[int, ...]
 ) -> None:
-    """With real PIL, every supported channel layout must encode to a JPEG that decodes."""
+    """Each channel gets a distinct value, so a kept alpha or a swapped channel changes the decoded pixels."""
+    pil_image = pytest.importorskip("PIL.Image")
+    _module, image_writer_stage_cls = _import_writer_with_stubbed_pyarrow()
+    stage = image_writer_stage_cls(output_dir=str(tmp_path))
+    height, width = 16, 16
+    img = np.empty((height, width, len(pixel)), dtype=np.uint8)
+    img[:] = pixel
+
+    payload, ext = stage._encode_image_to_bytes(img)
+
+    assert ext == ".jpg"
+    with pil_image.open(io.BytesIO(payload)) as decoded:
+        assert decoded.format == "JPEG"
+        assert decoded.mode == expected_mode
+        assert decoded.size == (width, height)
+        pixels = np.asarray(decoded).reshape(height, width, -1)
+    # JPEG is lossy, so compare per-channel means with a small tolerance.
+    np.testing.assert_allclose(pixels.mean(axis=(0, 1)), expected_values, atol=4)
+
+
+@pytest.mark.parametrize("shape", [(6, 5), (6, 5, 1), (6, 5, 2), (6, 5, 3), (6, 5, 4)])
+def test_encode_image_to_bytes_produces_decodable_jpeg(tmp_path: pathlib.Path, shape: tuple[int, ...]) -> None:
+    """With real PIL, every supported channel layout must encode to a JPEG that decodes at the right size."""
     pil_image = pytest.importorskip("PIL.Image")
     _module, image_writer_stage_cls = _import_writer_with_stubbed_pyarrow()
     stage = image_writer_stage_cls(output_dir=str(tmp_path))
@@ -258,7 +285,6 @@ def test_encode_image_to_bytes_produces_decodable_jpeg(
     assert ext == ".jpg"
     with pil_image.open(io.BytesIO(payload)) as decoded:
         assert decoded.format == "JPEG"
-        assert decoded.mode == expected_mode
         assert decoded.size == (shape[1], shape[0])
 
 
