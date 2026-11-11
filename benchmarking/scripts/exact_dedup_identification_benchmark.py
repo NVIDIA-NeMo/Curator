@@ -52,6 +52,7 @@ def run_exact_duplicate_identification_benchmark(  # noqa: PLR0913
     logger.info("Starting exact duplicate identification benchmark")
     run_start_time = time.perf_counter()
 
+    workflow_result = []
     try:
         # Create and run workflow-backed pipeline
         workflow = ExactDeduplicationWorkflow(

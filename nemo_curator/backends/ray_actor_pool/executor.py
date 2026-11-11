@@ -197,6 +197,9 @@ class RayActorPoolExecutor(BaseExecutor):
                         actor_pool = self._create_raft_actor_pool(stage, num_actors, session_id)
                     elif stage_spec.get(RayStageSpecKeys.IS_SHUFFLE_STAGE, False):
                         logger.info(f"  Creating Shuffle actors for stage: {stage.name}")
+                        # Workers without input still receive shuffled rows and emit output tasks.
+                        # TODO: Let shuffle stages own output dataset naming instead of inheriting input metadata.
+                        stage.dataset_name = current_tasks[0].dataset_name
                         actor_pool = self._create_rapidsmpf_actors(stage, num_actors, len(current_tasks))
                     else:
                         actor_pool = self._create_actor_pool(stage, num_actors)

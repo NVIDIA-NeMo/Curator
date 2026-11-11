@@ -47,5 +47,5 @@ jobs:
         working-directory: ./fern
         run: |
           set -euo pipefail
-          printf '%s\n' '{"organization":"nvidia","version":"5.123.0"}' > fern.config.json
-          npm exec --yes --ignore-scripts --package=fern-api@5.123.0 -- fern check
+          printf '%s\n' '{"organization":"nvidia","version":"5.149.0"}' > fern.config.json
+          npm exec --yes --ignore-scripts --package=fern-api@5.149.0 -- fern check

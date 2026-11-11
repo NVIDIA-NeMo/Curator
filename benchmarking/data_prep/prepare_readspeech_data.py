@@ -66,14 +66,31 @@ _TAR_OK_RETURNCODES = (0, 1)
 _HEAD_REQUEST_TIMEOUT_S = 30
 
 DNS_READSPEECH_BASE_URL = (
-    "https://dnschallengepublic.blob.core.windows.net/dns5archive/"
-    "V5_training_dataset/Track1_Headset/read_speech.tgz."
+    "https://dnschallengepublic.blob.core.windows.net/dns5archive/V5_training_dataset/Track1_Headset/read_speech.tgz."
 )
 
 DNS_READSPEECH_PARTS = [
-    "partaa", "partab", "partac", "partad", "partae", "partaf", "partag",
-    "partah", "partai", "partaj", "partak", "partal", "partam", "partan",
-    "partao", "partap", "partaq", "partar", "partas", "partat", "partau",
+    "partaa",
+    "partab",
+    "partac",
+    "partad",
+    "partae",
+    "partaf",
+    "partag",
+    "partah",
+    "partai",
+    "partaj",
+    "partak",
+    "partal",
+    "partam",
+    "partan",
+    "partao",
+    "partap",
+    "partaq",
+    "partar",
+    "partas",
+    "partat",
+    "partau",
 ]
 
 
@@ -239,7 +256,9 @@ def _validate_tar_result(result: subprocess.CompletedProcess, output_path: Path,
     if is_partial:
         all_wavs = collect_all_wavs(output_path)
         if not all_wavs:
-            logger.error(f"Partial extraction produced no WAV files (tar exit code {result.returncode}): {result.stderr[:500]}")
+            logger.error(
+                f"Partial extraction produced no WAV files (tar exit code {result.returncode}): {result.stderr[:500]}"
+            )
             return False
         if result.returncode != 0:
             logger.info(
@@ -285,9 +304,18 @@ def _combine_and_extract(output_path: Path, downloaded_files: list[str], is_part
 
     try:
         result = subprocess.run(  # noqa: S603
-            ["tar", "-xzf", str(combined_archive), "-C", str(output_path),  # noqa: S607
-             "--ignore-zeros", "--warning=no-alone-zero-block"],
-            capture_output=True, text=True, check=False,
+            [  # noqa: S607
+                "tar",
+                "-xzf",
+                str(combined_archive),
+                "-C",
+                str(output_path),
+                "--ignore-zeros",
+                "--warning=no-alone-zero-block",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
         )
         if not _validate_tar_result(result, output_path, is_partial):
             return False

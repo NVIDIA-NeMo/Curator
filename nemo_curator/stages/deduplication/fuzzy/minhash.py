@@ -202,9 +202,9 @@ class MinHashStage(ProcessingStage[FileGroupTask | DocumentBatch, FileGroupTask]
     ----------
     output_path : str
         Base path where minhash output files will be written
-    text_field : str, default="text"
+    text_field : str, default='text'
         Name of the field containing text to compute minhashes from
-    minhash_field : str, default="_minhash_signature"
+    minhash_field : str, default='_minhash_signature'
         Name of the field where minhash signatures will be stored
     char_ngrams : int, default=24
         Width of character n-grams for minhashing

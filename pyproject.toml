@@ -119,6 +119,7 @@ audio_common = [
     "librosa",
     "scipy",
     "pydub>=0.25.1",
+    "praatio>=6.0",
     "openai-whisper==20250625; platform_machine == 'x86_64' and platform_system != 'Darwin'",
     "speechbrain>=1.1.0,<2.0; platform_machine == 'x86_64' and platform_system != 'Darwin'",
     "transformers>=4.57.6,<5.0",
@@ -127,6 +128,13 @@ audio_common = [
     "opencc-python-reimplemented",
     "pyannote-audio>=4.0.0; platform_machine == 'x86_64' and platform_system != 'Darwin'",
     "whisperx>=3.8.4; platform_machine == 'x86_64' and platform_system != 'Darwin'",
+    # NOTE: chatterbox-tts is intentionally NOT declared here. It hard-pins
+    # transformers==5.2.0 and torch==2.6.0 (0.1.4-0.1.6 pin transformers==4.46.3),
+    # all incompatible with Curator's transformers>=4.56,<5.0 / torch==2.10.0.
+    # Declaring it in audio_common would make uv lock and every audio_cpu/
+    # audio_cuda12 install unresolvable. ChatterboxTTSStage instead runs in an
+    # isolated Ray runtime_env that pip-installs chatterbox into its own
+    # virtualenv (see nemo_curator/stages/audio/tts/chatterbox_tts.py).
 ]
 audio_simulation = [
     "fastmss==0.1.0; sys_platform == 'linux'",
@@ -320,6 +328,11 @@ all = [
     "nemo_curator[translation_all]",
     "nemo_curator[video_cuda12]",
 ]
+
+[project.scripts]
+# A stable command the audio skills can document, instead of asking every host to
+# reconstruct `python -m nemo_curator.stages.audio.audio_agent` with the right interpreter.
+nemo-curator-audio = "nemo_curator.stages.audio.audio_agent.cli:main"
 
 [dependency-groups]
 build = ["setuptools", "torch<=2.11.0", "Cython", "packaging"]
@@ -519,6 +532,7 @@ ignore = [
   ".secrets.baseline",
   ".pre-commit-config.yaml",
   "api-design.md",
+  ".agents/**",
   ".claude/**",
   ".cursor/**",
   ".github/**",
