@@ -57,7 +57,7 @@ class _SmokeBound:
     output_root: str | None = None
 
 
-def _bound_recipe(  # noqa: C901, PLR0911, PLR0912
+def _bound_recipe(  # noqa: C901, PLR0911, PLR0912, PLR0915
     recipe: Recipe,
     sample: int,
     rpt: SmokeReport,
@@ -178,6 +178,11 @@ def _bound_recipe(  # noqa: C901, PLR0911, PLR0912
             src.params[spec["path_param"]] = tmp
             return _SmokeBound(bounded, (tmp,), count)
         configured = values[spec["limit_param"]]
+        if spec["kind"] == "config_file":
+            if isinstance(configured, bool) or not isinstance(configured, int) or configured == 0 or configured < -1:
+                return _SmokeBound(None, error="declared config limit must be positive or -1 (unlimited)")
+            src.params[spec["limit_param"]] = min(sample, configured) if configured > 0 else sample
+            return _SmokeBound(bounded)
         if isinstance(configured, bool) or not isinstance(configured, int):
             return _SmokeBound(None, error="declared folder limit must be an integer")
         src.params[spec["limit_param"]] = min(sample, configured) if configured >= 0 else sample

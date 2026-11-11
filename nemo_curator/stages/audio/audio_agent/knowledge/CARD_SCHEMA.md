@@ -376,3 +376,18 @@ Card coverage is also required by the normal audio test suite. The requirement f
 agent discovery: a registered stage with `AgentReady` and its own `describe()` must
 ship a valid card. Stages outside that discovery catalog do not need cards. No fixed
 stage inventory or module-specific exemption is used for this coverage check.
+
+
+### Config-driven generators
+
+`io.source: {kind: config_file, path_param: ..., limit_param: ...}` declares one
+existing local configuration file. Lists, globs and directories are unsupported
+by this protocol. Its identity is the configured file, not an audio dataset;
+profiling and checkpoint reuse are unavailable (`generated: true`). The stage
+must enforce a positive output-row cap from `limit_param` across the entire
+invocation; -1 means unlimited. Smoke supplies a finite cap without rewriting
+the user's configuration. Every generated artifact, including preprocessing
+caches and hidden paths from that file, must stay beneath declared redirectable
+output paths in the wrappable configuration. Configuration dependencies remain
+inputs and must never be modified. Cards and behavior tests must establish these
+guarantees; declaring the protocol alone does not make a stage wrappable.
