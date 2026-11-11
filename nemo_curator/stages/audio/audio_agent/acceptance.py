@@ -211,7 +211,7 @@ def evaluability_issues(criteria: list[AcceptanceCriterion], *, row_coverage: bo
     return issues
 
 
-def permits_empty_result(criteria: list[AcceptanceCriterion], *, input_count: int) -> bool:
+def permits_empty_result(criteria: list[AcceptanceCriterion], *, input_count: int | None) -> bool:
     """An explicit required yield must allow zero; no other must may be bypassed."""
     if not any(c.type == "yield" and c.severity == "must" and c.is_deterministic for c in criteria):
         return False

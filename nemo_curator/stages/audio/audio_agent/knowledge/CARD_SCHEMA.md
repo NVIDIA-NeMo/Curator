@@ -391,3 +391,6 @@ caches and hidden paths from that file, must stay beneath declared redirectable
 output paths in the wrappable configuration. Configuration dependencies remain
 inputs and must never be modified. Cards and behavior tests must establish these
 guarantees; declaring the protocol alone does not make a stage wrappable.
+Smoke rejects an unwrappable concrete leaf before executing it. Because a row
+cap is not a measured source count, generated-source smoke reports unknown
+`input_count` and `rejected`; relative yield cannot be verified from that sample.
