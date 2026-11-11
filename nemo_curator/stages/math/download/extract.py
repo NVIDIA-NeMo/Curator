@@ -75,6 +75,29 @@ def _append_block(parts: list[str], block: str) -> None:
     parts.append(block)
 
 
+def _append_outputs(parts: list[str], outputs: list[dict]) -> None:
+    stream = None  # name of the stream the previous output came from
+    for o in outputs:
+        if o.get("output_type") == "stream":
+            text = "".join(o.get("text", []))
+            name = o.get("name", "stdout")
+            if text and name == stream:
+                # Consecutive outputs of one stream are chunks of the same write.
+                parts.append(text)
+            else:
+                _append_block(parts, text)
+            if text:
+                stream = name
+            continue
+        stream = None
+        if o.get("output_type") in ["execute_result", "display_data"]:
+            d = o.get("data", {})
+            if "text/plain" in d:
+                _append_block(parts, "".join(d["text/plain"]))
+        elif o.get("output_type") == "text":
+            _append_block(parts, "".join(o.get("text", [])))
+
+
 def _notebook_to_text(content: str) -> str:
     data = json.loads(content)
     parts: list[str] = []
@@ -83,15 +106,7 @@ def _notebook_to_text(content: str) -> str:
         if t in ["code", "markdown", "raw"]:
             _append_block(parts, "".join(cell.get("source", [])))
         if t == "code" and "outputs" in cell:
-            for o in cell["outputs"]:
-                if o.get("output_type") == "stream":
-                    _append_block(parts, "".join(o.get("text", [])))
-                elif o.get("output_type") in ["execute_result", "display_data"]:
-                    d = o.get("data", {})
-                    if "text/plain" in d:
-                        _append_block(parts, "".join(d["text/plain"]))
-                elif o.get("output_type") == "text":
-                    _append_block(parts, "".join(o.get("text", [])))
+            _append_outputs(parts, cell["outputs"])
     return "".join(parts)
 
 

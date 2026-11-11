@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import copy
+import json
 from unittest import mock
 
 import pytest
@@ -131,6 +132,34 @@ class TestMathContentExtractor:
             "x = 5\n"
             "<matplotlib.figure.Figure>"
         )
+
+    def test_extract_notebook_joins_stream_chunks(self, test_records: dict) -> None:
+        """Consecutive chunks of one stream are joined as written; other outputs still get a separator."""
+        notebook = {
+            "cells": [
+                {
+                    "cell_type": "code",
+                    "source": ["print(3.14159)"],
+                    "outputs": [
+                        {"output_type": "stream", "name": "stdout", "text": ["3."]},
+                        {"output_type": "stream", "name": "stdout", "text": ["14159\n"]},
+                        {"output_type": "stream", "name": "stderr", "text": ["warning"]},
+                        {"output_type": "stream", "name": "stdout", "text": ["done"]},
+                        {"output_type": "execute_result", "data": {"text/plain": ["1"]}},
+                        {"output_type": "stream", "name": "stdout", "text": ["after"]},
+                    ],
+                }
+            ]
+        }
+        record = test_records["notebook"].copy()
+        record["binary_content"] = json.dumps(notebook).encode("utf-8")
+
+        with mock.patch("magic.Magic") as mock_magic:
+            mock_magic.return_value.from_buffer.return_value = "application/json"
+            result = MathContentExtractor().extract(record)
+
+        assert result is not None
+        assert result["text"] == "print(3.14159)\n3.14159\nwarning\ndone\n1\nafter"
 
     @mock.patch("magic.Magic")
     def test_extract_with_magic_mime_detection(
