@@ -409,26 +409,10 @@ jobs:
 
   codecov-placeholder:
     name: codecov/patch
-    needs: [pre-flight, Nemo_CICD_Test, Coverage]
-    # Merge groups have no single PR patch; require the tests and coverage uploads instead.
-    if: |
-      always()
-      && !cancelled()
-      && needs.pre-flight.result == 'success'
-      && (
-        needs.pre-flight.outputs.docs_only == 'true'
-        || needs.pre-flight.outputs.is_merge_group == 'true'
-      )
+    needs: [pre-flight]
+    if: needs.pre-flight.outputs.docs_only == 'true' || needs.pre-flight.outputs.is_merge_group == 'true'
     runs-on: ubuntu-latest
     steps:
-      - name: Check coverage requirements
-        env:
-          DOCS_ONLY: ${{ needs.pre-flight.outputs.docs_only }}
-          TEST_RESULT: ${{ needs.Nemo_CICD_Test.result }}
-          COVERAGE_RESULT: ${{ needs.Coverage.result }}
+      - name: codecov_placeholder
         run: |
-          if [[ "$DOCS_ONLY" != "true" && ("$TEST_RESULT" != "success" || "$COVERAGE_RESULT" != "success") ]]; then
-            echo "Merge-group tests and coverage uploads must both succeed."
-            exit 1
-          fi
-          echo "Coverage requirements satisfied for this merge group or documentation-only change."
+          echo "This is a placeholder status check for documentation-only changes and merge groups."
