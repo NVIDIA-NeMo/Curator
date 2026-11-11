@@ -136,6 +136,9 @@ class TestMathContentExtractor:
     def test_extract_notebook_joins_stream_chunks(self, test_records: dict) -> None:
         """Consecutive chunks of one stream are joined as written; other outputs still get a separator."""
         notebook = {
+            "nbformat": 4,
+            "nbformat_minor": 5,
+            "metadata": {},
             "cells": [
                 {
                     "cell_type": "code",
