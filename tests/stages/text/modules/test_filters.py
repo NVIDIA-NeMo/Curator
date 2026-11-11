@@ -931,9 +931,12 @@ class TestHeuristicFilters:
         assert score == pytest.approx((len(doc) - len(doc.replace("longer words here", ""))) / len(doc))
 
         # Full ties (same frequency and length) go to the ngram that appears first.
-        doc = "x y z q r s x y z q r s"
-        score = RepeatingTopNGramsFilter(n=3).score_document(doc)
-        assert score == pytest.approx((len(doc) - len(doc.replace("x y z", ""))) / len(doc))
+        # "a a" and "b c" both appear twice, but "a a" overlaps itself, so picking
+        # the later "b c" would give a different score.
+        doc = "a a a b c b c"
+        score = RepeatingTopNGramsFilter(n=2).score_document(doc)
+        assert score == pytest.approx((len(doc) - len(doc.replace("a a", ""))) / len(doc))
+        assert score != pytest.approx((len(doc) - len(doc.replace("b c", ""))) / len(doc))
 
     def test_repeatingtopngrams_independent_of_hash_seed(self) -> None:
         doc = " ".join(["a b c"] * 4 + ["longer words here"] * 4 + [f"w{i}" for i in range(40)])
