@@ -534,3 +534,27 @@ def test_qwen_omni_whitelist_matches_production_rule_file() -> None:
 
     assert len(production) == 1
     assert inline == production
+
+
+_GRANARY_V2 = Path(__file__).resolve().parents[4] / "tutorials/audio/granary_v2"
+
+
+def _shipped_rules(name: str) -> list[dict[str, object]]:
+    if name == "indic_asr":
+        return yaml.safe_load((_GRANARY_V2 / "indic_asr/regex.yaml").read_text(encoding="utf-8"))
+    stages = yaml.safe_load((_GRANARY_V2 / "qwen_omni_asr/pipeline.yaml").read_text(encoding="utf-8"))["stages"]
+    return next(s["rules"] for s in stages if s.get("output_text_key") == "cleaned_text")
+
+
+@pytest.mark.parametrize("rules", ["indic_asr", "qwen_omni_asr"])
+@pytest.mark.parametrize(
+    ("language", "text", "expected"),
+    [("el", "Πού ήσουν?? Εδώ;; Τι;;", "Πού ήσουν; Εδώ; Τι;"), ("en", "Where?? Here;;", "Where? Here,")],
+)
+def test_shipped_rules_collapse_repeated_question_marks(rules: str, language: str, text: str, expected: str) -> None:
+    stage = _lang_stage(_shipped_rules(rules))
+    task = AudioTask(data={"pred_text": text, "source_lang": language})
+
+    stage.process(task)
+
+    assert task.data["text"] == expected

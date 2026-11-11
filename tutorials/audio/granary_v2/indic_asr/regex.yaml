@@ -92,6 +92,7 @@
 # Trailing cleanup
 - {"pattern": '\s+\.', "repl": "."}
 - {"pattern": '\?+', "repl": "?"}
+- {"pattern": ';+', "repl": ";", "langs": ["el"]}
 - {"pattern": '\.+', "repl": "."}
 - {"pattern": ',+', "repl": ","}
 - {"pattern": '!+', "repl": "!"}
