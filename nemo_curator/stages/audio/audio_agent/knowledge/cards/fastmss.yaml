@@ -1,0 +1,59 @@
+stage_id: FastMSS
+summary: "Generate whole-meeting mixtures and ingest audio, duration, reference text and RTTM."
+tags: [writes_disk]
+params_of_note:
+  config_paths: "Local .yaml shard selectors in normal pipelines; agent source binding requires exactly one existing file. .yml is rejected."
+  output_dir: "Shared local root for newly allocated run directories."
+  isolate_work_dirs: "Set true for agent execution; redirects data_dir and rir_dir from YAML to the fresh run directory. Default false preserves explicit pipeline behavior."
+  max_meetings: "Positive total meeting cap requires exactly one config; -1 preserves the YAML count. Smoke supplies a finite cap."
+  fastmss_root: "Optional trusted checkout override; normally use the pinned installed FastMSS distribution."
+  python_executable: "Worker interpreter with audio_simulation dependencies; available on every node."
+  overrides: "Hydra overrides; stage-managed output paths and worker settings cannot be overridden."
+presets:
+  agent: {isolate_work_dirs: true}
+io:
+  source: {kind: config_file, path_param: config_paths, limit_param: max_meetings}
+  outputs:
+    output_dir: {kind: audio_dir}
+notes:
+  - "Requires pre-aligned speech, local shared inputs, Linux and the audio_simulation extra installed through uv. No automatic model inference or data acquisition."
+  - "Single-speaker recipes and dry save_anechoic recipes are rejected before generation."
+  - "Newly generated source; audio profiling, checkpoint reuse and delta execution are unavailable. Source configuration and dependencies are read-only."
+  - "Intermediate caches are run-local only with isolate_work_dirs=true; default mode is deliberately unwrappable."
+verified: {params: mechanical, tags: mechanical, resource: best_guess, domain: best_guess, presets: mechanical, io: mechanical, semantic_facts: mechanical}
+
+category: ingest
+model_id: null
+domain: {language: any, style: any}
+resource: {cpus: 1.0, gpu_mem_gb: 0.0, gpu_optional: false, bound: cpu}
+provenance: {model_card_url: null, card_version: 1, last_validated: "2026-11-11"}
+
+semantic_facts:
+  audio_filepath:
+    meaning: "Generated mixed meeting waveform, retaining simultaneous speakers."
+    unit: "local path"
+    provenance: "Installed FastMSS engine using prepared aligned speech."
+    scope: "one complete meeting"
+    propagation: "One AudioTask per recording; additional manifest annotations are retained."
+    counterexamples: ["Not one isolated utterance or one speaker channel."]
+  duration:
+    meaning: "Finite positive mixture duration, including silence and overlap."
+    unit: "seconds"
+    provenance: "FastMSS recording manifest; validated by the meeting reader."
+    scope: "whole meeting"
+    propagation: "Copied without summing speaker turn durations."
+    counterexamples: ["Not the sum of overlapping speakers' speech durations."]
+  text:
+    meaning: "Reference transcripts joined in supervision start-time and ID order, including overlap."
+    unit: "nonempty string"
+    provenance: "Source supervision transcripts; no ASR inference is run."
+    scope: "whole meeting"
+    propagation: "One joined reference per AudioTask."
+    counterexamples: ["Not a time-aligned transcript or a disjoint sequence of ASR chunks."]
+  rttm_filepath:
+    meaning: "Existing generated diarization reference with overlapping speaker turns."
+    unit: "local RTTM path"
+    provenance: "FastMSS reference annotations; no diarization model is run."
+    scope: "whole meeting"
+    propagation: "Retained beside the meeting waveform."
+    counterexamples: ["Not predicted diarization or per-speaker dry audio."]

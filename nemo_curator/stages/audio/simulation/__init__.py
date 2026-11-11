@@ -12,6 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from nemo_curator.stages.audio.simulation.fastmss import FastMSS, FastMSSSimulationStage
+from nemo_curator.stages.audio.simulation.fastmss import FastMSS, FastMSSManifestReaderStage, FastMSSSimulationStage
 
-__all__ = ["FastMSS", "FastMSSSimulationStage"]
+__all__ = ["FastMSS", "FastMSSManifestReaderStage", "FastMSSSimulationStage"]

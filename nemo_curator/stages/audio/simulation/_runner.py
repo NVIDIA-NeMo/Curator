@@ -85,6 +85,8 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("script")
     parser.add_argument("--installed-fastmss", action="store_true")
+    parser.add_argument("--isolate-work-dirs", action="store_true")
+    parser.add_argument("--max-meetings", type=int, default=-1)
     parser.add_argument("--config-path", required=True)
     parser.add_argument("--config-name", required=True)
     args, overrides = parser.parse_known_args()
@@ -103,8 +105,29 @@ def main() -> None:
         os.environ["FASTMSS_ROOT"] = str(package.locate_file(""))
     with initialize_config_dir(config_dir=args.config_path, version_base=None):
         config = compose(config_name=args.config_name, overrides=overrides)
-        validate_config(OmegaConf.to_container(config, resolve=True))
         output_dir = Path(config.output_dir)
+        if args.isolate_work_dirs:
+            overrides.extend(
+                [
+                    "hydra.mode=RUN",
+                    "hydra.output_subdir=null",
+                    "hydra/job_logging=disabled",
+                    "hydra/hydra_logging=disabled",
+                    f"++data_dir={json.dumps(str(output_dir / 'data'))}",
+                    f"++rir_dir={json.dumps(str(output_dir / 'rir'))}",
+                ]
+            )
+        if args.max_meetings != -1:
+            if args.max_meetings < 1:
+                msg = "max_meetings must be positive or -1"
+                raise ValueError(msg)
+            count = config.get("n_meetings")
+            if isinstance(count, bool) or not isinstance(count, int) or count < 1:
+                msg = "n_meetings must be a positive integer"
+                raise ValueError(msg)
+            overrides.append(f"n_meetings={min(count, args.max_meetings)}")
+        config = compose(config_name=args.config_name, overrides=overrides)
+        validate_config(OmegaConf.to_container(config, resolve=True))
     sys.argv = [args.script, f"--config-path={args.config_path}", f"--config-name={args.config_name}", *overrides]
     # Match direct script execution; the sibling Curator fastmss.py would shadow
     # the upstream fastmss package if this runner's directory stayed first.

@@ -287,7 +287,7 @@ def test_real_upstream_generates_audio_and_diarization_reference(tmp_path: Path)
                 "min_spk_utt": 1,
                 "split_fa_factor": None,
                 "seed": 42,
-                "n_meetings": 1,
+                "n_meetings": 5,
                 "duration": 2,
                 "min_max_spk": [2, 2],
                 "max_concurrent_speakers": 2,
@@ -297,10 +297,18 @@ def test_real_upstream_generates_audio_and_diarization_reference(tmp_path: Path)
     )
     stage = FastMSSSimulationStage(
         output_dir=str(tmp_path / "generated"),
-        overrides=["n_meetings=1", "duration=2", "hmm_params.p_ind=[0,1,0,0]"],
+        overrides=["duration=2", "hmm_params.p_ind=[0,1,0,0]"],
+        isolate_work_dirs=True,
+        max_meetings=1,
         timeout_seconds=60,
     )
+    from nemo_curator.stages.audio.simulation import FastMSSManifestReaderStage
+
+    original_config = config.read_bytes()
     output = stage.process(FileGroupTask(dataset_name="upstream-smoke", data=[str(config)]))
+    assert config.read_bytes() == original_config
+    assert (Path(output[0].data[0]).parent / "data" / "manifests" / ".done_stage1").is_file()
+    FastMSSManifestReaderStage().process(output[0])
     rows = ManifestReaderStage().process(output[0])
     assert len(rows) == 1
     row = rows[0].data
@@ -354,3 +362,73 @@ def test_preflight_uses_cli_overrides_over_yaml_settings(checkout: Path, tmp_pat
     )
     groups = stage.process(FileGroupTask(dataset_name="simulation", data=[str(config)]))
     assert ManifestReaderStage().process(groups[0])[0].data["text"] == "hello"
+
+
+def test_real_runner_isolates_yaml_and_override_caches_and_preserves_yaml_identity(checkout: Path, tmp_path: Path):
+    config = _config(tmp_path)
+    config.with_suffix(".yml").write_text("n_meetings: 99\n")
+    outside_data = tmp_path / "protected-data"
+    outside_rir = tmp_path / "protected-rir"
+    with config.open("a") as stream:
+        stream.write(f"data_dir: {outside_data}\nrir_dir: {outside_rir}\n")
+    original = config.read_bytes()
+    script = checkout / "recipes" / "sim.py"
+    script.write_text(
+        script.read_text().replace(
+            "assert cfg.n_jobs >= 1",
+            "assert cfg.n_jobs >= 1\nassert cfg.n_meetings == 1\nassert Path(cfg.data_dir).parent == Path(cfg.output_dir)\nassert Path(cfg.rir_dir).parent == Path(cfg.output_dir)\nPath(cfg.data_dir).mkdir()\nPath(cfg.rir_dir).mkdir()",
+        )
+    )
+    stage = FastMSSSimulationStage(
+        fastmss_root=str(checkout),
+        output_dir=str(tmp_path / "output"),
+        isolate_work_dirs=True,
+        max_meetings=1,
+        overrides=["n_meetings=8", f"data_dir={outside_data}"],
+    )
+    groups = stage.process(FileGroupTask(dataset_name="test", data=[str(config)]))
+    assert len(groups) == 1
+    assert not outside_data.exists()
+    assert not outside_rir.exists()
+    assert config.read_bytes() == original
+    with pytest.raises(ValueError, match=r"\.yaml"):
+        stage.process(FileGroupTask(dataset_name="test", data=[str(config.with_suffix(".yml"))]))
+
+
+def test_public_smoke_bounds_and_isolates_generation(checkout: Path, tmp_path: Path) -> None:
+    from nemo_curator.stages.audio.audio_agent import smoke
+    from nemo_curator.stages.audio.audio_agent.recipe import Recipe, StageRef
+
+    config = _config(tmp_path)
+    original = config.read_bytes()
+    output = tmp_path / "production-output"
+    rec = Recipe(
+        stages=[
+            StageRef(
+                ref="FastMSS",
+                params={
+                    "config_paths": str(config),
+                    "output_dir": str(output),
+                    "fastmss_root": str(checkout),
+                    "isolate_work_dirs": True,
+                },
+            )
+        ]
+    )
+    from nemo_curator.backends.base import BaseExecutor, BaseStageAdapter
+    from nemo_curator.stages.base import ProcessingStage
+    from nemo_curator.tasks import Task
+
+    class LocalExecutor(BaseExecutor):
+        def execute(self, stages: list[ProcessingStage], initial_tasks: list[Task] | None = None) -> list[Task]:
+            tasks = initial_tasks or [EmptyTask()]
+            for stage in stages:
+                tasks = BaseStageAdapter(stage).process_batch(tasks)
+            return tasks
+
+    result = smoke(rec, sample=1, executor=LocalExecutor())
+    assert not result.get("errors"), result
+    assert result.get("status") not in {"error", "refused"}, result
+    assert result["retained"] == 1, result
+    assert not output.exists()
+    assert config.read_bytes() == original

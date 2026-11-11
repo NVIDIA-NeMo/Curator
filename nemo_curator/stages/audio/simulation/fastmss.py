@@ -16,18 +16,20 @@
 
 import contextlib
 import json
+import math
 import os
 import signal
 import subprocess
 import sys
 import tempfile
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import ClassVar
 
 from loguru import logger
 
-from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, StageContract, StaticHints
+from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, Role, StageContract, StaticHints
 from nemo_curator.stages.audio.common import ManifestReaderStage
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
@@ -65,6 +67,9 @@ class FastMSSSimulationStage(AgentReady, ProcessingStage[FileGroupTask, FileGrou
             Output paths, worker count and recording-manifest generation are managed
             by this stage and cannot be overridden here.
         timeout_seconds: Maximum wall time for one config, including preprocessing.
+        isolate_work_dirs: Keep YAML-defined preprocessing and RIR caches run-local.
+            Required for agent wrapping; false preserves explicit pipeline behavior.
+        max_meetings: Positive meeting cap for exactly one .yaml config; -1 is unlimited.
     """
 
     output_dir: str
@@ -74,6 +79,8 @@ class FastMSSSimulationStage(AgentReady, ProcessingStage[FileGroupTask, FileGrou
     jobs_per_config: int = 1
     overrides: list[str] = field(default_factory=list)
     timeout_seconds: float = 3600.0
+    isolate_work_dirs: bool = False
+    max_meetings: int = -1
     name: str = "fastmss_simulation"
     is_resumable: bool = False
     AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
@@ -82,6 +89,14 @@ class FastMSSSimulationStage(AgentReady, ProcessingStage[FileGroupTask, FileGrou
     )
 
     def __post_init__(self) -> None:
+        if (
+            isinstance(self.max_meetings, bool)
+            or not isinstance(self.max_meetings, int)
+            or self.max_meetings == 0
+            or self.max_meetings < -1
+        ):
+            msg = "max_meetings must be positive or -1 (unlimited)"
+            raise ValueError(msg)
         if self.jobs_per_config < 1:
             msg = "jobs_per_config must be at least 1"
             raise ValueError(msg)
@@ -105,7 +120,7 @@ class FastMSSSimulationStage(AgentReady, ProcessingStage[FileGroupTask, FileGrou
     def describe(self) -> StageContract:
         return StageContract(
             cardinality="1:N fan-out",
-            wrappable=False,
+            wrappable=self.isolate_work_dirs,
             gates=Gates(writes_to_disk=True, output_path_params=["output_dir"], per_row_independent=False),
             error_policy="fail",
         )
@@ -116,6 +131,8 @@ class FastMSSSimulationStage(AgentReady, ProcessingStage[FileGroupTask, FileGrou
             self.python_executable,
             str(Path(__file__).with_name("_runner.py")),
             script,
+            *(["--isolate-work-dirs"] if self.isolate_work_dirs else []),
+            f"--max-meetings={self.max_meetings}",
             *(["--installed-fastmss"] if self.fastmss_root is None else []),
             f"--config-path={config.parent}",
             f"--config-name={config.stem}",
@@ -169,9 +186,12 @@ class FastMSSSimulationStage(AgentReady, ProcessingStage[FileGroupTask, FileGrou
             raise FileNotFoundError(msg)
         configs = [Path(path).expanduser().resolve() for path in task.data]
         for config in configs:
-            if config.suffix not in {".yaml", ".yml"} or not config.is_file():
-                msg = f"Expected an existing local FastMSS YAML config: {config}"
+            if config.suffix != ".yaml" or not config.is_file():
+                msg = f"Expected an existing local FastMSS YAML config with .yaml extension: {config}"
                 raise ValueError(msg)
+        if self.max_meetings > 0 and len(configs) != 1:
+            msg = "A bounded generation requires exactly one .yaml config"
+            raise ValueError(msg)
         output_dir = Path(self.output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
         results = []
@@ -193,6 +213,74 @@ class FastMSSSimulationStage(AgentReady, ProcessingStage[FileGroupTask, FileGrou
                 )
             )
         return results
+
+
+@dataclass
+class FastMSSManifestReaderStage(ManifestReaderStage):
+    """Read generated whole-meeting references, validating every promised field.
+
+    Text retains all overlapping turns in start/ID order; it is not a sequence
+    of non-overlapping ASR chunks. Additional manifest annotations are preserved.
+    The four output keys may be renamed without changing their meaning.
+    """
+
+    audio_filepath_key: str = "audio_filepath"
+    duration_key: str = "duration"
+    text_key: str = "text"
+    rttm_filepath_key: str = "rttm_filepath"
+    name: str = "fastmss_manifest_reader"
+    KEY_ROLE_OVERRIDES: ClassVar[Mapping[str, Role]] = {
+        "include_files_key": "audio_filepath",
+        "rttm_filepath_key": "output_path",
+    }
+
+    def process(self, task: FileGroupTask) -> list[AudioTask]:
+        keys = {
+            "audio_filepath": self.audio_filepath_key,
+            "duration": self.duration_key,
+            "text": self.text_key,
+            "rttm_filepath": self.rttm_filepath_key,
+        }
+        if len(set(keys.values())) != len(keys):
+            msg = "FastMSS output keys must be distinct"
+            raise ValueError(msg)
+        rows = super().process(task)
+        for row in rows:
+            data = row.data
+            for key in ("audio_filepath", "text", "rttm_filepath"):
+                if not isinstance(data.get(key), str) or not data[key].strip():
+                    msg = f"FastMSS meeting lacks nonempty {key}"
+                    raise ValueError(msg)
+            for key in ("audio_filepath", "rttm_filepath"):
+                if not Path(data[key]).is_file():
+                    msg = f"FastMSS meeting artifact does not exist: {data[key]}"
+                    raise ValueError(msg)
+            duration = data.get("duration")
+            if (
+                isinstance(duration, bool)
+                or not isinstance(duration, (int, float))
+                or not math.isfinite(duration)
+                or duration <= 0
+            ):
+                msg = "FastMSS meeting requires a finite positive duration in seconds"
+                raise ValueError(msg)
+            values = {target: data[source] for source, target in keys.items()}
+            if any(
+                target in data and target not in keys and data[target] != value for target, value in values.items()
+            ):
+                msg = "FastMSS output key conflicts with an existing annotation"
+                raise ValueError(msg)
+            row.data = {**{key: value for key, value in data.items() if key not in keys}, **values}
+        return rows
+
+    def describe(self) -> StageContract:
+        return StageContract(
+            writes=IOSpec(
+                data_keys=[self.audio_filepath_key, self.duration_key, self.text_key, self.rttm_filepath_key]
+            ),
+            cardinality="1:N fan-out",
+            gates=Gates(lifecycle_side_effects=True, per_row_independent=True),
+        )
 
 
 @dataclass
@@ -220,6 +308,12 @@ class FastMSS(AgentReady, CompositeStage[EmptyTask, AudioTask]):
         jobs_per_config: CPU workers per FastMSS invocation.
         overrides: Extra Hydra configuration overrides.
         timeout_seconds: Maximum seconds per shard.
+        isolate_work_dirs: Redirect all FastMSS caches under output_dir for agent execution.
+        max_meetings: Positive total cap requiring one local .yaml file; -1 uses YAML counts.
+        audio_filepath_key: Output key for the meeting waveform path.
+        duration_key: Output key for whole-meeting duration in seconds.
+        text_key: Output key for joined reference transcripts including overlaps.
+        rttm_filepath_key: Output key for the diarization reference path.
     """
 
     config_paths: str | list[str]
@@ -230,13 +324,38 @@ class FastMSS(AgentReady, CompositeStage[EmptyTask, AudioTask]):
     jobs_per_config: int = 1
     overrides: list[str] = field(default_factory=list)
     timeout_seconds: float = 3600.0
+    isolate_work_dirs: bool = False
+    max_meetings: int = -1
+    audio_filepath_key: str = "audio_filepath"
+    duration_key: str = "duration"
+    text_key: str = "text"
+    rttm_filepath_key: str = "rttm_filepath"
     name: str = "fastmss"
+    KEY_ROLE_OVERRIDES: ClassVar[Mapping[str, Role]] = {"rttm_filepath_key": "output_path"}
     is_resumable: bool = False
     AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
         gates=Gates(writes_to_disk=True, output_path_params=["output_dir"], per_row_independent=False)
     )
 
     def __post_init__(self) -> None:
+        if self.max_meetings > 0 and (not isinstance(self.config_paths, str) or not Path(self.config_paths).is_file()):
+            msg = "A bounded generation requires exactly one local .yaml file"
+            raise ValueError(msg)
+        FastMSSSimulationStage(
+            output_dir=self.output_dir,
+            max_meetings=self.max_meetings,
+            jobs_per_config=self.jobs_per_config,
+            overrides=self.overrides,
+            timeout_seconds=self.timeout_seconds,
+            script_path=self.script_path,
+            fastmss_root=self.fastmss_root,
+        )
+        paths = [self.config_paths] if isinstance(self.config_paths, str) else self.config_paths
+        if any(
+            Path(path).suffix == ".yml" or (Path(path).is_file() and Path(path).suffix != ".yaml") for path in paths
+        ):
+            msg = "FastMSS supports .yaml configs; .yml is unsupported by Hydra"
+            raise ValueError(msg)
         super().__init__()
 
     def decompose(self) -> list[ProcessingStage]:
@@ -244,7 +363,7 @@ class FastMSS(AgentReady, CompositeStage[EmptyTask, AudioTask]):
             FilePartitioningStage(
                 file_paths=self.config_paths,
                 files_per_partition=1,
-                file_extensions=[".yaml", ".yml"],
+                file_extensions=[".yaml"],
             ),
             FastMSSSimulationStage(
                 fastmss_root=self.fastmss_root,
@@ -254,8 +373,15 @@ class FastMSS(AgentReady, CompositeStage[EmptyTask, AudioTask]):
                 jobs_per_config=self.jobs_per_config,
                 overrides=self.overrides,
                 timeout_seconds=self.timeout_seconds,
+                isolate_work_dirs=self.isolate_work_dirs,
+                max_meetings=self.max_meetings,
             ),
-            ManifestReaderStage(),
+            FastMSSManifestReaderStage(
+                audio_filepath_key=self.audio_filepath_key,
+                duration_key=self.duration_key,
+                text_key=self.text_key,
+                rttm_filepath_key=self.rttm_filepath_key,
+            ),
         ]
 
     def describe(self) -> StageContract:
