@@ -549,7 +549,7 @@ def _shipped_rules(name: str) -> list[dict[str, object]]:
 @pytest.mark.parametrize("rules", ["indic_asr", "qwen_omni_asr"])
 @pytest.mark.parametrize(
     ("language", "text", "expected"),
-    [("el", "Πού ήσουν?? Εδώ;; Τι;;", "Πού ήσουν; Εδώ; Τι;"), ("en", "Where?? Here;;", "Where? Here,")],
+    [("el", "Πού ήσουν?? Εδώ;; Γιατί;;", "Πού ήσουν; Εδώ; Γιατί;"), ("en", "Where?? Here;;", "Where? Here,")],
 )
 def test_shipped_rules_collapse_repeated_question_marks(rules: str, language: str, text: str, expected: str) -> None:
     stage = _lang_stage(_shipped_rules(rules))
