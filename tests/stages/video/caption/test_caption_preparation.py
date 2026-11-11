@@ -135,12 +135,8 @@ class TestCaptionPreparationStage:
         video = Video(input_video=pathlib.Path("test_video.mp4"))
 
         clip1 = Clip(uuid=uuid4(), source_video="test1.mp4", span=(0.0, 10.0), buffer=b"test_video_buffer_1")
-        # Mock attributes for original code bugs/quirks
-        clip1.id = clip1.uuid
 
         clip2 = Clip(uuid=uuid4(), source_video="test2.mp4", span=(10.0, 20.0), buffer=b"test_video_buffer_2")
-        # Mock attributes for original code bugs/quirks
-        clip2.id = clip2.uuid
 
         video.clips = [clip1, clip2]
 
@@ -231,8 +227,6 @@ class TestCaptionPreparationStage:
             span=(0.0, 5.0),
             buffer=None,  # No buffer
         )
-        # Mock the id attribute since original code uses clip.id but Clip only has uuid
-        clip.id = clip.uuid
         video.clips = [clip]
         task = VideoTask(dataset_name="test", data=video)
 
@@ -242,7 +236,7 @@ class TestCaptionPreparationStage:
         self.stage.process(task)
 
         # Verify warning was logged
-        mock_logger.warning.assert_called_once_with(f"No buffer found for clip {clip.id}")
+        mock_logger.warning.assert_called_once_with(f"No buffer found for clip {clip.uuid}")
         assert clip.errors["buffer"] == "empty"
 
         # Verify no windows were created
@@ -340,8 +334,6 @@ class TestCaptionPreparationStage:
 
             video = Video(input_video=pathlib.Path("test.mp4"))
             clip = Clip(uuid=uuid4(), source_video="test.mp4", span=(0.0, 20.0), buffer=b"test_buffer")
-            # Mock attributes for original code bugs/quirks
-            clip.id = clip.uuid
             video.clips = [clip]
             task = VideoTask(dataset_name="test", data=video)
 
@@ -364,10 +356,9 @@ class TestCaptionPreparationStage:
         self.stage.prompt_formatter = Mock()
 
         task = self._create_test_video_task()
-        # Set buffers to None to avoid processing and mock id attribute
+        # Set buffers to None to avoid processing
         for clip in task.data.clips:
             clip.buffer = None
-            clip.id = clip.uuid  # Mock id attribute
 
         result = self.stage.process(task)
 
