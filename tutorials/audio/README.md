@@ -59,6 +59,7 @@ python nemo_curator/config/run.py \
 | Transcribe Hindi audio with Indic Canary and Parakeet, check the text, and measure WER | [**granary_v2/indic_asr/**](granary_v2/indic_asr/) | Yes (80 GB H100 with compatible engines) | Two public FLEURS clips; model engine bundles supplied separately |
 | Restore punctuation, normalize ASR transcripts and generate text features | [**granary_v2/text_pipeline/**](granary_v2/text_pipeline/) | 8 GPUs for the included model server; CPU client with an existing endpoint | Two bundled English transcripts; no audio download |
 | Extract Granary speech clips, speaker turns, sound events, and language metadata | [**granary_v2/metadata/**](granary_v2/metadata/) | Yes; hardware-compatible TensorRT engines required | Two public FLEURS clips or your own recordings; local model bundles required |
+| Produce word-level TextGrid/RTTM/CTM alignments with Montreal Forced Aligner | [**alignment/**](alignment/) | No (CPU-only) | Bring your own audio manifest |
 | Build training windows for Audio Language Models from diarized manifests | [**alm/**](alm/) | No (CPU-only) | Bundled sample fixtures |
 | Label raw audio for TTS/ASR/ALM via diarization, alignment, and quality metrics | [**tagging/**](tagging/) | Yes (~8 GB VRAM) | Bring your own audio manifest |
 | Evaluate speaker diarization (DER) on a benchmark dataset | [**callhome_diar/**](callhome_diar/) | Yes (~8 GB VRAM) | Requires [LDC license](https://catalog.ldc.upenn.edu/LDC97S42) |
