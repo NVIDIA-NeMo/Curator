@@ -126,26 +126,34 @@ class InferenceServer:
         """OpenAI-compatible base URL for the served models."""
         return f"http://{self._host}:{self.port}/v1"
 
-    def _wait_for_healthy(self) -> None:
+    def _wait_for_healthy(self, *, deadline: float | None = None) -> None:
         """Poll ``/v1/models`` until all expected models appear in the response."""
         expected = {model.resolved_model_name for model in self.models}
         models_url = f"{self.endpoint}/models"
-        deadline = time.monotonic() + self.health_check_timeout_s
+        if deadline is None:
+            deadline = time.monotonic() + self.health_check_timeout_s
+        next_progress_log = 0.0
         attempt = 0
         while time.monotonic() < deadline:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            if time.monotonic() >= next_progress_log:
+                logger.info(f"Waiting for models {sorted(expected)} at {models_url}; {remaining:.0f}s remaining")
+                next_progress_log = time.monotonic() + 30
             attempt += 1
             try:
-                resp = urllib.request.urlopen(models_url, timeout=5)  # noqa: S310
-                if resp.status == http.HTTPStatus.OK:
-                    body = json.loads(resp.read())
-                    model_ids = {model["id"] for model in body.get("data", [])}
-                    if expected.issubset(model_ids):
-                        logger.info(f"Model server ready after {attempt} health check(s)")
-                        return
+                with urllib.request.urlopen(models_url, timeout=min(5, remaining)) as resp:  # noqa: S310
+                    if resp.status == http.HTTPStatus.OK:
+                        body = json.loads(resp.read())
+                        model_ids = {model["id"] for model in body.get("data", [])}
+                        if expected.issubset(model_ids):
+                            logger.info(f"Model server ready after {attempt} health check(s)")
+                            return
             except Exception:  # noqa: BLE001
                 if self.verbose:
                     logger.debug(f"Health check attempt {attempt} failed, retrying...")
-            time.sleep(1)
+            time.sleep(min(1, max(0, deadline - time.monotonic())))
 
         msg = f"Model server did not become ready within {self.health_check_timeout_s}s"
         raise TimeoutError(msg)

@@ -151,14 +151,27 @@ _DISAGG_NIXL_PORT_SEED = 20097
 
 def dynamo_runtime_env(model_config: DynamoVLLMModelConfig) -> dict[str, Any]:
     """Merge the user's ``runtime_env`` with the Dynamo-vLLM package pin."""
-    return BaseModelConfig.merge_runtime_envs(DYNAMO_VLLM_RUNTIME_ENV, model_config.runtime_env or None)
+    return _dynamo_runtime_env(model_config.runtime_env)
+
+
+def _dynamo_runtime_env(runtime_env: dict[str, Any] | None) -> dict[str, Any]:
+    if runtime_env and runtime_env.get("py_executable"):
+        if "uv" in runtime_env or "pip" in runtime_env:
+            msg = "A prebuilt Dynamo py_executable cannot be combined with runtime_env pip/uv installs."
+            raise ValueError(msg)
+        return dict(runtime_env)
+    return BaseModelConfig.merge_runtime_envs(DYNAMO_VLLM_RUNTIME_ENV, runtime_env)
 
 
 def merge_model_runtime_envs(models: list[DynamoVLLMModelConfig]) -> dict[str, Any]:
     """Merge every model's ``runtime_env`` onto the Dynamo-vLLM pin for the shared frontend actor."""
+    executables = {m.runtime_env.get("py_executable") for m in models}
+    if len(executables) > 1:
+        msg = "All Dynamo models in one server must use the same py_executable (or all omit it)."
+        raise ValueError(msg)
     envs = [m.runtime_env for m in models if m.runtime_env]
     user_merged = reduce(BaseModelConfig.merge_runtime_envs, envs) if envs else None
-    return BaseModelConfig.merge_runtime_envs(DYNAMO_VLLM_RUNTIME_ENV, user_merged)
+    return _dynamo_runtime_env(user_merged)
 
 
 def _worker_subprocess_env(base_env: dict[str, str], runtime_dir: str) -> dict[str, str]:

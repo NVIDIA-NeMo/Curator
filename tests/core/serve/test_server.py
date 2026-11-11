@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import time
 from unittest.mock import patch
 
 import pytest
@@ -122,6 +123,12 @@ class TestInferenceServer:
         server = InferenceServer(models=[], port=19876, health_check_timeout_s=2)
         with pytest.raises(TimeoutError, match="did not become ready within 2s"):
             server._wait_for_healthy()
+
+    def test_wait_for_healthy_does_not_reset_expired_deployment_deadline(self, httpserver: HTTPServer) -> None:
+        httpserver.expect_request("/v1/models").respond_with_json({"data": []})
+        server = InferenceServer(models=[], port=httpserver.port, health_check_timeout_s=60)
+        with pytest.raises(TimeoutError, match="did not become ready"):
+            server._wait_for_healthy(deadline=time.monotonic() - 1)
 
     def test_wait_for_healthy_matches_expected_model_names(self, httpserver: HTTPServer) -> None:
         httpserver.expect_request("/v1/models").respond_with_json({"data": [{"id": "my-model"}]})
