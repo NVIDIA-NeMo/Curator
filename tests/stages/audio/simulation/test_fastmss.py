@@ -395,11 +395,18 @@ def test_real_runner_isolates_yaml_and_override_caches_and_preserves_yaml_identi
         stage.process(FileGroupTask(dataset_name="test", data=[str(config.with_suffix(".yml"))]))
 
 
-def test_public_smoke_bounds_and_isolates_generation(checkout: Path, tmp_path: Path) -> None:
+@pytest.mark.parametrize("isolate", [True, False])
+def test_public_smoke_bounds_and_isolates_generation(checkout: Path, tmp_path: Path, isolate: bool) -> None:
     from nemo_curator.stages.audio.audio_agent import smoke
     from nemo_curator.stages.audio.audio_agent.recipe import Recipe, StageRef
 
     config = _config(tmp_path)
+    caches = [tmp_path / "protected-data", tmp_path / "protected-rir"]
+    for cache in caches:
+        cache.mkdir()
+        (cache / "sentinel").write_text("untouched")
+    with config.open("a") as stream:
+        stream.write(f"data_dir: {caches[0]}\nrir_dir: {caches[1]}\n")
     original = config.read_bytes()
     output = tmp_path / "production-output"
     rec = Recipe(
@@ -410,7 +417,8 @@ def test_public_smoke_bounds_and_isolates_generation(checkout: Path, tmp_path: P
                     "config_paths": str(config),
                     "output_dir": str(output),
                     "fastmss_root": str(checkout),
-                    "isolate_work_dirs": True,
+                    "isolate_work_dirs": isolate,
+                    "max_meetings": 1,
                 },
             )
         ]
@@ -426,9 +434,23 @@ def test_public_smoke_bounds_and_isolates_generation(checkout: Path, tmp_path: P
                 tasks = BaseStageAdapter(stage).process_batch(tasks)
             return tasks
 
-    result = smoke(rec, sample=1, executor=LocalExecutor())
-    assert not result.get("errors"), result
-    assert result.get("status") not in {"error", "refused"}, result
-    assert result["retained"] == 1, result
+    class GuardedExecutor(LocalExecutor):
+        def execute(self, stages: list[ProcessingStage], initial_tasks: list[Task] | None = None) -> list[Task]:
+            assert isolate, "Unsafe smoke must be refused before executing any stage"
+            return super().execute(stages, initial_tasks)
+
+    result = smoke(rec, sample=10, executor=GuardedExecutor())
+    if isolate:
+        assert not result.get("errors"), result
+        assert result["status"] == "completed", result
+        assert result["retained"] == 1, result
+        assert result["input_count"] is None, result
+        assert result["rejected"] is None, result
+    else:
+        assert result["status"] == "refused", result
+        assert any("not wrappable" in issue for issue in result["issues"]), result
     assert not output.exists()
     assert config.read_bytes() == original
+    for cache in caches:
+        assert [path.name for path in cache.iterdir()] == ["sentinel"]
+        assert (cache / "sentinel").read_text() == "untouched"
