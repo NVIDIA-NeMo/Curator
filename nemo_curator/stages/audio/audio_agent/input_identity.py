@@ -208,7 +208,16 @@ def _resolve_card_source(recipe: Recipe, stage: StageRef, data: str | None) -> D
             source_index=0,
             reason=issue or "source path is missing",
         )
-    if spec["kind"] == "audio_folder":
+    if spec["kind"] == "config_file":
+        if not os.path.isfile(path):
+            return _binding(
+                "missing",
+                source_ref=stage.ref,
+                source_index=0,
+                reason="declared config source requires one existing local file",
+            )
+        binding = _base(stage.ref, configured_paths=(path,), primary_path=path, profile_source=None, generated=True)
+    elif spec["kind"] == "audio_folder":
         proxy = StageRef(
             ref="CreateInitialManifestAudioFolderStage",
             params={
