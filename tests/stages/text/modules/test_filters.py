@@ -1370,6 +1370,31 @@ class TestCodeFilters:
 
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
 
+    def test_per_extension_filter_empty_document(self, per_extension_filter: PerExtensionFilter) -> None:
+        good_cpp = "int main() {\n    return 0;\n}\n"
+        filtered_data = ScoreFilter(per_extension_filter).process(list_to_dataset(["", good_cpp]))
+
+        expected_data = DocumentBatch(
+            data=pd.DataFrame({"text": [good_cpp]}),
+            dataset_name="test_1",
+        )
+        assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
+
+    @pytest.mark.parametrize(
+        "doc_filter",
+        [
+            PythonCommentToCodeFilter(),
+            GeneralCommentToCodeFilter("text/x-c++"),
+            AlphaFilter(),
+            HTMLBoilerplateFilter(min_lang_content_num_chars=0),
+        ],
+        ids=["python_comment", "general_comment", "alpha", "html_boilerplate"],
+    )
+    def test_empty_document(self, doc_filter: DocumentFilter) -> None:
+        score = doc_filter.score_document("")
+        assert score == 0
+        assert doc_filter.keep_document(score) is False
+
     @pytest.mark.parametrize(
         "content,expected",  # noqa: PT006
         [

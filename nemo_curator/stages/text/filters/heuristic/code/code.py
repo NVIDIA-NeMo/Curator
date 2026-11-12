@@ -36,6 +36,8 @@ class PythonCommentToCodeFilter(DocumentFilter):
         self._name = "python_comment_ratio"
 
     def score_document(self, source: str) -> float:
+        if not source:
+            return 0
         docstrings, comments = get_comments_and_docstring(source)
         if docstrings is None or comments is None:
             return 0
@@ -75,7 +77,7 @@ class GeneralCommentToCodeFilter(DocumentFilter):
         except Exception:  # noqa: BLE001
             warnings.warn("tokenization error, no comment is extracted", stacklevel=2)
             return 9999
-        if comments is None:
+        if comments is None or not source:
             return 0
         return len(comments) / len(source)
 
@@ -157,7 +159,7 @@ class AlphaFilter(DocumentFilter):
         self._name = "alpha_filter"
 
     def score_document(self, source: str) -> float:
-        return len(regex_alpha.findall(source)) / len(source)
+        return len(regex_alpha.findall(source)) / len(source) if source else 0.0
 
     def keep_document(self, score: float) -> bool:
         return score >= self._min_alpha_ratio
@@ -186,12 +188,10 @@ class HTMLBoilerplateFilter(DocumentFilter):
 
         # get text
         text = soup.get_text()
-        ratio = len(text) / len(source)
-
-        if len(text) < self._min_lang_content_num_chars:
+        if not source or len(text) < self._min_lang_content_num_chars:
             return 0
 
-        return ratio
+        return len(text) / len(source)
 
     def keep_document(self, score: float) -> bool:
         return score >= self._min_lang_content_ratio
@@ -258,7 +258,7 @@ class PerExtensionFilter(DocumentFilter):
         return max_length, mean_length
 
     def _alphanum_fraction(self, source: str) -> float:
-        return len(regex_alphanum.findall(source)) / len(source)
+        return len(regex_alphanum.findall(source)) / len(source) if source else 0.0
 
     def score_document(self, source: str) -> float:
         """Filter files based on line length and % alphanumeric characters.
