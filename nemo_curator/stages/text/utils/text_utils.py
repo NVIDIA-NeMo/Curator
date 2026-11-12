@@ -114,6 +114,7 @@ def is_paragraph_indices_in_top_or_bottom_only(
 NODE_TYPES = {
     ast.ClassDef: "Class",
     ast.FunctionDef: "Function/Method",
+    ast.AsyncFunctionDef: "Function/Method",
     ast.Module: "Module",
 }
 
