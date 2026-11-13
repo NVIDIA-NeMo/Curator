@@ -16,11 +16,13 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import multiprocessing
 import os
+import queue
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 import pyarrow as pa
@@ -36,6 +38,9 @@ from nemo_curator.stages.interleaved.pdf.nemotron_parse.utils import (
 )
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import FileGroupTask, InterleavedBatch
+
+if TYPE_CHECKING:
+    from PIL import Image
 
 
 @dataclass
@@ -72,6 +77,8 @@ class PDFPreprocessStage(ProcessingStage[FileGroupTask, InterleavedBatch]):
         Resolution for PDF page rendering.
     max_pages
         Maximum number of pages to render per PDF.
+    retain_failures
+        Preserve physical page indexes and failed-page rows for the served parser.
     """
 
     zip_base_dir: str | None = None
@@ -79,6 +86,7 @@ class PDFPreprocessStage(ProcessingStage[FileGroupTask, InterleavedBatch]):
     jsonl_base_dir: str | None = None
     dpi: int = 300
     max_pages: int = 50
+    retain_failures: bool = False
     name: str = "pdf_preprocess"
     resources: Resources = field(default_factory=lambda: Resources(cpus=2.0))
 
@@ -147,23 +155,37 @@ class PDFPreprocessStage(ProcessingStage[FileGroupTask, InterleavedBatch]):
 
     _RENDER_TIMEOUT_S: int = 60  # hard limit per PDF render; kills hung C-extension
 
-    def _render_with_timeout(self, pdf_bytes: bytes, file_name: str) -> list:
-        """Render PDF with a process-based timeout.
-
-        SIGALRM cannot be used here because Xenna runs stage workers in non-main
-        threads and signal.signal() is restricted to the main thread.  Instead we
-        fork a child process (inheriting pdf_bytes via copy-on-write) and kill it
-        if it exceeds the timeout, which reliably escapes any C-extension hang.
-        """
+    def _render_once(
+        self, pdf_bytes: bytes, page_indices: list[int] | None
+    ) -> tuple[list[Image.Image | None], bool, int | None]:
+        """Render one page window and report whether its subprocess timed out."""
         dpi = self.dpi
         max_pages = self.max_pages
 
         ctx = multiprocessing.get_context("fork")
         result_q: multiprocessing.Queue = ctx.Queue()
+        page_count_q: multiprocessing.Queue = ctx.Queue()
 
         def _worker() -> None:
             try:
-                pages = render_pdf_pages(pdf_bytes, dpi=dpi, max_pages=max_pages)
+                if page_indices is None:
+                    import pypdfium2 as pdfium
+
+                    doc = pdfium.PdfDocument(pdf_bytes)
+                    try:
+                        page_count_q.put(len(doc))
+                    finally:
+                        doc.close()
+                # Preserve one result slot per requested physical page. This is
+                # required when a timed-out window is split and only one page
+                # in a child window fails.
+                pages = render_pdf_pages(
+                    pdf_bytes,
+                    dpi=dpi,
+                    max_pages=max_pages,
+                    keep_failed=True,
+                    page_indices=page_indices,
+                )
                 result_q.put(pages)
             except Exception:  # noqa: BLE001
                 result_q.put([])
@@ -171,26 +193,101 @@ class PDFPreprocessStage(ProcessingStage[FileGroupTask, InterleavedBatch]):
         proc = ctx.Process(target=_worker)
         proc.start()
         # Drain the queue BEFORE joining. If we join first, the child can
-        # deadlock: after result_q.put(pages) the internal feeder thread must
-        # flush all serialized data through the OS pipe; with 50 pages at
-        # 300 DPI the pipe fills up and the feeder stalls until the parent
-        # reads. Since the parent is blocked in join(), neither side makes
-        # progress and the 60 s timeout fires on a perfectly valid render.
+        # deadlock while its feeder thread serializes a large page window.
         try:
             pages = result_q.get(timeout=self._RENDER_TIMEOUT_S)
-        except Exception:  # noqa: BLE001
+            timed_out = False
+        except queue.Empty:
             pages = []
+            timed_out = proc.is_alive()
         proc.join(timeout=2)
         if proc.is_alive():
             proc.kill()
             proc.join()
-            if not pages:
-                logger.warning(f"Render timed out ({self._RENDER_TIMEOUT_S}s) for {file_name}, skipping")
-                return []
-            logger.debug(f"Forcibly cleaned up render process for {file_name} (result was obtained)")
-        return pages
+        page_count = None
+        if page_indices is None:
+            with contextlib.suppress(queue.Empty):
+                page_count = page_count_q.get_nowait()
+        result_q.close()
+        page_count_q.close()
+        return pages, timed_out, page_count
 
-    def process(self, task: FileGroupTask) -> InterleavedBatch | None:
+    def _render_with_timeout(
+        self, pdf_bytes: bytes, file_name: str, page_indices: list[int] | None = None
+    ) -> list[Image.Image | None]:
+        """Render PDF with a process timeout and recursively recover slow windows.
+
+        SIGALRM cannot be used here because Xenna runs stage workers in non-main
+        threads and signal.signal() is restricted to the main thread.  Instead we
+        fork a child process (inheriting pdf_bytes via copy-on-write) and kill it
+        if it exceeds the timeout, which reliably escapes any C-extension hang.
+        A timed-out multi-page window is bisected so slow documents do not lose
+        every page in the window.
+        """
+        pages, timed_out, page_count = self._render_once(pdf_bytes, page_indices)
+        if not timed_out:
+            return pages
+
+        requested = page_indices
+        if requested is None and page_count is not None:
+            requested = list(range(min(page_count, self.max_pages)))
+        if not requested:
+            logger.warning(f"Render timed out ({self._RENDER_TIMEOUT_S}s) for {file_name}; page count unavailable")
+            return []
+        if len(requested) == 1:
+            logger.warning(
+                f"Render timed out ({self._RENDER_TIMEOUT_S}s) for {file_name} page {requested[0]}; retaining failure"
+            )
+            return [None]
+
+        midpoint = len(requested) // 2
+        left, right = requested[:midpoint], requested[midpoint:]
+        logger.warning(
+            f"Render timed out ({self._RENDER_TIMEOUT_S}s) for {file_name} pages "
+            f"{requested[0]}-{requested[-1]}; retrying {len(left)} + {len(right)} pages"
+        )
+        return self._render_with_timeout(pdf_bytes, file_name, left) + self._render_with_timeout(
+            pdf_bytes, file_name, right
+        )
+
+    @staticmethod
+    def _failed_row(sample_id: str, file_name: str, url: str, stage: str, message: str) -> dict[str, Any]:
+        return {
+            "sample_id": sample_id,
+            "position": -1,
+            "page_number": None,
+            "modality": "page_image",
+            "content_type": "image/png",
+            "text_content": "",
+            "binary_content": None,
+            "source_ref": None,
+            "url": url,
+            "pdf_name": file_name,
+            "materialize_error": json.dumps({"stage": stage, "type": "PDFError", "message": message}),
+        }
+
+    def _page_row(
+        self, sample_id: str, file_name: str, url: str, page_num: int, page_img: Image.Image | None
+    ) -> dict[str, Any]:
+        row = {
+            "sample_id": sample_id,
+            "position": page_num,
+            "modality": "page_image",
+            "content_type": "image/png",
+            "text_content": "",
+            "binary_content": None if page_img is None else image_to_bytes(page_img),
+            "source_ref": None,
+            "url": url,
+            "pdf_name": file_name,
+        }
+        if not self.retain_failures:
+            return row
+        error = None
+        if page_img is None:
+            error = json.dumps({"stage": "render_pdf", "type": "RenderError", "message": "Page rendering failed"})
+        return {**row, "page_number": page_num, "materialize_error": error}
+
+    def process(self, task: FileGroupTask) -> InterleavedBatch | None:  # noqa: C901
         rows: list[dict[str, Any]] = []
 
         parsed: list[dict] = [json.loads(e) for e in task.data]
@@ -210,34 +307,46 @@ class PDFPreprocessStage(ProcessingStage[FileGroupTask, InterleavedBatch]):
             else:
                 pdf_bytes = self._get_pdf_bytes(file_name, entry=entry)
             if pdf_bytes is None:
+                if self.retain_failures:
+                    rows.append(self._failed_row(sample_id, file_name, url, "read_pdf", "Could not read PDF"))
                 logger.warning(f"Could not read PDF: {file_name}")
                 continue
 
-            page_images = self._render_with_timeout(pdf_bytes, file_name)
+            page_indices = entry.get("selected_page_indices")
+            if page_indices is not None and (
+                not isinstance(page_indices, list)
+                or not page_indices
+                or any(not isinstance(page, int) or isinstance(page, bool) or page < 0 for page in page_indices)
+                or len(page_indices) != len(set(page_indices))
+            ):
+                msg = "selected_page_indices must be a nonempty list of unique nonnegative integers"
+                if self.retain_failures:
+                    rows.append(self._failed_row(sample_id, file_name, url, "manifest", msg))
+                logger.warning(f"Invalid selected_page_indices for {file_name}: {page_indices!r}")
+                continue
+
+            page_images = self._render_with_timeout(pdf_bytes, file_name, page_indices)
             if not page_images:
+                if self.retain_failures:
+                    rows.append(self._failed_row(sample_id, file_name, url, "render_pdf", "No render result"))
                 logger.warning(f"No pages rendered from {file_name}; skipping")
                 continue
 
             logger.debug(f"Rendered {file_name}: {len(page_images)} pages")
-            for page_num, page_img in enumerate(page_images):
-                rows.append(
-                    {
-                        "sample_id": sample_id,
-                        "position": page_num,
-                        "modality": "page_image",
-                        "content_type": "image/png",
-                        "text_content": "",
-                        "binary_content": image_to_bytes(page_img),
-                        "source_ref": None,
-                        "url": url,
-                        "pdf_name": file_name,
-                    }
-                )
+            physical_indexes = range(len(page_images)) if page_indices is None else page_indices
+            rows.extend(
+                self._page_row(sample_id, file_name, url, page_num, page_img)
+                for page_num, page_img in zip(physical_indexes, page_images, strict=True)
+                if self.retain_failures or page_img is not None
+            )
 
         if not rows:
             return None
 
         pages_df = pd.DataFrame(rows)
+        if self.retain_failures:
+            # An unopened document has no page number; without this pandas stores the column as float.
+            pages_df["page_number"] = pages_df["page_number"].astype("Int64")
         return InterleavedBatch(
             dataset_name=task.dataset_name,
             data=pa.Table.from_pandas(pages_df, preserve_index=False),

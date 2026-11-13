@@ -14,6 +14,8 @@
 
 """Tests for Nemotron-Parse inference-server configuration."""
 
+from pathlib import Path
+
 import pytest
 
 from nemo_curator.core.serve import DynamoServerConfig, DynamoVLLMModelConfig, RayServeModelConfig
@@ -65,3 +67,44 @@ def test_ray_serve_server_uses_driver_attention_backend(monkeypatch: pytest.Monk
 def test_rejects_non_positive_replica_count(num_replicas: int) -> None:
     with pytest.raises(ValueError, match="num_replicas must be at least 1"):
         create_nemotron_parse_inference_server(num_replicas=num_replicas)
+
+
+def test_local_parse_model_configures_dynamo_workers(tmp_path: Path) -> None:
+    model_path = str(tmp_path)
+    server = create_nemotron_parse_inference_server(
+        model_path=model_path,
+        model_name="nemotron-parse",
+        engine_kwargs={"max_num_seqs": 64},
+        nemotron_parse_path=model_path,
+    )
+
+    model = server.models[0]
+    assert model.runtime_env == {"uv": {"packages": ["albumentations==2.0.8", "openai>=3.37,<4", model_path]}}
+    assert model.engine_kwargs["tensor_parallel_size"] == 1
+    assert model.engine_kwargs["distributed_executor_backend"] == "uni"
+    assert model.engine_kwargs["max_model_len"] == 16384
+    assert model.engine_kwargs["max_num_batched_tokens"] == 16384
+    assert model.engine_kwargs["max_num_seqs"] == 64
+    assert "attention_config" not in model.engine_kwargs
+    assert server.backend.router.router_kwargs == {
+        "trust_remote_code": True,
+        "dyn_chat_processor": "vllm",
+        "model_name": "nemotron-parse",
+        "chat_template": str(tmp_path / "chat_template.jinja"),
+        "model_path": model_path,
+    }
+
+
+def test_parse_hub_identifier_is_not_a_frontend_local_path(tmp_path: Path) -> None:
+    server = create_nemotron_parse_inference_server(
+        model_path="nvidia/Nemotron-3.5-Parse",
+        nemotron_parse_path=str(tmp_path),
+    )
+    router = server.backend.router.router_kwargs
+    assert router["model_name"] == "nvidia/Nemotron-3.5-Parse"
+    assert "model_path" not in router
+
+
+def test_local_parse_model_rejects_ray_serve() -> None:
+    with pytest.raises(ValueError, match="nemotron_parse_path requires the dynamo backend"):
+        create_nemotron_parse_inference_server(backend="ray-serve", nemotron_parse_path="/models/parse35")
