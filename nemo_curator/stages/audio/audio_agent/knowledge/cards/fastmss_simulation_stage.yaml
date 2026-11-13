@@ -1,0 +1,21 @@
+stage_id: FastMSSSimulationStage
+summary: "Run installed FastMSS once per FileGroupTask .yaml config and return recording manifest paths."
+tags: [writes_disk]
+params_of_note:
+  isolate_work_dirs: "Only true is wrappable: data_dir and rir_dir are redirected under each fresh run directory."
+  max_meetings: "-1 uses configured count; positive cap requires one config in the input group."
+  output_dir: "All generated artifacts live below fresh child directories in isolated mode."
+  fastmss_root: "Optional trusted checkout override, otherwise installed pinned distribution."
+  timeout_seconds: "Child process-group timeout; failures retain logs for diagnosis."
+notes:
+  - "Consumes list-valued FileGroupTask data naming local .yaml configs, not audio rows. Emits FileGroupTask manifest paths; use FastMSSManifestReaderStage to obtain AudioTasks."
+  - "Use this FileGroupTask leaf in ordinary pipelines. It is not a standalone agent dataset source."
+  - "Requires prepared aligned source speech and the audio_simulation worker environment. No ASR or diarization inference is duplicated."
+  - "Each retry creates fresh artifacts. Parallel config shards are only supported without a global meeting cap."
+verified: {params: mechanical, tags: mechanical, resource: best_guess, domain: best_guess}
+
+category: ingest
+model_id: null
+domain: {language: any, style: any}
+resource: {cpus: 1.0, gpu_mem_gb: 0.0, gpu_optional: false, bound: cpu}
+provenance: {model_card_url: null, card_version: 1, last_validated: "2026-11-11"}

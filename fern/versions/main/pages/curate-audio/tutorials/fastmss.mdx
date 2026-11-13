@@ -31,7 +31,7 @@ pipeline = Pipeline(name="meeting_simulation", stages=[FastMSS(
 
 Run with your configured Curator executor. `FilePartitioningStage` distributes
 YAML shards; `FastMSSSimulationStage` invokes the installed toolkit in a child
-process; `ManifestReaderStage` reads one `AudioTask` per complete meeting.
+process; `FastMSSManifestReaderStage` validates one `AudioTask` per complete meeting.
 The inputs are prepared, word-aligned single-speaker Lhotse cuts. The toolkit
 simulates mixtures and ground-truth labels rather than running ASR or diarization
 inference. Existing Curator ASR/diarization adapters remain available downstream.
@@ -41,6 +41,21 @@ generated supervision transcripts in start-time order, retaining overlaps.
 Failed shards emit no tasks and retain diagnostic logs. Retries use fresh output
 directories. Single-speaker meetings are unsupported; saving anechoic references
 requires reverberation enabled with `reverb_prob=1`.
+
+## English audio and text through MFA
+
+The runnable example also starts from whole mono 16-kHz WAVs, supplied English
+text and stable speaker IDs without whitespace. It reuses Curator's
+`MFAAlignmentStage`, prepares genuine word-aligned Lhotse MonoCuts, expands one
+request per meeting and runs bounded smoke before generation. The resulting
+standard AudioTasks pass through existing duration/filter/writer stages.
+
+Use the example's `align`, `prepare` and `simulate` commands in existing
+environments. Supply existing matching English MFA dictionary/acoustic models;
+the script does not fetch models. The request adapter validates all supplied
+cut metadata, globally unique cut IDs and native sample-rate agreement. Native
+noise/RIR generation, lazy transforms and other documented unsupported modes
+remain outside this bounded adapter.
 
 See the [runnable example and configuration](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials/audio/fastmss)
 for installation, source manifest naming and supported settings.

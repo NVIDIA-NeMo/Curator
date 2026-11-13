@@ -1,0 +1,71 @@
+stage_id: SelectAudioLanguageStage
+category: transcribe
+summary: "Apply the reference three-component LID precedence policy, retain audit notes, and mark rejected tasks without dropping them."
+tags: []
+model_id: null
+domain: {language: "exact supplied language codes; configurable Indic policy set", style: "task-level ensemble annotations"}
+resource:
+  cpus: 1.0
+  gpu_mem_gb: 0.0
+  gpu_optional: false
+  bound: cpu
+use_cases:
+  good_for:
+    - "Applying the Granary ensemble's explicit English/agreement policy after its three LID components."
+    - "Keeping language decisions and rejection evidence on rows that must survive to an audit sink."
+  avoid_for:
+    - "Arbitrary model ensembles, majority voting, confidence thresholding, or selecting the highest score."
+    - "Detecting a language directly from waveform, transcript or filename."
+composition:
+  typical_upstream: [AudioLIDInferenceStage]
+params_of_note:
+  results_key: "Optional mapping, default lid. Missing/empty mappings are a rejection branch; successful parsing consumes the mapping after selection."
+  output_key: "Default source_lang. Receives the selected component's language verbatim, an empty string for missing predictions, or skipped for disagreement."
+  notes_key: "Default additional_notes. Existing mapping entries survive; a non-mapping value is replaced with a mapping."
+  confidence_key: "Chosen component's numeric confidence inside notes_key, default source_lid_confidence; zero on rejection."
+  skip_me_key: "Default _skipme. Rejection sets a selector-owned reason; acceptance clears only this selector's own three rejection reasons."
+  speechbrain_model_id: "Primary slot, default SpeechBrainLangID. This configures identity, not a model download."
+  indic_canary_model_id: "Canary slot, default IndicCanaryLangID. Its confidence is selected in the three-way-agreement branch."
+  whisper_model_id: "Whisper slot, default WhisperLangID. English wins, and Whisper also supplies the confidence for non-Indic primary/Whisper agreement."
+  indic_languages: "Exact policy set requiring three-way agreement; defaults: hi, ta, bn, ur, gu, mr, ml, kn, te, or, as, pa, ne, sa, sd, si, kok, mai, doi, ks, mni, sat, brx, bo. This is not a model-coverage declaration."
+param_dependencies:
+  results_key: "Each present component must contain language (string), confidence (finite [0,1]) and a nonempty tag. Only the three configured IDs are allowed; their tags must be distinct."
+  output_key: "Supply canonical lowercase codes from the producers. The selector performs exact comparisons and does not normalize aliases, casing or regional variants."
+semantic_facts:
+  source_lang:
+    meaning: "Language selected by ordered policy: Whisper English; otherwise three-way agreement; otherwise primary/Whisper agreement for a language outside indic_languages."
+    unit: "component language string; empty string for missing predictions; skipped for disagreement"
+    provenance: "Policy over the supplied LID component results, with no additional audio/model inference."
+    scope: "One task, based on its components' potentially different leading windows."
+    propagation: "The row survives every selection/rejection branch. Raw results_key is consumed, while component labels, scores and decision notes remain in notes_key."
+    counterexamples:
+      - "Whisper English is accepted even when primary/Canary disagree; this is explicit precedence, not a majority vote."
+      - "Primary/Whisper agreement on hi is insufficient with the default Indic set unless Canary also agrees."
+      - "Filtering only source_lang != skipped retains missing-prediction rows whose output is empty."
+  source_lid_confidence:
+    meaning: "The selected model's original numeric confidence, or zero after rejection."
+    unit: "float in [0,1]; component-specific"
+    provenance: "Whisper for English/non-Indic two-way agreement; Canary for three-way agreement."
+    scope: "Chosen component, not an ensemble posterior."
+    propagation: "Stored inside notes_key under confidence_key. Component audit confidences are separately formatted to three-decimal strings under tag-derived note names."
+    counterexamples:
+      - "The shipped Canary adapter uses 1.0 as a recognized-token marker; agreement does not turn it into calibrated certainty."
+  _skipme:
+    meaning: "Selector rejection reason for missing predictions, missing/empty Whisper, or disagreement."
+    unit: "reason string when rejected"
+    provenance: "Selection branch; unrelated upstream skip reasons remain owned by their original stage."
+    scope: "Task-level routing/audit flag."
+    propagation: "Existing unrelated skip reasons survive acceptance and rejection. This stage returns the task rather than enforcing downstream exclusion."
+    counterexamples:
+      - "AudioSegmentWriterStage does not suppress writing merely because a LID rejection flag is set."
+notes:
+  - "Policy order after validation: (1) missing/empty result mapping -> empty output; (2) Whisper en -> accept Whisper; (3) missing/empty Whisper -> empty output; (4) all three same -> accept Canary; (5) primary/Whisper agree outside indic_languages -> accept Whisper; (6) otherwise skipped."
+  - "All present results are validated before the English fast path. Unknown IDs, malformed components, non-finite/out-of-range confidence or duplicate tags raise instead of becoming ordinary disagreement."
+  - "Repeated execution is not a no-op: the first successful call removes raw results, so a second call without replenishing them takes the missing-predictions branch."
+  - "If a downstream NeMoSpeechWriterStage needs all source rows accounted for, preserve rejected rows as appropriate audit/placeholder outputs; an ordinary row-dropping filter can make shard finalization incomplete."
+  - "Implementation and policy authority: nemo_curator/stages/audio/postprocessing/lid_selection.py; behavioral examples: tests/stages/audio/postprocessing/test_lid_selection.py. Model language coverage/confidence semantics belong to each adapter, not this policy stage."
+comparison:
+  choose_when: "Use this selector only for this precedence/agreement policy. Use separately configured generic value filters for a different policy after defining the required labels and missing-value behavior."
+  known_limitations: "No confidence thresholds, cross-component calibration, language normalization or automatic row removal."
+verified: {params: mechanical, tags: mechanical, resource: mechanical, domain: best_guess, use_cases: best_guess, comparison: best_guess, semantic_facts: mechanical}
+provenance: {model_card_url: null, card_version: 2, last_validated: "2026-10-26"}

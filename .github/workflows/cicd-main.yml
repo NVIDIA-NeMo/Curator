@@ -14,6 +14,8 @@
 
 name: CICD NeMo Curator
 on:
+  merge_group:
+    types: [checks_requested]
   schedule:
     - cron: 0 0 * * *
   push:
@@ -62,6 +64,7 @@ jobs:
     if: |
       needs.pre-flight.outputs.is_ci_workload == 'false'
       && needs.pre-flight.outputs.docs_only == 'false'
+      && needs.pre-flight.outputs.is_merge_group != 'true'
     steps:
       - name: Running CI tests
         run: |
@@ -83,18 +86,31 @@ jobs:
         success()
         || needs.pre-flight.outputs.is_ci_workload == 'true'
         || needs.pre-flight.outputs.force_run_all == 'true'
+        || needs.pre-flight.outputs.is_merge_group == 'true'
       )
       && !cancelled()
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           submodules: recursive
+      - name: Report storage before cleanup
+        run: bash .github/scripts/report_disk_usage.sh
       - name: Free up disk space on Ubuntu
         run: |
           sudo rm -rf /usr/share/dotnet
           sudo rm -rf /opt/ghc
           sudo rm -rf /usr/local/share/boost
-          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          sudo rm -rf "${AGENT_TOOLSDIRECTORY:?}"
+          # Remove only this unused package through apt, not its system directory.
+          if [[ "$(dpkg-query -W -f='${db:Status-Status}' powershell 2>/dev/null || true)" == installed ]]; then
+            sudo apt-get purge -y --no-auto-remove powershell
+          else
+            echo "PowerShell is not installed; skipping package cleanup."
+          fi
+          sudo apt-get clean
+      - name: Report storage after cleanup
+        if: ${{ !cancelled() }}
+        run: bash .github/scripts/report_disk_usage.sh
       - name: Install system dependencies for audio tests
         if: matrix.folder == 'stages-audio'
         run: |
@@ -110,6 +126,9 @@ jobs:
       - name: Run CPU tests (Python 3.13)
         timeout-minutes: 40
         run: bash tests/L0_Unit_Test_CPU.sh "${{ matrix.folder }}" 3.13
+      - name: Report storage after CPU tests
+        if: ${{ !cancelled() }}
+        run: bash .github/scripts/report_disk_usage.sh
 
       - name: Generate report
         id: check
@@ -137,6 +156,7 @@ jobs:
         success()
         || needs.pre-flight.outputs.is_ci_workload == 'true'
         || needs.pre-flight.outputs.force_run_all == 'true'
+        || needs.pre-flight.outputs.is_merge_group == 'true'
       )
       && !cancelled()
     runs-on: ${{ startsWith(needs.pre-flight.outputs.runner_prefix, 'ephe-v2-') && format('{0}-a{1}', needs.pre-flight.outputs.runner_prefix, github.run_attempt) || needs.pre-flight.outputs.runner_prefix }}
@@ -167,6 +187,7 @@ jobs:
         success()
         || needs.pre-flight.outputs.is_ci_workload == 'true'
         || needs.pre-flight.outputs.force_run_all == 'true'
+        || needs.pre-flight.outputs.is_merge_group == 'true'
       )
       && !cancelled()
     outputs:
@@ -199,6 +220,7 @@ jobs:
         success()
         || needs.pre-flight.outputs.is_ci_workload == 'true'
         || needs.pre-flight.outputs.force_run_all == 'true'
+        || needs.pre-flight.outputs.is_merge_group == 'true'
       )
       && !cancelled()
     steps:
@@ -374,7 +396,8 @@ jobs:
           verbose: true
           flags: ${{ matrix.flag }}
           fail_ci_if_error: true
-          base_sha: ${{ fromJSON(steps.get-pr-info.outputs.pr-info || '{}').base.sha }}
+          base_sha: ${{ github.event.merge_group.base_sha || fromJSON(steps.get-pr-info.outputs.pr-info || '{}').base.sha }}
+          override_commit: ${{ github.event.merge_group.head_sha }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
@@ -386,10 +409,26 @@ jobs:
 
   codecov-placeholder:
     name: codecov/patch
-    needs: [pre-flight]
-    if: needs.pre-flight.outputs.docs_only == 'true'
+    needs: [pre-flight, Nemo_CICD_Test, Coverage]
+    # Merge groups have no single PR patch; require the tests and coverage uploads instead.
+    if: |
+      always()
+      && !cancelled()
+      && needs.pre-flight.result == 'success'
+      && (
+        needs.pre-flight.outputs.docs_only == 'true'
+        || needs.pre-flight.outputs.is_merge_group == 'true'
+      )
     runs-on: ubuntu-latest
     steps:
-      - name: codecov_placeholder
+      - name: Check coverage requirements
+        env:
+          DOCS_ONLY: ${{ needs.pre-flight.outputs.docs_only }}
+          TEST_RESULT: ${{ needs.Nemo_CICD_Test.result }}
+          COVERAGE_RESULT: ${{ needs.Coverage.result }}
         run: |
-          echo "This is a placeholder status check for when no tests are ran but the codecov status is expected"
+          if [[ "$DOCS_ONLY" != "true" && ("$TEST_RESULT" != "success" || "$COVERAGE_RESULT" != "success") ]]; then
+            echo "Merge-group tests and coverage uploads must both succeed."
+            exit 1
+          fi
+          echo "Coverage requirements satisfied for this merge group or documentation-only change."

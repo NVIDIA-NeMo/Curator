@@ -1,0 +1,37 @@
+# Recipe template (Recipe IR). Replace REQUIRED_* paths in stages[].params.
+# Optional inputs / --data only assert those paths; they never populate stage parameters.
+# Referenced by knowledge/blueprints/readspeech.yaml.
+recipe_id: readspeech-quality-filter
+name: speech_quality
+intent: "quality-filter speech with whole-file UTMOS and SIGMOS scores"
+rationale: "Replace REQUIRED_* paths in stages[].params; inputs and --data are optional consistency assertions, not substitutions. This is a whole-file speech-quality example; use ManifestReader for an existing JSONL source and adapt gates and acceptance to the request. Scores refer to mono audio used for inference; output references the original files."
+preset: general
+stages:
+  - ref: CreateInitialManifestAudioFolderStage
+    params: {data_dir: "REQUIRED_data_dir"}
+  - ref: AudioDataFilterStage
+    params:
+      config:
+        mono_conversion: {strict_sample_rate: false}
+        vad: {enable: false}
+        band_filter: {enable: false}
+        utmos: {enable: true, mos_threshold: 3.4}
+        sigmos: {enable: true, noise_threshold: 4.0, ovrl_threshold: 3.5}
+        speaker_separation: {enable: false}
+        timestamp_mapper: {}
+  - ref: AudioToDocumentStage
+    params: {strict_json: true}
+  - ref: DocumentBatchJsonlWriterStage
+    params: {output_path: "REQUIRED_output_manifest"}
+# Example policy thresholds, not quality guarantees. Adapt filters and acceptance to the request.
+acceptance_criteria:
+  - id: rows_point_at_audio
+    type: output_completeness
+    description: "every kept row names its original source audio after timestamp mapping"
+    check: {field: original_file}
+    severity: must
+  - id: quality_filters_kept_something
+    type: yield
+    description: "the UTMOS and SIGMOS thresholds did not reject the whole folder"
+    check: {op: ">", value: 0}
+    severity: must

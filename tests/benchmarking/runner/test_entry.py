@@ -12,16 +12,44 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 import shlex
 import subprocess
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
+if TYPE_CHECKING:
+    from _pytest.monkeypatch import MonkeyPatch
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "benchmarking"))
 
+from runner.entry import Entry
 from runner.session import Session
+
+
+def test_curator_repo_dir_placeholder_uses_explicit_curator_repo_dir(
+    monkeypatch: MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("CURATOR_BENCHMARK_CURATOR_REPO_DIR", "/custom/Curator")
+
+    resolved = Entry.substitute_reserved_placeholders("{curator_repo_dir}/nemo_curator", tmp_path, object())
+
+    assert resolved == "/custom/Curator/nemo_curator"
+
+
+def test_curator_repo_dir_placeholder_fails_when_curator_repo_dir_is_not_set(
+    monkeypatch: MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.delenv("CURATOR_BENCHMARK_CURATOR_REPO_DIR", raising=False)
+
+    with pytest.raises(RuntimeError, match="CURATOR_BENCHMARK_CURATOR_REPO_DIR must be set"):
+        Entry.substitute_reserved_placeholders("{curator_repo_dir}/nemo_curator", tmp_path, object())
 
 
 @pytest.mark.parametrize("save_tasks", [False, True])
