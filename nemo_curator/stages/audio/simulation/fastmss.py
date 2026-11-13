@@ -39,6 +39,37 @@ from nemo_curator.tasks import AudioTask, EmptyTask, FileGroupTask
 _MANAGED_OVERRIDES = frozenset(
     {"output_dir", "n_jobs", "stage", "save_rttm", "save_nemo_manifest", "hydra.run.dir", "hydra.job.chdir"}
 )
+_RTTM_FIELDS = 10
+
+
+def _validate_rttm(path: Path, meeting_duration: float) -> None:
+    seen = False
+    with path.open(encoding="utf-8") as stream:
+        for line in stream:
+            if not line.strip() or line.lstrip().startswith(";"):
+                continue
+            fields = line.split()
+            if len(fields) != _RTTM_FIELDS or fields[0] != "SPEAKER":
+                msg = f"FastMSS RTTM requires ten SPEAKER fields, including a single-token speaker ID: {path}"
+                raise ValueError(msg)
+            try:
+                channel, start, duration = int(fields[2]), float(fields[3]), float(fields[4])
+            except ValueError as error:
+                msg = f"FastMSS RTTM has invalid channel or timing: {path}"
+                raise ValueError(msg) from error
+            if (
+                channel < 0
+                or not math.isfinite(start + duration)
+                or start < 0
+                or duration <= 0
+                or start + duration > meeting_duration + 0.001
+            ):
+                msg = f"FastMSS RTTM timing is outside the complete meeting: {path}"
+                raise ValueError(msg)
+            seen = True
+    if not seen:
+        msg = f"FastMSS RTTM has no speaker intervals: {path}"
+        raise ValueError(msg)
 
 
 @dataclass
@@ -70,6 +101,9 @@ class FastMSSSimulationStage(AgentReady, ProcessingStage[FileGroupTask, FileGrou
         isolate_work_dirs: Keep YAML-defined preprocessing and RIR caches run-local.
             Required for agent wrapping; false preserves explicit pipeline behavior.
         max_meetings: Positive meeting cap for exactly one .yaml config; -1 is unlimited.
+        planned_config: Optional resolved request configuration. Requires isolated
+            work directories, a positive meeting cap and no additional overrides;
+            only documented execution settings are changed.
     """
 
     output_dir: str
@@ -83,6 +117,7 @@ class FastMSSSimulationStage(AgentReady, ProcessingStage[FileGroupTask, FileGrou
     max_meetings: int = -1
     expected_meetings: int | None = field(default=None, kw_only=True)
     expected_duration: float | None = field(default=None, kw_only=True)
+    planned_config: dict | None = field(default=None, kw_only=True, repr=False)
     name: str = "fastmss_simulation"
     is_resumable: bool = False
     AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
@@ -104,6 +139,16 @@ class FastMSSSimulationStage(AgentReady, ProcessingStage[FileGroupTask, FileGrou
             raise ValueError(msg)
         if self.timeout_seconds <= 0:
             msg = "timeout_seconds must be positive"
+            raise ValueError(msg)
+        if self.planned_config is not None and (
+            not isinstance(self.planned_config, dict)
+            or not self.isolate_work_dirs
+            or self.max_meetings < 1
+            or self.overrides
+        ):
+            msg = (
+                "planned_config requires a mapping, isolated paths, a positive meeting cap and no additional overrides"
+            )
             raise ValueError(msg)
         for override in self.overrides:
             key, separator, _ = override.partition("=")
@@ -140,21 +185,31 @@ class FastMSSSimulationStage(AgentReady, ProcessingStage[FileGroupTask, FileGrou
             *(["--installed-fastmss"] if self.fastmss_root is None else []),
             f"--config-path={config.parent}",
             f"--config-name={config.stem}",
-            *self.overrides,
-            f"output_dir={json.dumps(str(run_dir))}",
-            f"n_jobs={self.jobs_per_config}",
-            "stage=0",
-            "++save_rttm=true",
-            "++save_nemo_manifest=true",
-            f"hydra.run.dir={json.dumps(str(run_dir))}",
-            "hydra.job.chdir=false",
         ]
+        if self.planned_config is not None:
+            planned = run_dir / "planned_config.json"
+            planned.write_text(json.dumps(self.planned_config, allow_nan=False), encoding="utf-8")
+            command.extend([f"--planned-config={planned}", f"--jobs-per-config={self.jobs_per_config}"])
+        else:
+            command.extend(
+                [
+                    *self.overrides,
+                    f"output_dir={json.dumps(str(run_dir))}",
+                    f"n_jobs={self.jobs_per_config}",
+                    "stage=0",
+                    "++save_rttm=true",
+                    "++save_nemo_manifest=true",
+                    f"hydra.run.dir={json.dumps(str(run_dir))}",
+                    "hydra.job.chdir=false",
+                ]
+            )
         env = os.environ.copy()
         if self.fastmss_root is not None:
             env["FASTMSS_ROOT"] = self.fastmss_root
             env["PYTHONPATH"] = os.pathsep.join(filter(None, (self.fastmss_root, env.get("PYTHONPATH"))))
         if self.isolate_work_dirs:
             env["PYTHONDONTWRITEBYTECODE"] = "1"
+            env.update(TMPDIR=str(run_dir), TEMP=str(run_dir), TMP=str(run_dir))
         env["OMP_NUM_THREADS"] = "1"
         env["MKL_NUM_THREADS"] = "1"
         log_path = run_dir / "fastmss.log"
@@ -237,6 +292,7 @@ class FastMSSManifestReaderStage(ManifestReaderStage):
     name: str = "fastmss_manifest_reader"
     KEY_ROLE_OVERRIDES: ClassVar[Mapping[str, Role]] = {
         "include_files_key": "audio_filepath",
+        "text_key": "reference_text",
         "rttm_filepath_key": "output_path",
     }
 
@@ -270,6 +326,7 @@ class FastMSSManifestReaderStage(ManifestReaderStage):
             ):
                 msg = "FastMSS meeting requires a finite positive duration in seconds"
                 raise ValueError(msg)
+            _validate_rttm(Path(data["rttm_filepath"]), duration)
             values = {target: data[source] for source, target in keys.items()}
             if any(
                 target in data and target not in keys and data[target] != value for target, value in values.items()
@@ -340,7 +397,10 @@ class FastMSS(AgentReady, CompositeStage[EmptyTask, AudioTask]):
     text_key: str = "text"
     rttm_filepath_key: str = "rttm_filepath"
     name: str = "fastmss"
-    KEY_ROLE_OVERRIDES: ClassVar[Mapping[str, Role]] = {"rttm_filepath_key": "output_path"}
+    KEY_ROLE_OVERRIDES: ClassVar[Mapping[str, Role]] = {
+        "text_key": "reference_text",
+        "rttm_filepath_key": "output_path",
+    }
     is_resumable: bool = False
     AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
         gates=Gates(writes_to_disk=True, output_path_params=["output_dir"], per_row_independent=False)

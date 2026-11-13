@@ -103,7 +103,11 @@ def test_every_simulation_stage_is_discoverable_and_has_a_valid_card() -> None:
     from nemo_curator.stages.audio.audio_agent.card_conformance import audit, check_card
     from nemo_curator.stages.audio.audio_agent.index import get_index
 
-    names = {"FastMSS", "FastMSSSimulationStage", "FastMSSManifestReaderStage"}
+    names = {
+        "FastMSS",
+        "FastMSSSimulationStage",
+        "FastMSSManifestReaderStage",
+    }
     assert names <= set(get_index().stage_names())
     for name in names:
         assert not check_card(name, get_index().card(name))

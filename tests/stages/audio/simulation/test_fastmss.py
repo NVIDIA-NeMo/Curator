@@ -26,7 +26,7 @@ from nemo_curator.backends.ray_actor_pool import RayActorPoolExecutor
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
 from nemo_curator.stages.audio.common import ManifestReaderStage
-from nemo_curator.stages.audio.simulation import FastMSS, FastMSSSimulationStage
+from nemo_curator.stages.audio.simulation import FastMSS, FastMSSManifestReaderStage, FastMSSSimulationStage
 from nemo_curator.tasks import EmptyTask, FileGroupTask
 
 _ENTRY_POINT = """
@@ -388,8 +388,54 @@ def test_real_runner_isolates_yaml_and_override_caches_and_preserves_yaml_identi
     )
     groups = stage.process(FileGroupTask(dataset_name="test", data=[str(config)]))
     assert len(groups) == 1
+    assert ManifestReaderStage().process(groups[0])[0].data.custom_provenance == "meetings"
     assert not outside_data.exists()
     assert not outside_rir.exists()
     assert config.read_bytes() == original
     with pytest.raises(ValueError, match=r"\.yaml"):
         stage.process(FileGroupTask(dataset_name="test", data=[str(config.with_suffix(".yml"))]))
+
+
+def test_planned_configuration_cannot_silently_ignore_additional_overrides(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="no additional overrides"):
+        FastMSSSimulationStage(
+            output_dir=str(tmp_path / "generated"),
+            isolate_work_dirs=True,
+            max_meetings=1,
+            planned_config={"n_meetings": 4, "seed": 4},
+            overrides=["seed=1"],
+        )
+    assert not (tmp_path / "generated").exists()
+
+
+def test_meeting_reader_rejects_rttm_that_would_merge_whitespace_speaker_ids(tmp_path: Path) -> None:
+    audio = tmp_path / "meeting.wav"
+    audio.touch()
+    rttm = tmp_path / "meeting.rttm"
+    rttm.write_text("SPEAKER meeting 0 0 0.6 <NA> <NA> Speaker 0 <NA> <NA>\n")
+    manifest = tmp_path / "nemo_manifest.json"
+    manifest.write_text(
+        json.dumps({"audio_filepath": str(audio), "duration": 1, "text": "hello", "rttm_filepath": str(rttm)}) + "\n"
+    )
+    with pytest.raises(ValueError, match="RTTM"):
+        FastMSSManifestReaderStage().process(FileGroupTask(dataset_name="invalid_rttm", data=[str(manifest)]))
+
+
+def test_isolated_native_worker_redirects_ambient_temp_paths(
+    checkout: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = _config(tmp_path)
+    before = {path.name: path.read_bytes() for path in config.parent.iterdir()}
+    monkeypatch.setenv("TMPDIR", str(config.parent))
+    script = checkout / "recipes" / "sim.py"
+    script.write_text(
+        script.read_text().replace(
+            "assert cfg.n_jobs >= 1",
+            "assert cfg.n_jobs >= 1\nimport tempfile\nassert Path(tempfile.gettempdir()) == Path(cfg.output_dir)",
+        )
+    )
+    stage = FastMSSSimulationStage(
+        fastmss_root=str(checkout), output_dir=str(tmp_path / "output"), isolate_work_dirs=True, max_meetings=1
+    )
+    assert stage.process(FileGroupTask(dataset_name="temp_isolation", data=[str(config)]))
+    assert {path.name: path.read_bytes() for path in config.parent.iterdir()} == before

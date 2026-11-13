@@ -7,6 +7,7 @@ params_of_note:
   text_key: "Output field for nonempty joined reference transcripts."
   rttm_filepath_key: "Output field for the existing diarization reference."
 notes:
+  - "RTTM must contain nonempty ten-field SPEAKER records with finite positive in-bounds timing. Whitespace in speaker IDs creates extra fields and is rejected."
   - "Internal FastMSS leaf consuming FileGroupTask manifest paths. Additional annotations are preserved; renaming cannot overwrite an unrelated annotation."
   - "Missing artifacts or invalid required fields fail before emitting any tasks."
 verified: {params: mechanical, tags: mechanical, resource: best_guess, domain: best_guess, semantic_facts: mechanical}
@@ -15,7 +16,7 @@ category: ingest
 model_id: null
 domain: {language: any, style: any}
 resource: {cpus: 1.0, gpu_mem_gb: 0.0, gpu_optional: false, bound: cpu}
-provenance: {model_card_url: null, card_version: 1, last_validated: "2026-11-11"}
+provenance: {model_card_url: null, card_version: 2, last_validated: "2026-11-13"}
 
 semantic_facts:
   audio_filepath:
