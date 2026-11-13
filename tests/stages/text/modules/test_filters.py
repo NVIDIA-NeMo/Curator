@@ -1371,6 +1371,22 @@ class TestCodeFilters:
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
 
     @pytest.mark.parametrize(
+        "doc_filter",
+        [
+            PythonCommentToCodeFilter(),
+            GeneralCommentToCodeFilter("text/x-c++"),
+            AlphaFilter(),
+            HTMLBoilerplateFilter(),
+        ],
+    )
+    def test_empty_source(self, doc_filter: DocumentFilter) -> None:
+        # An empty file, such as an empty __init__.py, is dropped instead of failing the batch
+        assert doc_filter.keep_document(doc_filter.score_document("")) is False
+
+    def test_per_extension_filter_empty_source(self, per_extension_filter: PerExtensionFilter) -> None:
+        assert per_extension_filter.score_document("") == 0
+
+    @pytest.mark.parametrize(
         "content,expected",  # noqa: PT006
         [
             ("", (0, 0.0)),
