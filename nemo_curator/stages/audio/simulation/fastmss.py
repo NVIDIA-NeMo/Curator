@@ -81,6 +81,8 @@ class FastMSSSimulationStage(AgentReady, ProcessingStage[FileGroupTask, FileGrou
     timeout_seconds: float = 3600.0
     isolate_work_dirs: bool = False
     max_meetings: int = -1
+    expected_meetings: int | None = field(default=None, kw_only=True)
+    expected_duration: float | None = field(default=None, kw_only=True)
     name: str = "fastmss_simulation"
     is_resumable: bool = False
     AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
@@ -133,6 +135,8 @@ class FastMSSSimulationStage(AgentReady, ProcessingStage[FileGroupTask, FileGrou
             script,
             *(["--isolate-work-dirs"] if self.isolate_work_dirs else []),
             f"--max-meetings={self.max_meetings}",
+            *([f"--expected-meetings={self.expected_meetings}"] if self.expected_meetings is not None else []),
+            *([f"--expected-duration={self.expected_duration}"] if self.expected_duration is not None else []),
             *(["--installed-fastmss"] if self.fastmss_root is None else []),
             f"--config-path={config.parent}",
             f"--config-name={config.stem}",
@@ -149,6 +153,8 @@ class FastMSSSimulationStage(AgentReady, ProcessingStage[FileGroupTask, FileGrou
         if self.fastmss_root is not None:
             env["FASTMSS_ROOT"] = self.fastmss_root
             env["PYTHONPATH"] = os.pathsep.join(filter(None, (self.fastmss_root, env.get("PYTHONPATH"))))
+        if self.isolate_work_dirs:
+            env["PYTHONDONTWRITEBYTECODE"] = "1"
         env["OMP_NUM_THREADS"] = "1"
         env["MKL_NUM_THREADS"] = "1"
         log_path = run_dir / "fastmss.log"
@@ -270,7 +276,10 @@ class FastMSSManifestReaderStage(ManifestReaderStage):
             ):
                 msg = "FastMSS output key conflicts with an existing annotation"
                 raise ValueError(msg)
-            row.data = {**{key: value for key, value in data.items() if key not in keys}, **values}
+            # AudioTask.data must retain its attribute-access mapping for downstream validation.
+            for key in keys:
+                data.pop(key, None)
+            data.update(values)
         return rows
 
     def describe(self) -> StageContract:

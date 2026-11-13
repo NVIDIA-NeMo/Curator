@@ -57,7 +57,7 @@ class _SmokeBound:
     output_root: str | None = None
 
 
-def _bound_recipe(  # noqa: C901, PLR0911, PLR0912, PLR0915
+def _bound_recipe(  # noqa: C901, PLR0911, PLR0912
     recipe: Recipe,
     sample: int,
     rpt: SmokeReport,
@@ -178,11 +178,6 @@ def _bound_recipe(  # noqa: C901, PLR0911, PLR0912, PLR0915
             src.params[spec["path_param"]] = tmp
             return _SmokeBound(bounded, (tmp,), count)
         configured = values[spec["limit_param"]]
-        if spec["kind"] == "config_file":
-            if isinstance(configured, bool) or not isinstance(configured, int) or configured == 0 or configured < -1:
-                return _SmokeBound(None, error="declared config limit must be positive or -1 (unlimited)")
-            src.params[spec["limit_param"]] = min(sample, configured) if configured > 0 else sample
-            return _SmokeBound(bounded)
         if isinstance(configured, bool) or not isinstance(configured, int):
             return _SmokeBound(None, error="declared folder limit must be an integer")
         src.params[spec["limit_param"]] = min(sample, configured) if configured >= 0 else sample
@@ -318,7 +313,6 @@ def _smoke_write_issues(  # noqa: C901
         return ["temporary output root is missing"]
 
     from nemo_curator.stages.audio import agent as foundation
-    from nemo_curator.stages.base import CompositeStage
 
     issues: list[str] = []
     for stage in _walk_smoke_stages(stages):
@@ -331,11 +325,6 @@ def _smoke_write_issues(  # noqa: C901
             contract = foundation.build_contract(stage)
         except Exception as exc:  # noqa: BLE001 - inability to inspect must fail closed
             issues.append(f"{name}: disk-write contract could not be inspected ({type(exc).__name__}: {exc})")
-            continue
-        # Composite wrappers are expanded below; every concrete leaf must be
-        # safe to wrap, even when smoke is called without a preceding validate.
-        if not contract.wrappable and not isinstance(stage, CompositeStage):
-            issues.append(f"{name}: concrete stage is not wrappable; smoke isolation cannot be proven")
             continue
         if not contract.gates.writes_to_disk:
             continue

@@ -38,7 +38,7 @@ _OUTPUT_FIELDS = frozenset({"kind", "primary", "relocatable", "per_item"})
 _KINDS = frozenset({"manifest", "audio_dir", "rttm_dir", "text_dir", "archive", "unknown"})
 
 
-def io_violations(  # noqa: C901, PLR0912, PLR0915 - independent mechanical schema checks
+def io_violations(  # noqa: C901, PLR0912 - independent mechanical schema checks
     ref: str, card: dict[str, Any], params: set[str]
 ) -> list[str]:
     """Check parameter bindings without constructing a model or doing I/O."""
@@ -57,8 +57,8 @@ def io_violations(  # noqa: C901, PLR0912, PLR0915 - independent mechanical sche
             issues.append(f"{prefix}.source has invalid fields")
         else:
             kind = source.get("kind")
-            if not isinstance(kind, str) or kind not in {"manifest", "audio_folder", "config_file"}:
-                issues.append(f"{prefix}.source.kind must be manifest, audio_folder, or config_file")
+            if not isinstance(kind, str) or kind not in {"manifest", "audio_folder"}:
+                issues.append(f"{prefix}.source.kind must be manifest or audio_folder")
             if not source.get("path_param"):
                 issues.append(f"{prefix}.source.path_param is required")
             for key, value in source.items():
@@ -66,10 +66,8 @@ def io_violations(  # noqa: C901, PLR0912, PLR0915 - independent mechanical sche
                     issues.append(f"{prefix}.source.{key} must name a real constructor parameter")
             if kind == "manifest" and set(source) & {"extensions_param", "recursive_param", "limit_param"}:
                 issues.append(f"{prefix}.source manifest supports a single local manifest, not folder selectors")
-            if kind in ("audio_folder", "config_file") and not source.get("limit_param"):
-                issues.append(f"{prefix}.source requires limit_param for bounded smoke")
-            if kind == "config_file" and set(source) - {"kind", "path_param", "limit_param"}:
-                issues.append(f"{prefix}.source config_file supports only path_param and limit_param")
+            if kind == "audio_folder" and not source.get("limit_param"):
+                issues.append(f"{prefix}.source audio_folder requires limit_param for bounded smoke")
     outputs = block.get("outputs", {})
     if not isinstance(outputs, dict):
         issues.append(f"{prefix}.outputs must map output parameters to declarations")

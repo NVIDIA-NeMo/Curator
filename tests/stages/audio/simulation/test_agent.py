@@ -19,70 +19,8 @@ from pathlib import Path
 
 import pytest
 
-from nemo_curator.stages.audio.audio_agent import validate
-from nemo_curator.stages.audio.audio_agent._verb_smoke_inputs import _bound_recipe, _isolate_smoke_outputs
-from nemo_curator.stages.audio.audio_agent.contracts import SmokeReport
-from nemo_curator.stages.audio.audio_agent.input_identity import resolve_dataset_binding
-from nemo_curator.stages.audio.audio_agent.recipe import Recipe, StageRef
 from nemo_curator.stages.audio.simulation import FastMSS, FastMSSManifestReaderStage, FastMSSSimulationStage
 from nemo_curator.tasks import EmptyTask, FileGroupTask
-
-
-def recipe(tmp_path: Path, **params: object) -> Recipe:
-    config = tmp_path / "meetings.yaml"
-    config.write_text("n_meetings: 99\n")
-    return Recipe(
-        stages=[
-            StageRef(
-                ref="FastMSS",
-                params={
-                    "config_paths": str(config),
-                    "output_dir": str(tmp_path / "production"),
-                    "isolate_work_dirs": True,
-                    **params,
-                },
-            )
-        ]
-    )
-
-
-def test_public_validation_requires_safe_wrapping_and_guarantees_outputs(tmp_path: Path):
-    rec = recipe(tmp_path)
-    expected = ["audio_filepath", "duration", "text", "rttm_filepath"]
-    verdict = validate(rec, expected_outputs=expected)
-    assert verdict["runnable"], verdict
-    assert not validate(recipe(tmp_path, isolate_work_dirs=False))["runnable"]
-    renamed = recipe(tmp_path, duration_key="meeting_seconds", text_key="reference", rttm_filepath_key="rttm")
-    verdict = validate(renamed, expected_outputs=["duration", "text", "rttm"])
-    assert verdict["runnable"], verdict
-
-
-def test_binding_is_one_readonly_generated_config_without_audio_profile(tmp_path: Path):
-    rec = recipe(tmp_path)
-    binding = resolve_dataset_binding(rec)
-    assert binding.status == "resolved"
-    assert binding.generated
-    assert binding.profile_source is None
-    assert binding.primary_path == str(tmp_path / "meetings.yaml")
-    assert resolve_dataset_binding(rec, data=str(tmp_path / "other.yaml")).status == "mismatch"
-    rec.stages[0].params["config_paths"] = [str(tmp_path / "meetings.yaml")]
-    assert resolve_dataset_binding(rec).status != "resolved"
-
-
-def test_smoke_caps_generator_and_isolates_output_without_editing_config(tmp_path: Path):
-    rec = recipe(tmp_path)
-    before = (tmp_path / "meetings.yaml").read_bytes()
-    report = SmokeReport()
-    bound = _bound_recipe(rec, 2, report, resolve_dataset_binding(rec))
-    assert bound.recipe.stages[0].params["max_meetings"] == 2
-    isolated = _isolate_smoke_outputs(bound, report)
-    assert isolated.recipe.stages[0].params["output_dir"].startswith(isolated.output_root)
-    assert rec.stages[0].params["output_dir"] == str(tmp_path / "production")
-    assert "max_meetings" not in rec.stages[0].params
-    assert (tmp_path / "meetings.yaml").read_bytes() == before
-    import shutil
-
-    shutil.rmtree(isolated.output_root)
 
 
 @pytest.mark.parametrize(
@@ -146,7 +84,11 @@ def test_reader_contract_renames_required_fields_and_preserves_extras(tmp_path: 
         return FileGroupTask(dataset_name="test", data=[str(manifest)])
 
     assert_agent_ready(stage, fixture_factory=fixture, expected_cardinality="1:N fan-out")
-    data = stage.process(fixture())[0].data
+    result = stage.process(fixture())[0]
+    from nemo_curator.stages.audio.common import GetAudioDurationStage
+
+    assert GetAudioDurationStage(audio_filepath_key="mixture").validate_input(result)
+    data = result.data
     assert data == {
         "mixture": str(audio),
         "seconds": 1,

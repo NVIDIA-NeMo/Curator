@@ -207,14 +207,6 @@ def smoke(  # noqa: C901, PLR0911, PLR0912, PLR0913, PLR0915
         if data_profile is not None
         else sample
     )
-    from nemo_curator.stages.audio.audio_agent._capabilities import io_for
-
-    if io_for(bounded.stages[0].ref).get("source", {}).get("kind") == "config_file":
-        # A configured row cap is an upper bound, not a source measurement.
-        rpt.input_count = None
-        rpt.rejected = None
-        rpt.notes.append("generated source count is unmeasured; input_count and rejected are unknown")
-    sampled_input_count = None if rpt.input_count is None else min(sample, rpt.input_count)
     caller_executor = executor
     owned_ray_address: str | None = None
     if bootstrap_ray and caller_executor is None:
@@ -347,10 +339,8 @@ def smoke(  # noqa: C901, PLR0911, PLR0912, PLR0913, PLR0915
         # manifest is a serialized output, so count that instead of return
         # carriers or a zero-output smoke could receive a success token.
         rpt.retained = pretrain_output_rows if pretrain_output_rows is not None else _row_count(results)
-        rpt.rejected = (
-            None
-            if sampled_input_count is None
-            else _report_data.source_rejection_count(bounded, sampled_input_count, rpt.retained, stages=stages)
+        rpt.rejected = _report_data.source_rejection_count(
+            bounded, min(sample, rpt.input_count), rpt.retained, stages=stages
         )
         rpt.per_stage_metrics = _verb_evidence._stage_metrics(results)
         sampled_rows = list(_verb_evidence._result_rows(results))
@@ -358,7 +348,7 @@ def smoke(  # noqa: C901, PLR0911, PLR0912, PLR0913, PLR0915
         from nemo_curator.stages.audio.audio_agent.acceptance import parse_criteria, permits_empty_result
 
         rpt.goals_met = rpt.retained > 0 or permits_empty_result(
-            parse_criteria(rec.acceptance_criteria), input_count=sampled_input_count
+            parse_criteria(rec.acceptance_criteria), input_count=min(sample, rpt.input_count)
         )
         if rpt.retained == 0 and rpt.goals_met:
             rpt.notes.append("empty_sample_permitted_by_acceptance_contract; full-dataset yield is not established")

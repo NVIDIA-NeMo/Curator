@@ -427,7 +427,7 @@ class SmokeReport:
 
     ran: bool = False
     sample: int = 0
-    input_count: int | None = 0  # None when a generator's emitted source count is unmeasured.
+    input_count: int = 0
     retained: int = 0
     rejected: int | None = 0
     errors: list[str] = field(default_factory=list)

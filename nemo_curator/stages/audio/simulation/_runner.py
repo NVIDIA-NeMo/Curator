@@ -87,6 +87,8 @@ def main() -> None:
     parser.add_argument("--installed-fastmss", action="store_true")
     parser.add_argument("--isolate-work-dirs", action="store_true")
     parser.add_argument("--max-meetings", type=int, default=-1)
+    parser.add_argument("--expected-meetings", type=int)
+    parser.add_argument("--expected-duration", type=float)
     parser.add_argument("--config-path", required=True)
     parser.add_argument("--config-name", required=True)
     args, overrides = parser.parse_known_args()
@@ -127,6 +129,10 @@ def main() -> None:
                 raise ValueError(msg)
             overrides.append(f"n_meetings={min(count, args.max_meetings)}")
         config = compose(config_name=args.config_name, overrides=overrides)
+        for key, expected in (("n_meetings", args.expected_meetings), ("duration", args.expected_duration)):
+            if expected is not None and config.get(key) != expected:
+                msg = f"Native {key} changed since request planning; prepare the request again"
+                raise ValueError(msg)
         validate_config(OmegaConf.to_container(config, resolve=True))
     sys.argv = [args.script, f"--config-path={args.config_path}", f"--config-name={args.config_name}", *overrides]
     # Match direct script execution; the sibling Curator fastmss.py would shadow

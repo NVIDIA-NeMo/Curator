@@ -232,3 +232,20 @@ def test_enrichment_leaves_missing_or_empty_manifests_for_parent_diagnostics(tmp
     assert manifest.exists() == empty
     if empty:
         assert manifest.read_bytes() == b""
+
+
+@pytest.mark.parametrize("override", ["n_meetings=8", "duration=5"])
+def test_planned_native_bounds_are_verified_before_recipe_execution(
+    runner_recipe: SimpleNamespace, override: str
+) -> None:
+    sys.argv.extend(
+        [
+            "--expected-meetings=7",
+            "--expected-duration=2",
+            "++duration=2",
+            override if override.startswith("n_meetings") else "++duration=5",
+        ]
+    )
+    with pytest.raises(ValueError, match="changed since request planning"):
+        _runner.main()
+    assert not runner_recipe.output.exists()

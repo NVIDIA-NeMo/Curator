@@ -9,7 +9,7 @@ params_of_note:
   timeout_seconds: "Child process-group timeout; failures retain logs for diagnosis."
 notes:
   - "Consumes list-valued FileGroupTask data naming local .yaml configs, not audio rows. Emits FileGroupTask manifest paths; use FastMSSManifestReaderStage to obtain AudioTasks."
-  - "Use FastMSS as the agent recipe source. This concrete leaf is not a standalone dataset source."
+  - "Use FastMSSRequests and FastMSSRequestStage as the agent-facing path. This concrete leaf is not a standalone dataset source."
   - "Requires prepared aligned source speech and the audio_simulation worker environment. No ASR or diarization inference is duplicated."
   - "Each retry creates fresh artifacts. Parallel config shards are only supported without a global meeting cap."
 verified: {params: mechanical, tags: mechanical, resource: best_guess, domain: best_guess}
