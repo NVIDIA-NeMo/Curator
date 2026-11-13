@@ -24,6 +24,7 @@ from __future__ import annotations
 import contextlib
 import http
 import json
+import math
 import os
 import time
 import urllib.request
@@ -377,7 +378,7 @@ class DynamoBackend(InferenceBackend):
         TP group would not fit on one node — disagg does not support multi-node TP.
         """
         max_gpus_per_node = max((n["num_gpus"] for n in topology), default=0) if topology else 0
-        total_needed = 0
+        gpu_reservations: list[tuple[int, float]] = []
         for model_config in models:
             model_name = model_config.resolved_model_name
             if model_config.mode == "disagg":
@@ -394,10 +395,13 @@ class DynamoBackend(InferenceBackend):
                                 f"Disaggregated mode does not support multi-node TP."
                             )
                             raise ValueError(msg)
-                total_needed += num_prefill * prefill_tp + num_decode * decode_tp
+                gpu_reservations.extend(((num_prefill, prefill_tp), (num_decode, decode_tp)))
             else:
                 tp_size = model_config.engine_kwargs.get("tensor_parallel_size", 1)
-                total_needed += model_config.num_replicas * tp_size
+                gpu_reservations.append((model_config.num_replicas, tp_size * model_config.gpu_fraction))
+        # Sum individual replica reservations to avoid intermediate multiplication
+        # and addition rounding falsely exceeding an exactly filled GPU.
+        total_needed = math.fsum(fraction for count, fraction in gpu_reservations for _ in range(count))
         check_total_gpu_capacity(total_needed, ignore_head_node=ignore_ray_head_node())
 
     # ------------------------------------------------------------------
@@ -421,11 +425,18 @@ class DynamoBackend(InferenceBackend):
             command=command,
             runtime_dir=self._runtime_dir,
             actor_name_prefix=self._actor_name_prefix,
+            namespace=NEMO_CURATOR_DYNAMO_NAMESPACE,
             subprocess_env=subprocess_env,
         )
         short_label = label.rsplit("_", 1)[-1].lower()
         logger.info(f"Starting {short_label} on port {port} via {self._infra_ip}")
-        _wait_for_port(self._infra_ip, port, timeout_s=30, label=short_label)
+        try:
+            _wait_for_port(self._infra_ip, port, timeout_s=30, label=short_label)
+        except Exception:
+            # The caller receives this handle only after readiness succeeds.
+            with contextlib.suppress(Exception):
+                proc.stop()
+            raise
         logger.info(f"{short_label} is ready")
         return proc
 
@@ -537,6 +548,7 @@ class DynamoBackend(InferenceBackend):
             python_args=python_args,
             runtime_dir=self._runtime_dir,
             actor_name_prefix=self._actor_name_prefix,
+            namespace=NEMO_CURATOR_DYNAMO_NAMESPACE,
             subprocess_env=frontend_env,
             runtime_env=runtime_env,
         )

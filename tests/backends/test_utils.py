@@ -34,6 +34,7 @@ from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.utils import ray_utils
 from nemo_curator.utils.ray_utils import get_head_node_id
+from tests.backends.utils import capture_logs
 
 if TYPE_CHECKING:
     from nemo_curator.tasks import Task
@@ -107,7 +108,6 @@ class TestExecuteSetupOnNode:
         self,
         shared_ray_client: None,
         tmp_path: Path,
-        caplog: LogCaptureFixture,
     ):
         """Test execute_setup_on_node with two stages on the Ray cluster."""
 
@@ -133,7 +133,8 @@ class TestExecuteSetupOnNode:
         stage2 = MockStage1().with_(name="mock_stage_2", resources=Resources(cpus=0.5, gpus=0.0))
 
         # Test
-        execute_setup_on_node([stage1, stage2])
+        with capture_logs() as captured:
+            execute_setup_on_node([stage1, stage2])
 
         # Check the files written to the temp directory
         # Verify that NodeInfo and WorkerMetadata were passed correctly
@@ -155,11 +156,11 @@ class TestExecuteSetupOnNode:
                 f"Expected node IDs to be the same as the Ray nodes, got {node_ids}"
             )
 
-        # Check that there are exactly two log records that start with "Executing setup on node" and end with "for 2 stages"
+        messages = [line.rsplit(" | ", 1)[-1] for line in captured.getvalue().splitlines()]
         matching_logs = [
-            record.message
-            for record in caplog.records
-            if record.message.startswith("Executing setup on node") and record.message.endswith("for 2 stages")
+            message
+            for message in messages
+            if message.startswith("Executing setup on node") and message.endswith("for 2 stages")
         ]
         # TODO: When we add a cluster then we should check the value of len(ray.nodes()) too
         assert len(matching_logs) == len(ray.nodes()), (
@@ -295,9 +296,9 @@ class TestCheckTotalGpuCapacity:
 
     @pytest.mark.parametrize(
         ("available_gpus", "needed", "should_raise"),
-        [(8.0, 4, False), (8.0, 8, False), (8.0, 9, True), (0.0, 1, True)],
+        [(8.0, 4, False), (8.0, 8, False), (8.0, 9, True), (0.0, 1, True), (0.5, 0.5, False), (4.0, 4.5, True)],
     )
-    def test_capacity_check(self, available_gpus: float, needed: int, should_raise: bool) -> None:
+    def test_capacity_check(self, available_gpus: float, needed: float, should_raise: bool) -> None:
         with pytest.MonkeyPatch.context() as mp:
             mp.setattr(
                 "nemo_curator.backends.utils.get_available_cpu_gpu_resources",

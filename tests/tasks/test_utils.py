@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import pickle
+
 import numpy as np
 
 from nemo_curator.pipeline.workflow import WorkflowRunResult
@@ -90,6 +92,27 @@ class TestTaskPerfUtils:
 
         assert metrics["FanoutStage_process_time_sum"] == 6.0
         assert metrics["FanoutStage_custom.num_rows_sum"] == 300.0
+
+    def test_collect_stage_metrics_deduplicates_independently_serialized_copies(self) -> None:
+        shared = make_dummy_task("FanoutStage", 2.0, custom=100.0)
+        # Each Ray row is serialized separately, without a shared pickle memo.
+        copies = [pickle.loads(pickle.dumps(shared)) for _ in range(3)]  # noqa: S301 - trusted in-memory fixture
+        distinct = make_dummy_task("FanoutStage", 2.0, custom=100.0)
+        assert copies[0]._stage_perf[0] == distinct._stage_perf[0]
+
+        metrics = TaskPerfUtils.aggregate_task_metrics([*copies, distinct])
+
+        assert metrics["FanoutStage_process_time_sum"] == 4.0
+        assert metrics["FanoutStage_custom.io_sum"] == 200.0
+
+    def test_collect_stage_metrics_accepts_older_stats_without_measurement_id(self) -> None:
+        old = make_dummy_task("LegacyStage", 2.0)
+        del old._stage_perf[0]._measurement_id
+        sibling = EmptyTask(dataset_name="sibling", data=None, _stage_perf=old._stage_perf)
+
+        metrics = TaskPerfUtils.aggregate_task_metrics([old, sibling])
+
+        assert metrics["LegacyStage_process_time_sum"] == 2.0
 
     def test_aggregate_task_metrics_with_pipeline_prefixes(self) -> None:
         """Test aggregating task metrics with pipeline prefixes."""

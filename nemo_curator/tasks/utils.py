@@ -14,13 +14,16 @@
 
 from collections import defaultdict
 from collections.abc import Mapping
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
 from nemo_curator.pipeline.workflow import WorkflowRunResult
 
 from .tasks import Task
+
+if TYPE_CHECKING:
+    from uuid import UUID
 
 
 class TaskPerfUtils:
@@ -85,7 +88,7 @@ class TaskPerfUtils:
             Dict mapping stage_name -> metric_name -> list of numeric values.
         """
         stage_to_metrics: dict[str, dict[str, list[float]]] = {}
-        seen_stage_perfs: set[int] = set()
+        seen_stage_perfs: set[UUID | int] = set()
 
         for pipeline_tasks in TaskPerfUtils._normalize_pipeline_tasks(tasks).values():
             for task in pipeline_tasks or []:
@@ -93,8 +96,9 @@ class TaskPerfUtils:
                 for perf in perfs:
                     # A batch may fan out into multiple tasks. The adapter attaches
                     # the same batch-level stats object to every output so each task
-                    # retains its provenance; aggregate that shared object only once.
-                    perf_id = id(perf)
+                    # retains its provenance. The measurement ID survives per-row
+                    # serialization; older stats without it retain identity-based dedup.
+                    perf_id = getattr(perf, "_measurement_id", id(perf))
                     if perf_id in seen_stage_perfs:
                         continue
                     seen_stage_perfs.add(perf_id)

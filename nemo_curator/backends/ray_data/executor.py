@@ -18,8 +18,8 @@ import ray
 from loguru import logger
 from ray.data import DataContext, Dataset
 
-from nemo_curator.backends.base import BaseExecutor
-from nemo_curator.backends.utils import execute_setup_on_node, register_loguru_serializer
+from nemo_curator.backends.base import BaseExecutor, BaseStageAdapter
+from nemo_curator.backends.utils import RayStageSpecKeys, execute_setup_on_node, register_loguru_serializer
 from nemo_curator.tasks import EmptyTask, Task
 
 from .adapter import RayDataStageAdapter
@@ -63,6 +63,16 @@ class RayDataExecutor(BaseExecutor):
         """
         if not stages:
             return []
+        driver_stages = [stage for stage in stages if stage.ray_stage_spec().get(RayStageSpecKeys.RUN_ON_DRIVER)]
+        driver_stage_ids = {id(stage) for stage in driver_stages}
+        if driver_stages and any(id(stage) not in driver_stage_ids for stage in stages[-len(driver_stages) :]):
+            msg = "Driver validation stages must follow all distributed stages"
+            raise ValueError(msg)
+        required = {getattr(stage, "required_finalizer", None) for stage in stages} - {None}
+        present = {getattr(stage, "finalizes", None) for stage in driver_stages}
+        if missing := required - present:
+            msg = f"Required final driver validation is missing: {sorted(missing)}"
+            raise ValueError(msg)
 
         diagnostics_status = install_ray_data_diagnostics()
         if diagnostics_status is DiagnosticsInstallStatus.UNSUPPORTED:
@@ -95,6 +105,8 @@ class RayDataExecutor(BaseExecutor):
 
             # Process through each stage
             for i, stage in enumerate(stages):
+                if id(stage) in driver_stage_ids:
+                    continue
                 # TODO: add pipeline level config for verbosity
                 logger.info(f"Processing stage {i + 1}/{len(stages)}: {stage}")
                 logger.info(f"  CPU cores: {stage.resources.cpus}, GPU ratio: {stage.resources.gpus}")
@@ -111,6 +123,9 @@ class RayDataExecutor(BaseExecutor):
             # Convert final dataset back to tasks
             # TODO: add pipeline configuration to check if user wants to return last stages output to driver
             output_tasks = self._dataset_to_tasks(current_dataset)
+            # Driver validation also sees an empty result set, which no map/group UDF can inspect.
+            for stage in driver_stages:
+                output_tasks = BaseStageAdapter(stage).process_batch(output_tasks)
             logger.info(f"Pipeline completed. Final results: {len(output_tasks)} tasks")
         finally:
             # This ensures we unset all the env vars set above during initialize and kill the pending actors.

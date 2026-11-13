@@ -128,6 +128,8 @@ class RayStageSpecKeys(str, Enum):
 
     IS_ACTOR_STAGE = "is_actor_stage"
     IS_FANOUT_STAGE = "is_fanout_stage"
+    GROUP_BY_METADATA = "group_by_metadata"
+    RUN_ON_DRIVER = "run_on_driver"
     IS_RAFT_ACTOR = "is_raft_actor"
     USE_TASK_WEIGHTS = "use_task_weights"
     IS_LSH_STAGE = "is_lsh_stage"
@@ -217,7 +219,7 @@ def get_available_cpu_gpu_resources(
     return (available_cpus, available_gpus)
 
 
-def check_total_gpu_capacity(gpus_needed: int, *, ignore_head_node: bool = False) -> None:
+def check_total_gpu_capacity(gpus_needed: float, *, ignore_head_node: bool = False) -> None:
     """Raise if the cluster doesn't have enough GPUs to satisfy aggregate demand.
 
     Intended as a coarse pre-check before submitting placement groups: Ray's
@@ -226,7 +228,7 @@ def check_total_gpu_capacity(gpus_needed: int, *, ignore_head_node: bool = False
     than waiting on a timeout.
     """
     _, available_gpus = get_available_cpu_gpu_resources(ignore_head_node=ignore_head_node)
-    available = int(available_gpus)
+    available = available_gpus
     if gpus_needed > available:
         msg = f"Need {gpus_needed} GPUs but cluster has {available} available."
         raise RuntimeError(msg)
