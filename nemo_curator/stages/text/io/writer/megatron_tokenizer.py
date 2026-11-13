@@ -225,7 +225,7 @@ class MegatronTokenizerWriter(BaseWriter):
                 idx_file.write(sequence_lengths.tobytes(order="C"))
 
                 # Byte offsets for all sequences
-                sequence_pointers = np.array(self._sequence_pointers(sequence_lengths, token_size), dtype=np.int64)
+                sequence_pointers = self._sequence_pointers(sequence_lengths, token_size)
                 idx_file.write(sequence_pointers.tobytes(order="C"))
 
                 # Sequence indices marking the end of each document
@@ -237,18 +237,18 @@ class MegatronTokenizerWriter(BaseWriter):
             raise
 
     @staticmethod
-    def _sequence_pointers(sequence_lengths: list[int], token_size: int) -> list[int]:
+    def _sequence_pointers(sequence_lengths: list[int] | np.ndarray, token_size: int) -> np.ndarray:
         """Build the sequence pointers per the sequence lengths and dtype size
 
         Args:
-            sequence_lengths (list[int]): The length of each sequence
+            sequence_lengths (list[int] | np.ndarray): The length of each sequence
             token_size (int): The size of each token in bytes
         Returns:
-            list[int]: The pointer to the beginning of each sequence
+            np.ndarray: The int64 byte offset of the beginning of each sequence
         """
-        curr_ptr = 0
-        list_ptr = []
-        for length in sequence_lengths:
-            list_ptr.append(curr_ptr)
-            curr_ptr += length * token_size
-        return list_ptr
+        # Accumulate in int64: the lengths arrive as int32, and an int32 running offset
+        # wraps once the .bin file passes 2 GiB.
+        byte_lengths = np.asarray(sequence_lengths, dtype=np.int64) * token_size
+        sequence_pointers = np.zeros(len(byte_lengths), dtype=np.int64)
+        np.cumsum(byte_lengths[:-1], out=sequence_pointers[1:])
+        return sequence_pointers
