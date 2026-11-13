@@ -67,7 +67,25 @@ jobs:
           echo "UV_LINK_MODE=copy" | tee -a "$GITHUB_ENV"
 
       - name: Upgrade lock file
-        run: uv lock --upgrade
+        run: |
+          # vLLM upgrades require a coordinated review of its CUDA/PyTorch dependencies.
+          python - <<'PY'
+          import subprocess
+          import tomllib
+          from pathlib import Path
+
+          lockfile = Path("uv.lock")
+          before = tomllib.loads(lockfile.read_text())
+          packages = sorted({pkg["name"] for pkg in before["package"]} - {"vllm"})
+          args = [arg for name in packages for arg in ("--upgrade-package", name)]
+          subprocess.run(["uv", "lock", *args], check=True)
+
+          after = tomllib.loads(lockfile.read_text())
+          old_versions = {pkg["version"] for pkg in before["package"] if pkg["name"] == "vllm"}
+          new_versions = {pkg["version"] for pkg in after["package"] if pkg["name"] == "vllm"}
+          if old_versions != new_versions:
+              raise SystemExit("vLLM changed indirectly; update it manually with its related dependencies.")
+          PY
 
       - name: Upload lock file
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
