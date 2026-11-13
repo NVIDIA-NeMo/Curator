@@ -40,14 +40,13 @@ authors = [
 ]
 description = "Scalable Data Preprocessing Tool for Training Large Language Models"
 readme = "README.md"
-requires-python = ">=3.11,<3.14"
+requires-python = ">=3.12,<3.14"
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
@@ -98,13 +97,13 @@ inference_server = [
 
 # Installs CPU + GPU text curation modules
 deduplication_cuda12 = [
-    "cudf-cu12==26.10.*",
-    "cudf-streaming-cu12==26.10.*",
-    "cuml-cu12==26.10.*",
-    "pylibcugraph-cu12==26.10.*",
-    "pylibraft-cu12==26.10.*",
-    "raft-dask-cu12==26.10.*",
-    "rapidsmpf-cu12==26.10.*",
+    "cudf-cu12>=26.12.0a0,<26.13",
+    "cudf-streaming-cu12>=26.12.0a0,<26.13",
+    "cuml-cu12>=26.12.0a0,<26.13",
+    "pylibcugraph-cu12>=26.12.0a0,<26.13",
+    "pylibraft-cu12>=26.12.0a0,<26.13",
+    "raft-dask-cu12>=26.12.0a0,<26.13",
+    "rapidsmpf-cu12>=26.12.0a0,<26.13",
 ]
 
 audio_common = [
@@ -377,6 +376,10 @@ override-dependencies = [
     "cryptography>=50.0.1", # Override data-designer==0.9.1's 49.0.0 pin
 ]
 
+
+[[tool.uv.index]]
+name = "rapids-nightly"
+url = "https://pypi.anaconda.org/rapidsai-wheels-nightly/simple"
 
 [[tool.uv.index]]
 name = "pypi"
