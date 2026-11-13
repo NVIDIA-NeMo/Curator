@@ -461,6 +461,7 @@ ignore = [
     "COM812", # disable the trailing comma in linter, because ruff formatter ensures it
     "SLF001", # allow accessing private attributes
     "PLC0415", # allow imports inside functions (lazy imports for optional/heavy deps)
+    "UP040", "UP046", "UP047", # allow existing TypeAlias, Generic, and TypeVar declarations
 ]
 fixable = ["ALL"]
 
