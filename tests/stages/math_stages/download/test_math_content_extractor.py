@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import copy
+import json
 from unittest import mock
 
 import pytest
@@ -106,6 +107,62 @@ class TestMathContentExtractor:
         assert result["type"] == expected_type
         assert result["url"] == record["url"]
         assert "text" in result
+
+    def test_extract_notebook_separates_cells_and_outputs(
+        self, test_records: dict, comprehensive_notebook_json: str
+    ) -> None:
+        """Cell sources and outputs that do not end with a newline are not glued to the next one."""
+        record = test_records["notebook"].copy()
+        record["binary_content"] = comprehensive_notebook_json.encode("utf-8")
+
+        with mock.patch("magic.Magic") as mock_magic:
+            mock_magic.return_value.from_buffer.return_value = "application/json"
+            result = MathContentExtractor().extract(record)
+
+        assert result is not None
+        assert result["type"] == "notebook"
+        assert result["text"] == (
+            "# Title\n"
+            "This is markdown content.\n"
+            "import numpy as np\n"
+            "print('Hello World')\n"
+            "Hello World\n"
+            "42\n"
+            "Raw cell content\n"
+            "x = 5\n"
+            "<matplotlib.figure.Figure>"
+        )
+
+    def test_extract_notebook_joins_stream_chunks(self, test_records: dict) -> None:
+        """Consecutive chunks of one stream are joined as written; other outputs still get a separator."""
+        notebook = {
+            "nbformat": 4,
+            "nbformat_minor": 5,
+            "metadata": {},
+            "cells": [
+                {
+                    "cell_type": "code",
+                    "source": ["print(3.14159)"],
+                    "outputs": [
+                        {"output_type": "stream", "name": "stdout", "text": ["3."]},
+                        {"output_type": "stream", "name": "stdout", "text": ["14159\n"]},
+                        {"output_type": "stream", "name": "stderr", "text": ["warning"]},
+                        {"output_type": "stream", "name": "stdout", "text": ["done"]},
+                        {"output_type": "execute_result", "data": {"text/plain": ["1"]}},
+                        {"output_type": "stream", "name": "stdout", "text": ["after"]},
+                    ],
+                }
+            ]
+        }
+        record = test_records["notebook"].copy()
+        record["binary_content"] = json.dumps(notebook).encode("utf-8")
+
+        with mock.patch("magic.Magic") as mock_magic:
+            mock_magic.return_value.from_buffer.return_value = "application/json"
+            result = MathContentExtractor().extract(record)
+
+        assert result is not None
+        assert result["text"] == "print(3.14159)\n3.14159\nwarning\ndone\n1\nafter"
 
     @mock.patch("magic.Magic")
     def test_extract_with_magic_mime_detection(
