@@ -59,11 +59,13 @@ python nemo_curator/config/run.py \
 | Transcribe Hindi audio with Indic Canary and Parakeet, check the text, and measure WER | [**granary_v2/indic_asr/**](granary_v2/indic_asr/) | Yes (80 GB H100 with compatible engines) | Two public FLEURS clips; model engine bundles supplied separately |
 | Restore punctuation, normalize ASR transcripts and generate text features | [**granary_v2/text_pipeline/**](granary_v2/text_pipeline/) | 8 GPUs for the included model server; CPU client with an existing endpoint | Two bundled English transcripts; no audio download |
 | Extract Granary speech clips, speaker turns, sound events, and language metadata | [**granary_v2/metadata/**](granary_v2/metadata/) | Yes; hardware-compatible TensorRT engines required | Two public FLEURS clips or your own recordings; local model bundles required |
+| Produce word-level TextGrid/RTTM/CTM alignments with Montreal Forced Aligner | [**alignment/**](alignment/) | No (CPU-only) | Bring your own audio manifest |
 | Build training windows for Audio Language Models from diarized manifests | [**alm/**](alm/) | No (CPU-only) | Bundled sample fixtures |
 | Label raw audio for TTS/ASR/ALM via diarization, alignment, and quality metrics | [**tagging/**](tagging/) | Yes (~8 GB VRAM) | Bring your own audio manifest |
 | Evaluate speaker diarization (DER) on a benchmark dataset | [**callhome_diar/**](callhome_diar/) | Yes (~8 GB VRAM) | Requires [LDC license](https://catalog.ldc.upenn.edu/LDC97S42) |
 | Filter a manifest to keep only single-speaker audio | [**single_speaker_filter/**](single_speaker_filter/) | Yes (~8 GB VRAM) | Requires a pre-existing JSONL manifest |
 | Quality-filter raw audio (MOS, VAD, bandwidth, noise) | [**readspeech/**](readspeech/) | Recommended (~4 GB VRAM) | Auto-downloads DNS Challenge (4.88 GB) |
+| Synthesise multi-speaker conversation audio from text (Chatterbox TTS) | [**tts/**](tts/) | Yes (~4 GB VRAM) | Bring your own turn manifest + reference voices |
 
 ## Data availability
 
@@ -84,6 +86,7 @@ python nemo_curator/config/run.py \
 | `callhome_diar/` | No | ~1 GB | Requires LDC membership and license ([LDC97S42](https://catalog.ldc.upenn.edu/LDC97S42)) |
 | `single_speaker_filter/` | No | Varies | Bring your own NeMo-style JSONL manifest |
 | `readspeech/` | Yes | 4.88 GB compressed | Downloads DNS Challenge Read Speech (14,279 WAV files) |
+| `tts/` | No | Varies | Bring your own turn manifest + reference voices dataset |
 
 The Indic ASR tutorial downloads two FLEURS clips. Its separate
 [standalone benchmark](../../benchmarking/README.md#audio-benchmark-data-setup)
@@ -121,6 +124,7 @@ For multi-node Ray or Xenna runs, make FFmpeg available on every executor node a
 | `callhome_diar/` | `ffmpeg`, `sox` | `audio_cuda12` |
 | `single_speaker_filter/` | `ffmpeg` | `audio_cuda12` |
 | `readspeech/` | `ffmpeg` | `audio_cuda12` (recommended) or `audio_cpu` |
+| `tts/` | `ffmpeg` | `audio_cuda12` |
 
 Install pip extras from the repo root:
 
