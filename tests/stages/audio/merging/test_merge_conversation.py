@@ -389,6 +389,17 @@ def test_adapter_replay_emits_result_after_first_reply_is_lost(tmp_path: Path, b
     assert replay[0].data == first[0].data
 
 
+@pytest.mark.parametrize("length", [251, 252, 253, 254, 255])
+def test_valid_long_conversation_ids_survive_publication_and_retry(tmp_path: Path, length: int) -> None:
+    original = _parent([_turn(tmp_path)], conversation_id="x" * length)
+    first = _stage(tmp_path).process(copy.deepcopy(original))
+    assert isinstance(first, AudioTask)
+    replay = _stage(tmp_path).process(copy.deepcopy(original))
+    assert isinstance(replay, AudioTask)
+    assert replay.data == first.data
+    assert sf.info(replay.data["audio_filepath"]).frames == SR
+
+
 @pytest.mark.parametrize(
     ("key", "value"),
     [("max_pause_duration", 3), ("max_intra_turn_pause", 2), ("randomize_pauses", True), ("seglst_offset", 0.3)],

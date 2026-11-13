@@ -192,7 +192,8 @@ class MergeConversationSDPStage(ProcessingStage[AudioTask, AudioTask]):
             msg = f"Conversation lock directory is a symlink: {locks}"
             raise FileExistsError(msg)
         locks.mkdir(exist_ok=True)
-        lock = locks / f"{conversation_id}.lock"
+        lock_name = hashlib.sha256(conversation_id.encode("utf-8")).hexdigest()
+        lock = locks / f"{lock_name}.lock"
         if lock.is_symlink() or (lock.exists() and not lock.is_file()):
             msg = f"Conversation lock is not a regular file: {lock}"
             raise FileExistsError(msg)
