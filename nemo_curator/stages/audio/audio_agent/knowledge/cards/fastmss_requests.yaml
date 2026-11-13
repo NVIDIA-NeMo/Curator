@@ -1,34 +1,79 @@
 stage_id: FastMSSRequests
-summary: "Read a finite JSONL manifest of complete native FastMSS jobs."
-
+summary: Read finite meeting requests through the standard local JSONL manifest protocol.
 category: ingest
 model_id: null
-domain: {language: any, style: any}
-resource: {cpus: 1.0, gpu_mem_gb: 0.0, gpu_optional: false, bound: cpu}
-provenance: {model_card_url: null, card_version: 1, last_validated: "2026-11-13"}
+domain:
+  language: any
+  style: any
+resource:
+  cpus: 1.0
+  gpu_mem_gb: 0.0
+  gpu_optional: false
+  bound: cpu
+provenance:
+  model_card_url: null
+  card_version: 4
+  last_validated: '2026-11-13'
 tags: []
 params_of_note:
-
-  native_inputs_path: "Read-only local tree covering YAML/defaults, embedded MonoCut manifests, all source audio, noise and fitting inputs. Core dependency hashing covers complete tree bytes."
-  engine_path: "Explicit local FastMSS package directory; tracked through the existing dependency protocol."
-  recipe_path: "Explicit sibling recipes directory with standard sim.py and packaged defaults; tracked as a dependency."
-  request_key: "Planning-metadata field: config_path, n_meetings and duration; no waveform is implied."
+  native_inputs_path: Read-only local tree covering YAML/defaults, embedded MonoCut manifests and all prepared
+    source WAVs. Lazy Lhotse transforms are rejected; materialize their results first.
+  engine_path: Explicit local FastMSS package directory; tracked through the existing dependency protocol.
+  recipe_path: Explicit sibling recipes directory with standard sim.py and packaged defaults; tracked as a dependency.
+  request_key: Planning object identifying one requested meeting, its effective native job, ordinal and complete
+    dependency fingerprint.
+  worker_lock_path: Planning-time JSON lock of the real worker Python, engine origin and dependency versions; validated
+    by constructors and tracked through existing dependency hashing.
 io:
-  dependency_params: [native_inputs_path, engine_path, recipe_path]
-  source: {kind: manifest, path_param: manifest_path}
+  dependency_params:
+  - native_inputs_path
+  - engine_path
+  - recipe_path
+  - worker_lock_path
+  source:
+    kind: manifest
+    path_param: manifest_path
 notes:
-  - "A sampling unit is one complete native YAML job; n_meetings is preserved. Smoke caps invocations, not meetings. Source counts measure requests; fanout processing prevents inference of meeting rejection counts."
-  - "Request rows are planning metadata, not audio records. Profiling provides row counts and metadata identity, not speech-quality measurements."
-  - "Use FastMSSRequests followed by FastMSSRequestStage. No core protocol or schema extension is required."
-  - "Only local file-backed embedded MonoCuts, native inputs in the declared tree and the standard recipe are supported. Remote/command audio sources, arbitrary config search roots and custom worker environments are unsupported here; use the original YAML API for those scopes."
-  - "Changed YAML, defaults, speech, noise or engine files change the existing dependency identity. Generated outputs and caches must be outside every native input tree."
-verified: {params: mechanical, tags: mechanical, resource: best_guess, domain: best_guess, io: mechanical, semantic_facts: mechanical}
-
+- Cut IDs must be globally unique across every dset_splits manifest in one native job; duplicate IDs are rejected
+  before planning because the native audio cache uses cut.id.
+- With save_spk=true, speaker IDs must also contain no slash, backslash or NUL and at most 200 UTF-8 bytes.
+  RTTM-only labels retain the RTTM token rules; labels are never silently renamed.
+- Every supplied cut must declare recording.sampling_rate equal to native samplerate and exactly one full-cut
+  supervision with nonempty text, ordered in-bounds word alignment and a nonempty whitespace-free string speaker ID.
+  Validation covers Lhotse metadata without reading waveform samples. Resample and prepare speech first.
+- Each row requests exactly one whole meeting; first-N sampling generates at most N meetings. YAML counts are expanded
+  during metadata planning without generating audio.
+- Use FastMSSRequests -> FastMSSRequestStage -> existing consumers -> ManifestWriterStage. Requests contain no input
+  waveform; source audio properties remain uninspected.
+- Compatible selected requests share a native bulk invocation. Effective native acoustic settings and defaults are
+  preserved; selected count, CPU allocation, output/cache locations and reference exports are adapter-managed.
+- 'Initial scope: explicit YAML lists, inherited local defaults, ordinary Hydra overrides, prepared aligned embedded
+  MonoCuts without lazy transforms. Noise/RIR generation, FA splitting, fitted transitions, remote/command sources, symlinks, external config
+  search roots and custom workers remain native-API-only.'
+- 'Admission limits: 10000 native files, 1 GiB input trees, 60 seconds hashing, 100000 planned requests, 300 seconds
+  per meeting, 32 meetings per batch. Native generation timeout defaults to 3600 seconds, including preprocessing.'
+- Exact fulfilment is mandatory; missing or excess generated meetings fail rather than becoming downstream filtering.
+  Counts distinguish requested/generated meetings from retained meetings and original speech files.
+- Complete speech/config/default, engine and recipe trees are tracked by existing dependency bindings on source
+  and generator; stale requests fail before writes. Native PID seeds make byte-exact equivalence across invocation
+  boundaries unsupported.
+- Inputs must remain immutable throughout planning and execution. All generated audio, RTTM, logs, preprocessing
+  and Hydra outputs are run-local under output_dir. Delta is unsupported because batches and randomness change results.
+- A changed worker requires a new environment lock and request manifest. Source/generator construction rejects mismatched
+  runtime versions before reuse; the persisted lock participates in source and generator identities.
+verified:
+  params: mechanical
+  tags: mechanical
+  resource: best_guess
+  domain: best_guess
+  io: mechanical
+  semantic_facts: mechanical
 semantic_facts:
   fastmss_request:
-    meaning: "A complete native invocation: config_path plus effective n_meetings and duration planning bounds."
-    unit: "one YAML job; n_meetings is a positive count and duration is seconds"
-    provenance: "Original YAML composed with native defaults; no meetings have been generated yet."
-    scope: "one request-manifest row"
-    propagation: "Consumed by FastMSSRequestStage and replaced by up to n_meetings typed meeting AudioTasks."
-    counterexamples: ["A request is neither a waveform nor a single meeting; request counts cannot be interpreted as retained-speaker or meeting yield."]
+    meaning: One pending whole-meeting request bound to an effective native job and its dependency bytes.
+    unit: one YAML job; n_meetings is a positive count and duration is seconds
+    provenance: Original YAML composed with native defaults; no meetings have been generated yet.
+    scope: one requested meeting
+    propagation: Consumed by FastMSSRequestStage and replaced by up to n_meetings typed meeting AudioTasks.
+    counterexamples:
+    - Not a waveform, original speech record or an entire YAML generation job.

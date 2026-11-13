@@ -2,10 +2,10 @@ stage_id: FastMSS
 summary: "Generate whole-meeting mixtures and ingest audio, duration, reference text and RTTM."
 tags: [writes_disk]
 params_of_note:
-  config_paths: "Local .yaml shard selectors in normal pipelines; agent execution uses FastMSSRequests followed by FastMSSRequestStage. .yml is rejected."
+  config_paths: "Local .yaml shard selectors in native pipelines. .yml is rejected."
   output_dir: "Shared local root for newly allocated run directories."
   isolate_work_dirs: "Set true for agent execution; redirects data_dir and rir_dir from YAML to the fresh run directory. Default false preserves explicit pipeline behavior."
-  max_meetings: "Positive total meeting cap requires exactly one config; -1 preserves the YAML count. Request sampling preserves each native job count."
+  max_meetings: "Positive total meeting cap requires exactly one .yaml config; -1 preserves the native YAML count."
   fastmss_root: "Optional trusted checkout override; normally use the pinned installed FastMSS distribution."
   python_executable: "Worker interpreter with audio_simulation dependencies; available on every node."
   overrides: "Hydra overrides; stage-managed output paths and worker settings cannot be overridden."
@@ -17,7 +17,7 @@ io:
 notes:
   - "Requires pre-aligned speech, local shared inputs, Linux and the audio_simulation extra installed through uv. No automatic model inference or data acquisition."
   - "Single-speaker recipes and dry save_anechoic recipes are rejected before generation."
-  - "The YAML API is for ordinary pipelines. For agent execution use FastMSSRequests and FastMSSRequestStage; meeting semantics are documented on FastMSSManifestReaderStage."
+  - "The YAML API is for ordinary pipelines, not a supported agent dataset source. Whole-meeting semantics are documented on FastMSSManifestReaderStage."
   - "Intermediate caches are run-local only with isolate_work_dirs=true; default mode is deliberately unwrappable."
 verified: {params: mechanical, tags: mechanical, resource: best_guess, domain: best_guess, presets: mechanical, io: mechanical}
 

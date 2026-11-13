@@ -113,8 +113,8 @@ def runner_recipe(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SimpleName
         "    cfg = compose(config_name=args['--config-name'], overrides=[arg for arg in sys.argv[1:] if not arg.startswith('--')])\n"
         "    observed = OmegaConf.to_container(cfg, resolve=True)\n"
         "output = Path(cfg.output_dir)\n"
-        "output.mkdir()\n"
-        "observed.update(script=sys.argv[0], import_dir=sys.path[0], root=os.environ['FASTMSS_ROOT'])\n"
+        "output.mkdir(exist_ok=True)\n"
+        "observed.update(script=sys.argv[0], import_dir=sys.path[0], root=os.environ['FASTMSS_ROOT'], config_dir=args['--config-path'])\n"
         "(output / 'observed.json').write_text(json.dumps(observed))\n"
         "(output / 'nemo_manifest.json').write_text(json.dumps({'text': 'existing reference', 'custom': 'preserved'}) + '\\n')\n"
     )
@@ -249,3 +249,42 @@ def test_planned_native_bounds_are_verified_before_recipe_execution(
     with pytest.raises(ValueError, match="changed since request planning"):
         _runner.main()
     assert not runner_recipe.output.exists()
+
+
+@pytest.mark.parametrize("cap", [2, -1])
+def test_native_bounded_or_isolated_execution_freezes_dependent_settings(
+    runner_recipe: SimpleNamespace, cap: int
+) -> None:
+    original_data = str(runner_recipe.config.parent.parent / "protected data")
+    runner_recipe.config.write_text(
+        runner_recipe.config.read_text()
+        + "\nseed: ${n_meetings}\ncache_alias: ${data_dir}\nliteral: '\\${unresolved}'\n"
+    )
+    sys.argv.extend(["--isolate-work-dirs", f"--max-meetings={cap}"])
+    _runner.main()
+    observed = json.loads((runner_recipe.output / "observed.json").read_text())
+    assert observed["n_meetings"] == (7 if cap == -1 else cap)
+    assert observed["seed"] == 7
+    assert observed["cache_alias"] == original_data
+    assert observed["literal"] == "${unresolved}"
+    assert observed["data_dir"] == str(runner_recipe.output / "data")
+
+
+def test_frozen_config_cannot_silently_change_other_settings(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="changed during serialization"):
+        _runner._frozen_arguments({"seed": 4}, str(tmp_path), ["seed=1"])
+
+
+def test_isolated_runner_places_frozen_yaml_under_output_even_with_external_tmpdir(
+    runner_recipe: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import tempfile
+
+    before = {path.name: path.read_bytes() for path in runner_recipe.config.parent.iterdir()}
+    monkeypatch.setenv("TMPDIR", str(runner_recipe.config.parent))
+    monkeypatch.setattr(tempfile, "tempdir", None)
+    sys.argv.append("--isolate-work-dirs")
+    _runner.main()
+    observed = json.loads((runner_recipe.output / "observed.json").read_text())
+    assert Path(observed["config_dir"]).is_relative_to(runner_recipe.output)
+    assert {path.name: path.read_bytes() for path in runner_recipe.config.parent.iterdir()} == before

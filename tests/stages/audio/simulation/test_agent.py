@@ -109,7 +109,6 @@ def test_every_simulation_stage_is_discoverable_and_has_a_valid_card() -> None:
         "FastMSSManifestReaderStage",
         "FastMSSRequests",
         "FastMSSRequestStage",
-        "FastMSSRequestReaderStage",
     }
     assert names <= set(get_index().stage_names())
     for name in names:
