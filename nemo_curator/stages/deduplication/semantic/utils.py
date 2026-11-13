@@ -22,7 +22,6 @@ if TYPE_CHECKING:
 import pyarrow as pa
 import pyarrow.parquet as pq
 from fsspec.parquet import open_parquet_files
-from fsspec.utils import get_protocol
 from loguru import logger
 
 CUDF_COLUMN_SIZE_LIMIT = 2_000_000_000
@@ -56,70 +55,44 @@ def _top_level_column_names(metadata: pq.FileMetaData) -> list[str]:
     return [field.name for field in metadata.schema.to_arrow_schema() for _ in range(_parquet_leaf_count(field.type))]
 
 
-def read_parquet_file_info(  # noqa: C901
+def read_parquet_file_info(
     files: list[str],
     *,
     retained_columns: list[str] | None = None,
     embedding_column: str | None = None,
     storage_options: dict[str, Any] | None = None,
 ) -> list[ParquetFileInfo]:
-    """Read exact row, embedding-element, and projected metadata sizes in input order."""
+    """Read exact row, embedding-element, and projected metadata sizes in input order.
+
+    Read each footer independently with PyArrow: input files may have different
+    schemas, including metadata fields that are not retained in the output.
+    """
     if not files:
         return []
 
     retained = set(retained_columns or [])
     try:
-        if storage_options or get_protocol(files[0]) != "file":
-            result = []
-            for start in range(0, len(files), _FOOTER_BATCH_SIZE):
-                batch = files[start : start + _FOOTER_BATCH_SIZE]
-                parquet_files = open_parquet_files(batch, storage_options=storage_options, row_groups=[])
-                for path, parquet_file in zip(batch, parquet_files, strict=True):
-                    metadata = pq.read_metadata(parquet_file)
-                    top_level_columns = _top_level_column_names(metadata)
-                    metadata_bytes = 0
-                    embedding_elements = 0
-                    for row_group_index in range(metadata.num_row_groups):
-                        row_group = metadata.row_group(row_group_index)
-                        for column_index, top_level_column in enumerate(top_level_columns):
-                            column = row_group.column(column_index)
-                            if top_level_column in retained:
-                                metadata_bytes += column.total_uncompressed_size
-                            if top_level_column == embedding_column:
-                                embedding_elements += column.num_values
-                    result.append(
-                        ParquetFileInfo(
-                            path,
-                            metadata.num_rows,
-                            metadata_bytes,
-                            embedding_elements=embedding_elements,
-                        )
-                    )
-            return result
-
-        import pylibcudf as plc
-
         result = []
         for start in range(0, len(files), _FOOTER_BATCH_SIZE):
             batch = files[start : start + _FOOTER_BATCH_SIZE]
-            footers = plc.io.parquet_metadata.read_parquet_footers(plc.io.SourceInfo(batch))
-            for path, footer in zip(batch, footers, strict=True):
-                metadata_bytes = sum(
-                    column_chunk.meta_data.total_uncompressed_size
-                    for row_group in footer.row_groups
-                    for column_chunk in row_group.columns
-                    if column_chunk.meta_data.path_in_schema[0] in retained
-                )
-                embedding_elements = sum(
-                    column_chunk.meta_data.num_values
-                    for row_group in footer.row_groups
-                    for column_chunk in row_group.columns
-                    if column_chunk.meta_data.path_in_schema[0] == embedding_column
-                )
+            parquet_files = open_parquet_files(batch, storage_options=storage_options, row_groups=[])
+            for path, parquet_file in zip(batch, parquet_files, strict=True):
+                metadata = pq.read_metadata(parquet_file)
+                top_level_columns = _top_level_column_names(metadata)
+                metadata_bytes = 0
+                embedding_elements = 0
+                for row_group_index in range(metadata.num_row_groups):
+                    row_group = metadata.row_group(row_group_index)
+                    for column_index, top_level_column in enumerate(top_level_columns):
+                        column = row_group.column(column_index)
+                        if top_level_column in retained:
+                            metadata_bytes += column.total_uncompressed_size
+                        if top_level_column == embedding_column:
+                            embedding_elements += column.num_values
                 result.append(
                     ParquetFileInfo(
                         path,
-                        footer.num_rows,
+                        metadata.num_rows,
                         metadata_bytes,
                         embedding_elements=embedding_elements,
                     )

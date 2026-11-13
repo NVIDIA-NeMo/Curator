@@ -25,7 +25,7 @@ Prepare the software, GPU, and input data before you run a video pipeline:
 <a id="gpu-requirements" />
 <a id="software-dependencies" />
 
-- Ubuntu 20.04, 22.04, or 24.04; Python 3.11, 3.12, or 3.13; `uv`; and Git.
+- Ubuntu 20.04, 22.04, or 24.04; Python 3.12 or 3.13; `uv`; and Git.
 - An NVIDIA GPU from the Volta architecture or newer, with compute capability 7.0 or higher and CUDA 12 or later. CPU-only processing is not supported.
 - VRAM requirements depend on the pipeline: approximately 16 GB for splitting and embedding, 38 GB for captioning with embedding, or 21 GB for reduced configurations with lower batch sizes and FP8.
 - FFmpeg 8.0 or later with `h264_nvenc` or `libvpx-vp9`. NVIDIA A100 and H100 GPUs do not include NVENC hardware.

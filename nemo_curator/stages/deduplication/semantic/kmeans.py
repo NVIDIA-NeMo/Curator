@@ -15,9 +15,13 @@
 import gc
 import os
 import random
+import tempfile
 import time
 from collections.abc import Iterator
+from contextlib import nullcontext
 from dataclasses import dataclass
+from pathlib import Path
+from types import TracebackType
 from typing import Any, Literal
 
 import cudf
@@ -55,6 +59,102 @@ def validate_embedding_output_dtype(embedding_output_dtype: object) -> None:
     if embedding_output_dtype not in {"float16", "float32"}:
         msg = f"embedding_output_dtype must be 'float16' or 'float32', got {embedding_output_dtype!r}"
         raise ValueError(msg)
+
+
+_MAX_OPEN_CENTROID_FILES = 256
+_MAX_OPEN_STAGING_FILES = 8
+
+
+class _ConsolidatingParquetWriter:
+    """Consolidate frames into one file per centroid with bounded open files.
+
+    Coarse staging adds an extra read/write pass but avoids keeping one writer
+    open per centroid. Each bucket spans at most _MAX_OPEN_CENTROID_FILES labels.
+    """
+
+    def __init__(self, stage: "KMeansReadFitWriteStage", filename: str):
+        self.stage = stage
+        self.filename = filename
+        self.frame_index = 0
+        self.bucket_column = None
+        # Local output uses the same filesystem, without consuming node-local scratch.
+        directory = None if stage.output_path.startswith("s3://") else stage.output_path
+        if directory is not None:
+            os.makedirs(directory, exist_ok=True)
+        self.temporary = tempfile.TemporaryDirectory(prefix=".kmeans-staging-", dir=directory)
+        self.path = Path(self.temporary.name)
+
+    def __enter__(self):
+        return self
+
+    def write_table(self, frame: "cudf.DataFrame") -> None:
+        if not len(frame):
+            return
+        if self.bucket_column is None:
+            self.bucket_column = "__curator_centroid_bucket"
+            while self.bucket_column in frame.columns:
+                self.bucket_column += "_"
+        staged = frame.copy(deep=False)
+        staged[self.bucket_column] = staged["centroid"] // _MAX_OPEN_CENTROID_FILES
+        # Bound the staging writer as well, including configurations with >65k clusters.
+        bucket_ids = sorted(staged[self.bucket_column].unique().to_arrow().to_pylist())
+        for start in range(0, len(bucket_ids), _MAX_OPEN_CENTROID_FILES):
+            batch = bucket_ids[start : start + _MAX_OPEN_CENTROID_FILES]
+            selected = (
+                staged
+                if len(bucket_ids) <= _MAX_OPEN_CENTROID_FILES
+                else staged[staged[self.bucket_column].isin(batch)]
+            )
+            with cudf.io.parquet.ParquetDatasetWriter(
+                str(self.path),
+                partition_cols=[self.bucket_column],
+                file_name_prefix=f"frame_{self.frame_index}_{start}.parquet",
+                index=False,
+                compression=self.stage.write_kwargs.get("compression", "snappy"),
+            ) as writer:
+                writer.write_table(selected)
+            del writer
+        self.frame_index += 1
+
+    def close(self) -> None:
+        try:
+            for bucket in sorted(self.path.iterdir()):
+                sources = [str(path) for path in sorted(bucket.glob("*.parquet"))]
+                # Bound input descriptors as well as output descriptors.
+                writer = self.stage._new_partitioned_writer(self.filename)
+                reader = None
+                try:
+                    with writer:
+                        for start in range(0, len(sources), _MAX_OPEN_STAGING_FILES):
+                            options = plc.io.parquet.ParquetReaderOptions.builder(
+                                plc.io.SourceInfo(sources[start : start + _MAX_OPEN_STAGING_FILES])
+                            ).build()
+                            limit = min(256 * 1024**2, cp.cuda.runtime.memGetInfo()[0] // 4)
+                            reader = plc.io.parquet.ChunkedParquetReader(
+                                options, chunk_read_limit=limit, pass_read_limit=limit
+                            )
+                            while reader.has_next():
+                                frame = cudf.DataFrame.from_pylibcudf(reader.read_chunk())
+                                writer.write_table(frame)
+                                del frame
+                            del reader
+                            reader = None
+                finally:
+                    del writer, reader
+                # Remove each staged bucket as soon as its final output is complete.
+                for source in sources:
+                    os.unlink(source)
+                bucket.rmdir()
+        finally:
+            self.temporary.cleanup()
+
+    def __exit__(
+        self, exc_type: type[BaseException] | None, exc_value: BaseException | None, traceback: TracebackType | None
+    ) -> None:
+        if exc_type is None:
+            self.close()
+        else:
+            self.temporary.cleanup()
 
 
 class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], DeduplicationIO):
@@ -105,7 +205,10 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
                 fits all input files in one pass.
             cache_path (str | None): The path to save the centroids to. If None, the centroids will not be saved.
             read_kwargs (dict[dict]): Keyword arguments for the read stage.
-            write_kwargs (dict[dict]): Keyword arguments for the write stage.
+            write_kwargs (dict[dict]): Keyword arguments for the write stage. ``max_file_size``
+                enables ParquetDatasetWriter file rotation, e.g. ``"1 GiB"``. Options exclusive
+                to ``to_parquet`` (such as row-group sizes) use the non-incremental writer
+                and cannot be combined with ``max_file_size``.
             embedding_output_dtype: Precision used to store embeddings in KMeans output files.
         """
         self.id_field = id_field
@@ -262,23 +365,41 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         predict_time = 0.0
         write_time = 0.0
         predicted_rows = 0
-        read_start = time.perf_counter()
-        for output_index, df in enumerate(self._iter_parquet_frames(file_info, columns)):
-            read_time += time.perf_counter() - read_start
-            embeddings = get_array_from_df(df, self.embedding_field).astype(cp.float32, copy=False)
-            self._normalize_embeddings_in_place(embeddings)
-            predict_start = time.perf_counter()
-            labels = cp.asarray(self.kmeans.predict(embeddings, convert_dtype=False)).astype(cp.int32, copy=False)
-            predict_time += time.perf_counter() - predict_start
-            del df[self.embedding_field]
-            write_start = time.perf_counter()
-            self._write_output_frame(f"{task_id}_{output_index}.parquet", df, embeddings, labels, centroids)
-            write_time += time.perf_counter() - write_start
-            predicted_rows += len(df)
-            del df, embeddings, labels
-            read_start = time.perf_counter()
-        read_time += time.perf_counter() - read_start
-
+        # Consolidate frames while bounding simultaneously open centroid files.
+        # Rotating writers remain frame-scoped until cuDF #23501 releases retired sinks.
+        writer_context = nullcontext(None)
+        if self._supports_dataset_writer() and self.write_kwargs.get("max_file_size") is None:
+            filename = f"{task_id}.parquet"
+            writer_context = (
+                _ConsolidatingParquetWriter(self, filename)
+                if self.n_clusters > _MAX_OPEN_CENTROID_FILES
+                else self._new_partitioned_writer(filename)
+            )
+        writer = None
+        try:
+            with writer_context as writer:
+                read_start = time.perf_counter()
+                for output_index, df in enumerate(self._iter_parquet_frames(file_info, columns)):
+                    read_time += time.perf_counter() - read_start
+                    embeddings = get_array_from_df(df, self.embedding_field).astype(cp.float32, copy=False)
+                    self._normalize_embeddings_in_place(embeddings)
+                    predict_start = time.perf_counter()
+                    labels = cp.asarray(self.kmeans.predict(embeddings)).astype(cp.int32, copy=False)
+                    predict_time += time.perf_counter() - predict_start
+                    del df[self.embedding_field]
+                    write_start = time.perf_counter()
+                    self._write_output_frame(
+                        f"{task_id}_{output_index}.parquet", df, embeddings, labels, centroids, writer=writer
+                    )
+                    write_time += time.perf_counter() - write_start
+                    predicted_rows += len(df)
+                    del df, embeddings, labels
+                    read_start = time.perf_counter()
+                read_time += time.perf_counter() - read_start
+                close_start = time.perf_counter()
+            write_time += time.perf_counter() - close_start
+        finally:
+            del writer, writer_context
         return predicted_rows, {"read": read_time, "predict": predict_time, "write": write_time}
 
     def _sample_fit_files(self, file_info: list[ParquetFileInfo]) -> list[ParquetFileInfo]:
@@ -341,13 +462,14 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         while reader.has_next():
             yield cudf.DataFrame.from_pylibcudf(reader.read_chunk())
 
-    def _write_output_frame(
+    def _write_output_frame(  # noqa: PLR0913
         self,
         output_filename: str,
         metadata: "cudf.DataFrame",
         embeddings: "cp.ndarray",
         labels: "cp.ndarray",
         centroids: "cp.ndarray",
+        writer: "cudf.io.parquet.ParquetDatasetWriter | _ConsolidatingParquetWriter | None" = None,
     ) -> None:
         if not len(metadata):
             return
@@ -355,15 +477,51 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         frame["centroid"] = labels
         frame = self._assign_distances(frame, embeddings, centroids)
         self._set_output_embeddings(frame, embeddings)
-        self.write_parquet(
-            frame,
+        self._write_partitioned_frame(frame, output_filename, writer=writer)
+
+    def _supports_dataset_writer(self) -> bool:
+        other_filesystem = "://" in self.output_path and not self.output_path.startswith("s3://")
+        return not other_filesystem and not self.write_kwargs.keys() - {"compression", "statistics", "max_file_size"}
+
+    def _new_partitioned_writer(self, output_filename: str) -> "cudf.io.parquet.ParquetDatasetWriter":
+        filename = (
+            output_filename.removesuffix(".parquet")
+            if self.write_kwargs.get("max_file_size") is not None
+            else output_filename
+        )
+        return cudf.io.parquet.ParquetDatasetWriter(
             self.output_path,
-            partition_file_name=output_filename,
             partition_cols=["centroid"],
+            file_name_prefix=filename,
             index=False,
             storage_options=self.output_storage_options,
             **self.write_kwargs,
         )
+
+    def _write_partitioned_frame(
+        self,
+        frame: "cudf.DataFrame",
+        output_filename: str,
+        writer: "cudf.io.parquet.ParquetDatasetWriter | _ConsolidatingParquetWriter | None" = None,
+    ) -> None:
+        if writer is not None:
+            writer.write_table(frame)
+            return
+        if not self._supports_dataset_writer():
+            self.write_parquet(
+                frame,
+                self.output_path,
+                partition_file_name=output_filename,
+                partition_cols=["centroid"],
+                index=False,
+                storage_options=self.output_storage_options,
+                **self.write_kwargs,
+            )
+            return
+
+        # Explicit rotation remains frame-scoped because cuDF retains retired sinks.
+        with self._new_partitioned_writer(output_filename) as frame_writer:
+            frame_writer.write_table(frame)
 
     def _set_output_embeddings(self, frame: "cudf.DataFrame", embeddings: "cp.ndarray") -> None:
         """Materialize embeddings, carrying FP16 as uint16 until cuDF supports it."""
@@ -419,15 +577,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
 
         df = self._assign_distances(df, embeddings, self.kmeans.cluster_centers_)
         self._set_output_embeddings(df, embeddings)
-        self.write_parquet(
-            df,
-            self.output_path,
-            partition_file_name=f"{tasks[0].task_id}_0.parquet",
-            partition_cols=["centroid"],
-            index=False,
-            storage_options=self.output_storage_options,
-            **self.write_kwargs,
-        )
+        self._write_partitioned_frame(df, f"{tasks[0].task_id}_0.parquet")
 
         t3 = time.perf_counter()
         self._log_metric("kmeans_write_time", t3 - t2)
@@ -526,15 +676,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         df["centroid"] = labels
         df = self._assign_distances(df, embeddings, self.kmeans.cluster_centers_)
         self._set_output_embeddings(df, embeddings)
-        self.write_parquet(
-            df,
-            self.output_path,
-            partition_file_name=f"{tasks[0].task_id}_0.parquet",
-            partition_cols=["centroid"],
-            index=False,
-            storage_options=self.output_storage_options,
-            **self.write_kwargs,
-        )
+        self._write_partitioned_frame(df, f"{tasks[0].task_id}_0.parquet")
 
         t_end = time.perf_counter()
         self._log_metric("kmeans_predict_write_time", (t_end - t_start) - pass2_read_time)
@@ -642,7 +784,10 @@ class KMeansStage(CompositeStage[EmptyTask, EmptyTask]):
         verbose (bool): Whether to print verbose output.
         input_filetype (Literal["jsonl", "parquet"]): The type of the input file
         read_kwargs (dict[dict]): Keyword arguments for the read stage.
-        write_kwargs (dict[dict]): Keyword arguments for the write stage.
+        write_kwargs (dict[dict]): Keyword arguments for the write stage. ``max_file_size``
+            enables ParquetDatasetWriter file rotation, e.g. ``"1 GiB"``. Options exclusive
+            to ``to_parquet`` (such as row-group sizes) use the non-incremental writer
+            and cannot be combined with ``max_file_size``.
         max_iter (int): The maximum number of iterations to run.
         tol (float): Tolerance for stopping criteria of the kmeans algorithm.
         random_state (int): Seed for the random number generator. Unseeded by default. Does not currently fully guarantee the exact same results.

@@ -74,6 +74,26 @@ def test_parquet_file_info_preserves_order(tmp_path: Path) -> None:
 
 
 @pytest.mark.gpu
+def test_parquet_file_info_accepts_different_metadata_schemas(tmp_path: Path) -> None:
+    from nemo_curator.stages.deduplication.semantic.utils import read_parquet_file_info
+
+    files = []
+    for index, extra in enumerate([pa.array(["text"]), pa.array([{"nested": 42}])]):
+        path = tmp_path / f"part-{index}.parquet"
+        pq.write_table(
+            pa.table({"id": [index], "embeddings": [[1.0, 2.0]], "extra": extra}),
+            path,
+        )
+        files.append(str(path))
+
+    infos = read_parquet_file_info(files, retained_columns=["id"], embedding_column="embeddings")
+    assert [info.path for info in infos] == files
+    assert [info.num_rows for info in infos] == [1, 1]
+    assert [info.embedding_elements for info in infos] == [2, 2]
+    assert all(info.metadata_bytes > 0 for info in infos)
+
+
+@pytest.mark.gpu
 def test_parquet_file_info_uses_fsspec_for_remote_uri_without_storage_options() -> None:
     from nemo_curator.stages.deduplication.semantic.utils import read_parquet_file_info
 
