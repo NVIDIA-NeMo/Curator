@@ -273,7 +273,7 @@ finally:
 
 Follow these constraints:
 
-- `checkpoint_path` must be a local or shared filesystem directory, not an object-store or cloud URI. State is written under `.nemo_curator_metadata`.
+- `checkpoint_path` must be a filesystem directory, not an object-store or cloud URI, on a filesystem that supports memory-mapped I/O: local disk, Lustre, GPFS, or BeeGFS. NFS and other remote filesystems are unsupported by LMDB and can stall the checkpoint actor. State is written under `.nemo_curator_metadata`.
 - A Ray cluster must already be running and discoverable through `RAY_ADDRESS`. `RayClient().start()` or the SLURM Ray client establishes it.
 - Every stage must have `is_resumable=True`. `Pipeline.run()` fails before execution if any stage is marked unsafe; do not override the flag until you have verified the stage's input-to-output mapping.
 - Multiple runs, including SLURM array shards, can share the directory because each writer owns a separate LMDB file.

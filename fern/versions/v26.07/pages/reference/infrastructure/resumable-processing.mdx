@@ -13,7 +13,14 @@ modality: "universal"
 Pass `checkpoint_path` to `Pipeline.run()` to skip source partitions that completed in an earlier run. This is the primary resumability mechanism for NeMo Curator pipelines.
 
 ```python
-pipeline.run(checkpoint_path="./checkpoints/my-pipeline")
+from nemo_curator.core.client import RayClient
+
+ray_client = RayClient()
+ray_client.start()
+try:
+    pipeline.run(checkpoint_path="./checkpoints/my-pipeline")
+finally:
+    ray_client.stop()
 ```
 
 Without `checkpoint_path`, execution is unchanged and no checkpoint metadata is created.
@@ -21,6 +28,31 @@ Without `checkpoint_path`, execution is unchanged and no checkpoint metadata is 
 <Note>
 The checkpoint records completed source-partition identifiers. It does not serialize task payloads, model state, in-memory stage state, or intermediate datasets. A source that did not fully drain through the sink runs again from the source on the next launch.
 </Note>
+
+## Prerequisites
+
+Checkpointing adds three requirements on top of a normal `Pipeline.run()`.
+
+### Start a Ray Cluster First
+
+<Warning>
+A Ray cluster must already be running when `Pipeline.run(checkpoint_path=...)` is called. Start one with `RayClient().start()`, or `SlurmRayClient().start()` for a multi-node `srun` job. Without a pre-existing cluster, `Pipeline.run()` raises:
+
+```text
+RuntimeError: Resumability (checkpoint_path) requires a Ray cluster started before
+pipeline.run() — start one with RayClient().start() (or the SLURM Ray client).
+```
+</Warning>
+
+Completion state lives in a detached Ray actor that has to outlive the executor's own Ray session. If the pipeline started the cluster itself, shutting that session down would take the actor — and the checkpoint — with it. A pipeline without `checkpoint_path` has no such requirement and still starts Ray on its own.
+
+### Mark Every Stage Resumable
+
+Every stage in the pipeline must have `is_resumable=True`. `Pipeline.run()` fails before execution and names the offending stages otherwise. Set the flag only after confirming a stage's input-to-output mapping follows the rules in [Custom Stage Responsibilities](#custom-stage-responsibilities).
+
+### Choose a Supported Checkpoint Filesystem
+
+`checkpoint_path` must be a filesystem directory, not an object-store or cloud URI, and the filesystem must support memory-mapped I/O. See [Checkpoint Storage](#checkpoint-storage) for the specifics and for the multi-host case.
 
 ## Completion Model
 
@@ -57,12 +89,28 @@ Checkpointing provides at-least-once processing for incomplete sources, not tran
 
 ## Interrupt and Resume Example
 
-Create several JSONL input files so each source partition can complete independently. Save this script as `resume_demo.py`:
+Create several JSONL input files so each source partition can complete independently:
+
+```bash
+python - <<'PY'
+import json
+from pathlib import Path
+
+Path("input").mkdir(exist_ok=True)
+for shard in range(6):
+    with open(f"input/part-{shard}.jsonl", "w") as f:
+        for i in range(5):
+            f.write(json.dumps({"text": f"shard {shard} record {i}"}) + "\n")
+PY
+```
+
+Save this script as `resume_demo.py`. It starts a Ray cluster before running the pipeline, as [Start a Ray Cluster First](#start-a-ray-cluster-first) requires:
 
 ```python
 import time
 from dataclasses import dataclass
 
+from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.text.io.reader import JsonlReader
@@ -92,7 +140,13 @@ pipeline.add_stage(
 pipeline.add_stage(SlowPassThrough())
 pipeline.add_stage(JsonlWriter(path="./output"))
 
-pipeline.run(checkpoint_path="./checkpoints/resume-demo")
+# Resumability needs a cluster that outlives the pipeline's own Ray session.
+ray_client = RayClient()
+ray_client.start()
+try:
+    pipeline.run(checkpoint_path="./checkpoints/resume-demo")
+finally:
+    ray_client.stop()
 ```
 
 Run the script, wait for several output files, and interrupt it with Ctrl+C:
@@ -102,6 +156,10 @@ python resume_demo.py
 ```
 
 Run the same command again. The file-partitioning source derives stable IDs from each partition's sorted paths, reads the completion set, and emits only partitions that did not finish the first run.
+
+<Note>
+This demo writes its checkpoint to a relative path, so it lands wherever you run it. On a cluster whose `$HOME` is NFS, run it from scratch or a parallel filesystem instead — see [Checkpoint Storage](#checkpoint-storage).
+</Note>
 
 Keep all resume-sensitive inputs stable between launches:
 
@@ -126,12 +184,20 @@ Each run creates or reuses one sparse LMDB file named from its hostname and proc
 
 This design avoids cross-host LMDB writer locks and allows jobs such as a SLURM array to use a checkpoint directory on a shared filesystem. It has these boundaries:
 
-- Every host must resolve `checkpoint_path` to the same durable shared directory.
+- Every host must resolve `checkpoint_path` to the same durable directory, on a filesystem that supports memory-mapped I/O. Local disk, Lustre, GPFS, and BeeGFS work. **NFS and other remote filesystems do not** — see the warning below.
 - Completed IDs are unioned when each actor starts; the files are not a live work queue.
 - Concurrent jobs should process disjoint input shards. Jobs that start together with overlapping inputs can both begin the same source before either records completion.
 - Run only one checkpoint-enabled pipeline at a time in a Ray cluster. The resumability actor has a fixed cluster-wide name; overlapping pipelines would share the first actor rather than create independent checkpoint owners.
 - An unreadable writer file is skipped with a warning. Preserve the other files and investigate the damaged file rather than assuming its sources completed.
 - The default LMDB map is 1 GiB but sparse on Linux; physical usage grows with stored completion keys.
+
+<Warning>
+Do not place `checkpoint_path` on NFS, SMB/CIFS, 9p, sshfs, or a similar remote filesystem. LMDB memory-maps the checkpoint, and [upstream does not support remote filesystems](http://www.lmdb.tech/doc/) — even for a single process on a single host. A network mount that is slow, full, or written from more than one host can stall the checkpoint actor indefinitely or fault its process.
+
+This bites most often on clusters where `$HOME` is NFS, because a relative `checkpoint_path` such as `./checkpoints/my-pipeline` resolves under the home directory. Point `checkpoint_path` at scratch, a parallel filesystem, or another local-or-Lustre location instead.
+
+There is no guard against this in 26.07: an unusable mount stalls the checkpoint actor with no error. Verify the filesystem before pointing a long run at it.
+</Warning>
 
 For deterministic array sharding, shard-completion manifests, scheduler limits, and incomplete-shard resubmission, see [SLURM Job Arrays](/admin/deployment/slurm-arrays).
 
@@ -210,14 +276,26 @@ An unhandled exception can still abort execution. Because the affected source ne
 
 Before relying on a resume:
 
+- Start the Ray cluster before `Pipeline.run()`, and keep it up for the whole run.
+- Put `checkpoint_path` on a filesystem that supports memory-mapped I/O — not NFS.
 - Use source tasks with stable, content-meaningful `get_deterministic_id()` values.
 - Keep source data, pipeline shape, stage settings, software version, and model behavior compatible.
 - Use deterministic, replay-safe sinks.
-- Confirm the log reports the expected number of pending partitions after restart.
+- Confirm the expected number of partitions is reprocessed after a restart.
 - Treat random `r`-prefixed task IDs and M→K ambiguity warnings as non-resumable paths to fix.
 - Give concurrent hosts disjoint source shards even when they share the checkpoint directory.
 - Avoid running multiple checkpoint-enabled pipelines concurrently in one Ray cluster.
 - Retain checkpoint metadata until output validation is complete.
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| `RuntimeError: Resumability (checkpoint_path) requires a Ray cluster started before pipeline.run()` | No Ray cluster was running when `Pipeline.run()` was called. | Call `RayClient().start()` (or `SlurmRayClient().start()`) first. See [Start a Ray Cluster First](#start-a-ray-cluster-first). |
+| `ValueError: checkpoint_path was set, but these stages are not marked resumable` | A stage in the pipeline has `is_resumable=False`. | Restructure the stage or set `is_resumable=True` once its mapping is verified. |
+| Run hangs with no output, and Python core dumps appear | `checkpoint_path` is on a remote filesystem LMDB cannot memory-map safely. | Move `checkpoint_path` to local disk or a parallel filesystem. See [Checkpoint Storage](#checkpoint-storage). |
+| `ValueError: ... No tasks to process, can't continue` on a rerun | Every source partition already completed, so the source stage emitted nothing downstream. | Expected once a pipeline has fully finished. Use a fresh `checkpoint_path` to reprocess. |
+| Nothing is skipped on a rerun | Source IDs changed, or a stage logged an `M -> K` ambiguity warning. | Confirm the source emits stable `get_deterministic_id()` values and that stage mappings stay unambiguous. |
 
 ## Related References
 
