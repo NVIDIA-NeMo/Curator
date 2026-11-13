@@ -1,0 +1,18 @@
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
+
+version: 2
+updates:
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "08:00"
+      timezone: "Etc/UTC"
+    # Keep dependency declarations and coordinated CUDA/PyTorch pins unchanged.
+    versioning-strategy: "lockfile-only"
+    allow:
+      - dependency-type: "all"
+    ignore:
+      # vLLM upgrades require coordinated CUDA/PyTorch review.
+      - dependency-name: "vllm"
