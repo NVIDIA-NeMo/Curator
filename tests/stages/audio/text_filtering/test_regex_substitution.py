@@ -478,6 +478,7 @@ _GRANARY_REGEX_YAML = (
         "Ίσως Ύστερα Ώρα",  # el: Ί U+038A, Ύ U+038E, Ώ U+038F
         "προϋπόθεση ταΐζω",  # el: ϋ U+03CB, ΐ U+0390
         "ΠΡΟΫΠΟΘΕΣΗ ΤΑΪΖΩ",  # el: Ϋ U+03AB, Ϊ U+03AA
+        "naţiune Ţara",  # ro: legacy cedilla ţ U+0163, Ţ U+0162 (no language set)
         "\u0391\u0384 Παγκόσμιος Πόλεμος",  # el: numeral sign/keraia U+0384
         "тя ѝ каза",  # bg: ѝ U+045D
         "Ѝ и ѐ",  # bg: Ѝ U+040D, ѐ U+0450
@@ -491,7 +492,7 @@ def test_production_whitelist_preserves_covered_language_letters(text: str) -> N
 
     Ĩĩ/Ũũ and the uppercase Ë/Ï/Û were missing, so correct predictions lost them
     mid-word: "cũng" became "c ng" and "NOËL" became "NO L". The same gap hit the
-    Greek final sigma ς ("τους" -> "του "), Bulgarian ѝ and the
+    Greek final sigma ς ("τους" -> "του "), Romanian cedilla ţ, Bulgarian ѝ and the
     CJK iteration mark 々 ("人々" -> "人 "). Every one of these languages is in the
     rule file's declared coverage, so a covered letter must survive intact.
     """
