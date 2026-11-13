@@ -145,6 +145,12 @@ finally:
     server.stop()
 ```
 
+Dynamo creates its managed infrastructure, model-worker, and frontend actors in
+the `nemo_curator_dynamo` Ray namespace. Actor creation and cleanup use that
+namespace explicitly, including when the caller has already initialized Ray in
+another namespace. This internal actor namespace is separate from
+`DynamoServerConfig.namespace`, which controls Dynamo service discovery.
+
 ## Ray Serve Configuration
 
 ### `RayServeModelConfig`
@@ -233,6 +239,12 @@ server.start()
 
 For aggregated models, a tensor-parallel replica can span multiple nodes when the tensor-parallel size divides evenly across available nodes. NeMo Curator prefers a single-node placement and otherwise uses equal GPU bundles on distinct nodes.
 
+### Fractional GPU Reservations (Experimental)
+
+`DynamoVLLMModelConfig.gpu_fraction` controls the Ray GPU reservation for each aggregated replica. The default, `1.0`, keeps whole-GPU scheduling. Values must be in `(0, 1]`; values below `1.0` require `mode="aggregated"` and `tensor_parallel_size=1`. Each fractional worker still sees one physical GPU and can share it with other workers. Capacity checks and placement groups account for the requested fraction.
+
+Set vLLM's `gpu_memory_utilization` separately in `engine_kwargs`. A Ray reservation does not partition VRAM or set a compute-utilization target. Check peak memory and remaining headroom while all replicas serve a representative workload. Benchmark throughput, latency, and failures before retaining a configuration with multiple replicas on one GPU.
+
 ## Dynamo Disaggregated Serving
 
 Disaggregated mode runs independent prefill and decode workers. Configure both roles explicitly.
@@ -289,6 +301,7 @@ Disaggregated serving uses the NIXL connector for KV transfer by default. `kv_tr
 | `runtime_env` | `dict` | `{}` | Packages, environment variables, and other Ray runtime settings for workers. |
 | `engine_kwargs` | `dict` | `{}` | Base vLLM engine settings. |
 | `num_replicas` | `int` | `1` | Static replica count for aggregated mode. Must be at least 1. |
+| `gpu_fraction` | `float` | `1.0` | Experimental Ray GPU reservation in `(0, 1]`. Values below `1.0` require aggregated mode with tensor parallelism of 1. See [Fractional GPU Reservations](#fractional-gpu-reservations-experimental). |
 | `mode` | `"aggregated" \| "disagg"` | `"aggregated"` | Serving topology. |
 | `prefill` | `DynamoRoleConfig \| None` | `None` | Prefill replicas and overrides for disaggregated mode. |
 | `decode` | `DynamoRoleConfig \| None` | `None` | Decode replicas and overrides for disaggregated mode. |
@@ -344,12 +357,19 @@ backend = DynamoServerConfig(
 
 Additional `router_kwargs` are forwarded to the Dynamo frontend. Do not put `router_mode` or `router_kv_events` in that dictionary; use the typed fields instead. Boolean false values are emitted as `--no-*` flags.
 
+Optional Python frontend renderer and multimodal-processor cache settings belong
+in `router_kwargs`, not the model's `engine_kwargs`. Their effective forwarding
+requires a qualified Dynamo build containing
+[ai-dynamo/dynamo#17797](https://github.com/ai-dynamo/dynamo/pull/17797). See the
+[Parse 3.5 example](/main/curate-text/load-data/nemotron-parse-pdf#curator-managed-dynamo)
+for the existing helper and version limitations.
+
 Multimodal workers need their model-specific settings, such as
 `limit_mm_per_prompt` in `engine_kwargs` and `enable_multimodal` in
 `dynamo_kwargs`. Use Dynamo's default frontend processing path.
 
 <Note>
-The default frontend path avoids the slower compatibility processor used by older examples.
+The Parse 3.5 helper pairs its native Rust chat processor with a compatible multimodal template on the vLLM workers. Processor selection concerns frontend chat handling; it does not change all model-side image processing.
 </Note>
 
 ## Runtime Environments and Subprocess Variables
@@ -392,7 +412,7 @@ A model's `runtime_env` is not isolated from the shared Dynamo **frontend** acto
 </Note>
 
 <Warning>
-Do not export an installer-relevant or import-relevant variable in the shell that starts your driver process. The driver's shell environment does not propagate into the isolated actor virtualenv, and if the variable does reach Ray itself rather than only the worker subprocess, it can cause Ray to import something unexpected and stall cluster or actor startup. Scope the variable with `runtime_env` or `subprocess_env` instead.
+Scope worker installer or import settings with `runtime_env` or `subprocess_env` rather than relying on the driver shell to propagate them into isolated actors. `NEMO_CURATOR_DYNAMO_CUDA_TAG` is a driver-side configuration exception: set it before importing Curator serving to select `cu129` (default) or `cu130` actor packages.
 </Warning>
 
 ```python
@@ -403,9 +423,9 @@ backend = DynamoServerConfig(
 
 ## Resource Placement
 
-Before starting Dynamo, NeMo Curator checks the total requested GPUs and fails early when the cluster is too small.
+Before starting Dynamo, NeMo Curator checks aggregate GPU demand and rejects it when it exceeds the cluster's available capacity. This coarse check does not prove that each replica can fit: for example, three replicas reserving `0.6` GPU each cannot fit on two GPUs. Ray placement-group admission remains authoritative; an unschedulable placement fails when its readiness timeout expires.
 
-- Aggregated GPU count is `num_replicas * tensor_parallel_size` per model.
+- Aggregated GPU reservation is `num_replicas * tensor_parallel_size * gpu_fraction` per model. The experimental fraction defaults to `1.0`.
 - Disaggregated GPU count is the sum of each role's `num_replicas * tensor_parallel_size`.
 - Aggregated tensor-parallel groups prefer one node, then use an equal multi-node split.
 - Each disaggregated role must fit on one node.

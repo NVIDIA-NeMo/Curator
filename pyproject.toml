@@ -24,6 +24,7 @@ include = [
 
 [tool.setuptools.package-data]
 "nemo_curator.stages.text.experimental.translation" = ["prompts/*.yaml"]
+"nemo_curator.stages.interleaved.pdf.nemotron_parse" = ["*.jinja"]
 
 [tool.setuptools.dynamic]
 version = { attr = "nemo_curator.package_info.__version__" }
