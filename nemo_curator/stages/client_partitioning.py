@@ -96,7 +96,7 @@ class ClientPartitioningStage(FilePartitioningStage):
             raise RuntimeError(msg)
 
         if self.input_list_json_path:
-            return _read_list_json_rel(root, self.input_list_json_path, self.storage_options or {})
+            return _read_list_json_rel(root, self.input_list_json_path, self.storage_options or {}, fs)
 
         # Prefer pushdown via glob when extensions are known; fallback to full recursive find.
         base = root.rstrip("/")
@@ -115,10 +115,15 @@ class ClientPartitioningStage(FilePartitioningStage):
         return rels
 
 
-def _read_list_json_rel(root: str, json_url: str, storage_options: dict[str, Any]) -> list[str]:
+def _read_list_json_rel(
+    root: str, json_url: str, storage_options: dict[str, Any], fs: fsspec.AbstractFileSystem
+) -> list[str]:
     """
     Read JSON list (via fsspec) and return entries relative to `root`.
     Validates each entry is under `root`.
+
+    `root` comes from `url_to_fs`, which drops the protocol (``s3://bucket/x`` -> ``bucket/x``),
+    so entries are stripped with the same filesystem `fs` and may be listed as full URLs.
     """
     with fsspec.open(json_url, "rb", **storage_options) as f:
         data = json.load(f)
@@ -132,10 +137,11 @@ def _read_list_json_rel(root: str, json_url: str, storage_options: dict[str, Any
 
     rels: list[str] = []
     for p in listed:
-        if not p.startswith(prefix):
+        stripped = fs._strip_protocol(p)
+        if not stripped.startswith(prefix):
             msg = f"Input path {p} is not under root {prefix}"
             raise ValueError(msg)
-        rels.append(p[len(prefix) :])
+        rels.append(stripped[len(prefix) :])
 
     # stable de-dup then sort for determinism
     rels = list(dict.fromkeys(rels))
