@@ -478,7 +478,6 @@ _GRANARY_REGEX_YAML = (
         "Ίσως Ύστερα Ώρα",  # el: Ί U+038A, Ύ U+038E, Ώ U+038F
         "προϋπόθεση ταΐζω",  # el: ϋ U+03CB, ΐ U+0390
         "ΠΡΟΫΠΟΘΕΣΗ ΤΑΪΖΩ",  # el: Ϋ U+03AB, Ϊ U+03AA
-        "naţiune Ţara",  # ro: legacy cedilla ţ U+0163, Ţ U+0162
         "\u0391\u0384 Παγκόσμιος Πόλεμος",  # el: numeral sign/keraia U+0384
         "тя ѝ каза",  # bg: ѝ U+045D
         "Ѝ и ѐ",  # bg: Ѝ U+040D, ѐ U+0450
@@ -492,7 +491,7 @@ def test_production_whitelist_preserves_covered_language_letters(text: str) -> N
 
     Ĩĩ/Ũũ and the uppercase Ë/Ï/Û were missing, so correct predictions lost them
     mid-word: "cũng" became "c ng" and "NOËL" became "NO L". The same gap hit the
-    Greek final sigma ς ("τους" -> "του "), Romanian cedilla ţ, Bulgarian ѝ and the
+    Greek final sigma ς ("τους" -> "του "), Bulgarian ѝ and the
     CJK iteration mark 々 ("人々" -> "人 "). Every one of these languages is in the
     rule file's declared coverage, so a covered letter must survive intact.
     """
@@ -552,6 +551,30 @@ def _shipped_rules(name: str) -> list[dict[str, object]]:
     [("el", "Πού ήσουν?? Εδώ;; Γιατί;;", "Πού ήσουν; Εδώ; Γιατί;"), ("en", "Where?? Here;;", "Where? Here,")],
 )
 def test_shipped_rules_collapse_repeated_question_marks(rules: str, language: str, text: str, expected: str) -> None:
+    stage = _lang_stage(_shipped_rules(rules))
+    task = AudioTask(data={"pred_text": text, "source_lang": language})
+
+    stage.process(task)
+
+    assert task.data["text"] == expected
+
+
+@pytest.mark.parametrize("rules", ["indic_asr", "qwen_omni_asr"])
+@pytest.mark.parametrize(
+    ("language", "text", "expected"),
+    [
+        # ro: legacy cedilla \u0163/\u0162/\u015f/\u015e -> comma-below \u021b/\u021a/\u0219/\u0218
+        ("ro", "na\u0163iune \u0162ara a\u015fa \u015etefan", "na\u021biune \u021aara a\u0219a \u0218tefan"),
+        ("ro-RO", "na\u0163iune", "na\u021biune"),
+        # tr: the cedilla \u015f/\u015e is the correct Turkish letter and must survive
+        ("tr", "ya\u015f\u0131yor \u015ei\u015fli", "ya\u015f\u0131yor \u015ei\u015fli"),
+    ],
+)
+def test_shipped_rules_romanian_cedilla_to_comma(rules: str, language: str, text: str, expected: str) -> None:
+    """Romanian \u0219/\u021b are often typed as the legacy cedilla forms, so one corpus mixes both spellings.
+
+    Only Romanian is normalized: Turkish needs the cedilla \u015f.
+    """
     stage = _lang_stage(_shipped_rules(rules))
     task = AudioTask(data={"pred_text": text, "source_lang": language})
 
