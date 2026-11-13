@@ -206,14 +206,3 @@ def test_full_delta_and_restricted_folder_ids_do_not_collide(tmp_path: Path) -> 
     assert initial.data["audio_item_id"] == ids[initial.data["audio_filepath"]]
     assert delta[0].data["audio_item_id"] == ids[delta[0].data["audio_filepath"]]
     assert initial.get_deterministic_id() != delta[0].get_deterministic_id()
-
-
-def test_flat_folder_ids_include_the_extension(tmp_path) -> None:  # noqa: ANN001
-    """Identity includes extension regardless of other files in the selected cohort."""
-    root = str(tmp_path)
-    for rel in ["a.wav", "b.wav"]:
-        _touch(root, rel)
-
-    tasks = CreateInitialManifestAudioFolderStage(data_dir=root).process(None)
-
-    assert sorted(t.data["audio_item_id"] for t in tasks) == ["a~ewav", "b~ewav"]

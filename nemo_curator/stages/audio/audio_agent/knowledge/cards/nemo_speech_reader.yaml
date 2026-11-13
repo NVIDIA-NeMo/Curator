@@ -1,0 +1,89 @@
+stage_id: NeMoSpeechReaderStage
+category: ingest
+summary: "Decode one discovered NeMo manifest/tar shard into mono cut audio, preserving original row identity and handled error placeholders."
+tags: [writes_disk, fanout]
+model_id: null
+domain: {language: any, style: "discovered nemo/nemo_tarred source shards"}
+resource:
+  cpus: 1.0
+  gpu_mem_gb: 0.0
+  gpu_optional: false
+  bound: io
+  throughput_hint: "CPU audio decoding with whole-shard manifest/output materialization; retained waveforms can dominate host/object-store memory."
+use_cases:
+  good_for:
+    - "Decoding FileGroupTasks emitted by NeMoSpeechDiscoveryStage."
+    - "Keeping one task per original manifest row, including handled missing/decode/overlong cases."
+    - "Providing cut-local resident audio and shard metadata for downstream fan-out and receipt-based output."
+  avoid_for:
+    - "Using this inner stage directly as a manifest-path source; select NeMoSpeechAudioReader instead."
+    - "Assuming omitted waveforms skip decoding or make an unbounded shard safe for memory."
+composition:
+  typical_upstream: [NeMoSpeechDiscoveryStage]
+  typical_downstream: [NeMoSpeechWriterStage]
+params_of_note:
+  output_dir: "Optional absolute local shared root. When set, registers the source shard total before decoding; use the writer's root to account for even zero-output shards."
+  max_audio_duration_sec: "Default 43200 seconds. Overlong declared/decoded cuts become read_error/audio_too_long placeholders. None or nonpositive disables the limit."
+  keep_waveform: "Default true writes mono float32 NumPy waveform [samples]. False omits only storage; cut.load_audio and normalization still run."
+  reader_workers: "Optional cap on reader actors, forwarded to execution; no automatic shard-size or memory cap is inferred."
+  audio_filepath_key: "Default audio_filepath. Preserves the manifest audio reference for provenance rather than replacing it with a materialized cut path."
+  original_file_key: "Default original_file. Successful non-tar cuts use their resolved source; tarred cuts retain the manifest/member reference; placeholders keep the raw reference."
+  sampling_rate_key: "Default sampling_rate; successful decoded rate in Hz."
+  sample_rate_key: "Default sample_rate; second alias for the same successful decoded rate."
+  duration_key: "Default duration; successful decoded cut duration in seconds. Failed rows may retain only the manifest's reported value."
+  num_channels_key: "Default num_channels; successful output is 1 after downmixing."
+  waveform_key: "Default waveform; paired with sample_rate_key/sampling_rate_key when keep_waveform=true and decoding succeeds."
+  corpus_key: "Default corpus; source configuration label."
+  source_lang_key: "Default source_lang; an existing row/cut-custom value wins, otherwise a nonempty entry language is filled. No LID is performed."
+  read_error_key: "Default read_error, set true for a handled row-local construction/decode failure or missing/overlong cut."
+  audio_too_long_key: "Default audio_too_long, additional true flag for duration-limit cases."
+param_dependencies:
+  output_dir: "Tarred reads create a temporary indexed manifest even without output_dir; a writable temporary directory is still needed."
+  waveform_key: "Resident consumers need matching waveform/rate keys and must tolerate or explicitly route read_error rows. File-only consumers cannot assume a tar reference is independently readable."
+semantic_facts:
+  waveform:
+    meaning: "Decoded row-local cut, downmixed across channels to mono without changing its sample rate."
+    unit: "1-D float32 NumPy samples"
+    provenance: "NeMo/Lhotse cut audio; nonzero manifest offset and requested duration define the decoded cut."
+    scope: "One original manifest row."
+    propagation: "Stored only with keep_waveform=true on successful decoding. Existing row/custom metadata and source identity accompany the task."
+    counterexamples:
+      - "Loading audio_filepath in a later file-mode stage can read the whole source or fail on a tar member, instead of using this cut."
+      - "Downmixing is not denoising, source separation or rate conversion."
+  source_lang:
+    meaning: "Preserved manifest/custom language value, otherwise the input_cfg language label."
+    unit: "label string when present; no normalized-code or nonempty guarantee for existing values"
+    provenance: "Input metadata, not model inference."
+    scope: "Source-row/corpus metadata."
+    propagation: "setdefault preserves an existing empty or custom value instead of replacing it with the configuration language."
+    counterexamples:
+      - "A filled language field is not evidence that the audio was classified or that every speaker uses it."
+  read_error:
+    meaning: "This row could not supply decoded audio, was missing from a tar iterator, or exceeded the configured duration limit."
+    unit: "true flag; audio_too_long additionally identifies the duration branch"
+    provenance: "Handled row-local adapter/decode/missing-cut conditions."
+    scope: "Original manifest row retained for accounting."
+    propagation: "Manifest fields can remain on the placeholder but decoded audio fields are not guaranteed; _shard_input_id and _shard_total are preserved."
+    counterexamples:
+      - "Copied sample-rate/duration values on a placeholder are not successful audio measurements."
+      - "Invalid JSON, non-object rows, empty manifests and structural tar identity errors raise rather than emitting placeholders."
+  shard_identity:
+    meaning: "_shard_key, _shard_total and _shard_input_id bind tasks to their original manifest shard and row-index identity."
+    provenance: "Original row order, recovered explicitly even if tar cuts arrive out of order or are missing."
+    scope: "Source row; several downstream child tasks can share it."
+    propagation: "Downstream fan-out must retain this metadata while giving children stable distinct output identities."
+    counterexamples:
+      - "Repeated filenames are not a unique source-row ID, and generic JSONL reload does not restore the full writer-resume protocol."
+caveats:
+  - "All nonblank manifest lines are loaded before decoding, and all output tasks are returned together. The 12-hour duration default is not a host-memory budget."
+  - "The tar input reserves _nemo_curator_row_index internally; manifests containing it are rejected. Lost, duplicate or invalid tar row identity is a structural failure."
+  - "Row output keys are configurable, but input NeMo columns and private shard protocol names are fixed. Key remapping does not change the source format."
+notes:
+  - "A successful read downmixes and decodes; it neither resamples to the writer's target rate nor guarantees a language/quality result."
+  - "NeMoSpeechWriterStage accepts read_error/vad_empty placeholders. To finalize its output, retain at least one output/placeholder for every original source row."
+  - "Dependencies and input-format background: https://docs.nvidia.com/nemo-framework/user-guide/latest/nemotoolkit/asr/datasets.html#lhotse-dataloading . The supported reader behavior is the local wrapper, not all upstream dataloader modes."
+  - "Implementation: nemo_curator/stages/audio/io/nemo_speech_reader.py. Real non-tar offset, tar ordering/missing-member and round-trip cases are in tests/stages/audio/io/test_nemo_speech_reader.py."
+comparison:
+  choose_when: "Use after explicit NeMoSpeechDiscoveryStage when controlling both inner stages separately. The composite NeMoSpeechAudioReader is the simpler complete source; ManifestReader performs metadata pass-through."
+verified: {params: mechanical, tags: mechanical, resource: best_guess, domain: best_guess, use_cases: best_guess, comparison: best_guess, semantic_facts: mechanical}
+provenance: {model_card_url: null, card_version: 2, last_validated: "2026-10-26"}

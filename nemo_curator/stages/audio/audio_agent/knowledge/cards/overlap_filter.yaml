@@ -1,0 +1,25 @@
+stage_id: OverlapFilterStage
+category: alm
+summary: "Drop empty segments and mutually-overlapping segment pairs."
+tags: [is_filter]
+model_id: null
+domain: {language: any, style: any}
+constraints: {}
+resource:
+  cpus: 1.0
+  gpu_mem_gb: 0.0
+  gpu_optional: false
+  bound: cpu
+  throughput_hint: "CPU; segment overlap check"
+use_cases:
+  good_for: ["cleaning diarized/aligned segments before ALM snippet planning"]
+  avoid_for: ["when overlapping speech should be kept"]
+composition:
+  typical_upstream: [ReadLongFormManifestStage, MergeAlignmentDiarizationStage]
+  typical_downstream: [SnippetCutPlannerStage]
+params_of_note:
+  min_overlap_sec: "intersection (s) at/above which two segments count as overlapping (default 0.5)"
+notes:
+  - "First drops segments with neither text nor words; then drops BOTH members of any overlapping pair (overlap = intersection >= min_overlap_sec OR full containment). No overlap-resolution heuristic."
+verified: {params: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess}
+provenance: {model_card_url: null, card_version: 1, last_validated: "2026-07-20"}

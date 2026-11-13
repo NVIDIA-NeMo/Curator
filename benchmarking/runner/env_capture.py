@@ -22,7 +22,6 @@ from pathlib import Path
 from typing import Any
 
 import git
-import pynvml
 from loguru import logger
 from runner.session import Session
 from runner.utils import get_obj_for_json, get_shm_usage, get_total_memory_bytes
@@ -118,6 +117,9 @@ def get_gpu_info_string() -> str:
     If multiple GPUs are visible, returns a string with the number of each GPU model (e.g. "2X H100").
     """
     try:
+        # NVML is optional in CPU-only environments; keep it inside the best-effort GPU probe.
+        import pynvml
+
         pynvml.nvmlInit()
         # Rather than assume all visible GPUs are the same model (which is by
         # far the most common case), count the number of each model just in case.
