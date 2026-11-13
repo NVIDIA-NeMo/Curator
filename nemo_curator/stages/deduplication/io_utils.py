@@ -20,6 +20,10 @@ import numpy as np
 import ray
 
 from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR, IdGenerator
+from nemo_curator.stages.deduplication.parquet_utils import (
+    has_page_indexed_delta_byte_array,
+    read_parquet_with_pyarrow,
+)
 from nemo_curator.utils.file_utils import get_fs
 
 
@@ -43,7 +47,22 @@ class DeduplicationIO:
     def read_parquet(self, filepath: str | list[str], assign_id: bool = False, **kwargs) -> "cudf.DataFrame":
         read_kwargs = kwargs.copy()
         read_kwargs["allow_mismatched_pq_schemas"] = True
-        df = cudf.read_parquet(filepath, **read_kwargs)
+        columns = read_kwargs.get("columns")
+        storage_options = read_kwargs.get("storage_options")
+        filesystem = read_kwargs.get("filesystem")
+        if has_page_indexed_delta_byte_array(filepath, columns, storage_options, filesystem):
+            arrow_kwargs = read_kwargs.copy()
+            arrow_kwargs.pop("allow_mismatched_pq_schemas")
+            arrow_kwargs.pop("storage_options", None)
+            table = read_parquet_with_pyarrow(
+                filepath,
+                storage_options=storage_options,
+                allow_mismatched_pq_schemas=True,
+                **arrow_kwargs,
+            )
+            df = cudf.DataFrame.from_arrow(table)
+        else:
+            df = cudf.read_parquet(filepath, **read_kwargs)
         return self.assign_id(filepath, df) if assign_id and self.id_generator else df
 
     def write_parquet(self, df: "cudf.DataFrame", filepath: str, **kwargs) -> None:
