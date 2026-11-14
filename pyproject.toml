@@ -136,6 +136,10 @@ audio_common = [
     # isolated Ray runtime_env that pip-installs chatterbox into its own
     # virtualenv (see nemo_curator/stages/audio/tts/chatterbox_tts.py).
 ]
+audio_simulation = [
+    "fastmss==0.1.0; sys_platform == 'linux'",
+]
+
 audio_cpu = [
     "nemo_curator[audio_common]",
     "onnxruntime>=1.20.1,<1.24",
@@ -407,6 +411,7 @@ url = "https://wheels.vllm.ai/0.22.0/cu129"
 explicit = true
 
 [tool.uv.sources]
+fastmss = { git = "https://github.com/timofeeva16tanya/FastMSS.git", rev = "3f0a17393f0fc1642527aea1a057a8a5a1e9420d" }
 torch = [
     { index = "pytorch", marker = "sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')" },
     { index = "pypi", marker = "sys_platform == 'darwin' or (platform_machine != 'x86_64' and platform_machine != 'aarch64')" },
