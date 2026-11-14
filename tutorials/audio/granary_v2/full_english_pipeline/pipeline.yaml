@@ -1,0 +1,878 @@
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+# Full English recording-to-transcript pipeline; see README.md.
+defaults:
+  - _self_
+  - override hydra/job_logging: none
+  - override hydra/hydra_logging: none
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+
+documentation: |
+  Extract metadata and Opus speech clips from recordings, retain English clips,
+  transcribe with Qwen3-Omni and Qwen3-ASR recovery, then enrich the selected text.
+  metadata.jsonl retains every metadata result, including rejected/audit rows;
+  english.jsonl contains the selected English clips with ASR and text features.
+
+manifest_path: ???
+model_dir: ???
+output_dir: ???
+output_path: ${output_dir}/english.jsonl
+workspace_dir: ${output_dir}/asr_workspace
+model_id: Qwen/Qwen3-Omni-30B-A3B-Instruct
+model_revision: 26291f793822fb6be9555850f06dfe95f2d7e695  # pragma: allowlist secret
+recovery_model_id: Qwen/Qwen3-ASR-0.6B
+recovery_model_revision: 5eb144179a02acc5e5ba31e748d22b0cf3e303b0  # pragma: allowlist secret
+endpoint: ???
+text_key: abbreviated_text
+# Use the selected clip prediction, never an inherited parent-recording transcript.
+ground_truth_key: best_prediction
+language_key: source_lang
+
+backend: ray_data
+batch_size: 128
+num_workers: 12
+max_concurrent_requests: 256
+request_timeout_s: 600
+max_retries: 3
+
+model_identifier: RedHatAI/gemma-4-31B-it-FP8-dynamic
+model_name: ${model_identifier}
+
+# Required only when starting the configured server; keep caches runtime/GPU-specific.
+cache_root: ???
+
+ray_client:
+  _target_: nemo_curator.core.client.RayClient
+  include_dashboard: false
+  num_cpus: 256
+  num_gpus: 16
+  object_store_memory: 536870912000
+
+# The tutorial entrypoint manages this server on the pipeline's Ray cluster.
+inference_server:
+  _target_: nemo_curator.core.serve.InferenceServer
+  _convert_: all
+  name: audio_text_processing
+  health_check_timeout_s: 1200
+  models:
+    - _target_: nemo_curator.core.serve.DynamoVLLMModelConfig
+      _convert_: all
+      model_identifier: ${model_identifier}
+      model_name: ${model_name}
+      num_replicas: 4
+      runtime_env:
+        uv:
+          packages:
+            - transformers==5.8.0
+        env_vars:
+          VLLM_USE_DEEP_GEMM: "0"
+          VLLM_CACHE_ROOT: ${cache_root}/vllm
+          TORCHINDUCTOR_CACHE_DIR: ${cache_root}/torchinductor
+          TRITON_CACHE_DIR: ${cache_root}/triton
+      engine_kwargs:
+        tensor_parallel_size: 2
+        max_model_len: 8192
+        gpu_memory_utilization: 0.95
+        kv_cache_dtype: auto
+        max_num_seqs: 256
+        max_num_batched_tokens: 8192
+        language_model_only: true
+        trust_remote_code: true
+        revision: d4ab4f579dd3516f97d8a6a4c98d0653480bad15  # pragma: allowlist secret - public model revision
+        enable_prefix_caching: true
+        enable_chunked_prefill: true
+        async_scheduling: false
+        enforce_eager: false
+        compilation_config:
+          cache_dir: ${cache_root}/vllm/compile
+  backend:
+    _target_: nemo_curator.core.serve.DynamoServerConfig
+
+# Shared HTTP-client settings; each stage below supplies its own operation.
+text_stage: &text_stage
+  _target_: nemo_curator.stages.audio.text_filtering.AudioTextLLMStage
+  _convert_: all
+  endpoint: ${endpoint}
+  model_name: ${model_name}
+  language_key: ${language_key}
+  batch_size: ${batch_size}
+  num_workers_override: ${num_workers}
+  max_concurrent_requests: ${max_concurrent_requests}
+  request_timeout_s: ${request_timeout_s}
+  max_retries: ${max_retries}
+
+stages:
+  - _target_: nemo_curator.stages.audio.common.ManifestReader
+    manifest_path: ${manifest_path}
+    files_per_partition: 1
+
+  - _target_: nemo_curator.stages.audio.tagging.resample_audio.ResampleAudioStage
+    resampled_audio_dir: ${output_dir}/resampled
+    target_sample_rate: 16000
+    target_format: wav
+    target_codec: pcm_f32le
+    target_nchannels: 1
+
+  - _target_: nemo_curator.stages.audio.preprocessing.MonoConversionStage
+    audio_filepath_key: resampled_audio_filepath
+    output_sample_rate: 16000
+    waveform_key: waveform
+    sample_rate_key: sample_rate
+
+  - _target_: nemo_curator.stages.audio.inference.speaker_diarization.stage.InferenceSortformerStage
+    model_id: ${model_dir}/sortformer.nemo
+    model_path: ${model_dir}/sortformer.nemo
+    waveform_key: waveform
+    audio_filepath_key: audio_filepath
+    target_sample_rate: 16000
+    rttm_out_dir: ${output_dir}/rttm
+    chunk_len: 340
+    chunk_left_context: 1
+    chunk_right_context: 40
+    fifo_len: 40
+    spkcache_update_period: 300
+    spkcache_len: 188
+    inference_batch_size: 1
+    batch_size: 1
+    fail_on_audio_error: true
+    adapter_kwargs:
+      precision: fp32
+      compile_encoder: false
+    resources:
+      gpu_memory_gb: 24
+
+  - _target_: nemo_curator.stages.audio.segmentation.VADSegmentationStage
+    adapter_target: nemo_curator.models.audio.vad.silero_tensorrt.TensorRTSileroVADAdapter
+    adapter_kwargs:
+      engine_path: ${model_dir}/silero.plan
+    threshold: 0.5
+    min_interval_ms: 1000
+    speech_pad_ms: 100
+    min_duration_sec: 0.5
+    max_duration_sec: 40
+    waveform_key: waveform
+    sample_rate_key: sample_rate
+    nested: false
+    emit_audit_placeholders: true
+    skip_me_key: _skipme
+    fail_on_audio_error: true
+    # Fan-out task IDs require one parent per stage call.
+    batch_size: 1
+    resources:
+      gpu_memory_gb: 4
+
+  - _target_: nemo_curator.stages.audio.inference.sed.stage.SEDInferenceStage
+    adapter_target: nemo_curator.models.audio.sed.tensorrt.TensorRTPANNsSEDAdapter
+    checkpoint_path: ${model_dir}/sed.pth
+    waveform_key: waveform
+    sample_rate_key: sample_rate
+    sample_rate: 16000
+    batch_size: 1
+    save_npz: false
+    adapter_kwargs:
+      tensorrt_engine_path: ${model_dir}/sed.plan
+      max_duration_sec: 40
+      window_size: 1024
+      hop_size: 320
+      mel_bins: 64
+      fmin: 50
+      fmax: 14000
+      classes_num: 527
+    resources:
+      gpu_memory_gb: 8
+
+  - _target_: nemo_curator.stages.audio.postprocessing.sed_postprocessing.SEDPostprocessingStage
+    threshold: 0.5
+    emit_superclasses: false
+
+  - _target_: nemo_curator.stages.audio.inference.lid.AudioLIDInferenceStage
+    name: SpeechBrainLangID
+    adapter_target: nemo_curator.models.audio.lid.speechbrain.SpeechBrainLIDAdapter
+    model_id: SpeechBrainLangID
+    tag: primary
+    waveform_key: waveform
+    min_duration_sec: 1
+    max_duration_sec: 10
+    batch_size: 16
+    num_workers_override: 2
+    fail_on_audio_error: true
+    adapter_kwargs:
+      source: ${model_dir}/speechbrain
+      savedir: ${output_dir}/speechbrain_cache
+    resources:
+      gpu_memory_gb: 8
+
+  - _target_: nemo_curator.stages.audio.inference.lid.AudioLIDInferenceStage
+    name: IndicCanaryLangID
+    adapter_target: nemo_curator.models.audio.lid.indic_canary.IndicCanaryLIDAdapter
+    model_id: IndicCanaryLangID
+    tag: secondary
+    waveform_key: waveform
+    min_duration_sec: 1
+    max_duration_sec: 40
+    batch_size: 16
+    num_workers_override: 1
+    fail_on_audio_error: true
+    adapter_kwargs:
+      engine_dir: ${model_dir}/indic_canary
+      num_beams: 1
+      max_new_tokens: 1
+      model_batch_size: 16
+      min_duration_sec: 1
+      max_duration_sec: 40
+      kv_cache_free_gpu_memory_fraction: 0.1
+      cross_kv_cache_fraction: 0.1
+    resources:
+      gpu_memory_gb: 8
+
+  - _target_: nemo_curator.stages.audio.inference.lid.AudioLIDInferenceStage
+    name: WhisperLangID
+    adapter_target: nemo_curator.models.audio.lid.whisper.WhisperLIDAdapter
+    model_id: WhisperLangID
+    tag: tertiary
+    waveform_key: waveform
+    min_duration_sec: 1
+    max_duration_sec: 30
+    batch_size: 16
+    num_workers_override: 2
+    fail_on_audio_error: true
+    adapter_kwargs:
+      model_size: medium
+      model_path: ${model_dir}/whisper.pt
+      backend: torch
+      fp16: true
+      model_batch_size: 16
+    resources:
+      gpu_memory_gb: 8
+
+  - _target_: nemo_curator.stages.audio.postprocessing.lid_selection.SelectAudioLanguageStage
+
+  - _target_: nemo_curator.stages.audio.io.write_audio.AudioSegmentWriterStage
+    output_dir: ${output_dir}
+
+  - _target_: nemo_curator.stages.audio.common.ManifestWriterStage
+    name: MetadataManifestWriter
+    output_path: ${output_dir}/metadata.jsonl
+
+  # Keep the full metadata audit above; only selected English clips reach ASR.
+  - _target_: nemo_curator.stages.audio.common.PreserveByValueStage
+    input_value_key: source_lang
+    target_value: en
+    operator: eq
+    missing_value_policy: drop
+
+  # AudioSegmentWriter removed the parent WAV path; resample the emitted Opus clip.
+  - _target_: nemo_curator.stages.audio.tagging.ResampleAudioStage
+    name: ResampleEnglishClip
+    resampled_audio_dir: ${workspace_dir}/audio_resampled
+    target_sample_rate: 16000
+    target_format: wav
+    target_nchannels: 1
+  - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
+    adapter_target: nemo_curator.models.asr.qwen_omni.QwenOmniASRAdapter
+    model_id: ${model_id}
+    default_language: en
+    supported_language_codes: [en, zh, ko, ja, de, ru, it, fr, es, pt, ms, nl, id, tr, vi, yue, ar, ur]
+    unsupported_language_marks_skip: false
+    pred_text_key: primary_model_prediction
+    batch_size: 32
+    max_audio_sec_per_actor: 960.0
+    max_inference_duration_s: 30.0
+    local_bucketing: false
+    resources:
+      _target_: nemo_curator.stages.resources.Resources
+      gpus: 2
+    adapter_kwargs:
+      revision: ${model_revision}
+      prompt_content_order: text_audio
+      max_output_tokens: 256
+      vllm_kwargs:
+        max_model_len: 4096
+        max_num_seqs: 16
+        gpu_memory_utilization: 0.9
+        dtype: auto
+        trust_remote_code: true
+        enable_prefix_caching: true
+        prefix_caching_hash_algo: xxhash
+        # Keep vision slots enabled to avoid vLLM meta DeepStack buffers at startup.
+        limit_mm_per_prompt:
+          image: 1
+          video: 1
+          audio: 2
+        seed: 1234
+      sampling_kwargs:
+        temperature: 0.0
+        top_k: 1
+        repetition_penalty: 1.0
+      prompt_text: |-
+        You receive an audio file.
+
+        Goal: To transcribe the audio, normalize numbers into words, and include any disfluencies that are present in the audio.
+
+        TRANSCRIPTION RULES:
+        1) Normalize numeric expressions into words exactly as they are SPOKEN in the audio.
+        - Mixed format is forbidden:
+            Bad: "5 percent", "2 zeros"
+            Good: "five percent", "two zeros"
+        - Normalize: percentages, currencies, units, ranges, decimals, dates/years — ONLY if they are spoken.
+        - If a unit (for example “percent”) is NOT spoken, do not add it.
+        2) Include any disfluencies present in the audio.
+        - Disfluencies as "um", "uh" that are present in the audio should be added to the text.
+        - If a word is repeated in the audio, include every repetition in the text.
+
+        ENTITIES (names, places, brands, titles, etc.):
+        - Keep every named entity as spoken. This includes names, places, brands, titles, acronyms, and other proper nouns.
+
+        OUTPUT FORMAT:
+        - Return only the final text.
+        - No explanations, no JSON, no lists.
+      en_prompt_text: |-
+        You receive English audio. The audio is the ground truth.
+
+        MAIN GOAL: Listen carefully to the audio and transcribe exactly what is spoken, including all disfluencies present in the audio.
+        - Do NOT invent words or content not spoken in the audio.
+        - Do NOT remove substantive content that is spoken in the audio.
+        - Do NOT paraphrase, polish grammar or rewrite sentences.
+
+        ENTITIES (names, places, brands, titles, etc.):
+        - Keep every named entity as spoken. This includes names, places, brands, titles, acronyms, and other proper nouns.
+        - Do not ever transliterate, translate, re-spell, normalize, or "correct" an entity into another script.
+        - If enetities are part code switched data it should stay the same.
+
+        KEEP DISFLUENCIES:
+        - Keep fillers, repetitions, false starts, colloquial reductions, and grammatical errors spoken in the audio.
+        - Add hesitation markers and fillers natural to English wherever they are spoken in the audio.
+        - Do NOT clean up, normalize, or remove disfluencies spoken in the audio.
+        - Add consecutive instances of the same word or short phrase when spoken unintentionally.
+          - Example: "I I think" if that is what is spoken.
+
+
+        BACKGROUND / QUIET / OVERLAPPING SPEECH:
+        - Keep all audible speech, including quieter, distant, or overlapping voices — not just the loudest speaker.
+        - Add background or secondary speech that is audible; do not drop words because they sound like background.
+
+        FALSE STARTS:
+        - Add incomplete words or phrases the speaker abandons, marked with a hyphen.
+          - Example: "I was go- going to the store."
+        - Do NOT remove false starts spoken in the audio.
+
+        COLLOQUIAL REDUCTIONS:
+        - If the speaker used reductions, use the spoken form: "want to" → "wanna", "going to" → "gonna", etc.
+        - Preserve forms such as "wanna", "gonna", "kinda", "lemme", "lotta", "outta", "Imma", "sorta", "ya", "m'kay", "finna", "tryna", etc. Do NOT expand them.
+
+        WRONG GRAMMAR:
+        - Keep grammatical errors as spoken. Do NOT correct subject-verb agreement, tense errors, or other grammar issues.
+
+        NUMERICALS:
+        - Keep numbers as spoken in words. Do NOT convert them to digits.
+          - Example: keep "oh eleven" or "zero eleven".
+
+        Output format:
+        - Return ONLY the transcription text.
+  - _target_: nemo_curator.stages.audio.text_filtering.WhisperHallucinationStage
+    name: WhisperHallucination_primary
+    common_hall_file: tutorials/audio/whisper_hallucination/phrases.txt
+    text_key: primary_model_prediction
+    language_key: source_lang
+    unique_words_threshold: 0.4
+    long_word_threshold: 25
+    long_word_rel_threshold: 3.0
+    max_char_rate: 40.0
+
+  - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
+    name: QwenASR_recovery
+    run_only_if_hallucinated: true
+    adapter_target: nemo_curator.models.asr.qwen_asr.QwenASRAdapter
+    model_id: ${recovery_model_id}
+    default_language: en
+    supported_language_codes: [en]
+    # An empty recovery result must not replace the primary hallucination flag.
+    preserve_existing_skip: true
+    pred_text_key: fallback_model_prediction
+    batch_size: 128
+    max_audio_sec_per_actor: 5120.0
+    adapter_kwargs:
+      revision: ${recovery_model_revision}
+      gpu_memory_utilization: 0.95
+      max_new_tokens: 4096
+      max_inference_batch_size: 128
+
+  - _target_: nemo_curator.stages.audio.text_filtering.WhisperHallucinationStage
+    name: WhisperHallucination_asr
+    run_only_if_hallucinated: true
+    common_hall_file: tutorials/audio/whisper_hallucination/phrases.txt
+    text_key: fallback_model_prediction
+    language_key: source_lang
+    overwrite: true
+    recovery_value: Recovered:ASR
+    unique_words_threshold: 0.4
+    long_word_threshold: 25
+    long_word_rel_threshold: 3.0
+    max_char_rate: 40.0
+
+  - _target_: nemo_curator.stages.audio.text_filtering.SelectBestPredictionStage
+    primary_text_key: primary_model_prediction
+    fallback_text_key: fallback_model_prediction
+    reference_text_key: null
+    use_reference_on_hallucination: false
+    use_ground_truth_for_short_audio: false
+    output_key: best_prediction
+  - _target_: nemo_curator.stages.audio.text_filtering.RegexSubstitutionStage
+    _convert_: all
+    text_key: best_prediction
+    output_text_key: cleaned_text
+    rules:
+    - {"pattern": "’", "repl": "'"}
+    - {"pattern": "‘", "repl": "'"}
+    - {"pattern": "——", "repl": "-"}
+    - {"pattern": "—", "repl": "-"}
+    - {"pattern": "–", "repl": "-"}
+    - {"pattern": "-", "repl": "-"}
+    - {"pattern": "_", "repl": " "}
+    - {"pattern": "Ё", "repl": "Е"}
+    - {"pattern": "ё", "repl": "е"}
+    - {"pattern": "“", "repl": ""}     # left double smart quote “
+    - {"pattern": "”", "repl": ""}     # right double smart quote ”
+    - {"pattern": "«", "repl": ""}     # left guillemet «
+    - {"pattern": "»", "repl": ""}     # right guillemet »
+    - {"pattern": "‎", "repl": ""}     # LTR mark (fa)
+    - {"pattern": "‏", "repl": ""}     # RTL mark
+    - {"pattern": "­", "repl": ""}     # soft hyphen (fil)
+    - {"pattern": "﻿", "repl": ""}     # BOM / zero-width no-break space
+    - {"pattern": "\u0964", "repl": "."}    # danda ।
+    - {"pattern": "\u0965", "repl": "."}    # double danda ॥
+    - {"pattern": "\u06D4", "repl": "."}    # Arabic full stop ۔
+    - {"pattern": "\u060C", "repl": ","}    # Arabic comma ،
+    - {"pattern": "\u061B", "repl": ","}    # Arabic semicolon ؛
+    - {"pattern": "\u061F", "repl": "?"}    # Arabic question mark ؟
+    - {"pattern": "\u0640", "repl": ""}     # Arabic tatweel ـ (decorative; remove)
+    - {"pattern": "\u3002", "repl": "."}    # ideographic full stop 。
+    - {"pattern": "\u3001", "repl": ","}    # ideographic comma 、
+    - {"pattern": "\uFF0C", "repl": ","}    # fullwidth comma ，
+    - {"pattern": "\uFF01", "repl": "!"}    # fullwidth exclamation ！
+    - {"pattern": "\uFF1F", "repl": "?"}    # fullwidth question ？
+    - {"pattern": "\uFF1A", "repl": ":"}    # fullwidth colon ：
+    - {"pattern": "\uFF1B", "repl": ","}    # fullwidth semicolon ；
+    - {"pattern": "♫", "repl": " "}
+    - {"pattern": "♪", "repl": " "}
+    - {"pattern": "♬", "repl": " "}
+    - {"pattern": "♩", "repl": " "}
+    - {"pattern": "♭", "repl": " "}
+    - {"pattern": '\|', "repl": " "}
+    - {"pattern": ";", "repl": ","}
+    - {"pattern": '\[[^\]]*\]', "repl": ""} # delete content inside []
+    - {"pattern": ' ?\([^\)]+\)', "repl": ""} # delete content inside ()
+    - {"pattern": ' ?{[^}]+}', "repl": ""} # delete content inside {}
+    - {"pattern": "[^ !$%',-.0123456789;?ABCDEFGHIJKLMNOPQRSßTUVWXYŸZabcdefghijklmnopqrsẞtuvwxyÿz¡£¿ÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÑÒÓÔÕÖØÙÚÛÜÝàáâãäåæçèéêëìíîïñòóôõöøùúûüýĀāĂăĄąĆćĊċČčĎďĐđĒēĖėĘęĚěĠġĢģĦħĪīĮįĶķĹĺĻļĽľŁłŃńŅņŇňŐőŒœŔŕŘřŚśŠšŤťŪūŮůŰűŲųŹźŻżŽžȘșȚțΆΈΉΌΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩάέήίαβγδεζηθικλμνξοπρστυφχψωϊόύώЁЄІЇАБВГДЕЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯабвгдежзийклмнопрстуфхцчшщъыьэюяёєіїҐґ€₴₽/:\u011E\u011F\u0130\u0131\u015E\u015F\u0128\u0129\u0168\u0169\u0132\u0133\u0162\u0163\u038A\u038E\u038F\u0390\u03AA\u03AB\u03B0\u03C2\u03CB\u0400\u040D\u045D\u0450\u0374\u0375\u0384\u01A0-\u01B0\u0590-\u05FF\u0600-\u06FF\u0750-\u077F\u0900-\u097F\u0980-\u09FF\u0A00-\u0A7F\u0A80-\u0AFF\u0B00-\u0B7F\u0B80-\u0BFF\u0C00-\u0C7F\u0C80-\u0CFF\u0D00-\u0D7F\u0E00-\u0E7F\u1EA0-\u1EFF\u200C\u200D\u3005-\u3007\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF\uAC00-\uD7AF]", "repl": " "}
+    - {"pattern": '\s+\.', "repl": "."}
+    - {"pattern": '\?+', "repl": "?"}
+    - {"pattern": '\.+', "repl": "."}
+    - {"pattern": ',+', "repl": ","}
+    - {"pattern": '!+', "repl": "!"}
+    - {"pattern": '\s+', "repl": " "}
+  - _target_: nemo_curator.stages.audio.text_filtering.AbbreviationConcatStage
+    text_key: cleaned_text
+    output_text_key: abbreviated_text
+    source_lang_key: source_lang
+    default_language: en
+
+  # 2. Recover named entities.
+  - <<: *text_stage
+    name: RecoverEntities
+    prompt: "You are given TWO transcriptions of the same audio clip:\n\n- INITIAL: Initial reference with named entity spelling/casing.\n\
+      - NORMALIZED: Normalized transcription.\n\nYour task:\n\n1. In the INITIAL text, identify ONLY proper-noun named entities\
+      \ made of letters/words only (no digits): people, places, organizations, companies, products, brands, and acronyms/initialisms.\
+      \ \n\n2. If a candidate contains any digit (0-9), it is NOT an entity and must be excluded.\n\n3. Titles/honorifics\
+      \ are NOT entities and must be excluded.\n\n4. For each remaining entity, locate its match in the NORMALIZED text and\
+      \ substitute it with the INITIAL spelling/casing. Change ONLY the entity itself — leave all normalization untouched:\
+      \ keep numbers, dates, times, money, units, and titles in their written form.\n\n\nReturn ONLY the resulting NORMALIZED\
+      \ text. No explanations, labels, or extra formatting."
+    text_key: ${text_key}
+    output_text_key: entity_recovered_text
+    validation_mode: none
+    min_word_retention_ratio: 0.3
+    generation_config:
+      max_tokens: 1024
+      temperature: 0.0
+      top_p: 1.0
+      seed: 0
+      extra_kwargs:
+        extra_body:
+          chat_template_kwargs:
+            enable_thinking: false
+    mode: recover_entities
+    user_prompt: |-
+      INITIAL:
+      "{ground_truth}"
+
+      NORMALIZED:
+      "{normalized}"
+    ground_truth_key: ${ground_truth_key}
+
+  # 3. Restore punctuation and capitalization.
+  - <<: *text_stage
+    name: PnCRestoration
+    prompt: |-
+      Add punctuation and capitalization to the raw ASR transcription in {language} below. That is the ONLY change you are allowed to make.
+      Raw ASR transcription in {language}:
+      {text}
+
+      RULES:
+      - Add periods, commas, question marks, exclamation marks where appropriate.
+      - Capitalize sentence starts and proper nouns only.
+      - Every single word from the input MUST appear in the output, unchanged and in the same order. Do not remove, add, replace, or reorder any words or characters.
+
+      Return ONLY the punctuated and capitalized transcription. No explanations.
+    text_key: entity_recovered_text
+    output_text_key: pnc_text
+    validation_mode: itn
+    min_word_retention_ratio: 0.3
+    generation_config: &text_generation
+      max_tokens: 512
+      temperature: 0.0
+      top_p: 1.0
+      seed: 0
+      extra_kwargs:
+        extra_body:
+          chat_template_kwargs:
+            enable_thinking: false
+
+  # 4. Predict and verify the transcript language.
+  - <<: *text_stage
+    name: LanguageID
+    prompt: |-
+      # Language Identification
+
+      You are given a transcript of spoken audio. Your task is to identify the language(s) in which the text is written, including any code-switching.
+
+      Analyze the vocabulary, grammar, script, and word patterns. Spoken audio can be code-switched as well — a speaker may mix two or more languages in a single utterance. Detect this instead of collapsing everything to one label.
+
+      ## Guidelines
+
+      - Identify the PRIMARY language: the one that carries most of the meaningful content.
+      - Also list EVERY language present in the transcript, including the primary one.
+      - Return full English names of languages (e.g. English, Spanish, French, German, Hindi, Chinese). Do not return ISO codes, locale tags, or abbreviations (e.g. do not return "en", "es", or "fr-FR").
+      - Proper nouns and isolated loanwords do NOT count as a separate language; only count a language if it contributes real words or phrases.
+      - If only one language is present, list just that one.
+      - If the text is too short to identify confidently, choose the most likely language(s) based on the available words and script.
+
+      ## Output format
+
+      Return exactly two lines, nothing else. No explanations, quotes, or extra formatting:
+
+      ```
+      Primary: <primary language name>
+      Languages: <comma-separated language names, including the primary>
+      ```
+
+      ## Examples
+
+      Transcript: "Bonjour, comment allez-vous aujourd'hui?"
+      Primary: French
+      Languages: French
+
+      Transcript: "El clima está muy agradable esta mañana."
+      Primary: Spanish
+      Languages: Spanish
+
+      Transcript: "मुझे लगता है कि हमें इस project को कल तक finish कर देना चाहिए।"
+      Primary: Hindi
+      Languages: Hindi, English
+
+      Transcript: "I think we should schedule the meeting for next Tuesday."
+      Primary: English
+      Languages: English
+    text_key: pnc_text
+    output_text_key: llm_language_prediction
+    validation_mode: none
+    min_word_retention_ratio: 0.3
+    generation_config: *text_generation
+    mode: language_id
+
+  # 5. Normalize written text to spoken form.
+  - <<: *text_stage
+    name: TextNormalization
+    prompt: |-
+      # Text Normalization ({language})
+
+      Convert the written-form transcript below in **{language}** to spoken form. **Only** apply conversions from the table (numbers, dates, times, money, units, symbols, etc.). Use **{language}** conventions; English examples show the pattern.
+
+      Return ONLY normalized text. No explanations or extra formatting.
+
+      ## Constraints
+
+      - Stay in **{language}**; preserve code-switching/script mix. Do NOT translate.
+      - Do NOT clean up speech: keep fillers (um, uh, …), repetitions, false starts (go- going), colloquial forms (gonna, wanna), grammar errors, and all non-target wording unchanged and in order.
+      - Do NOT add or remove words or punctuation except as required by conversions (e.g. `@` → "at" in an email).
+      - Denormalize digits/symbols **only** when they match Conversion Rules. Leave idiomatic numbers, proper nouns, vague quantities, disfluencies, and text already spoken as words unchanged (e.g. keep "oh eleven" as-is; do not swap "oh" ↔ "zero" unless denormalizing a digit sequence).
+      - In stammers/false starts, denormalize only the final clean numeric token.
+
+      ## Conversion Rules
+
+      | Category | Written | Spoken |
+      |---|---|---|
+      | Cardinal | 14 / 1,030.5 / 2024 | fourteen / one thousand thirty point five / twenty twenty four |
+      | Ordinal | 1st / 21st / 50th | first / twenty first / fiftieth |
+      | Date | January 22nd, 1847 / January 22, 1990 | january twenty second eighteen forty seven / january twenty two nineteen ninety |
+      | Time | 3:05 PM / 10 AM / 1:45 / noon | three o five PM / ten AM / one forty five / noon |
+      | Money | $52 / $249.99 | fifty two dollars / two hundred forty nine dollars and ninety nine cents |
+      | Percent | 0.5% / 20% to 30% | zero point five percent / twenty to thirty percent |
+      | Units | 5 kg / 90 km/h / 5'4" | five kilograms / ninety kilometers per hour / five foot four |
+      | Fractions | 1/2 / 1/3 / 2/3 / 1 3/4 | half / a third / two thirds / one and three quarters |
+      | Phone | 5558675309 / 18005550199 | five five five eight six seven five three zero nine / one eight hundred five five five oh one nine nine |
+      | URL/Email | example.com/pricing / john@gmail.com | example dot com slash pricing / john at gmail dot com |
+      | Titles | Dr. Smith / Prof. Jones / vs. / w/o | doctor smith / professor jones / versus / without |
+      | Address | 450 N. Main St. | four fifty north main street |
+      | Roman num. | King Henry VIII / Chapter IV | king henry the eighth / chapter four |
+      | Negative | -12 / -5 degrees | negative twelve / minus five degrees |
+      | Decades | 70s / 20s | seventies / twenties |
+      | Letter+num | Q2 / B12 | q two / b twelve |
+
+      Additional rules:
+      - Structural symbols (`.`, `@`, `/`, `:`, `-`) → spoken words in URLs, emails, phones, using **{language}** forms ("dot", "at", "slash", …).
+      - Acronyms (NASA, FBI, AM, PM): keep natural spoken form; do not expand unrelated abbreviations.
+      - Phone/time "0" → "oh" or "zero" per **{language}**; zip/house numbers → digit-by-digit when denormalizing.
+
+      ## Ambiguity
+
+      - Denormalize digit/symbol form for quantities, measurements, ages, dates, and counts.
+      - Skip idioms, proper nouns ("One Direction"), vague quantities, temporal "quarter", and idiomatic "half".
+      - Convert 1/2 or 1/4 to "half" / "a quarter" only for true fractions.
+
+      Written-form transcript in {language}:
+      {text}
+    text_key: pnc_text
+    output_text_key: tn_raw
+    validation_mode: none
+    min_word_retention_ratio: 0.3
+    generation_config: *text_generation
+
+  # 6. Run captioning, code switching, and speech QA concurrently.
+  - <<: *text_stage
+    name: FusedTextLLM
+    operations:
+      - name: Captioning
+        text_key: tn_raw
+        output_text_key: captioning_text
+        validation_mode: none
+        min_word_retention_ratio: 0.3
+        generation_config: *text_generation
+        language_rules: null
+        prompt: |-
+          # Audio Caption Generation
+
+          You are given a transcript of spoken audio. Generate a short, descriptive caption that summarizes what is being said.
+
+          Return ONLY the caption. No explanations, labels, quotes, or extra formatting.
+
+          ## Guidelines
+
+          - Write a concise summary (1-2 sentences) of the main topic or content
+          - Use third person (e.g. "A speaker discusses..." or "The conversation covers...")
+          - Capture the key subject matter, not every detail
+          - Keep it factual — do not add opinions or interpretations
+          - If the transcript is too short or unclear, describe what little content there is
+          - PRESERVE the language of the input — if the transcript is in Spanish, write the caption in Spanish
+
+          ## Examples
+
+          Transcript: "So today we're going to talk about how photosynthesis works in plants. The basic idea is that plants convert sunlight into chemical energy."
+          Caption: A speaker explains how photosynthesis works, describing how plants convert sunlight into chemical energy.
+
+          Transcript: "The stock market dropped three percent yesterday following the Federal Reserve's announcement about interest rates."
+          Caption: A news report about a stock market decline following a Federal Reserve interest rate announcement.
+
+          Transcript: "First you need to preheat the oven to three fifty. Then mix the flour and sugar together in a large bowl."
+          Caption: Instructions for a baking recipe, including oven temperature and mixing dry ingredients.
+      - name: CodeSwitching
+        text_key: tn_raw
+        output_text_key: code_switched_text
+        validation_mode: none
+        min_word_retention_ratio: 0.3
+        generation_config: *text_generation
+        language_rules: null
+        prompt: |-
+          You are a {language} language expert. Your task is to restore code-switching in a {language} transcript: whenever a word in the transcript is actually an English word that was written phonetically in {language} script, rewrite it using its original English (Latin) spelling.
+
+          Context: the input transcript was produced by a human transcriber who wrote everything in {language} script, including English words the speaker actually pronounced in English. We want the transcript to reflect the real code-switched utterance: {language} words stay in {language} script, English words appear in Latin script.
+
+          You are performing transliteration RESTORATION, NOT translation. This distinction is the entire task.
+
+          THE PHONETIC TEST (apply to every single word):
+          For each word written in {language} script, ask whether pronouncing it with {language} phonology makes it sound like an English word with the same meaning.
+          - If YES, the word is an English word spelled phonetically in {language} script. Restore its standard English Latin spelling.
+          - If NO, the word is a native {language} word. LEAVE IT EXACTLY AS WRITTEN. Do not translate it, even if you know what it means in English.
+
+          The phonetic test is about sound, not meaning. A {language}-native word can mean the same thing as an English word and still be native. Native vocabulary in any language has its own phonology that does not echo English. Loanwords inherit English phonemes that show through the transliteration.
+
+          WHEN IN DOUBT, LEAVE THE WORD UNCHANGED. Under-restoration is acceptable; over-translation is not. If you cannot clearly hear the English pronunciation in the {language}-script word, treat it as native.
+
+          Categories that ARE typically active English code-switches (restore to English):
+          - Modern technical, software, user-interface, scientific, medical, chemical, and business terms when they are clearly being pronounced as English
+          - Brand names, company names, product names
+          - Person names of non-{language} origin, place names of non-{language} origin
+          - Acronyms and abbreviations
+          - Recently borrowed concepts that are not naturally established as native-script vocabulary in {language}
+
+          Categories that are typically NATIVE or established loanwords (leave unchanged):
+          - Everyday objects, common materials, basic concepts, body parts, family terms
+          - Native flora, fauna, foods, cultural/religious terms
+          - Place names native to the {language}'s region
+          - Words for which the {language} has used its own term for centuries
+          - Established loanwords that have a conventional native-script form and function naturally as part of {language} vocabulary or morphology
+
+          Grammatical rules:
+          1. If a restored English root carries a {language} grammatical suffix, case marker, postposition, or combining mark, output the English root in standard Latin spelling and keep the suffix in original {language} script, separated by exactly one space.
+          2. A whitespace-delimited token must never contain both Latin and native-script characters. If a suffix cannot be isolated safely, keep the complete original native-script token unchanged.
+          3. Preserve original word order, punctuation, repetitions, and sentence structure exactly. Do not paraphrase, summarize, translate, or reorder.
+          4. If the input contains no English-origin transliterated words, return it unchanged.
+          5. Output ONLY the rewritten {language} text. No explanations, no quotation marks around the output, no commentary.
+
+          ADDITIONAL OUTPUT RULES — these rules take precedence over any conflicting formatting rule above:
+          - Never output numeric digits in any script. Preserve spoken numbers as words. Restore phonetically English number words as English words. Never translate native-language number words into English.
+          - Restore clear short English discourse words such as so, yes, yeah, no, okay, hi, hello, please, sorry, and thanks, including at utterance boundaries. Handle repeated occurrences consistently.
+          - Keep an established loanword in native script when it has a conventional native-script form and functions naturally as part of {language}; otherwise, restore a clear phonetic rendering of an active English word to standard Latin spelling.
+          - Restore clearly active English technical, software, user-interface, scientific, and business terms to Latin script, while leaving genuine native-language equivalents and established native-script loanwords unchanged.
+          - For any already mixed Latin plus native-script token, separate the Latin English stem from the native-script suffix with exactly one space. Do not use this rule to manufacture a Latin stem from a valid fully native-script loanword.
+          - Use only Latin script for restored English and the standard native script of {language} for non-English text. Never introduce characters from any other script.
+
+          FINAL NON-NEGOTIABLE CHECKS:
+          - The output must contain no digit characters zero through nine, even when a digit was already present in the input or belongs to an acronym, model, product, size, version, chemical formula, or proper name. Rewrite each digit as an English number word while preserving surrounding letters. Schematic examples: H1 -> H one; T20 -> T twenty; 4G -> four G; G20 -> G twenty; 4XL -> four XL; GSTR 3B -> GSTR three B; H2O -> H two O; B2B -> B two B; K2 -> K two; Ben 10 -> Ben ten; 7 AM -> seven AM. Scan once more after writing and replace every remaining digit.
+          - A whitespace-delimited output token must never contain both Latin letters and any non-Latin language-script letters or marks. Schematic examples: EnglishRoot<suffix> -> EnglishRoot <suffix>; EnglishAcronym<case-marker> -> EnglishAcronym <case-marker>. If the native suffix is not a real grammatical suffix or cannot be separated confidently, keep the complete token in native script.
+          - Preserve the intended English word, not a similar word plus a fabricated suffix. Do not invent native suffixes to explain an English word.
+          - Separate only the true native grammatical suffix; do not split inside the native spelling of an established loanword.
+          - Before answering, silently scan every output token character by character and verify all three constraints: no digits, no Latin/native mixed-script tokens, and no script other than Latin plus the standard native script of {language}.
+
+          Apply the phonetic test to every word. When in doubt, leave the word unchanged. Now rewrite the following {language} text:
+          {text}
+      - name: SpeechQA
+        text_key: tn_raw
+        output_text_key: speech_qa_text
+        validation_mode: none
+        min_word_retention_ratio: 0.3
+        generation_config: *text_generation
+        language_rules: null
+        prompt: |-
+          You are given a transcript of a spoken audio segment in {language}. Generate at most one question-answer (Q/A) pair grounded in the transcript content.
+
+          The Q/A pair must be answerable from the transcript alone — no external knowledge, no information that is not stated or directly implied in the transcript. The question and the answer must both be in {language}, the same language as the transcript.
+
+          First decide whether the transcript is suitable for Q/A generation. The transcript is NOT suitable if:
+          - It is too short or carries no substantive informational content (a few words, pure filler, disfluencies only, isolated single words).
+          - It is a pure conversational utterance with no information content (greetings, farewells, acknowledgments, agreements, fillers like "yeah", "okay", "thanks").
+
+          For everything else (borderline cases, edge cases, content of any genre or style), use your own judgment based on whether a meaningful, well-grounded Q/A pair can plausibly be produced. When borderline, prefer SKIP over generating a weak or hallucinated pair.
+
+          Output format:
+
+          If the transcript IS suitable, output exactly two lines and nothing else:
+          Q: <one concrete question in {language}, not yes/no, not a trivial restatement>
+          A: <a concise answer in {language}, a phrase or one short sentence, directly supported by the transcript>
+
+          If the transcript is NOT suitable, output exactly the single line:
+          SKIP
+
+          Do not output explanations, markdown, code fences, surrounding text, blank lines before, or anything other than the two-line Q/A block or the single word SKIP.
+
+          Transcript:
+          {text}
+
+  # 7. Restore written-form numbers, dates, and other expressions.
+  - <<: *text_stage
+    name: ITNRestoration
+    prompt: |-
+      # Inverse Text Normalization
+
+      Convert spoken-form text to standard written form: numbers, dates, times, currencies, measurements, and symbols become their conventional written representations.
+
+      Return ONLY the converted text. No explanations, labels, or extra formatting.
+
+      ## Constraints
+
+      - PRESERVE the input language. Do NOT translate.
+      - PRESERVE all original wording, disfluencies (um, uh, euh, ähm), repetitions, false starts (go- going), colloquial forms (gonna, 'cause), mispronunciations, and grammatical errors.
+      - Do NOT add punctuation that wasn't implied by the input.
+      - Do NOT paraphrase, add, or remove words beyond the conversions below.
+      - When a number word is idiomatic (not numeric), keep it as a word (see Ambiguity Resolution).
+
+      ## Conversion Rules
+
+      | Category | Spoken | Written |
+      |---|---|---|
+      | Cardinal | fourteen / one thousand thirty point five / twenty twenty four | 14 / 1,030.5 / 2024 |
+      | Ordinal | first / twenty first / fiftieth | 1st / 21st / 50th |
+      | Date | january twenty second eighteen forty seven / january twenty two nineteen ninety | January 22nd, 1847 / January 22, 1990 |
+      | Time | three o five PM / ten AM / one forty five / noon | 3:05 PM / 10 AM / 1:45 / noon |
+      | Money | fifty two dollars / two hundred forty nine dollars and ninety nine cents | $52 / $249.99 |
+      | Percent | zero point five percent / twenty to thirty percent | 0.5% / 20% to 30% |
+      | Units | five kilograms / ninety kilometers per hour / five foot four | 5 kg / 90 km/h / 5'4" |
+      | Fractions | half / a third / two thirds / one and three quarters | 1/2 / 1/3 / 2/3 / 1 3/4 |
+      | Phone | five five five eight six seven five three zero nine / one eight hundred five five five oh one nine nine | 5558675309 / 18005550199 |
+      | URL/Email | example dot com slash pricing / john at gmail dot com | example.com/pricing / john@gmail.com |
+      | Titles | doctor smith / professor jones / versus / without | Dr. Smith / Prof. Jones / vs. / w/o |
+      | Address | four fifty north main street | 450 N. Main St. |
+      | Roman num. | king henry the eighth / chapter four | King Henry VIII / Chapter IV |
+      | Negative | negative twelve / minus five degrees | -12 / -5 degrees |
+      | Decades | seventies / twenties | 70s / 20s |
+      | Letter+num | q two / b twelve | Q2 / B12 |
+
+      Additional rules:
+      - Symbols: "dot"→".", "at"→"@", "slash"→"/", "colon"→":", "dash"→"-".
+      - Acronyms (NASA, FBI, SQL, AM, PM): keep uppercase as-is.
+      - "zero" → "0"; "oh"/"o" in phone/time contexts → "0".
+      - Zip codes: spell digit by digit. House numbers: digits.
+
+      ## Ambiguity Resolution
+
+      - Prefer digits for quantities, measurements, ages, dates, counts.
+      - Keep as WORDS for idioms, proper nouns, and pronominal/indefinite uses:
+        - "one of the best", "the only one", "one another", "one by one"
+        - "One Direction" (proper noun), "a couple of things" (vague quantity)
+      - "quarter" in temporal/financial contexts stays as "quarter" ("fourth quarter", "quarter over quarter"). Only convert to 1/4 when it's a true fraction ("a quarter of a cup" → "1/4 of a cup").
+      - "half" → 1/2 only as a fraction; idiomatic use stays a word ("half the time", "half asleep").
+      - In stammers/false starts, keep number words as words: "o- o- one hundred" → "o- o- 100" (digits only on the final clean token).
+    text_key: tn_raw
+    output_text_key: itn_raw
+    validation_mode: itn
+    min_word_retention_ratio: 0.3
+    generation_config: *text_generation
+
+  # 8. Remove disfluencies.
+  - <<: *text_stage
+    name: DisfluencyRemoval
+    prompt: |-
+      # Disfluency Removal
+
+      Remove speech disfluencies from the following text. Do NOT change anything else.
+
+      Return ONLY the cleaned text. No explanations, labels, or extra formatting.
+
+      ## What to Remove
+
+      - **Filler words**: "um", "uh", "hm", "ah", "er", "eh", "like" (when used as filler), "you know" (when used as filler)
+      - **Repeated words**: "I I think" → "I think", "the the problem" → "the problem"
+      - **False starts**: incomplete words the speaker abandoned, e.g. "I was go- going to" → "I was going to"
+
+      ## What to Keep — Do NOT Change
+
+      - All numbers, dates, symbols, abbreviations — leave exactly as they are
+      - Punctuation and capitalization — leave exactly as they are
+      - Colloquial forms ("gonna", "wanna", "'cause") — keep as-is
+      - Grammar — do NOT correct grammatical errors
+      - Content words — do NOT rephrase or paraphrase
+      - The language — do NOT translate
+
+      The ONLY change you should make is removing filler words, repeated words, and false starts. Everything else must remain identical.
+    text_key: itn_raw
+    output_text_key: itn_clean
+    validation_mode: itn
+    min_word_retention_ratio: 0.5
+    generation_config: *text_generation
+
+  # 9. Write the enriched audio manifest.
+  - _target_: nemo_curator.stages.audio.ManifestWriterStage
+    output_path: ${output_path}
