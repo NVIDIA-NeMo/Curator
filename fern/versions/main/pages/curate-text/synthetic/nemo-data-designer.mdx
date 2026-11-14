@@ -46,15 +46,15 @@ Install the NDD dependency:
 uv pip install nemo-curator[sdg_cpu]
 ```
 
-The `data-designer` package ships only in the synthetic data generation (SDG) extras: `sdg_cpu` and `sdg_cuda12` for the GPU stack. It is not part of the text extras.
+The `data-designer` package ships only in the synthetic data generation (SDG) extras: `sdg_cpu` and `sdg_cuda13` for the GPU stack. It is not part of the text extras.
 
-For local model serving on GPU, install `sdg_cuda12`, which pulls in `cuda12`, `sdg_cpu`, and `inference_server` together:
+For local model serving on GPU, install `sdg_cuda13`, which pulls in `cuda13`, `sdg_cpu`, and `inference_server` together:
 
 ```bash
 uv pip install \
-  --torch-backend cu129 \
-  --extra-index-url https://wheels.vllm.ai/0.22.0/cu129 \
-  "nemo-curator[sdg_cuda12]"
+  --torch-backend cu130 \
+  --extra-index-url https://wheels.vllm.ai/0.22.0/cu130 \
+  "nemo-curator[sdg_cuda13]"
 ```
 
 ## DataDesignerStage

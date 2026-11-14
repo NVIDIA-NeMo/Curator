@@ -13,10 +13,10 @@ modality: "text-only"
 Generate text embeddings using vLLM's optimized inference engine. The `VLLMEmbeddingModelStage` provides high-throughput embedding generation, particularly for large embedding models where vLLM's batching and GPU memory management provide significant performance advantages over Sentence Transformers.
 
 <Note>
-**Installation**: The vLLM embedder is included in the `text_cuda12` installation. Install it with:
+**Installation**: The vLLM embedder is included in the `text_cuda13` installation. Install it with:
 
 ```bash
-uv pip install --override text_cuda12-overrides.txt "nemo-curator[text_cuda12]"
+uv pip install --override text_cuda13-overrides.txt "nemo-curator[text_cuda13]"
 ```
 
 First download the override file and add the CUDA indexes as shown in the

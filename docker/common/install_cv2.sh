@@ -86,27 +86,10 @@ if [ ! -d "$CURATOR_UNDER_TEST_REPO_DIR" ]; then
     exit 1
 fi
 
-# Preserve editable Curator installs so mounted source edits continue to apply.
-editable=$("$PYTHON" - <<'PY'
-import json
-from importlib.metadata import PackageNotFoundError, distribution
-
-try:
-    direct_url = distribution("nemo-curator").read_text("direct_url.json")
-except PackageNotFoundError:
-    direct_url = None
-print("yes" if json.loads(direct_url or "{}").get("dir_info", {}).get("editable", False) else "no")
-PY
-)
-install_args=()
-if [ "$editable" = "yes" ]; then
-    install_args+=(--editable)
-fi
-
-(
-    cd "$CURATOR_UNDER_TEST_REPO_DIR" && \
-        "$PYTHON" -m pip install --upgrade-strategy only-if-needed "${install_args[@]}" ".[cv2]"
-)
+# Preserve the image's locked CUDA dependencies and existing Curator installation.
+UV_PROJECT_ENVIRONMENT=$("$PYTHON" -c 'import sys; print(sys.prefix)') \
+    uv sync --project "$CURATOR_UNDER_TEST_REPO_DIR" --locked --inexact --no-install-project \
+    --extra all --extra cv2 --all-groups
 
 # Installing Curator's cv2 extra currently lets pip choose an fsspec version
 # that breaks semdedup's fsspec.parquet.open_parquet_files import. This is a

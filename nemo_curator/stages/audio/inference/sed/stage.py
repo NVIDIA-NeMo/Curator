@@ -26,7 +26,7 @@ when it exists, otherwise validate and download the official PANNs checkpoint
 there. Install the optional dependency and run it from the Curator repository
 root with the full command below::
 
-    uv run --extra audio_cuda12 python nemo_curator/config/run.py \\
+    uv run --extra audio_cuda13 python nemo_curator/config/run.py \\
       --config-path ../../tutorials/audio/sed \\
       --config-name pipeline \\
       manifest_path=/absolute/path/to/input.jsonl \\

@@ -32,7 +32,7 @@ Use the score as a fast regression signal, not as an absolute quality judgment. 
 
 - Run from a source checkout because `eval/video/build_benchmark_dataset.py` and `eval/video/caption_clipscore.py` are repository tools.
 - Use a Linux host with an NVIDIA CUDA GPU. Benchmark construction runs the GPU video pipeline, and scoring loads the summarizer and CosmosEmbed1 on CUDA in BF16.
-- Install the `video_cuda12` environment described in [Get Started with Video Curation](/get-started/video). The environment includes vLLM, Transformers, PyTorch, and the video dependencies; the development groups provide scikit-learn for K-means.
+- Install the `video_cuda13` environment described in [Get Started with Video Curation](/get-started/video). The environment includes vLLM, Transformers, PyTorch, and the video dependencies; the development groups provide scikit-learn for K-means.
 - Provide enough local storage for the sampled pipeline output. The final benchmark uses symlinks, but `_pipeline_output` retains generated clips, metadata, and embeddings.
 - Obtain the model assets before an offline run. The scorer uses local files only for CosmosEmbed1.
 

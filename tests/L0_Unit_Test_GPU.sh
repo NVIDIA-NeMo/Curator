@@ -14,7 +14,7 @@
 
 set -euo pipefail
 
-: "${GPU_TEST_EXTRAS:?GPU_TEST_EXTRAS is required (e.g. deduplication_cuda12 text_cpu)}"
+: "${GPU_TEST_EXTRAS:?GPU_TEST_EXTRAS is required (e.g. deduplication_cuda13 text_cpu)}"
 : "${GPU_TEST_PATHS:?GPU_TEST_PATHS is required (e.g. tests/stages/text)}"
 
 EXTRA_FLAGS=""

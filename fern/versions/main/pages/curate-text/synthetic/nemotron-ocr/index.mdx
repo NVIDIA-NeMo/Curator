@@ -41,7 +41,7 @@ The included runner starts a Ray cluster and uses `XennaExecutor`; it does not e
 
 ## Installation and Model Access
 
-Build and run an image as described in [Build an Image](/reference/infra/container-environments#build-an-image). The [Curator Dockerfile](https://github.com/NVIDIA-NeMo/Curator/blob/main/docker/Dockerfile) builds the `nemotron-ocr` C++/CUDA extension from the upstream [`nvidia/nemotron-ocr-v2` source](https://huggingface.co/nvidia/nemotron-ocr-v2). Installing `sdg_cuda12` or `image_cuda12` alone does not provide this extension.
+Build and run an image as described in [Build an Image](/reference/infra/container-environments#build-an-image). The [Curator Dockerfile](https://github.com/NVIDIA-NeMo/Curator/blob/main/docker/Dockerfile) builds the `nemotron-ocr` C++/CUDA extension from the upstream [`nvidia/nemotron-ocr-v2` source](https://huggingface.co/nvidia/nemotron-ocr-v2). Installing `sdg_cuda13` or `image_cuda13` alone does not provide this extension.
 
 After you activate `/opt/venv`, verify the extension import:
 

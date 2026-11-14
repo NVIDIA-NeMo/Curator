@@ -34,11 +34,11 @@ NeMo Curator 26.07 requires Python 3.11 or later and supports Python versions be
 ```bash
 uv venv --python 3.11
 source .venv/bin/activate
-curl -O https://raw.githubusercontent.com/NVIDIA-NeMo/Curator/main/requirements/text_cuda12-overrides.txt
+curl -O https://raw.githubusercontent.com/NVIDIA-NeMo/Curator/main/requirements/text_cuda13-overrides.txt
 uv pip install \
-  --override text_cuda12-overrides.txt \
-  --torch-backend cu129 \
-  --extra-index-url https://wheels.vllm.ai/0.22.0/cu129 \
+  --override text_cuda13-overrides.txt \
+  --torch-backend cu130 \
+  --extra-index-url https://wheels.vllm.ai/0.22.0/cu130 \
   "nemo-curator[all]"
 ```
 

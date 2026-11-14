@@ -168,7 +168,7 @@ Review these dependency changes before updating your environment:
 Complete these checks before adopting 26.09:
 
 1. Apply every relevant code change in the [26.09 migration checklist](/about/release-notes/migration-checklist).
-2. If your pipeline uses OpenCV features, add the `cv2` extra: `nemo-curator[text_cuda12,cv2]`.
+2. If your pipeline uses OpenCV features, add the `cv2` extra: `nemo-curator[text_cuda13,cv2]`.
 3. If you use `pairwise_compute_dtype="float32"`, also set `kmeans_embedding_output_dtype="float32"` to avoid a `ValueError` at construction time.
 4. Reinstall the modality extras used by your pipeline and verify RAPIDS 26.08 compatibility.
 5. Run a representative pipeline with a small input set and inspect output schemas, deduplication IDs, and worker counts.

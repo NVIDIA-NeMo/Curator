@@ -26,7 +26,7 @@ Prepare the software, GPU, and input data before you run a video pipeline:
 <a id="software-dependencies" />
 
 - Ubuntu 20.04, 22.04, or 24.04; Python 3.11, 3.12, or 3.13; `uv`; and Git.
-- An NVIDIA GPU from the Volta architecture or newer, with compute capability 7.0 or higher and CUDA 12 or later. CPU-only processing is not supported.
+- An NVIDIA GPU from the Turing architecture or newer, with compute capability 7.5 or higher and CUDA 13 or later. CPU-only processing is not supported.
 - VRAM requirements depend on the pipeline: approximately 16 GB for splitting and embedding, 38 GB for captioning with embedding, or 21 GB for reduced configurations with lower batch sizes and FP8.
 - FFmpeg 8.0 or later with `h264_nvenc` or `libvpx-vp9`. NVIDIA A100 and H100 GPUs do not include NVENC hardware.
 - Input videos in a local directory or an S3-compatible location.
@@ -36,7 +36,7 @@ Install `uv` if it is not already available. Refer to the [NeMo Curator Installa
 Some video operations, including target-resolution frame resizing and motion-vector
 filtering, use OpenCV. The base installation does not include it; add
 `uv pip install "nemo-curator[cv2]"` before using those operations. Motion-vector
-decoding also requires the `video_cpu` or `video_cuda12` extra, which provides
+decoding also requires the `video_cpu` or `video_cuda13` extra, which provides
 PyAV and its FFmpeg libraries. Stages that invoke the `ffmpeg` executable still
 require the FFmpeg setup above; installing `cv2` does not install that
 executable or its codecs. If you use a container image, verify the active image
@@ -69,7 +69,7 @@ Complete these five steps to install Curator, verify FFmpeg, run the splitting e
    ```bash
    git clone https://github.com/NVIDIA-NeMo/Curator.git
    cd Curator
-   uv sync --extra video_cuda12 --all-groups
+   uv sync --extra video_cuda13 --all-groups
    source .venv/bin/activate
    ```
 
@@ -82,7 +82,7 @@ Complete these five steps to install Curator, verify FFmpeg, run the splitting e
    uv venv
    source .venv/bin/activate
    uv pip install torch wheel_stub psutil setuptools setuptools_scm
-   uv pip install --no-build-isolation "nemo-curator[video_cuda12]"
+   uv pip install --no-build-isolation "nemo-curator[video_cuda13]"
    ```
 
    </Tab>

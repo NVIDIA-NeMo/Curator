@@ -40,7 +40,7 @@ tutorials/audio/fleurs/
 ## Prerequisites
 
 - Python 3.11, 3.12, or 3.13
-- NeMo Curator installed with `audio_cuda12` for GPU inference or `audio_cpu` for CPU inference
+- NeMo Curator installed with `audio_cuda13` for GPU inference or `audio_cpu` for CPU inference
 - Internet access for the FLEURS split and ASR checkpoint
 - Sufficient disk space for the selected language and split
 - An NVIDIA GPU with approximately 4 GB or more VRAM is recommended; CPU fallback is supported but substantially slower
@@ -49,7 +49,7 @@ From the repository root, install one audio extra and activate the environment:
 
 ```bash
 # GPU (recommended)
-uv sync --extra audio_cuda12
+uv sync --extra audio_cuda13
 source .venv/bin/activate
 
 # For CPU-only inference, use this instead:

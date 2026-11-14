@@ -44,7 +44,7 @@ Build a local Docker image from a source checkout, run it, then activate and ver
 
    The command prints the installed version and exits without an import error.
 
-Default builds use the `all` Curator extra, Python 3.13, CUDA 12.9.1, and Ubuntu 24.04. The Dockerfile installs `etcd` and `nats-server` for Dynamo and builds the Nemotron OCR C++/CUDA extension. The base image does not include FFmpeg. For audio or video, use the derived image instructions below to package system dependencies with Curator rather than updating each host. Build arguments and Dockerfile revisions can change image contents.
+Default builds use the `all` Curator extra, Python 3.13, CUDA 13.0.2, and Ubuntu 24.04. The Dockerfile installs `etcd` and `nats-server` for Dynamo and builds the Nemotron OCR C++/CUDA extension. The base image does not include FFmpeg. For audio or video, use the derived image instructions below to package system dependencies with Curator rather than updating each host. Build arguments and Dockerfile revisions can change image contents.
 
 ## Add FFmpeg for Audio or Video
 

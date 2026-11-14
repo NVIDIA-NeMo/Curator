@@ -20,13 +20,13 @@ export NVIDIA_API_KEY="your-api-key-here"
   uv pip install "nemo-curator[sdg_cpu]"
   ```
 
-  For local Ray Serve + vLLM inference on GPU, install `sdg_cuda12`:
+  For local Ray Serve + vLLM inference on GPU, install `sdg_cuda13`:
 
   ```bash
   uv pip install \
-    --torch-backend cu129 \
-    --extra-index-url https://wheels.vllm.ai/0.22.0/cu129 \
-    "nemo-curator[sdg_cuda12]"
+    --torch-backend cu130 \
+    --extra-index-url https://wheels.vllm.ai/0.22.0/cu130 \
+    "nemo-curator[sdg_cuda13]"
   ```
 
   NDD is provided by the SDG extras, not the text extras. See the

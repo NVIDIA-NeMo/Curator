@@ -18,7 +18,7 @@ pip install uv
 uv sync --extra interleaved_cpu
 
 # GPU-accelerated (required for large-scale runs)
-uv sync --extra interleaved_cuda12
+uv sync --extra interleaved_cuda13
 ```
 
 ## Sample Data

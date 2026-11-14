@@ -16,8 +16,11 @@
 
 from __future__ import annotations
 
+import ctypes
 import gc
+import sys
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -55,6 +58,20 @@ def _download_whisper_model(model_id: str, revision: str | None) -> None:
     _faster_whisper_stack()[1](model_id, revision=revision)
 
 
+def _load_cuda12_cublas() -> None:
+    if sys.platform != "linux":
+        return
+    try:
+        from nvidia.cublas import __path__ as cublas_path
+    except ImportError:
+        return
+
+    # CTranslate2 dlopens CUDA 12 SONAMEs outside the pip library search path.
+    lib_dir = Path(next(iter(cublas_path))) / "lib"
+    for name in ("libcublasLt.so.12", "libcublas.so.12"):
+        ctypes.CDLL(str(lib_dir / name), mode=ctypes.RTLD_LOCAL)
+
+
 @dataclass
 class FasterWhisperASR:
     """Run Faster-Whisper on mono 16 kHz waveforms prepared by ``ASRStage``."""
@@ -83,6 +100,9 @@ class FasterWhisperASR:
             raise ValueError(msg)
         if self._model is not None:
             return
+
+        if num_gpus:
+            _load_cuda12_cublas()
 
         device = "cuda" if num_gpus else "cpu"
         compute_type = self.compute_type if num_gpus else self.cpu_compute_type

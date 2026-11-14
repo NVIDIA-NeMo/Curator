@@ -536,7 +536,7 @@ def test_module_docstring_contains_the_exact_yaml_command() -> None:
     from nemo_curator.stages.audio.inference.sed import stage
 
     assert "tutorials/audio/sed" in stage.__doc__
-    assert "--extra audio_cuda12" in stage.__doc__
+    assert "--extra audio_cuda13" in stage.__doc__
     assert "--config-name pipeline" in stage.__doc__
     default_command = stage.__doc__.split("To choose the exact download file", maxsplit=1)[0]
     assert "checkpoint_path=" not in default_command

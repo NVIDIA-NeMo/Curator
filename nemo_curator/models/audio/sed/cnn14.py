@@ -52,7 +52,7 @@ adds typing and factors shared helpers while retaining the reference forward
 call contract; the architecture and tensor semantics are unchanged, so
 published checkpoints load as-is.
 
-Requires ``torchlibrosa``, which arrives with the ``audio_cuda12`` extra.
+Requires ``torchlibrosa``, which arrives with the ``audio_cuda13`` extra.
 """
 
 from __future__ import annotations
@@ -65,7 +65,7 @@ try:
     from torchlibrosa.augmentation import SpecAugmentation
     from torchlibrosa.stft import LogmelFilterBank, Spectrogram
 except ModuleNotFoundError as exc:
-    msg = "SED models require torchlibrosa. Install it with: pip install nemo-curator[audio_cuda12]"
+    msg = "SED models require torchlibrosa. Install it with: pip install nemo-curator[audio_cuda13]"
     raise ImportError(msg) from exc
 
 

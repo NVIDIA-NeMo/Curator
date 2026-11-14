@@ -382,23 +382,23 @@ Before you run the workflow, confirm the following requirements:
 - A Hugging Face-format model that the installed vLLM version supports, supplied as a repository ID or local weights path.
 - Jinja prompts whose variables match the fields in the input records.
 
-Install both CUDA extras. `text_cuda12` provides the text-curation dependencies, including the optional FastText language gate. `sdg_cuda12` provides NeMo Data Designer and the local inference server.
+Install both CUDA extras. `text_cuda13` provides the text-curation dependencies, including the optional FastText language gate. `sdg_cuda13` provides NeMo Data Designer and the local inference server.
 
 For a package installation, use Curator's text dependency override file:
 
 ```bash
-curl -O https://raw.githubusercontent.com/NVIDIA-NeMo/Curator/main/requirements/text_cuda12-overrides.txt
+curl -O https://raw.githubusercontent.com/NVIDIA-NeMo/Curator/main/requirements/text_cuda13-overrides.txt
 uv pip install \
-  --override text_cuda12-overrides.txt \
-  --torch-backend cu129 \
-  --extra-index-url https://wheels.vllm.ai/0.22.0/cu129 \
-  "nemo-curator[text_cuda12,sdg_cuda12]"
+  --override text_cuda13-overrides.txt \
+  --torch-backend cu130 \
+  --extra-index-url https://wheels.vllm.ai/0.22.0/cu130 \
+  "nemo-curator[text_cuda13,sdg_cuda13]"
 ```
 
 If you are working from a Curator source checkout instead, run:
 
 ```bash
-uv sync --extra text_cuda12 --extra sdg_cuda12 --all-groups
+uv sync --extra text_cuda13 --extra sdg_cuda13 --all-groups
 source .venv/bin/activate
 ```
 

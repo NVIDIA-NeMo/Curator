@@ -74,7 +74,7 @@ Before using synthetic data generation, ensure you have:
 2. **NeMo Curator with text extras**
 
    ```bash
-   uv pip install --override text_cuda12-overrides.txt "nemo-curator[text_cuda12]"
+   uv pip install --override text_cuda13-overrides.txt "nemo-curator[text_cuda13]"
    ```
 
    First download the override file and add the CUDA indexes as shown in the
@@ -85,8 +85,8 @@ Before using synthetic data generation, ensure you have:
 
    ```bash
    uv pip install \
-     --torch-backend cu129 \
-     --extra-index-url https://wheels.vllm.ai/0.22.0/cu129 \
+     --torch-backend cu130 \
+     --extra-index-url https://wheels.vllm.ai/0.22.0/cu130 \
      "nemo-curator[inference_server]"
    ```
 

@@ -20,7 +20,7 @@ Qwen3-ASR model call.
 From the Curator repository root, install the opt-in Qwen3-ASR dependency:
 
 ```bash
-uv sync --extra audio_cuda12 --extra vllm
+uv sync --extra audio_cuda13 --extra vllm
 source .venv/bin/activate
 ```
 
@@ -49,7 +49,7 @@ from the repository root as shown.
 The first run downloads `Qwen/Qwen3-ASR-0.6B`. The pipeline allocates one GPU
 to each ASR actor. `QwenASRAdapter` constructs `Qwen3ASRModel.LLM`, matching the
 nkoluguri reference's vLLM backend and engine settings. The
-`audio_cuda12` extra installs qwen-asr without its conflicting vLLM pin, while
+`audio_cuda13` extra installs qwen-asr without its conflicting vLLM pin, while
 the shared `vllm` extra provides the same Curator-pinned engine stack used by
 Qwen-Omni.
 

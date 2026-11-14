@@ -89,7 +89,7 @@ To manually run all checks: `pre-commit run --all-files`
 - OS: Ubuntu 22.04/20.04
 - NVIDIA GPU (optional)
   - Volta™ or higher (compute capability 7.0+)
-  - CUDA 12.x
+  - CUDA 13.x
 - uv
 
 ```
@@ -118,7 +118,7 @@ uv sync --extra text
 # Sync multiple dependency groups
 uv sync --extra text --extra video
 
-# Sync all (includes audio_cuda12, deduplication_cuda12, image_cuda12, text_cuda12, video_cuda12)
+# Sync all (includes audio_cuda13, deduplication_cuda13, image_cuda13, text_cuda13, video_cuda13)
 uv sync --extra all
 ```
 

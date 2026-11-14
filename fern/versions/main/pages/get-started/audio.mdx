@@ -21,10 +21,10 @@ Prepare the following environment before running the audio pipeline:
 - `packaging` 22.0 or later and Git.
 - `uv` for package management.
 - An `ffmpeg` executable on `PATH` for stages that resample or convert audio. The Python extras do not install it; audio workflows are easiest to reproduce in a [locally built container with FFmpeg](/reference/infra/container-environments#add-ffmpeg-for-audio-or-video). For Python package installs, refer to [FFmpeg installation options](/get-started/installation#install-ffmpeg-for-audio-and-video-source-installs).
-- An NVIDIA Volta-class or newer GPU with compute capability 7.0 or later and CUDA 12 is recommended for ASR inference; the example also supports CPU execution.
+- An NVIDIA Turing-class or newer GPU with compute capability 7.5 or later and CUDA 13 is recommended for ASR inference; the example also supports CPU execution.
 
 <Warning>
-Audio curation requires x86_64 Linux. The `audio_cpu` and `audio_cuda12` extras omit dependencies for arm64/aarch64, including NeMo ASR and diarization. Use an amd64 host or container for ASR, diarization, and tagging workflows.
+Audio curation requires x86_64 Linux. The `audio_cpu` and `audio_cuda13` extras omit dependencies for arm64/aarch64, including NeMo ASR and diarization. Use an amd64 host or container for ASR, diarization, and tagging workflows.
 </Warning>
 
 ## Quickstart Steps
@@ -48,11 +48,11 @@ Install Curator, run the maintained FLEURS pipeline, and inspect its output.
    source $HOME/.local/bin/env
    git clone https://github.com/NVIDIA-NeMo/Curator.git
    cd Curator
-   uv sync --extra audio_cuda12 --all-groups
+   uv sync --extra audio_cuda13 --all-groups
    source .venv/bin/activate
    ```
 
-   Use `audio_cpu` for CPU-only processing. Replace `audio_cuda12` with `audio_cpu` in the `uv sync` command to use CPU-only processing.
+   Use `audio_cpu` for CPU-only processing. Replace `audio_cuda13` with `audio_cpu` in the `uv sync` command to use CPU-only processing.
 
    </Tab>
    <Tab title="PyPI Installation">
@@ -65,7 +65,7 @@ Install Curator, run the maintained FLEURS pipeline, and inspect its output.
    uv venv
    source .venv/bin/activate
    echo "transformers==4.55.2" > override.txt
-   uv pip install "nemo-curator[audio_cuda12]" --override override.txt
+   uv pip install "nemo-curator[audio_cuda13]" --override override.txt
    ```
 
    The audio extra installs NeMo Toolkit and its dependent audio-processing libraries. It does not install the `ffmpeg` executable.

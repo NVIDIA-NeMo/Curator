@@ -20,7 +20,7 @@ Before you start, prepare the following environment and input data:
 
 - Python 3.11, 3.12, or 3.13, with `packaging >= 22.0` and `uv`.
 - Ubuntu 20.04 or 22.04.
-- An NVIDIA GPU with compute capability 7.0 or higher and CUDA 12 or later. Image modules require a GPU.
+- An NVIDIA GPU with compute capability 7.5 or higher and CUDA 13 or later. Image modules require a GPU.
 - JPEG images in `.tar` archives. CLIP and classifier model weights download automatically on first use.
 - The image reader ignores text and JSON files in the archives.
 
@@ -47,7 +47,7 @@ Complete these four steps to install NeMo Curator, run the example, and verify t
    ```bash
    git clone https://github.com/NVIDIA-NeMo/Curator.git
    cd Curator
-   uv sync --extra image_cuda12
+   uv sync --extra image_cuda13
    source .venv/bin/activate
    ```
 
@@ -59,7 +59,7 @@ Complete these four steps to install NeMo Curator, run the example, and verify t
    ```bash
    uv venv
    source .venv/bin/activate
-   uv pip install "nemo-curator[image_cuda12]"
+   uv pip install "nemo-curator[image_cuda13]"
    ```
 
    </Tab>

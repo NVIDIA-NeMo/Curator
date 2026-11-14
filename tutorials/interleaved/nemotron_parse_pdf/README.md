@@ -24,13 +24,19 @@ We tested the tutorial on 8 H100 GPUs with request concurrency values of 32 and
 git clone https://github.com/NVIDIA-NeMo/Curator.git
 cd Curator
 pip install uv
-uv sync --extra interleaved_cuda12 --extra inference_server --extra cv2
+uv sync --extra interleaved_cuda13 --extra inference_server --extra cv2
 ```
 
 OpenCV is required for PDF page rendering and postprocessing but is not part of
 the `all` extra, so the NeMo Curator container does not include it. Inside the
-container, install it with `uv pip install "nemo-curator[cv2]"`. Verify with
-`python -c "import cv2"`.
+container, install it from the checkout's root with:
+
+```bash
+bash docker/common/install_cv2.sh
+```
+
+This uses the checkout's lockfile to preserve the image's CUDA dependencies.
+Verify with `python -c "import cv2"`.
 
 The NeMo Curator container includes the `etcd` and `nats-server` binaries that
 Dynamo starts. For a source environment outside the container, install them

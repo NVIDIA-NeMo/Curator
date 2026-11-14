@@ -6,7 +6,7 @@ This example demonstrates a complete pipeline for curating mathematical content 
 Use uv to create the project environment and install Curator with the math extra:
 
 ```bash
-uv sync --extra math_cuda12
+uv sync --extra math_cuda13
 source .venv/bin/activate
 ```
 
@@ -19,7 +19,7 @@ uv pip install --force-reinstall pynvml
 
 ### System Dependencies
 - A100 or above GPU(s) with CUDA for the Hugging Face model and vLLM
-- Python environment with `nemo-curator[math_cuda12]` installed (uv sync above)
+- Python environment with `nemo-curator[math_cuda13]` installed (uv sync above)
 - Lynx system dependency for HTML rendering to text:
   - Ubuntu/Debian: `sudo apt-get update && sudo apt-get install -y lynx`
   - RHEL/Fedora: `sudo dnf install -y lynx` (or `sudo yum install -y lynx`)

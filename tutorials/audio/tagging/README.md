@@ -89,7 +89,7 @@ These stages can be inserted after merging (stage 6) for language-specific text 
 From the Curator repository root:
 
 ```bash
-uv sync --extra audio_cuda12
+uv sync --extra audio_cuda13
 source .venv/bin/activate
 ```
 
