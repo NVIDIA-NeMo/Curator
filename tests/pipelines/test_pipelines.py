@@ -13,12 +13,14 @@
 # limitations under the License.
 
 from dataclasses import dataclass
+from typing import ClassVar, get_type_hints
 from unittest.mock import Mock, patch
 
 import pytest
 
+from nemo_curator.backends.base import Backend, BaseExecutor
 from nemo_curator.pipeline.pipeline import Pipeline, assign_root_task_ids
-from nemo_curator.stages.base import ProcessingStage, StageInputSpecs
+from nemo_curator.stages.base import CompositeStage, ProcessingStage, StageInputSpecs
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import EmptyTask, Task
 
@@ -35,6 +37,38 @@ class _NoopStage(ProcessingStage[Task, Task]):
 
     def process(self, task: Task) -> Task:
         return task
+
+
+class _RayDataTestExecutor(BaseExecutor):
+    backend = Backend.RAY_DATA
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.executed = False
+
+    def execute(self, stages: list[ProcessingStage], initial_tasks: list[Task] | None = None) -> list[Task]:
+        self.executed = True
+        return initial_tasks or []
+
+
+class _LegacyTestExecutor(BaseExecutor):
+    """Custom executor using the pre-backend-declaration contract."""
+
+    def execute(self, stages: list[ProcessingStage], initial_tasks: list[Task] | None = None) -> list[Task]:
+        return initial_tasks or []
+
+
+class _CustomBackendTestExecutor(_LegacyTestExecutor):
+    backend = "custom"
+
+
+class _ActorPoolOnlyComposite(CompositeStage[Task, Task]):
+    name = "actor-pool-only-composite"
+
+    def decompose(self) -> list[ProcessingStage]:
+        actor_only_stage = _NoopStage(name="actor-pool-only")
+        actor_only_stage.supported_backends = frozenset({Backend.RAY_ACTOR_POOL})
+        return [_NoopStage(name="preparation"), actor_only_stage]
 
 
 @dataclass
@@ -60,6 +94,57 @@ def test_pipeline_uses_xenna_executor_by_default():
 
         mock_xenna_class.assert_called_once_with()
         mock_xenna_instance.execute.assert_called_once()
+
+
+def test_pipeline_rejects_decomposed_stage_unsupported_by_executor() -> None:
+    executor = _RayDataTestExecutor()
+
+    with pytest.raises(
+        ValueError,
+        match=r"Stage 'actor-pool-only' does not support the 'ray_data' backend.*ray_actor_pool",
+    ):
+        Pipeline(name="test", stages=[_ActorPoolOnlyComposite()]).run(executor=executor)
+
+    assert executor.executed is False
+
+
+def test_custom_executor_without_backend_skips_compatibility_validation() -> None:
+    executor = _LegacyTestExecutor()
+
+    with patch("nemo_curator.backends.base.logger") as mock_logger:
+        executor.validate_supported_backends([_NoopStage()])
+
+    mock_logger.warning.assert_called_once()
+
+
+def test_custom_executor_can_run_an_unrestricted_stage() -> None:
+    _CustomBackendTestExecutor().validate_supported_backends([_NoopStage()])
+
+
+def test_custom_executor_can_run_a_stage_that_explicitly_supports_it() -> None:
+    custom_stage = _NoopStage()
+    custom_stage.supported_backends = frozenset({"custom"})
+
+    _CustomBackendTestExecutor().validate_supported_backends([custom_stage])
+
+
+def test_custom_executor_rejects_a_stage_restricted_to_a_builtin_backend() -> None:
+    actor_pool_only_stage = _NoopStage(name="actor-pool-only")
+    actor_pool_only_stage.supported_backends = frozenset({Backend.RAY_ACTOR_POOL})
+
+    with pytest.raises(
+        ValueError,
+        match=r"Stage 'actor-pool-only' does not support the 'custom' backend.*ray_actor_pool",
+    ):
+        _CustomBackendTestExecutor().validate_supported_backends([actor_pool_only_stage])
+
+
+def test_processing_stage_is_unrestricted_by_default() -> None:
+    assert _NoopStage().supported_backends is None
+
+
+def test_processing_stage_backend_annotation_resolves_at_runtime() -> None:
+    assert get_type_hints(ProcessingStage)["supported_backends"] == ClassVar[frozenset[str] | None]
 
 
 def test_logs_info_when_ray_serve_active_with_gpu_stages_non_xenna() -> None:
