@@ -1,0 +1,49 @@
+stage_id: FastMSSManifestReaderStage
+summary: "Reuse the JSONL reader and validate generated whole-meeting output guarantees."
+tags: []
+params_of_note:
+  audio_filepath_key: "Output field for the existing meeting waveform."
+  duration_key: "Output field for finite positive whole-meeting seconds."
+  text_key: "Output field for nonempty joined reference transcripts."
+  rttm_filepath_key: "Output field for the existing diarization reference."
+notes:
+  - "RTTM must contain nonempty ten-field SPEAKER records with finite positive in-bounds timing. Whitespace in speaker IDs creates extra fields and is rejected."
+  - "Internal FastMSS leaf consuming FileGroupTask manifest paths. Additional annotations are preserved; renaming cannot overwrite an unrelated annotation."
+  - "Missing artifacts or invalid required fields fail before emitting any tasks."
+verified: {params: mechanical, tags: mechanical, resource: best_guess, domain: best_guess, semantic_facts: mechanical}
+
+category: ingest
+model_id: null
+domain: {language: any, style: any}
+resource: {cpus: 1.0, gpu_mem_gb: 0.0, gpu_optional: false, bound: cpu}
+provenance: {model_card_url: null, card_version: 2, last_validated: "2026-11-13"}
+
+semantic_facts:
+  audio_filepath:
+    meaning: "Generated mixed meeting waveform, retaining simultaneous speakers."
+    unit: "local path"
+    provenance: "Installed FastMSS engine using prepared aligned speech."
+    scope: "one complete meeting"
+    propagation: "One AudioTask per recording; additional manifest annotations are retained."
+    counterexamples: ["Not one isolated utterance or one speaker channel."]
+  duration:
+    meaning: "Finite positive mixture duration, including silence and overlap."
+    unit: "seconds"
+    provenance: "FastMSS recording manifest; validated by the meeting reader."
+    scope: "whole meeting"
+    propagation: "Copied without summing speaker turn durations."
+    counterexamples: ["Not the sum of overlapping speakers' speech durations."]
+  text:
+    meaning: "Reference transcripts joined in supervision start-time and ID order, including overlap."
+    unit: "nonempty string"
+    provenance: "Source supervision transcripts; no ASR inference is run."
+    scope: "whole meeting"
+    propagation: "One joined reference per AudioTask."
+    counterexamples: ["Not a time-aligned transcript or a disjoint sequence of ASR chunks."]
+  rttm_filepath:
+    meaning: "Existing generated diarization reference with overlapping speaker turns."
+    unit: "local RTTM path"
+    provenance: "FastMSS reference annotations; no diarization model is run."
+    scope: "whole meeting"
+    propagation: "Retained beside the meeting waveform."
+    counterexamples: ["Not predicted diarization or per-speaker dry audio."]
