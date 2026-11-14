@@ -170,19 +170,19 @@ def test_tokenizer_stage_sort_by_length_disabled(sample_document_batch: Document
 
 
 def test_tokenizer_stage_max_chars_truncation():
-    data = pd.DataFrame(
-        {"text": ["This is a very long text that should be truncated when max_chars is set to a small value"]}
-    )
-    batch = DocumentBatch(dataset_name="test_dataset", data=data)
+    text = "This is a very long text that should be truncated when max_chars is set to a small value"
+    batch = DocumentBatch(dataset_name="test_dataset", data=pd.DataFrame({"text": [text]}))
 
     stage = TokenizerStage(model_identifier="test/model", max_chars=20, sort_by_length=False, text_field="text")
 
     stage.setup()
     result = stage.process(batch).to_pandas()
 
-    truncated_text = result["text"].iloc[0]
-    assert len(truncated_text) <= 20
-    assert truncated_text == "This is a very long "
+    # Only the first 20 characters ("This is a very long ") are tokenized: 5 words + 2 special tokens
+    assert sum(result[ATTENTION_MASK_FIELD].iloc[0]) == 7
+    # The document text itself is passed through unchanged
+    assert result["text"].iloc[0] == text
+    assert batch.to_pandas()["text"].iloc[0] == text
 
 
 def test_tokenizer_stage_setup_unk_token():
