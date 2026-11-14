@@ -158,25 +158,6 @@ Pull requests should cover at least 80% of its changes with tests. CI will rejec
 
 ### Updating Package Dependencies
 
-Native Dependabot checks the root `uv.lock` weekly on Mondays at 08:00 UTC.
-It opens lockfile-only updates within the existing dependency requirements,
-including transitive dependencies. Public CUDA wheel indexes and platform-specific
-sources stay in `pyproject.toml`; they don't need Dependabot registry credentials.
-The old scheduled Actions updater has been removed, including its PAT-based PR
-creation path that failed with duplicate `Authorization` headers.
-
-`vllm` is ignored in `.github/dependabot.yml` because its CUDA/PyTorch dependencies
-need coordinated review. Don't enable broad lockfile maintenance: it re-resolves
-all packages rather than selecting individual non-ignored updates. The ignore rule
-excludes vLLM update PRs; it isn't a resolver constraint on indirect changes.
-Review dependency diffs and CI results before merging any automated update.
-
-For a manual vLLM upgrade:
-
-1. Update the vLLM requirement and its versioned wheel index in `pyproject.toml`.
-2. Align the related CUDA/PyTorch pins and sources with the selected vLLM version.
-3. Regenerate `uv.lock` and validate the affected extras on supported platforms.
-
 When you modify dependencies in `pyproject.toml`, you need to regenerate the lock file to keep it in sync:
 
 ```bash
