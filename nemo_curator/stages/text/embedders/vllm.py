@@ -190,7 +190,7 @@ class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         from vllm.inputs import TokensPrompt
 
         t0 = time.perf_counter()
-        tokenized_data = self.tokenizer.batch_encode_plus(
+        tokenized_data = self.tokenizer(
             input_data,
             truncation=True,
             max_length=self.model.model_config.max_model_len,
