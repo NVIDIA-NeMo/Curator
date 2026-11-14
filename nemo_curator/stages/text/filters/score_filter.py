@@ -204,7 +204,9 @@ class Filter(ProcessingStage[DocumentBatch, DocumentBatch]):
         input_count = len(df)
         for filter_fn_i, filter_field_i, invert_i in zip(self.filter_fn, self.filter_field, self.invert, strict=True):
             bool_mask = self.compute_filter_mask(df, filter_fn_i, filter_field_i, invert_i)
-            df = df[bool_mask]
+            # Use .loc: once a chained filter empties the batch the next mask is not bool-typed,
+            # and df[mask] would treat it as a column selection and drop every column
+            df = df.loc[bool_mask]
 
         if self.verbose:
             logger.info("{} batch {} retained {}/{} rows", self.name, batch.task_id, len(df), input_count)
@@ -339,7 +341,9 @@ class ScoreFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
             self.filter_obj, self.text_field, self.score_field, self.invert, strict=True
         ):
             bool_mask = self.compute_filter_mask(df, filter_obj_i, text_field_i, score_field_i, invert_i)
-            df = df[bool_mask]
+            # Use .loc: once a chained filter empties the batch the next mask is not bool-typed,
+            # and df[mask] would treat it as a column selection and drop every column
+            df = df.loc[bool_mask]
 
         if self.verbose:
             logger.info("{} batch {} retained {}/{} rows", self.name, batch.task_id, len(df), input_count)
