@@ -13,9 +13,15 @@
 # limitations under the License.
 
 version: 2
+registries:
+  vllm-cu129:
+    type: python-index
+    url: https://wheels.vllm.ai/0.22.0/cu129
 updates:
   - package-ecosystem: "uv"
     directory: "/"
+    registries:
+      - vllm-cu129
     schedule:
       interval: "weekly"
       day: "monday"
@@ -25,6 +31,3 @@ updates:
     versioning-strategy: "lockfile-only"
     allow:
       - dependency-type: "all"
-    ignore:
-      # vLLM upgrades require coordinated CUDA/PyTorch review.
-      - dependency-name: "vllm"
