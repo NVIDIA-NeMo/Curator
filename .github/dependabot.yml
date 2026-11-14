@@ -29,5 +29,15 @@ updates:
       timezone: "Etc/UTC"
     # Keep dependency declarations and coordinated CUDA/PyTorch pins unchanged.
     versioning-strategy: "lockfile-only"
+    cooldown:
+      default-days: 7
+      semver-major-days: 30
+      semver-minor-days: 14
+      semver-patch-days: 7
+    groups:
+      weekly-dependencies:
+        applies-to: version-updates
+        patterns:
+          - "*"
     allow:
       - dependency-type: "all"
