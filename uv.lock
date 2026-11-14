@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.11, <3.14"
 resolution-markers = [
     "python_full_version >= '3.13' and platform_machine == 'x86_64' and sys_platform == 'linux'",
@@ -3855,11 +3855,11 @@ wheels = [
 
 [[package]]
 name = "json5"
-version = "0.12.1"
+version = "0.17.3"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/12/ae/929aee9619e9eba9015207a9d2c1c54db18311da7eb4dcf6d41ad6f0eb67/json5-0.12.1.tar.gz", hash = "sha256:b2743e77b3242f8d03c143dd975a6ec7c52e2f2afe76ed934e53503dd4ad4990", size = 52191, upload-time = "2025-08-12T19:47:42.583Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/16/1f/58a4d7ee466f81bc3c7337036380fc6d49de3afb7855d74f8121b1e89b32/json5-0.17.3.tar.gz", hash = "sha256:8d0278ad34ebaa9c3af76d9519274811830224a2d1cd5af156dbd067f461b8a4", size = 54234, upload-time = "2026-10-09T21:19:28.335Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/85/e2/05328bd2621be49a6fed9e3030b1e51a2d04537d3f816d211b9cc53c5262/json5-0.12.1-py3-none-any.whl", hash = "sha256:d9c9b3bc34a5f54d43c35e11ef7cb87d8bdd098c6ace87117a7b7e83e705c1d5", size = 36119, upload-time = "2025-08-12T19:47:41.131Z" },
+    { url = "https://files.pythonhosted.org/packages/ae/39/e689b616c4279a821d5842a8a85c1874540f8d58e35028df93f2182120c2/json5-0.17.3-py3-none-any.whl", hash = "sha256:2c8b22a893c35cd6a3c5ccbf1dd1c7d02c25dc1b5897fea658f9bf08c2e05f9a", size = 34809, upload-time = "2026-10-09T21:19:27.357Z" },
 ]
 
 [[package]]
@@ -4099,7 +4099,7 @@ dependencies = [
     { name = "overrides", marker = "python_full_version < '3.12'" },
     { name = "packaging" },
     { name = "prometheus-client" },
-    { name = "pywinpty", marker = "(os_name == 'nt' and platform_machine != 'aarch64' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (os_name == 'nt' and platform_machine != 'aarch64' and platform_machine != 'x86_64' and sys_platform == 'linux') or (os_name == 'nt' and sys_platform != 'darwin' and sys_platform != 'linux')" },
+    { name = "pywinpty", marker = "(os_name == 'nt' and platform_machine != 'aarch64' and platform_machine != 'x86_64') or (os_name == 'nt' and sys_platform != 'darwin' and sys_platform != 'linux')" },
     { name = "pyzmq" },
     { name = "send2trash" },
     { name = "terminado" },
@@ -4117,7 +4117,7 @@ name = "jupyter-server-terminals"
 version = "0.5.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "pywinpty", marker = "(os_name == 'nt' and platform_machine != 'aarch64' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (os_name == 'nt' and platform_machine != 'aarch64' and platform_machine != 'x86_64' and sys_platform == 'linux') or (os_name == 'nt' and sys_platform != 'darwin' and sys_platform != 'linux')" },
+    { name = "pywinpty", marker = "(os_name == 'nt' and platform_machine != 'aarch64' and platform_machine != 'x86_64') or (os_name == 'nt' and sys_platform != 'darwin' and sys_platform != 'linux')" },
     { name = "terminado" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/fc/d5/562469734f476159e99a55426d697cbf8e7eb5efe89fb0e0b4f83a3d3459/jupyter_server_terminals-0.5.3.tar.gz", hash = "sha256:5ae0295167220e9ace0edcfdb212afd2b01ee8d179fe6f23c899590e9b8a5269", size = 31430, upload-time = "2024-03-12T14:37:03.049Z" }
@@ -5513,6 +5513,7 @@ wheels = [
 [[package]]
 name = "nemo-curator"
 source = { editable = "." }
+default-groups = ["dev", "test"]
 dependencies = [
     { name = "absl-py" },
     { name = "comment-parser" },
@@ -9785,8 +9786,8 @@ default = [
     { name = "grpcio" },
     { name = "opencensus" },
     { name = "opentelemetry-exporter-prometheus" },
-    { name = "opentelemetry-proto", version = "1.39.1", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine != 'aarch64' and platform_machine != 'x86_64') or (platform_machine != 'x86_64' and sys_platform != 'linux') or sys_platform == 'darwin'" },
-    { name = "opentelemetry-proto", version = "1.43.0", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine == 'x86_64' and sys_platform != 'darwin') or (platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')" },
+    { name = "opentelemetry-proto", version = "1.39.1", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine != 'aarch64' and platform_machine != 'x86_64') or (platform_machine == 'aarch64' and sys_platform != 'darwin' and sys_platform != 'linux') or sys_platform == 'darwin'" },
+    { name = "opentelemetry-proto", version = "1.43.0", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform != 'darwin' and sys_platform != 'linux')" },
     { name = "opentelemetry-sdk" },
     { name = "prometheus-client" },
     { name = "py-spy" },
@@ -9804,8 +9805,8 @@ serve = [
     { name = "mmh3" },
     { name = "opencensus" },
     { name = "opentelemetry-exporter-prometheus" },
-    { name = "opentelemetry-proto", version = "1.39.1", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine != 'aarch64' and platform_machine != 'x86_64') or (platform_machine != 'x86_64' and sys_platform != 'linux') or sys_platform == 'darwin'" },
-    { name = "opentelemetry-proto", version = "1.43.0", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine == 'x86_64' and sys_platform != 'darwin') or (platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')" },
+    { name = "opentelemetry-proto", version = "1.39.1", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine != 'aarch64' and platform_machine != 'x86_64') or (platform_machine == 'aarch64' and sys_platform != 'darwin' and sys_platform != 'linux') or sys_platform == 'darwin'" },
+    { name = "opentelemetry-proto", version = "1.43.0", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform != 'darwin' and sys_platform != 'linux')" },
     { name = "opentelemetry-sdk" },
     { name = "prometheus-client" },
     { name = "py-spy" },
@@ -11177,7 +11178,7 @@ version = "0.18.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "ptyprocess", marker = "os_name != 'nt'" },
-    { name = "pywinpty", marker = "(os_name == 'nt' and platform_machine != 'aarch64' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (os_name == 'nt' and platform_machine != 'aarch64' and platform_machine != 'x86_64' and sys_platform == 'linux') or (os_name == 'nt' and sys_platform != 'darwin' and sys_platform != 'linux')" },
+    { name = "pywinpty", marker = "(os_name == 'nt' and platform_machine != 'aarch64' and platform_machine != 'x86_64') or (os_name == 'nt' and sys_platform != 'darwin' and sys_platform != 'linux')" },
     { name = "tornado" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/8a/11/965c6fd8e5cc254f1fe142d547387da17a8ebfd75a3455f637c663fb38a0/terminado-0.18.1.tar.gz", hash = "sha256:de09f2c4b85de4765f7714688fff57d3e75bad1f909b589fde880460c753fd2e", size = 32701, upload-time = "2024-03-12T14:34:39.026Z" }
