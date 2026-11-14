@@ -123,7 +123,7 @@ class ArxivExtractor(DocumentExtractor):
         # remove all in comments within a line
         file_content = re.sub(
             # pattern matches a "%" that is not preceded by a backslash (=comment)
-            pattern=r"[^\\]%.+$",
+            pattern=r"(?<!\\)%.*$",
             repl=r"",
             string=file_content,
             flags=re.MULTILINE,

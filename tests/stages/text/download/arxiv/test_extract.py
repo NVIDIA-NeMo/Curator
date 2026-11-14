@@ -74,3 +74,23 @@ class TestArxivExtractor:
         # Verify that the section header content is retained.
         assert "Introduction" in extracted_text
         assert "This is the introduction" in extracted_text
+
+    def test_inline_comment_keeps_text_before_percent(self) -> None:
+        extractor = ArxivExtractor()
+        content = (
+            "\\section{Setup}\n"
+            "We use the standard setup% see the appendix\n"
+            "Accuracy is 95\\% on the test set.\n"
+            "A line ending in a comment marker%\n"
+            "Last line."
+        )
+        result = extractor.extract({"content": [content]})
+        assert result == {
+            "text": (
+                "\\section{Setup}\n"
+                "We use the standard setup\n"
+                "Accuracy is 95\\% on the test set.\n"
+                "A line ending in a comment marker\n"
+                "Last line."
+            )
+        }
