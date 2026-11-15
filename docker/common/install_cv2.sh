@@ -81,6 +81,11 @@ if [ "$CHECK_ONLY" -eq 1 ]; then
     exit 1
 fi
 
+if ! command -v uv >/dev/null 2>&1; then
+    echo "ERROR: uv is required to install cv2 dependencies." >&2
+    exit 1
+fi
+
 if [ ! -d "$CURATOR_UNDER_TEST_REPO_DIR" ]; then
     echo "ERROR: Curator-under-test repo directory not found: $CURATOR_UNDER_TEST_REPO_DIR" >&2
     exit 1
@@ -105,13 +110,13 @@ fi
 
 (
     cd "$CURATOR_UNDER_TEST_REPO_DIR" && \
-        "$PYTHON" -m pip install --upgrade-strategy only-if-needed "${install_args[@]}" ".[cv2]"
+        uv --no-config pip install --no-sources --python "$PYTHON" "${install_args[@]}" ".[cv2]"
 )
 
-# Installing Curator's cv2 extra currently lets pip choose an fsspec version
+# Installing Curator's cv2 extra can select an fsspec version
 # that breaks semdedup's fsspec.parquet.open_parquet_files import. This is a
 # temporary benchmark-environment repair; the real fix is to encode the correct
 # fsspec constraint in Curator package metadata.
-"$PYTHON" -m pip install --upgrade-strategy only-if-needed "fsspec==${FSSPEC_VERSION}"
+uv --no-config pip install --no-sources --python "$PYTHON" "fsspec==${FSSPEC_VERSION}"
 
 check_cv2_environment
