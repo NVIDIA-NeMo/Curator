@@ -22,7 +22,7 @@ from nemo_curator.utils.hash_utils import get_deterministic_hash
 from .tasks import Task
 
 
-@dataclass
+@dataclass(repr=False)  # keep Task.__repr__: Ray formats task reprs on every stage output
 class FileGroupTask(Task[list[str]]):
     """Task representing a group of files to be read.
     This is created during the planning phase and passed to reader stages.

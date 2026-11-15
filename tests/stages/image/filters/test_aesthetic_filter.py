@@ -233,9 +233,22 @@ class TestImageAestheticFilterStage:
         )
         stage.setup()
 
-        # This should handle gracefully (may raise exception or filter out)
-        with pytest.raises((AttributeError, TypeError)):
-            stage.process(batch)
+        # Images without an embedding get no score and cannot pass a threshold.
+        assert stage.process(batch).data == []
+        assert images_no_embeddings[0].aesthetic_score is None
+        mock_aesthetic_scorer.return_value.assert_not_called()
+
+    @patch("nemo_curator.stages.image.filters.aesthetic_filter.AestheticScorer")
+    def test_no_threshold_scores_without_filtering(
+        self, mock_aesthetic_scorer: Mock, sample_image_batch: ImageBatch, mock_model: Mock
+    ) -> None:
+        mock_aesthetic_scorer.return_value = mock_model
+        sample_image_batch.data[1].embedding = None
+        mock_model.return_value = torch.tensor([0.3, 0.2, 0.8])
+        stage = ImageAestheticFilterStage(model_dir="test_models/aesthetics", score_threshold=None)
+        stage.setup()
+        result = stage.process(sample_image_batch)
+        assert [image.aesthetic_score for image in result.data] == pytest.approx([0.3, None, 0.2, 0.8])
 
     @patch("nemo_curator.stages.image.filters.aesthetic_filter.AestheticScorer")
     def test_edge_case_scores(

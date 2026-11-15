@@ -15,6 +15,7 @@
 from collections.abc import Generator
 from dataclasses import dataclass
 
+import numpy as np
 import torch
 from loguru import logger
 
@@ -90,10 +91,16 @@ class ImageEmbeddingStage(ProcessingStage[ImageBatch, ImageBatch]):
             ImageBatch with embeddings stored in ImageObject.embedding
         """
 
-        for batch in self.yield_next_batch(task):
-            # Stack images into batch tensor (N, H, W, C)
+        for full_batch in self.yield_next_batch(task):
+            # Images that failed to decode keep embedding=None.
+            batch = [img_obj for img_obj in full_batch if img_obj.image_data is not None]
+            if not batch:
+                continue
             loaded_images = [img_obj.image_data for img_obj in batch]
-            batch_tensor = loaded_images
+            # Same-shape images (e.g. after ImageResizeStage) use the model's batched GPU transform
+            # instead of the per-image CPU processor.
+            same_shape = len({image.shape for image in loaded_images}) == 1
+            batch_tensor = np.stack(loaded_images) if same_shape else loaded_images
 
             # Generate embeddings
             with torch.no_grad():

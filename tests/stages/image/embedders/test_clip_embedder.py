@@ -479,3 +479,28 @@ class TestImageEmbeddingStage:
         assert all(img.image_data is not None for img in result.data)
         # Optionally, verify identity preservation (no replacement)
         assert all(img.image_data is original_arrays[i] for i, img in enumerate(result.data))
+
+
+@patch("nemo_curator.stages.image.embedders.clip_embedder.CLIPImageEmbeddings")
+def test_stacks_uniform_images_and_skips_undecoded(mock_clip_embeddings: Mock) -> None:
+    images = [ImageObject(image_id=f"img_{i}", image_data=np.zeros((224, 224, 3), np.uint8)) for i in range(3)]
+    images[1].image_data = None  # e.g. failed to decode
+    mock_clip_embeddings.return_value.return_value = torch.ones(2, 4)
+    stage = ImageEmbeddingStage(model_dir="test_models/clip", model_inference_batch_size=8)
+    stage.setup()
+    stage.process(ImageBatch(data=images, dataset_name="test"))
+    (model_input,), _ = mock_clip_embeddings.return_value.call_args
+    assert isinstance(model_input, np.ndarray)
+    assert model_input.shape == (2, 224, 224, 3)
+    assert images[1].embedding is None
+    assert images[0].embedding is not None
+
+
+def test_clip_features_accepts_transformers5_output() -> None:
+    from types import SimpleNamespace
+
+    from nemo_curator.models.clip import _features
+
+    tensor = torch.ones(2, 3)
+    assert _features(tensor) is tensor
+    assert _features(SimpleNamespace(pooler_output=tensor)) is tensor

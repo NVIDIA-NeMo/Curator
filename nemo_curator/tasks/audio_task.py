@@ -39,7 +39,7 @@ class _AttrDict(dict):
             raise AttributeError(key) from None
 
 
-@dataclass
+@dataclass(repr=False)  # keep Task.__repr__: Ray formats task reprs on every stage output
 class AudioTask(Task[dict]):
     """A single audio manifest entry.
 

@@ -36,6 +36,7 @@ class ImageObject:
         image_path: Path to the image file on disk
         image_id: Unique identifier for the image
         metadata: Additional metadata associated with the image
+        image_bytes: Encoded image file bytes, before decoding
         image_data: Raw image pixel data as numpy array (H, W, C) in RGB format
         embedding: Image embedding vector as numpy array
         aesthetic_score: Aesthetic quality score as float
@@ -46,6 +47,7 @@ class ImageObject:
     image_id: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
     # raw data
+    image_bytes: bytes | None = None
     image_data: np.ndarray | None = None
     # embedding data
     embedding: np.ndarray | None = None
@@ -54,7 +56,7 @@ class ImageObject:
     nsfw_score: float | None = None
 
 
-@dataclass
+@dataclass(repr=False)  # keep Task.__repr__: Ray formats task reprs on every stage output
 class ImageBatch(Task):
     """Task for processing batches of images.
     Images are stored as a list of ImageObject instances, each containing
@@ -92,7 +94,7 @@ class ImageTaskData:
         return dataclasses.asdict(self)
 
 
-@dataclass(kw_only=True)
+@dataclass(kw_only=True, repr=False)
 class ImageSampleTask(Task[T_ImageData]):
     """Single-sample image task. ``data`` is an :class:`ImageTaskData` (or subclass)."""
 

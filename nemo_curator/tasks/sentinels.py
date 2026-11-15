@@ -32,7 +32,7 @@ from dataclasses import dataclass, field
 from nemo_curator.tasks.tasks import Task
 
 
-@dataclass
+@dataclass(repr=False)  # keep Task.__repr__: Ray formats task reprs on every stage output
 class SentinelTask(Task[None]):
     """Base for payload-less marker tasks: no data, framework-assigned ``task_id``."""
 
