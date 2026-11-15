@@ -66,7 +66,8 @@ The shared [Dockerfile](../Dockerfile), which every Granary v2 tutorial can use
 environment while adding the pinned Qwen runtime and Dynamo driver dependencies.
 It installs the existing etcd/NATS service binaries and the CUDA 12.9 compiler that
 serving workers need for FlashInfer, applies two small compatibility fixes for
-Qwen3-ASR under vLLM 0.15.1, and copies this checkout into the image. The audio
+Qwen3-ASR under vLLM 0.15.1. It adds no source of its own: the base image's checkout of this
+repository supplies the entrypoints and pipelines. The audio
 stages use the image's TensorRT/NeMo, Torch 2.9.1, Transformers 4.57.6 and vLLM
 0.15.1 stack. Curator's Dynamo backend creates isolated text-model workers with
 its own vLLM dependencies and the YAML's Transformers 5.8.0 requirement. Worker

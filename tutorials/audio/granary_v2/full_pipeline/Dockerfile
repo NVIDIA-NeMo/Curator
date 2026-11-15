@@ -4,7 +4,8 @@
 
 # One image for every tutorial under tutorials/audio/granary_v2/: metadata, Indic ASR,
 # Qwen Omni ASR, the text pipeline and the full pipelines in full_pipeline/.
-# Build docker/audio/Dockerfile.trt_llm --target granary from this checkout first.
+# Build docker/audio/Dockerfile.trt_llm --target granary from this checkout first: the base
+# image already holds this checkout at /opt/Curator, so nothing is copied here.
 ARG GRANARY_IMAGE=curator-granary-metadata
 FROM ${GRANARY_IMAGE}
 
@@ -20,8 +21,7 @@ RUN uv pip freeze --python /opt/venv/bin/python --exclude-editable > /tmp/granar
     && rm /tmp/granary-overrides.txt
 
 # Dynamo manages its newer text-model stack in isolated Ray worker environments.
-COPY docker/common/install_etcd_nats.sh /tmp/install_etcd_nats.sh
-RUN bash /tmp/install_etcd_nats.sh && rm /tmp/install_etcd_nats.sh
+RUN bash /opt/Curator/docker/common/install_etcd_nats.sh
 
 # Serving workers (Torch 2.11 + CUDA 12.9) JIT-compile FlashInfer sampling kernels at startup
 # and need nvcc plus the cuRAND headers. The audio runtime keeps its CUDA 12.8 alias;
@@ -62,9 +62,6 @@ old_override = "            attn_backend_override=attn_backend_override,\n"
 assert text.count(old_override) == 1
 path.write_text(text.replace(old_override, ""))
 PY
-
-# Keep the entrypoints and pipelines at the same checkout as this image build.
-COPY --exclude=.git . /opt/Curator
 
 # The base image's expandable-segments allocator (required by its TensorRT stages) is left
 # unchanged. vLLM tensor-parallel CUDA graphs need CUDA-IPC-compatible allocations, so the
