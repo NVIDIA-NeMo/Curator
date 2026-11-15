@@ -17,13 +17,29 @@ from __future__ import annotations
 import io
 from dataclasses import dataclass
 
+import numpy as np
 import torch
-from PIL import Image
+from PIL import Image, ImageOps
 from torchvision import transforms
 
 from nemo_curator.stages.base import ProcessingStage
-from nemo_curator.stages.image.diagnostics import decode_image_rgb
 from nemo_curator.tasks import ImageBatch
+
+
+def decode_image_rgb(payload: bytes) -> np.ndarray:
+    """Decode frame zero, apply EXIF orientation and composite alpha over white.
+
+    Returns native-resolution, contiguous uint8 RGB pixels. Decode failures
+    propagate to the caller; truncated images are not silently accepted.
+    """
+    with Image.open(io.BytesIO(payload)) as source:
+        source.seek(0)
+        image = ImageOps.exif_transpose(source)
+        if image.mode in ("RGBA", "LA") or "transparency" in image.info:
+            rgba = image.convert("RGBA")
+            background = Image.new("RGBA", rgba.size, (255, 255, 255, 255))
+            image = Image.alpha_composite(background, rgba)
+        return np.array(image.convert("RGB"), dtype=np.uint8)
 
 
 @dataclass
@@ -65,7 +81,7 @@ class ImageResizeStage(ProcessingStage[ImageBatch, ImageBatch]):
     Uses the same bicubic, antialiased transform as
     :class:`~nemo_curator.models.clip.CLIPImageEmbeddings`, so GPU stages receive small,
     uniformly shaped uint8 arrays instead of native-resolution pixels.
-    Place it after stages that need native pixels, such as image diagnostics.
+    Place it after stages that need native pixels, such as :class:`~nemo_curator.stages.image.measurements.ImageMeasurementStage`.
     """
 
     size: int = 224

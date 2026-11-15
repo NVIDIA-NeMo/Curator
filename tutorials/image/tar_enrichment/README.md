@@ -2,14 +2,14 @@
 
 Use this when a Parquet catalog records where each image lives inside WebDataset-style TARs
 (on S3 or any fsspec filesystem): one row per image with the TAR path, byte offset and byte size.
-The pipeline adds CLIP embeddings, aesthetic and NSFW scores, and CPU diagnostics
+The pipeline adds CLIP embeddings, aesthetic and NSFW scores, and CPU measurements
 (dimensions, sharpness, QR-code coverage) without dropping any image.
 
 ```text
 catalog Parquet
   → ImageTarRangeReader   one ranged GET per group of up to 128 images in the same TAR
   → ImageDecodeStage      CPU: decode, EXIF orientation, alpha over white
-  → ImageDiagnosticsStage CPU: dimensions, sharpness, QR coverage on native pixels
+  → ImageMeasurementStage CPU: dimensions, sharpness, QR coverage on native pixels
   → ImageResizeStage      CPU: 224x224 crop, so GPUs only receive small uint8 arrays
   → ImageEmbeddingStage → aesthetic and NSFW scores (score_threshold=None: annotate, don't filter)
   → Parquet
@@ -43,7 +43,7 @@ On one node (4 GPUs, 108 CPUs) with the default pool sizes, 248k web images from
 
 - `--fetch-workers`: object stores often cap per-connection throughput, so run many concurrent
   ranged reads. Each fetch reserves a quarter CPU.
-- `--cpu-workers`: decode, diagnostics and resize are fused into one CPU task, so native-resolution
+- `--cpu-workers`: decode, measurement and resize are fused into one CPU task, so native-resolution
   pixels never cross the object store.
 - `--clip-workers`: CLIP actors use half a GPU each and TF32 matmuls (about 5.6x faster than strict
   FP32, with the same embeddings).

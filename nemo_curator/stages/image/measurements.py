@@ -14,36 +14,18 @@
 
 from __future__ import annotations
 
-import io
 import math
 from dataclasses import dataclass
 
 import cv2
 import numpy as np
-from PIL import Image, ImageOps
 
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import ImageBatch
 
 
-def decode_image_rgb(payload: bytes) -> np.ndarray:
-    """Decode frame zero, apply EXIF orientation and composite alpha over white.
-
-    Returns native-resolution, contiguous uint8 RGB pixels. Decode failures
-    propagate to the caller; truncated images are not silently accepted.
-    """
-    with Image.open(io.BytesIO(payload)) as source:
-        source.seek(0)
-        image = ImageOps.exif_transpose(source)
-        if image.mode in ("RGBA", "LA") or "transparency" in image.info:
-            rgba = image.convert("RGBA")
-            background = Image.new("RGBA", rgba.size, (255, 255, 255, 255))
-            image = Image.alpha_composite(background, rgba)
-        return np.array(image.convert("RGB"), dtype=np.uint8)
-
-
-def image_diagnostics(
+def measure_image(
     rgb: np.ndarray, detector: cv2.QRCodeDetectorAruco | None = None, *, metrics: tuple[str, ...] = ("sharpness", "qr")
 ) -> dict[str, int | float | str | None]:
     """Annotate native RGB pixels without dropping an image on scorer failure.
@@ -54,7 +36,7 @@ def image_diagnostics(
     quadrilaterals may double-count area before the cap.
     """
     if set(metrics) - {"sharpness", "qr"}:
-        message = "Supported image diagnostics are sharpness and qr"
+        message = "Supported image measurements are sharpness and qr"
         raise ValueError(message)
     if not isinstance(rgb, np.ndarray) or rgb.dtype != np.uint8 or rgb.ndim != 3 or rgb.shape[2] != 3:  # noqa: PLR2004
         message = "Expected uint8 RGB pixels with shape (height, width, 3)"
@@ -86,23 +68,23 @@ def image_diagnostics(
 
 
 @dataclass
-class ImageDiagnosticsStage(ProcessingStage[ImageBatch, ImageBatch]):
+class ImageMeasurementStage(ProcessingStage[ImageBatch, ImageBatch]):
     """Add dimensions, sharpness and QR coverage to each image's metadata.
 
     Accepts decoded native uint8 RGB ``image_data``. The decoder's frame,
     orientation and alpha policy belongs to the input recipe. Use
-    :func:`decode_image_rgb` for frame-zero, EXIF-aware, white-alpha decoding.
+    :func:`~nemo_curator.stages.image.preprocess.decode_image_rgb` for frame-zero, EXIF-aware, white-alpha decoding.
     Every input image remains in the returned batch, in the original order.
     """
 
     metrics: tuple[str, ...] = ("sharpness", "qr")
     remove_image_data: bool = False
-    name: str = "image_diagnostics"
+    name: str = "image_measurement"
     resources = Resources(cpus=1.0)
 
     def __post_init__(self) -> None:
         if set(self.metrics) - {"sharpness", "qr"}:
-            message = "Supported image diagnostics are sharpness and qr"
+            message = "Supported image measurements are sharpness and qr"
             raise ValueError(message)
 
     def inputs(self) -> tuple[list[str], list[str]]:
@@ -114,7 +96,7 @@ class ImageDiagnosticsStage(ProcessingStage[ImageBatch, ImageBatch]):
     def process(self, task: ImageBatch) -> ImageBatch:
         for image in task.data:
             try:
-                values = image_diagnostics(image.image_data, metrics=self.metrics)
+                values = measure_image(image.image_data, metrics=self.metrics)
             except (ValueError, cv2.error):
                 values = {"image_width": None, "image_height": None}
                 for metric, score in [("sharpness", "image_sharpness_score"), ("qr", "image_qr_area_ratio")]:

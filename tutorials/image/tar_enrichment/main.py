@@ -28,12 +28,12 @@ import time
 from nemo_curator.backends.ray_data import RayDataExecutor
 from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.image.diagnostics import ImageDiagnosticsStage
 from nemo_curator.stages.image.embedders.clip_embedder import ImageEmbeddingStage
 from nemo_curator.stages.image.filters.aesthetic_filter import ImageAestheticFilterStage
 from nemo_curator.stages.image.filters.nsfw_filter import ImageNSFWFilterStage
 from nemo_curator.stages.image.io.convert import ConvertImageBatchToDocumentBatchStage
 from nemo_curator.stages.image.io.tar_range_reader import ImageTarRangeReader
+from nemo_curator.stages.image.measurements import ImageMeasurementStage
 from nemo_curator.stages.image.preprocess import ImageDecodeStage, ImageResizeStage
 from nemo_curator.stages.text.io.reader.parquet import ParquetReader
 from nemo_curator.stages.text.io.writer.parquet import ParquetWriter
@@ -55,7 +55,7 @@ def build_pipeline(args: argparse.Namespace) -> Pipeline:
             ImageTarRangeReader(**columns, storage_options=storage_options, fetch_workers=args.fetch_workers),
             # Decode, measure and shrink on CPU so GPUs only receive 224x224 uint8 pixels.
             ImageDecodeStage().with_(**cpu),
-            ImageDiagnosticsStage().with_(**cpu),
+            ImageMeasurementStage().with_(**cpu),
             ImageResizeStage().with_(**cpu),
             ImageEmbeddingStage(
                 model_dir=args.model_dir,
@@ -90,7 +90,7 @@ def main() -> None:
     parser.add_argument("--id-column", default="image_id")
     # Defaults fit one node with 4 GPUs and ~110 CPUs; scale with the cluster.
     parser.add_argument("--fetch-workers", type=int, default=64, help="Concurrent ranged reads")
-    parser.add_argument("--cpu-workers", type=int, default=76, help="Decode/diagnostics/resize workers")
+    parser.add_argument("--cpu-workers", type=int, default=76, help="Decode/measurement/resize workers")
     parser.add_argument("--clip-workers", type=int, default=6, help="CLIP actors, half a GPU each")
     args = parser.parse_args()
 

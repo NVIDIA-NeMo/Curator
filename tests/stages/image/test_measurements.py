@@ -20,7 +20,8 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from nemo_curator.stages.image.diagnostics import ImageDiagnosticsStage, decode_image_rgb, image_diagnostics
+from nemo_curator.stages.image.measurements import ImageMeasurementStage, measure_image
+from nemo_curator.stages.image.preprocess import decode_image_rgb
 from nemo_curator.tasks import ImageBatch
 from nemo_curator.tasks.image import ImageObject
 
@@ -37,14 +38,14 @@ def test_decode_orientation_and_transparency():
 
 
 def test_constant_and_real_qr():
-    result = image_diagnostics(np.full((100, 100, 3), 255, dtype=np.uint8))
+    result = measure_image(np.full((100, 100, 3), 255, dtype=np.uint8))
     assert result["image_sharpness_score"] == 0
     assert result["image_qr_area_ratio"] == 0
-    qr = cv2.QRCodeEncoder_create().encode("curator diagnostics")
+    qr = cv2.QRCodeEncoder_create().encode("curator measurements")
     qr = cv2.copyMakeBorder(qr, 4, 4, 4, 4, cv2.BORDER_CONSTANT, value=255)
     qr = cv2.resize(qr, None, fx=8, fy=8, interpolation=cv2.INTER_NEAREST)
     rgb = np.repeat(qr[:, :, None], 3, axis=2)
-    result = image_diagnostics(rgb)
+    result = measure_image(rgb)
     assert result["image_sharpness_score"] > 0
     assert 0 < result["image_qr_area_ratio"] <= 1
     assert result["image_qr_status"] == "ok"
@@ -57,7 +58,7 @@ def test_independent_failure_and_row_preservation():
             raise cv2.error(message)
 
     rgb = np.full((20, 20, 3), 100, dtype=np.uint8)
-    values = image_diagnostics(rgb, BrokenDetector())
+    values = measure_image(rgb, BrokenDetector())
     assert values["image_width"] == 20
     assert values["image_sharpness_status"] == "ok"
     assert values["image_qr_status"] == "compute_error"
@@ -66,7 +67,7 @@ def test_independent_failure_and_row_preservation():
         dataset_name="test",
         data=[ImageObject(image_id="good", image_data=rgb, metadata={"source": 1}), ImageObject(image_id="bad")],
     )
-    result = ImageDiagnosticsStage().process(task)
+    result = ImageMeasurementStage().process(task)
     assert [i.image_id for i in result.data] == ["good", "bad"]
     assert result.data[0].metadata["source"] == 1
     assert result.data[1].metadata["image_qr_status"] == "decode_error"
@@ -77,19 +78,19 @@ def test_nonfinite_qr_is_not_a_successful_full_image_detection():
         def detectMulti(self, image: np.ndarray) -> tuple[bool, np.ndarray]:  # noqa: N802
             return True, np.full((1, 4, 2), np.nan, dtype=np.float32)
 
-    result = image_diagnostics(np.zeros((20, 20, 3), dtype=np.uint8), NonfiniteDetector())
+    result = measure_image(np.zeros((20, 20, 3), dtype=np.uint8), NonfiniteDetector())
     assert result["image_qr_area_ratio"] is None
     assert result["image_qr_status"] == "compute_error"
     assert result["image_sharpness_status"] == "ok"
 
 
-def test_selective_diagnostics_skip_qr_and_release_pixels(monkeypatch: pytest.MonkeyPatch):
+def test_selective_measurements_skip_qr_and_release_pixels(monkeypatch: pytest.MonkeyPatch):
     def forbidden() -> Never:
         message = "QR detector must not be constructed"
         raise AssertionError(message)
 
     monkeypatch.setattr(cv2, "QRCodeDetectorAruco", forbidden)
-    stage = ImageDiagnosticsStage(metrics=("sharpness",), remove_image_data=True)
+    stage = ImageMeasurementStage(metrics=("sharpness",), remove_image_data=True)
     stage.setup()
     task = ImageBatch(
         dataset_name="test",

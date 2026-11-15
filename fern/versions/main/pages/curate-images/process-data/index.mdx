@@ -57,16 +57,16 @@ ImageNSFWFilterStage nsfw_score
 </Cards>
 
 
-## Image diagnostics without filtering
+## Image measurements without filtering
 
-`ImageDiagnosticsStage` annotates each image's metadata with dimensions, sharpness,
+`ImageMeasurementStage` annotates each image's metadata with dimensions, sharpness,
 and QR coverage. It keeps every image and preserves batch order. Install the
 `image_cpu` extra and supply native-resolution `uint8` RGB arrays in `image_data`.
 
 ```python
-from nemo_curator.stages.image.diagnostics import ImageDiagnosticsStage
+from nemo_curator.stages.image.measurements import ImageMeasurementStage
 
-stage = ImageDiagnosticsStage(metrics=("sharpness", "qr"))
+stage = ImageMeasurementStage(metrics=("sharpness", "qr"))
 stage.setup()
 annotated_batch = stage.process(image_batch)
 ```
@@ -147,7 +147,7 @@ never applies a score threshold.
 When a Parquet catalog records each image's TAR path, byte offset and byte size,
 `ImageTarRangeReader` fetches images with one ranged read per group of up to 128
 images in the same TAR, on S3 or any fsspec filesystem. `ImageDecodeStage`,
-`ImageDiagnosticsStage` and `ImageResizeStage` then run in the same CPU workers, so
+`ImageMeasurementStage` and `ImageResizeStage` then run in the same CPU workers, so
 only 224x224 pixels reach the GPU. With `score_threshold=None`, the aesthetic and NSFW
 stages score every image instead of filtering. Images that fail to fetch or decode keep
 their row with null scores and an `image_decode_status`.
