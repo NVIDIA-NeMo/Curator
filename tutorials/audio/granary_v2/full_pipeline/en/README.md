@@ -3,8 +3,8 @@
 Turn recordings into English speech clips with metadata, Qwen3-Omni transcripts,
 Qwen3-ASR recovery, and enriched text in one pipeline.
 [pipeline.yaml](pipeline.yaml) combines the
-[metadata](../metadata/README.md), [Qwen Omni ASR](../qwen_omni_asr/README.md), and
-[text](../text_pipeline/README.md) tutorials. [main.py](main.py) manages serving
+[metadata](../../metadata/README.md), [Qwen Omni ASR](../../qwen_omni_asr/README.md), and
+[text](../../text_pipeline/README.md) tutorials. [main.py](main.py) manages serving
 and runs the YAML through Curator's existing configuration APIs.
 
 ```mermaid
@@ -34,7 +34,7 @@ that every row is suitable for training.
 Xenna is unsupported for this combined pipeline: its GPU allocation is independent
 of Ray's serving reservations, and Curator rejects GPU stages with Xenna while a
 managed inference server is active. Use Ray Data so both share Ray's GPU scheduler.
-The [standalone text pipeline](../text_pipeline/README.md)
+The [standalone text pipeline](../../text_pipeline/README.md)
 has only CPU stages and supports both Xenna and Ray Data.
 
 ## 1. Prepare the image and models
@@ -46,7 +46,7 @@ two GPUs each; the remaining eight GPUs are available to the audio stages.
 These reservations persist through the run; idle serving GPUs are not reassigned
 to audio. Docker and the NVIDIA Container Toolkit are required.
 
-Follow the metadata tutorial's [environment and model preparation](../metadata/README.md#1-build-and-prepare-the-shared-environment)
+Follow the metadata tutorial's [environment and model preparation](../../metadata/README.md#1-build-and-prepare-the-shared-environment)
 to build `curator-granary-metadata` and prepare the complete model directory,
 including engine provenance sidecars. Stop before downloading its Hindi samples
 or running its pipeline. The eight-speaker Sortformer checkpoint and Indic Canary
@@ -57,13 +57,16 @@ Build the combined image:
 
 ```bash
 docker buildx build --builder default --load \
-  -f tutorials/audio/granary_v2/full_english_pipeline/Dockerfile \
-  -t curator-full-english .
+  -f tutorials/audio/granary_v2/full_pipeline/Dockerfile \
+  -t curator-granary-full .
 ```
 
-The [Dockerfile](Dockerfile) preserves the metadata environment while adding the
-pinned Qwen runtime and Dynamo driver dependencies. It installs the existing
-etcd/NATS service binaries and copies this checkout into the image. The audio
+The shared [Dockerfile](../Dockerfile), which every Granary v2 tutorial can use
+(see the [full pipeline overview](../README.md)), preserves the metadata
+environment while adding the pinned Qwen runtime and Dynamo driver dependencies.
+It installs the existing etcd/NATS service binaries and the CUDA 12.9 compiler that
+serving workers need for FlashInfer, applies two small compatibility fixes for
+Qwen3-ASR under vLLM 0.15.1, and copies this checkout into the image. The audio
 stages use the image's TensorRT/NeMo, Torch 2.9.1, Transformers 4.57.6 and vLLM
 0.15.1 stack. Curator's Dynamo backend creates isolated text-model workers with
 its own vLLM dependencies and the YAML's Transformers 5.8.0 requirement. Worker
@@ -101,7 +104,7 @@ stage uses one GPU per worker from the same eight-GPU audio pool; it does not
 require another server or image. Its model revision is pinned in the YAML.
 
 For public sample audio, use the Qwen tutorial's
-[pinned LibriSpeech preparation](../qwen_omni_asr/README.md#2-prepare-a-small-public-sample)
+[pinned LibriSpeech preparation](../../qwen_omni_asr/README.md#2-prepare-a-small-public-sample)
 in its dedicated environment. Mount the generated directory at the **same
 absolute path** in the audio container so its manifest paths still resolve.
 These short English recordings exercise the graph; their references are not
@@ -125,10 +128,10 @@ docker run --rm --gpus all --ipc=host \
   -v "$ENGLISH_DATA:$ENGLISH_DATA:ro" \
   -v "$ENGLISH_CACHE:/cache" \
   -v "$ENGLISH_OUTPUT:/output" \
-  curator-full-english bash -lc '
+  curator-granary-full bash -lc '
     source /opt/venv/env.sh
     set -euo pipefail
-    python -u tutorials/audio/granary_v2/full_english_pipeline/main.py "$@" \
+    python -u tutorials/audio/granary_v2/full_pipeline/en/main.py "$@" \
       2>&1 | tee /output/pipeline.log
   ' -- manifest_path="$ENGLISH_MANIFEST" model_dir="$ENGLISH_MODELS" \
   output_dir=/output/run cache_root=/cache/compilation
@@ -166,7 +169,7 @@ separately from successful enrichment. This opens the saved outputs read-only:
 
 ```bash
 docker run --rm -i -v "$ENGLISH_OUTPUT:/output:ro" \
-  --entrypoint python curator-full-english - <<'PY'
+  --entrypoint python curator-granary-full - <<'PY'
 import json
 from pathlib import Path
 
@@ -209,7 +212,11 @@ an external text server, stop it when it is no longer needed.
 
 ## 5. Validation
 
-The combined image builds successfully. CPU checks cover configuration loading,
+The shared image builds. Inside it, the existing ASR and text-filtering tests pass, Qwen3-ASR
+loads and transcribes audio on a GPU, and the allocator opt-out in `main.py` reaches Ray tasks
+and actors. An earlier revision of this setup, with the same fixes applied locally, ran a
+two-recording end-to-end smoke on one H100 node; the current Dockerfile has not been run
+end to end. CPU checks cover configuration loading,
 Dynamo frontend imports, endpoint wiring, cleanup after failures, and rejection
 of unsupported executors or an existing output directory. Conditional recovery
 checks cover clean-row bypass, mixed batches, successful and failed recovery,

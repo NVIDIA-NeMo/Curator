@@ -70,6 +70,10 @@ inference_server:
             - transformers==5.8.0
         env_vars:
           VLLM_USE_DEEP_GEMM: "0"
+          # FlashInfer JIT-compiles sampling kernels; the image's CUDA 12.9 toolkit matches the worker's Torch.
+          CUDA_HOME: /usr/local/cuda-12.9
+          CUDA_PATH: /usr/local/cuda-12.9
+          FLASHINFER_NVCC: /usr/local/cuda-12.9/bin/nvcc
           VLLM_CACHE_ROOT: ${cache_root}/vllm
           TORCHINDUCTOR_CACHE_DIR: ${cache_root}/torchinductor
           TRITON_CACHE_DIR: ${cache_root}/triton

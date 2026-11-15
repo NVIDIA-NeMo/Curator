@@ -3,6 +3,7 @@
 
 """Run the combined audio/text tutorial on Ray Data with managed serving."""
 
+import os
 from contextlib import ExitStack
 from pathlib import Path
 
@@ -25,6 +26,11 @@ def main(cfg: DictConfig) -> None:
     if Path(cfg.output_dir).exists():
         msg = f"Choose a new output_dir: {cfg.output_dir}"
         raise FileExistsError(msg)
+    # vLLM tensor-parallel CUDA graphs need CUDA-IPC-compatible allocations, but the shared image keeps
+    # its TensorRT stages' expandable-segments default. Opt out here, before Ray starts and its workers
+    # inherit the environment.
+    os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:False"
+    os.environ.setdefault("VLLM_WORKER_MULTIPROC_METHOD", "spawn")
     with ExitStack() as stack:
         stack.enter_context(create_ray_client_from_yaml(cfg))
         if OmegaConf.is_missing(cfg, "endpoint") or not cfg.endpoint:
