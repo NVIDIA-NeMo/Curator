@@ -23,6 +23,16 @@ if [ "$(uname -m)" != aarch64 ]; then
     exit 0
 fi
 
+# Working Pynini may use OpenFst outside /usr/local and needs no build prerequisites.
+if "${PYTHON:-python}" - <<'PY' >/dev/null 2>&1
+import pynini
+
+assert pynini.compose("2", pynini.cross("2", "two")).string() == "two"
+PY
+then
+    exit 0
+fi
+
 check_openfst() {
     [ -f /usr/local/include/fst/fstlib.h ] || return 1
     local library
