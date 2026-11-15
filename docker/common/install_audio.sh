@@ -34,6 +34,8 @@ fi
 if [ "${1:-}" = --check ]; then
     exit 1
 fi
+# Reject unsupported repair routes before changing native libraries or Python packages.
+"$PYTHON" "$script_dir/_install_audio.py" --check-install-support
 # Python-only repairs do not require the combined installer's video capabilities.
 if ! bash "$script_dir/install_ffmpeg.sh" --check-audio; then
     bash "$script_dir/install_ffmpeg.sh"

@@ -40,6 +40,12 @@ bash docker/common/install_audio.sh --check
 The installer prepares shared FFmpeg, installs the audio requirements declared
 by this checkout, and selects a TorchCodec series and PyTorch wheel index matching
 the installed Torch and CUDA build (or CPU build). It requires `uv` and does not reinstall Curator.
+Repair of Linux aarch64 environments with CPU-only Torch is not supported for
+the installer's current Torch 2.8–2.11 mappings: matching CPU TorchCodec wheels
+are unavailable. Unsupported repairs fail before native or Python package changes.
+Use a supported CUDA-enabled ARM environment, or maintain a compatible source-built
+CPU environment separately. Already-working environments remain unchanged and can
+still be verified with `install_audio.sh --check`.
 Python dependency repairs reuse FFmpeg when its audio capabilities already pass
 `install_ffmpeg.sh --check-audio`; unrelated video capabilities are not required.
 If audio capabilities are missing, the fallback installs the combined audio/video

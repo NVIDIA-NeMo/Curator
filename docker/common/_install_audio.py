@@ -159,8 +159,8 @@ def installed_constraints(configured_overrides: list[str]) -> tuple[list[str], l
     return constraints, overrides
 
 
-def install_audio() -> None:
-    """Resolve audio extras against the installed Torch/CUDA and NumPy constraints."""
+def torchcodec_requirement() -> str:
+    """Validate the supported repair route before any native or package installation."""
     # Import Torch here so command parsing does not initialize an optional runtime.
     import torch
 
@@ -169,7 +169,23 @@ def install_audio() -> None:
     if series is None:
         msg = f"No verified TorchCodec series for Torch {torch.__version__}; consult the upstream compatibility table."
         raise RuntimeError(msg)
-    codec = f"torchcodec~={series}.0"
+    if sys.platform == "linux" and platform.machine() == "aarch64" and not torch.version.cuda:
+        msg = (
+            f"Audio repair is unsupported for Linux ARM with CPU-only Torch {torch.__version__}: "
+            f"no matching CPU TorchCodec {series}.x wheel is available. "
+            "Use a supported CUDA-enabled ARM Torch environment, or maintain a compatible source-built "
+            "CPU environment manually and verify it with install_audio.sh --check."
+        )
+        raise RuntimeError(msg)
+    return f"torchcodec~={series}.0"
+
+
+def install_audio() -> None:
+    """Resolve audio extras against the installed Torch/CUDA and NumPy constraints."""
+    codec = torchcodec_requirement()
+    # Optional runtime imports are needed only when installing into the target environment.
+    import torch
+
     flavor = "cu" + torch.version.cuda.replace(".", "") if torch.version.cuda else "cpu"
     index_url = "https://pypi.org/simple"
     reinstall = []
@@ -236,12 +252,17 @@ def install_audio() -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--check", action="store_true")
+    action = parser.add_mutually_exclusive_group()
+    action.add_argument("--check", action="store_true")
+    action.add_argument("--check-install-support", action="store_true")
     args = parser.parse_args()
     try:
-        if not args.check:
-            install_audio()
-        check_audio()
+        if args.check_install_support:
+            torchcodec_requirement()
+        else:
+            if not args.check:
+                install_audio()
+            check_audio()
     except Exception as exc:  # noqa: BLE001
         print(f"ERROR: audio environment: {exc}", file=sys.stderr)
         return 1
