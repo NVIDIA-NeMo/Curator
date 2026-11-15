@@ -6,6 +6,8 @@ Qwen3-ASR recovery, and enriched text in one pipeline.
 [metadata](../../metadata/README.md), [Qwen Omni ASR](../../qwen_omni_asr/README.md), and
 [text](../../text_pipeline/README.md) tutorials. [main.py](main.py) manages serving
 and runs the YAML through Curator's existing configuration APIs.
+The text prompts live in [prompts.yaml](prompts.yaml) and the 48 transcript cleanup rules in
+[regex.yaml](regex.yaml); `pipeline.yaml` references both, so edit those files to change them.
 
 ```mermaid
 flowchart TD
