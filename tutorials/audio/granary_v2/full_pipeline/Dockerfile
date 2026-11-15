@@ -2,8 +2,9 @@
 # Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-# One image for every tutorial under tutorials/audio/granary_v2/: metadata, Indic ASR,
-# Qwen Omni ASR, the text pipeline and the full pipelines in full_pipeline/.
+# Image for en_granary_pipeline.yaml and european_granary_pipeline.yaml (and the metadata, Qwen Omni
+# ASR and text tutorials): the Granary base plus Qwen's in-process vLLM and the Dynamo driver.
+# The Indic pipeline uses Dockerfile.trt_llm_granary instead.
 # Build docker/audio/Dockerfile.trt_llm --target granary from this checkout first: the base
 # image already holds this checkout at /opt/Curator, so nothing is copied here.
 ARG GRANARY_IMAGE=curator-granary-metadata

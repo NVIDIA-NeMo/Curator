@@ -1,0 +1,530 @@
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+# English recording-to-transcript pipeline; see README.md. Run with: main.py -cn en_granary_pipeline
+defaults:
+  - _self_
+  - prompts
+  - override hydra/job_logging: none
+  - override hydra/hydra_logging: none
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+
+documentation: |
+  Extract metadata and Opus speech clips from recordings (language ID: SpeechBrain
+  + Whisper), retain English clips, transcribe with Qwen3-Omni and Qwen3-ASR
+  recovery, then enrich the selected text.
+  metadata.jsonl retains every metadata result, including rejected/audit rows;
+  english.jsonl contains the selected English clips with ASR and text features.
+
+manifest_path: ???
+model_dir: ???
+output_dir: ???
+output_path: ${output_dir}/english.jsonl
+workspace_dir: ${output_dir}/asr_workspace
+model_id: Qwen/Qwen3-Omni-30B-A3B-Instruct
+model_revision: 26291f793822fb6be9555850f06dfe95f2d7e695  # pragma: allowlist secret
+recovery_model_id: Qwen/Qwen3-ASR-0.6B
+recovery_model_revision: 5eb144179a02acc5e5ba31e748d22b0cf3e303b0  # pragma: allowlist secret
+endpoint: ???
+text_key: abbreviated_text
+# Use the selected clip prediction, never an inherited parent-recording transcript.
+ground_truth_key: best_prediction
+language_key: source_lang
+regex_yaml: tutorials/audio/granary_v2/full_pipeline/regex.yaml
+
+backend: ray_data
+batch_size: 128
+num_workers: 12
+max_concurrent_requests: 256
+request_timeout_s: 600
+max_retries: 3
+
+model_identifier: RedHatAI/gemma-4-31B-it-FP8-dynamic
+model_name: ${model_identifier}
+
+# Required only when starting the configured server; keep caches runtime/GPU-specific.
+cache_root: ???
+
+ray_client:
+  _target_: nemo_curator.core.client.RayClient
+  include_dashboard: false
+  num_cpus: 256
+  num_gpus: 16
+  object_store_memory: 536870912000
+
+# The tutorial entrypoint manages this server on the pipeline's Ray cluster.
+inference_server:
+  _target_: nemo_curator.core.serve.InferenceServer
+  _convert_: all
+  name: audio_text_processing
+  health_check_timeout_s: 1200
+  models:
+    - _target_: nemo_curator.core.serve.DynamoVLLMModelConfig
+      _convert_: all
+      model_identifier: ${model_identifier}
+      model_name: ${model_name}
+      num_replicas: 4
+      runtime_env:
+        uv:
+          packages:
+            - transformers==5.8.0
+        env_vars:
+          VLLM_USE_DEEP_GEMM: "0"
+          # FlashInfer JIT-compiles sampling kernels; the image's CUDA 12.9 toolkit matches the worker's Torch.
+          CUDA_HOME: /usr/local/cuda-12.9
+          CUDA_PATH: /usr/local/cuda-12.9
+          FLASHINFER_NVCC: /usr/local/cuda-12.9/bin/nvcc
+          VLLM_CACHE_ROOT: ${cache_root}/vllm
+          TORCHINDUCTOR_CACHE_DIR: ${cache_root}/torchinductor
+          TRITON_CACHE_DIR: ${cache_root}/triton
+      engine_kwargs:
+        tensor_parallel_size: 2
+        max_model_len: 8192
+        gpu_memory_utilization: 0.95
+        kv_cache_dtype: auto
+        max_num_seqs: 256
+        max_num_batched_tokens: 8192
+        language_model_only: true
+        trust_remote_code: true
+        revision: d4ab4f579dd3516f97d8a6a4c98d0653480bad15  # pragma: allowlist secret - public model revision
+        enable_prefix_caching: true
+        enable_chunked_prefill: true
+        async_scheduling: false
+        enforce_eager: false
+        compilation_config:
+          cache_dir: ${cache_root}/vllm/compile
+  backend:
+    _target_: nemo_curator.core.serve.DynamoServerConfig
+
+# Shared HTTP-client settings; each stage below supplies its own operation.
+text_stage: &text_stage
+  _target_: nemo_curator.stages.audio.text_filtering.AudioTextLLMStage
+  _convert_: all
+  endpoint: ${endpoint}
+  model_name: ${model_name}
+  language_key: ${language_key}
+  batch_size: ${batch_size}
+  num_workers_override: ${num_workers}
+  max_concurrent_requests: ${max_concurrent_requests}
+  request_timeout_s: ${request_timeout_s}
+  max_retries: ${max_retries}
+
+stages:
+  - _target_: nemo_curator.stages.audio.common.ManifestReader
+    manifest_path: ${manifest_path}
+    files_per_partition: 1
+
+  - _target_: nemo_curator.stages.audio.tagging.resample_audio.ResampleAudioStage
+    resampled_audio_dir: ${output_dir}/resampled
+    target_sample_rate: 16000
+    target_format: wav
+    target_codec: pcm_f32le
+    target_nchannels: 1
+
+  - _target_: nemo_curator.stages.audio.preprocessing.MonoConversionStage
+    audio_filepath_key: resampled_audio_filepath
+    output_sample_rate: 16000
+    waveform_key: waveform
+    sample_rate_key: sample_rate
+
+  - _target_: nemo_curator.stages.audio.inference.speaker_diarization.stage.InferenceSortformerStage
+    model_id: ${model_dir}/sortformer.nemo
+    model_path: ${model_dir}/sortformer.nemo
+    waveform_key: waveform
+    audio_filepath_key: audio_filepath
+    target_sample_rate: 16000
+    rttm_out_dir: ${output_dir}/rttm
+    chunk_len: 340
+    chunk_left_context: 1
+    chunk_right_context: 40
+    fifo_len: 40
+    spkcache_update_period: 300
+    spkcache_len: 188
+    inference_batch_size: 1
+    batch_size: 1
+    fail_on_audio_error: true
+    adapter_kwargs:
+      precision: fp32
+      compile_encoder: false
+    resources:
+      gpu_memory_gb: 24
+
+  - _target_: nemo_curator.stages.audio.segmentation.VADSegmentationStage
+    adapter_target: nemo_curator.models.audio.vad.silero_tensorrt.TensorRTSileroVADAdapter
+    adapter_kwargs:
+      engine_path: ${model_dir}/silero.plan
+    threshold: 0.5
+    min_interval_ms: 1000
+    speech_pad_ms: 100
+    min_duration_sec: 0.5
+    max_duration_sec: 40
+    waveform_key: waveform
+    sample_rate_key: sample_rate
+    nested: false
+    emit_audit_placeholders: true
+    skip_me_key: _skipme
+    fail_on_audio_error: true
+    # Fan-out task IDs require one parent per stage call.
+    batch_size: 1
+    resources:
+      gpu_memory_gb: 4
+
+  - _target_: nemo_curator.stages.audio.inference.sed.stage.SEDInferenceStage
+    adapter_target: nemo_curator.models.audio.sed.tensorrt.TensorRTPANNsSEDAdapter
+    checkpoint_path: ${model_dir}/sed.pth
+    waveform_key: waveform
+    sample_rate_key: sample_rate
+    sample_rate: 16000
+    batch_size: 1
+    save_npz: false
+    adapter_kwargs:
+      tensorrt_engine_path: ${model_dir}/sed.plan
+      max_duration_sec: 40
+      window_size: 1024
+      hop_size: 320
+      mel_bins: 64
+      fmin: 50
+      fmax: 14000
+      classes_num: 527
+    resources:
+      gpu_memory_gb: 8
+
+  - _target_: nemo_curator.stages.audio.postprocessing.sed_postprocessing.SEDPostprocessingStage
+    threshold: 0.5
+    emit_superclasses: false
+
+  - _target_: nemo_curator.stages.audio.inference.lid.AudioLIDInferenceStage
+    name: SpeechBrainLangID
+    adapter_target: nemo_curator.models.audio.lid.speechbrain.SpeechBrainLIDAdapter
+    model_id: SpeechBrainLangID
+    tag: primary
+    waveform_key: waveform
+    min_duration_sec: 1
+    max_duration_sec: 10
+    batch_size: 16
+    num_workers_override: 2
+    fail_on_audio_error: true
+    adapter_kwargs:
+      source: ${model_dir}/speechbrain
+      savedir: ${output_dir}/speechbrain_cache
+    resources:
+      gpu_memory_gb: 8
+
+  - _target_: nemo_curator.stages.audio.inference.lid.AudioLIDInferenceStage
+    name: WhisperLangID
+    adapter_target: nemo_curator.models.audio.lid.whisper.WhisperLIDAdapter
+    model_id: WhisperLangID
+    tag: secondary
+    waveform_key: waveform
+    min_duration_sec: 1
+    max_duration_sec: 30
+    batch_size: 16
+    num_workers_override: 2
+    fail_on_audio_error: true
+    adapter_kwargs:
+      model_size: medium
+      model_path: ${model_dir}/whisper.pt
+      backend: torch
+      fp16: true
+      model_batch_size: 16
+    resources:
+      gpu_memory_gb: 8
+
+  - _target_: nemo_curator.stages.audio.postprocessing.lid_selection.SelectAudioLanguageStage
+
+  - _target_: nemo_curator.stages.audio.io.write_audio.AudioSegmentWriterStage
+    output_dir: ${output_dir}
+
+  - _target_: nemo_curator.stages.audio.common.ManifestWriterStage
+    name: MetadataManifestWriter
+    output_path: ${output_dir}/metadata.jsonl
+
+  # Keep the full metadata audit above; only selected English clips reach ASR.
+  - _target_: nemo_curator.stages.audio.common.PreserveByValueStage
+    input_value_key: source_lang
+    target_value: en
+    operator: eq
+    missing_value_policy: drop
+
+  # AudioSegmentWriter removed the parent WAV path; resample the emitted Opus clip.
+  - _target_: nemo_curator.stages.audio.tagging.ResampleAudioStage
+    name: ResampleEnglishClip
+    resampled_audio_dir: ${workspace_dir}/audio_resampled
+    target_sample_rate: 16000
+    target_format: wav
+    target_nchannels: 1
+  - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
+    adapter_target: nemo_curator.models.asr.qwen_omni.QwenOmniASRAdapter
+    model_id: ${model_id}
+    default_language: en
+    supported_language_codes: [en, zh, ko, ja, de, ru, it, fr, es, pt, ms, nl, id, tr, vi, yue, ar, ur]
+    unsupported_language_marks_skip: false
+    pred_text_key: primary_model_prediction
+    batch_size: 32
+    max_audio_sec_per_actor: 960.0
+    max_inference_duration_s: 30.0
+    local_bucketing: false
+    resources:
+      _target_: nemo_curator.stages.resources.Resources
+      gpus: 2
+    adapter_kwargs:
+      revision: ${model_revision}
+      prompt_content_order: text_audio
+      max_output_tokens: 256
+      vllm_kwargs:
+        max_model_len: 4096
+        max_num_seqs: 16
+        gpu_memory_utilization: 0.9
+        dtype: auto
+        trust_remote_code: true
+        enable_prefix_caching: true
+        prefix_caching_hash_algo: xxhash
+        # Keep vision slots enabled to avoid vLLM meta DeepStack buffers at startup.
+        limit_mm_per_prompt:
+          image: 1
+          video: 1
+          audio: 2
+        seed: 1234
+      sampling_kwargs:
+        temperature: 0.0
+        top_k: 1
+        repetition_penalty: 1.0
+      prompt_text: |-
+        You receive an audio file.
+
+        Goal: To transcribe the audio, normalize numbers into words, and include any disfluencies that are present in the audio.
+
+        TRANSCRIPTION RULES:
+        1) Normalize numeric expressions into words exactly as they are SPOKEN in the audio.
+        - Mixed format is forbidden:
+            Bad: "5 percent", "2 zeros"
+            Good: "five percent", "two zeros"
+        - Normalize: percentages, currencies, units, ranges, decimals, dates/years — ONLY if they are spoken.
+        - If a unit (for example “percent”) is NOT spoken, do not add it.
+        2) Include any disfluencies present in the audio.
+        - Disfluencies as "um", "uh" that are present in the audio should be added to the text.
+        - If a word is repeated in the audio, include every repetition in the text.
+
+        ENTITIES (names, places, brands, titles, etc.):
+        - Keep every named entity as spoken. This includes names, places, brands, titles, acronyms, and other proper nouns.
+
+        OUTPUT FORMAT:
+        - Return only the final text.
+        - No explanations, no JSON, no lists.
+      en_prompt_text: |-
+        You receive English audio. The audio is the ground truth.
+
+        MAIN GOAL: Listen carefully to the audio and transcribe exactly what is spoken, including all disfluencies present in the audio.
+        - Do NOT invent words or content not spoken in the audio.
+        - Do NOT remove substantive content that is spoken in the audio.
+        - Do NOT paraphrase, polish grammar or rewrite sentences.
+
+        ENTITIES (names, places, brands, titles, etc.):
+        - Keep every named entity as spoken. This includes names, places, brands, titles, acronyms, and other proper nouns.
+        - Do not ever transliterate, translate, re-spell, normalize, or "correct" an entity into another script.
+        - If enetities are part code switched data it should stay the same.
+
+        KEEP DISFLUENCIES:
+        - Keep fillers, repetitions, false starts, colloquial reductions, and grammatical errors spoken in the audio.
+        - Add hesitation markers and fillers natural to English wherever they are spoken in the audio.
+        - Do NOT clean up, normalize, or remove disfluencies spoken in the audio.
+        - Add consecutive instances of the same word or short phrase when spoken unintentionally.
+          - Example: "I I think" if that is what is spoken.
+
+
+        BACKGROUND / QUIET / OVERLAPPING SPEECH:
+        - Keep all audible speech, including quieter, distant, or overlapping voices — not just the loudest speaker.
+        - Add background or secondary speech that is audible; do not drop words because they sound like background.
+
+        FALSE STARTS:
+        - Add incomplete words or phrases the speaker abandons, marked with a hyphen.
+          - Example: "I was go- going to the store."
+        - Do NOT remove false starts spoken in the audio.
+
+        COLLOQUIAL REDUCTIONS:
+        - If the speaker used reductions, use the spoken form: "want to" → "wanna", "going to" → "gonna", etc.
+        - Preserve forms such as "wanna", "gonna", "kinda", "lemme", "lotta", "outta", "Imma", "sorta", "ya", "m'kay", "finna", "tryna", etc. Do NOT expand them.
+
+        WRONG GRAMMAR:
+        - Keep grammatical errors as spoken. Do NOT correct subject-verb agreement, tense errors, or other grammar issues.
+
+        NUMERICALS:
+        - Keep numbers as spoken in words. Do NOT convert them to digits.
+          - Example: keep "oh eleven" or "zero eleven".
+
+        Output format:
+        - Return ONLY the transcription text.
+  - _target_: nemo_curator.stages.audio.text_filtering.WhisperHallucinationStage
+    name: WhisperHallucination_primary
+    common_hall_file: tutorials/audio/whisper_hallucination/phrases.txt
+    text_key: primary_model_prediction
+    language_key: source_lang
+    unique_words_threshold: 0.4
+    long_word_threshold: 25
+    long_word_rel_threshold: 3.0
+    max_char_rate: 40.0
+
+  - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
+    name: QwenASR_recovery
+    run_only_if_hallucinated: true
+    adapter_target: nemo_curator.models.asr.qwen_asr.QwenASRAdapter
+    model_id: ${recovery_model_id}
+    default_language: en
+    supported_language_codes: [en]
+    # An empty recovery result must not replace the primary hallucination flag.
+    preserve_existing_skip: true
+    pred_text_key: fallback_model_prediction
+    batch_size: 128
+    max_audio_sec_per_actor: 5120.0
+    adapter_kwargs:
+      revision: ${recovery_model_revision}
+      gpu_memory_utilization: 0.95
+      max_new_tokens: 4096
+      max_inference_batch_size: 128
+
+  - _target_: nemo_curator.stages.audio.text_filtering.WhisperHallucinationStage
+    name: WhisperHallucination_asr
+    run_only_if_hallucinated: true
+    common_hall_file: tutorials/audio/whisper_hallucination/phrases.txt
+    text_key: fallback_model_prediction
+    language_key: source_lang
+    overwrite: true
+    recovery_value: Recovered:ASR
+    unique_words_threshold: 0.4
+    long_word_threshold: 25
+    long_word_rel_threshold: 3.0
+    max_char_rate: 40.0
+
+  - _target_: nemo_curator.stages.audio.text_filtering.SelectBestPredictionStage
+    primary_text_key: primary_model_prediction
+    fallback_text_key: fallback_model_prediction
+    reference_text_key: null
+    use_reference_on_hallucination: false
+    use_ground_truth_for_short_audio: false
+    output_key: best_prediction
+  - _target_: nemo_curator.stages.audio.text_filtering.RegexSubstitutionStage
+    _convert_: all
+    text_key: best_prediction
+    output_text_key: cleaned_text
+    regex_params_yaml: ${regex_yaml}
+  - _target_: nemo_curator.stages.audio.text_filtering.AbbreviationConcatStage
+    text_key: cleaned_text
+    output_text_key: abbreviated_text
+    source_lang_key: source_lang
+    default_language: en
+
+  # 2. Recover named entities.
+  - <<: *text_stage
+    name: RecoverEntities
+    prompt: ${prompts.recover_entities}
+    text_key: ${text_key}
+    output_text_key: entity_recovered_text
+    validation_mode: none
+    min_word_retention_ratio: 0.3
+    generation_config:
+      max_tokens: 1024
+      temperature: 0.0
+      top_p: 1.0
+      seed: 0
+      extra_kwargs:
+        extra_body:
+          chat_template_kwargs:
+            enable_thinking: false
+    mode: recover_entities
+    user_prompt: ${prompts.recover_entities_user}
+    ground_truth_key: ${ground_truth_key}
+
+  # 3. Restore punctuation and capitalization.
+  - <<: *text_stage
+    name: PnCRestoration
+    prompt: ${prompts.pnc_restoration}
+    text_key: entity_recovered_text
+    output_text_key: pnc_text
+    validation_mode: itn
+    min_word_retention_ratio: 0.3
+    generation_config: &text_generation
+      max_tokens: 512
+      temperature: 0.0
+      top_p: 1.0
+      seed: 0
+      extra_kwargs:
+        extra_body:
+          chat_template_kwargs:
+            enable_thinking: false
+
+  # 4. Predict and verify the transcript language.
+  - <<: *text_stage
+    name: LanguageID
+    prompt: ${prompts.language_id}
+    text_key: pnc_text
+    output_text_key: llm_language_prediction
+    validation_mode: none
+    min_word_retention_ratio: 0.3
+    generation_config: *text_generation
+    mode: language_id
+
+  # 5. Normalize written text to spoken form.
+  - <<: *text_stage
+    name: TextNormalization
+    prompt: ${prompts.text_normalization}
+    text_key: pnc_text
+    output_text_key: tn_raw
+    validation_mode: none
+    min_word_retention_ratio: 0.3
+    generation_config: *text_generation
+
+  # 6. Run captioning, code switching, and speech QA concurrently.
+  - <<: *text_stage
+    name: FusedTextLLM
+    operations:
+      - name: Captioning
+        text_key: tn_raw
+        output_text_key: captioning_text
+        validation_mode: none
+        min_word_retention_ratio: 0.3
+        generation_config: *text_generation
+        language_rules: null
+        prompt: ${prompts.captioning}
+      - name: CodeSwitching
+        text_key: tn_raw
+        output_text_key: code_switched_text
+        validation_mode: none
+        min_word_retention_ratio: 0.3
+        generation_config: *text_generation
+        language_rules: null
+        prompt: ${prompts.code_switching}
+      - name: SpeechQA
+        text_key: tn_raw
+        output_text_key: speech_qa_text
+        validation_mode: none
+        min_word_retention_ratio: 0.3
+        generation_config: *text_generation
+        language_rules: null
+        prompt: ${prompts.speech_qa}
+
+  # 7. Restore written-form numbers, dates, and other expressions.
+  - <<: *text_stage
+    name: ITNRestoration
+    prompt: ${prompts.itn_restoration}
+    text_key: tn_raw
+    output_text_key: itn_raw
+    validation_mode: itn
+    min_word_retention_ratio: 0.3
+    generation_config: *text_generation
+
+  # 8. Remove disfluencies.
+  - <<: *text_stage
+    name: DisfluencyRemoval
+    prompt: ${prompts.disfluency_removal}
+    text_key: itn_raw
+    output_text_key: itn_clean
+    validation_mode: itn
+    min_word_retention_ratio: 0.5
+    generation_config: *text_generation
+
+  # 9. Write the enriched audio manifest.
+  - _target_: nemo_curator.stages.audio.ManifestWriterStage
+    output_path: ${output_path}

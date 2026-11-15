@@ -6,7 +6,7 @@ environment, sample data, input and output fields, and validation commands.
 
 | Step | Tutorial | Result |
 | --- | --- | --- |
-| End-to-end English | [Full pipeline: English](full_pipeline/en/README.md) | Recording metadata, English Opus clips, Qwen ASR and enriched transcripts |
+| End-to-end | [Full pipelines: English, European, Indic](full_pipeline/README.md) | Recording metadata, Opus clips, ASR and enriched transcripts for one language group |
 | Prepare recordings | [Metadata extraction](metadata/README.md) | Opus speech clips with speaker, sound-event and language metadata |
 | Transcribe Hindi clips | [Indic ASR](indic_asr/README.md) | Canary and Parakeet predictions, selected and cleaned transcripts, and WER |
 | Transcribe with Qwen3-Omni | [Qwen Omni ASR](qwen_omni_asr/README.md) | Transcripts checked for hallucinations and cleaned for downstream use |
@@ -18,9 +18,10 @@ examples can also be run independently.
 
 Run commands from the repository root. Follow each tutorial's README for its
 entrypoint, required arguments, environment and hardware requirements. The full
-English pipeline manages Dynamo serving through its own `main.py`; the other
-tutorials use `nemo_curator/config/run.py`. All of them can use the one image built
-by the [full pipeline Dockerfile](full_pipeline/README.md).
+pipelines manage Dynamo serving through their shared `main.py`; the other
+tutorials use `nemo_curator/config/run.py`. The English, European, metadata, Qwen
+and text tutorials can use the image built by the [full pipeline Dockerfile](full_pipeline/README.md);
+the Indic pipeline uses its `Dockerfile.trt_llm_granary`.
 
 The [benchmarks](../../../benchmarking/README.md#audio-benchmark-data-setup)
 remain under `benchmarking/` and use these tutorial configurations on larger

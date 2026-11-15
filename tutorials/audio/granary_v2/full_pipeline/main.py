@@ -1,7 +1,11 @@
 # Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Run the combined audio/text tutorial on Ray Data with managed serving."""
+"""Run a combined audio/text granary pipeline on Ray Data with managed serving.
+
+Pick the pipeline with ``--config-name`` (en_granary_pipeline, european_granary_pipeline or
+indic_granary_pipeline); see README.md.
+"""
 
 import os
 from contextlib import ExitStack
@@ -18,10 +22,10 @@ from nemo_curator.config.run import (
 )
 
 
-@hydra.main(version_base=None, config_path=".", config_name="pipeline")
+@hydra.main(version_base=None, config_path=".", config_name=None)
 def main(cfg: DictConfig) -> None:
     if cfg.backend != "ray_data":
-        msg = "The full English pipeline supports only backend=ray_data; see README.md."
+        msg = "The granary pipelines support only backend=ray_data; see README.md."
         raise ValueError(msg)
     if Path(cfg.output_dir).exists():
         msg = f"Choose a new output_dir: {cfg.output_dir}"

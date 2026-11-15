@@ -806,8 +806,14 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
                 f"lang_not_supported:{unsupported_language}",
                 self.notes_key,
             )
-        elif self.language_key is not None:
-            task.data[self.language_key] = str(result.extras.get("language_code") or item["language_code"] or "")
+        else:
+            # Stages for other language groups of a routed pipeline leave this note on the same key;
+            # SelectBestPredictionStage would read it as "no model supports this language".
+            notes = task.data.get(self.notes_key)
+            if isinstance(notes, dict) and str(notes.get(self.pred_text_key, "")).startswith("lang_not_supported"):
+                del notes[self.pred_text_key]
+            if self.language_key is not None:
+                task.data[self.language_key] = str(result.extras.get("language_code") or item["language_code"] or "")
 
     def _resolve_skip_reason(self, result: ASRResult) -> str:
         """Return the configured machine-readable reason for a skipped result."""

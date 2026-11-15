@@ -1,67 +1,211 @@
-# Granary v2 full pipeline
+# Granary v2 full pipelines
 
-One container image for every Granary v2 tutorial, plus the end-to-end pipelines
-that chain them. Each language gets its own folder; the shared [Dockerfile](Dockerfile)
-lives here.
+Turn recordings into speech clips with metadata, ASR transcripts and enriched text in one Ray Data
+cluster. One entrypoint, [main.py](main.py), runs one of three pipelines, chosen with `--config-name`:
+
+| Pipeline | Languages | Language ID | ASR (primary → recovery) | Image |
+| --- | --- | --- | --- | --- |
+| [en_granary_pipeline.yaml](en_granary_pipeline.yaml) | English | SpeechBrain + Whisper | Qwen3-Omni → Qwen3-ASR | [Dockerfile](Dockerfile) |
+| [european_granary_pipeline.yaml](european_granary_pipeline.yaml) | 24 European languages | SpeechBrain + Whisper | Qwen3-Omni → Qwen3-ASR (`de es fr it pt ru nl`); Parakeet-v3 → Whisper (`pl cs ro hu el fi da sv`); Whisper → Parakeet-v3 (`lt lv hr et bg sk sl mt uk`) | [Dockerfile](Dockerfile) |
+| [indic_granary_pipeline.yaml](indic_granary_pipeline.yaml) | 22 Indic languages | SpeechBrain + Indic Canary + Whisper | Indic Canary (TensorRT-LLM) → Parakeet-Riva (`hi`) or IndicConformer (other languages) | [Dockerfile.trt_llm_granary](Dockerfile.trt_llm_granary) |
+
+The language groups and model pairs follow the production Granary v2 routing. All three YAMLs
+share the same stages around the ASR step. They differ only where the table does:
+
+```mermaid
+flowchart TD
+    A[Recording manifest] --> B[Resample + Sortformer diarization]
+    B --> C[Silero VAD speech segments]
+    C --> D[Sound events + language ID]
+    D --> E[Write Opus clips + metadata.jsonl]
+    E --> F[Keep this pipeline's languages]
+    F --> G[Resample clips + primary ASR]
+    G --> R{Primary hallucination flagged?}
+    R -->|Yes| S[Recovery ASR + recheck]
+    S --> H[Selection + cleanup]
+    R -->|No| H
+    H --> I[Nine text operations on the Dynamo server]
+    I --> L[english / european / indic .jsonl]
+```
+
+The metadata audit keeps non-matching, rejected and no-speech rows in `metadata.jsonl`; only clips
+whose selected `source_lang` is in the pipeline's language set continue to ASR. Unrecovered ASR and
+text rejection flags stay in the final manifest, so the output is an audit manifest, not a guarantee
+that every row suits training.
+
+**Language ID.** `SelectAudioLanguageStage` accepts Whisper's answer when it is `en`; otherwise it
+needs SpeechBrain and Whisper to agree, and Indic languages need Indic Canary to agree as well. The
+English and European pipelines therefore drop the Canary stage and its TensorRT-LLM engine, which the
+Indic pipeline keeps.
+
+**ASR routing.** Each European ASR stage handles only its language group
+(`supported_language_codes`) and skips rows that already have a prediction
+(`skip_if_output_exists`). Recovery stages run only on rows the primary check flagged. A stage that
+does not support a row's language adds the audit note `skipped (unsupported language: xx)` under its
+own name in `additional_notes`; the stage that does support the language replaces any such
+prediction-key note, so selection sees only the model that ran.
+
+Xenna is unsupported: its GPU allocation is independent of Ray's serving reservations, and Curator
+rejects GPU stages with Xenna while a managed inference server is active. Use Ray Data.
+
+## 1. Build the image
+
+Run commands from this checkout's root. The default configuration needs **16 H100 80 GB GPUs**,
+256 logical CPUs, 500 GiB shared memory for Ray's object store and more host RAM (2 TiB
+recommended): four Dynamo replicas reserve two GPUs each, and the other eight GPUs serve the audio
+stages. Docker and the NVIDIA Container Toolkit are required.
+
+Follow the metadata tutorial's [environment and model preparation](../metadata/README.md#1-build-and-prepare-the-shared-environment)
+to build `curator-granary-metadata` (`docker/audio/Dockerfile.trt_llm --target granary`) and prepare
+the model directory, stopping before its Hindi samples. Then build the image for your pipeline:
+
+```bash
+# English and European
+docker buildx build --builder default --load \
+  -f tutorials/audio/granary_v2/full_pipeline/Dockerfile -t curator-granary-full .
+# Indic
+docker buildx build --builder default --load \
+  -f tutorials/audio/granary_v2/full_pipeline/Dockerfile.trt_llm_granary -t curator-granary-indic .
+```
+
+Both files extend the Granary base, which already holds this checkout at `/opt/Curator`, so build the
+base from the same checkout first. They freeze every installed package as a `uv` override, which keeps
+the TensorRT-LLM, NeMo and Torch 2.9.1 stack unchanged, and add only:
+
+- [Dockerfile](Dockerfile): `vllm==0.15.1` and `qwen-omni-utils` for the in-process Qwen stages,
+  `ai-dynamo` and the etcd/NATS binaries for the text server, the CUDA 12.9 compiler that the
+  serving workers need for FlashInfer, the `Qwen3ASRConfig` module that the vLLM 0.15.1 wheel omits
+  and two `qwen-asr` keyword arguments that vLLM 0.15.1 removed (the build fails if the installed
+  `qwen-asr` differs from what the patch expects).
+- [Dockerfile.trt_llm_granary](Dockerfile.trt_llm_granary): `ai-dynamo`, etcd/NATS and the CUDA 12.9
+  compiler only. The Indic ASR stages run on TensorRT-LLM and NeMo, so no in-process vLLM is added.
+
+Dynamo's text-model workers run in isolated Ray environments (Transformers 5.8.0 from the YAML) and
+resolve their packages at startup, so neither image freezes them. The inherited audio environment has
+dependency declaration conflicts: `uv pip check` is not clean.
+
+`main.py` sets `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:False` before Ray starts, because vLLM
+tensor-parallel CUDA graphs need CUDA-IPC-compatible allocations. The base image keeps `True` for its
+TensorRT stages.
+
+## 2. Supply models and a recording manifest
+
+`model_dir` holds the prepared models from the metadata tutorial: `sortformer.nemo`, `silero.plan`,
+`sed.pth`, `sed.plan`, `speechbrain/` and `whisper.pt`. The Indic pipeline also needs
+`indic_canary/` (the prebuilt TensorRT-LLM engine) and `indic_parakeet/` (`model.nemo` and its
+TensorRT engine). Qwen3-Omni, the text model and, for the Indic and European recovery models,
+IndicConformer, Parakeet-v3 and Whisper large-v3 download from Hugging Face on first use unless
+already cached; set `model_id` and `model_identifier` to local snapshot directories to avoid that.
+
+Use a UTF-8 JSONL manifest, one recording per line, with a unique `audio_item_id` and an absolute
+`audio_filepath` visible to every audio worker:
+
+```json
+{"audio_item_id":"recording-001","audio_filepath":"/data/recording-001.wav"}
+```
+
+Extra provenance fields are preserved. No reference transcript is required, and none is used as a
+segment label. Mount the model and recording directories at the **same absolute path** inside the
+container so manifest paths still resolve.
+
+## 3. Run
+
+Choose a fresh output directory; the entrypoint refuses to overwrite an existing run.
+
+```bash
+export MODELS=/absolute/path/to/prepared/models
+export DATA=/absolute/path/to/recordings
+export OUTPUT="$PWD/granary-output"
+mkdir -p "$PWD/.cache/granary" "$OUTPUT"
+docker run --rm --gpus all --ipc=host \
+  -v "$MODELS:$MODELS:ro" -v "$DATA:$DATA:ro" \
+  -v "$PWD/.cache/granary:/cache" -v "$OUTPUT:/output" \
+  curator-granary-full bash -lc '
+    source /opt/venv/env.sh
+    set -euo pipefail
+    python -u tutorials/audio/granary_v2/full_pipeline/main.py "$@" 2>&1 | tee /output/pipeline.log
+  ' -- --config-name en_granary_pipeline \
+  manifest_path="$DATA/manifest.jsonl" model_dir="$MODELS" \
+  output_dir=/output/run cache_root=/cache/compilation
+```
+
+Use `--config-name european_granary_pipeline` with the same image, or `--config-name
+indic_granary_pipeline` with `curator-granary-indic`. For fewer GPUs, override
+`ray_client.num_gpus`, `ray_client.num_cpus` and `inference_server.models.0.num_replicas`.
+
+The entrypoint starts one Ray cluster, downloads the pinned text model snapshot and enters the YAML's
+`InferenceServer` context. Dynamo handles placement, readiness and routing; the pipeline starts after
+the endpoint is ready and reuses it for all nine text operations. On completion or failure the
+entrypoint closes the server before Ray. Model downloads and worker environment setup can take
+several minutes on first use.
+
+## 4. Outputs
+
+`$OUTPUT/run/` contains:
 
 | Path | Contents |
 | --- | --- |
-| [Dockerfile](Dockerfile) | The single image: metadata, Indic ASR, Qwen Omni ASR, text pipeline and `en/` |
-| [en/](en/README.md) | English pipeline: recordings to enriched English transcripts in one Ray cluster |
+| `metadata.jsonl` | All metadata results, including rejected, other-language and no-speech audit rows |
+| `english.jsonl`, `european.jsonl` or `indic.jsonl` | Selected clips with primary/recovery predictions, selection source, enriched text and rejection notes |
+| `audio/` | Opus clips for all speech segments |
+| `rttm/` | Recording-level speaker turns |
+| `resampled/`, `asr_workspace/audio_resampled/` | Intermediate WAVs |
+| `speechbrain_cache/` | Language-model loading cache |
 
-## What runs in the image
-
-The image extends the Granary image built from `docker/audio/Dockerfile.trt_llm
---target granary`, so the metadata and Indic ASR environments are unchanged. It adds
-what the other tutorials need:
-
-| Tutorial | Stages and runtime | Provided by |
-| --- | --- | --- |
-| [Metadata](../metadata/README.md) | Sortformer, VAD, sound events, language ID on TensorRT/NeMo/Torch 2.9.1 | Granary base |
-| [Indic ASR](../indic_asr/README.md) | Canary and Parakeet TensorRT engines | Granary base |
-| [Qwen Omni ASR](../qwen_omni_asr/README.md) | In-process vLLM 0.15.1 with Transformers 4.57.6; Qwen3-ASR recovery | `vllm`, `qwen-omni-utils`, two Qwen3-ASR fixes |
-| [Text pipeline](../text_pipeline/README.md) | CPU HTTP stages plus a Dynamo-managed text model | `ai-dynamo`, `nixl`, etcd/NATS; model workers resolve their own environment at startup |
-| [English](en/README.md) | All of the above in one Ray cluster | the whole image |
-
-The base image already carries Torch 2.9.1, Transformers 4.57.6 and the NeMo fork, and
-vLLM 0.15.1 uses the same Torch and Transformers versions, so these stacks share one
-interpreter. Dynamo's text-model workers need newer vLLM, Torch and Transformers builds;
-Curator creates them as isolated Ray worker environments, so the image never mixes them
-with the audio packages.
-
-## Build
+Check that final rows map to metadata clips and inspect flags separately from successful enrichment
+(pass the output file name and the pipeline's language codes):
 
 ```bash
-docker buildx build --builder default --load \
-  -f tutorials/audio/granary_v2/full_pipeline/Dockerfile \
-  -t curator-granary-full .
+docker run --rm -i -v "$OUTPUT:/output:ro" --entrypoint python curator-granary-full - \
+  english.jsonl en <<'PY'
+import json
+import sys
+from pathlib import Path
+
+root = Path('/output/run')
+name, langs = sys.argv[1], set(sys.argv[2].split(','))
+metadata = [json.loads(line) for line in (root / 'metadata.jsonl').read_text().splitlines()]
+final = [json.loads(line) for line in (root / name).read_text().splitlines()]
+expected = {row['audio_item_id']: row for row in metadata if row.get('source_lang') in langs}
+actual = {row['audio_item_id']: row for row in final}
+assert len(actual) == len(final) == len(expected)
+assert actual.keys() == expected.keys()
+fields = (
+    'primary_model_prediction', 'best_prediction',
+    'abbreviated_text', 'entity_recovered_text',
+    'pnc_text', 'llm_language_prediction', 'tn_raw', 'captioning_text',
+    'code_switched_text', 'speech_qa_text', 'itn_raw', 'itn_clean',
+)
+flagged = 0
+for clip_id, row in actual.items():
+    assert row['source_lang'] in langs
+    if row.get('best_prediction_source') == 'fallback':
+        assert row.get('fallback_model_prediction')
+    for key in ('audio_filepath', 'original_file', 'start_ms', 'end_ms'):
+        assert row[key] == expected[clip_id][key], (clip_id, key)
+    assert Path(row['audio_filepath']).is_file()
+    if row.get('_skipme'):
+        flagged += 1
+        print('FLAGGED', clip_id, row['_skipme'], row.get('additional_notes'))
+    else:
+        assert all(isinstance(row.get(key), str) and row[key].strip() for key in fields), row
+print(f'{len(metadata)} metadata rows; {len(final)} final rows; {flagged} flagged')
+assert final, 'No clips selected; inspect metadata language/VAD notes'
+PY
 ```
 
-Build `curator-granary-metadata` first, as described in the
-[metadata tutorial](../metadata/README.md#build-the-image).
+For the other pipelines pass `european.jsonl` or `indic.jsonl` and the matching comma-separated
+language codes (for example `de,es,fr,it,pt,ru,nl,pl,cs,ro,hu,el,fi,da,sv,lt,lv,hr,et,bg,sk,sl,mt,uk`).
 
-## Runtime settings
+Empty output can reflect no speech, language rejection or the wrong pipeline for the input; inspect
+`metadata.jsonl` before changing settings. Nonempty fields and successful requests do not establish
+transcript accuracy or semantic quality; review generated text and `additional_notes` first.
 
-| Setting | Value | Reason |
-| --- | --- | --- |
-| `PYTORCH_CUDA_ALLOC_CONF` | image default `expandable_segments:True`; vLLM entrypoints set `False` | The TensorRT stages keep the base default. vLLM tensor-parallel CUDA graphs need CUDA-IPC-compatible allocations, so `en/main.py` sets `False` before starting Ray. Set it yourself when running the standalone Qwen tutorial in this image. |
-| `VLLM_WORKER_MULTIPROC_METHOD` | `spawn` (image default) | Required by in-process vLLM with CUDA |
-| `CUDA_HOME` for serving workers | `/usr/local/cuda-12.9` (set in each pipeline's `runtime_env`) | FlashInfer compiles with the toolkit that matches the worker's Torch; audio stages stay on CUDA 12.8 |
+## 5. Validation status
 
-## What stays outside the image
-
-- **Indic Canary engine conversion.** It needs a different NeMo fork than the Granary
-  image's, so run the converter in its own environment as the
-  [Indic tutorial](../indic_asr/README.md#canary) describes. The converted engines are inputs.
-- **Model weights and recordings.** Mount them as each tutorial describes.
-- **Dynamo worker packages.** They resolve at first startup and need network access
-  unless you pre-populate the package and model caches.
-
-## Limits
-
-The English pipeline's dependency set was exercised on one H100 node (see its
-[validation](en/README.md#5-validation)). The other tutorials were not re-run inside
-this image. The inherited audio environment has conflicting package declarations:
-`uv pip check` is not clean. The standalone Qwen tutorial documents its own virtual
-environment (for example Ray 2.57.0, TorchCodec 0.9.0), which differs from this image's
-resolved versions.
+CPU checks cover configuration loading, building each YAML's pipeline and importing every stage and
+adapter class with its third-party dependencies in the matching image. GPU inference and end-to-end
+execution of these single-cluster pipelines are **not** verified: GPU scaling, transcript quality,
+the European language-group routing and the Indic recovery routing remain unproven. Qwen3-ASR loading
+under vLLM 0.15.1 was checked on a local GPU only. Plain `uv pip check` conflicts in the inherited
+environment require separate validation.

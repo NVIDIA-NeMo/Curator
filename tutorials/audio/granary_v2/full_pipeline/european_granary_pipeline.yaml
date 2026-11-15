@@ -1,6 +1,6 @@
 # Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-# Full English recording-to-transcript pipeline; see README.md.
+# European recording-to-transcript pipeline; see README.md. Run with: main.py -cn european_granary_pipeline
 defaults:
   - _self_
   - prompts
@@ -13,15 +13,17 @@ hydra:
   output_subdir: null
 
 documentation: |
-  Extract metadata and Opus speech clips from recordings, retain English clips,
-  transcribe with Qwen3-Omni and Qwen3-ASR recovery, then enrich the selected text.
+  Extract metadata and Opus speech clips from recordings (language ID: SpeechBrain
+  + Whisper), keep clips in 24 European languages, transcribe each language group
+  with its primary and recovery model (Qwen3-Omni + Qwen3-ASR, Parakeet-v3 + Whisper,
+  Whisper + Parakeet-v3), then enrich the selected text.
   metadata.jsonl retains every metadata result, including rejected/audit rows;
-  english.jsonl contains the selected English clips with ASR and text features.
+  european.jsonl contains the selected clips with ASR and text features.
 
 manifest_path: ???
 model_dir: ???
 output_dir: ???
-output_path: ${output_dir}/english.jsonl
+output_path: ${output_dir}/european.jsonl
 workspace_dir: ${output_dir}/asr_workspace
 model_id: Qwen/Qwen3-Omni-30B-A3B-Instruct
 model_revision: 26291f793822fb6be9555850f06dfe95f2d7e695  # pragma: allowlist secret
@@ -32,7 +34,7 @@ text_key: abbreviated_text
 # Use the selected clip prediction, never an inherited parent-recording transcript.
 ground_truth_key: best_prediction
 language_key: source_lang
-regex_yaml: tutorials/audio/granary_v2/full_pipeline/en/regex.yaml
+regex_yaml: tutorials/audio/granary_v2/full_pipeline/regex.yaml
 
 backend: ray_data
 batch_size: 128
@@ -213,33 +215,10 @@ stages:
       gpu_memory_gb: 8
 
   - _target_: nemo_curator.stages.audio.inference.lid.AudioLIDInferenceStage
-    name: IndicCanaryLangID
-    adapter_target: nemo_curator.models.audio.lid.indic_canary.IndicCanaryLIDAdapter
-    model_id: IndicCanaryLangID
-    tag: secondary
-    waveform_key: waveform
-    min_duration_sec: 1
-    max_duration_sec: 40
-    batch_size: 16
-    num_workers_override: 1
-    fail_on_audio_error: true
-    adapter_kwargs:
-      engine_dir: ${model_dir}/indic_canary
-      num_beams: 1
-      max_new_tokens: 1
-      model_batch_size: 16
-      min_duration_sec: 1
-      max_duration_sec: 40
-      kv_cache_free_gpu_memory_fraction: 0.1
-      cross_kv_cache_fraction: 0.1
-    resources:
-      gpu_memory_gb: 8
-
-  - _target_: nemo_curator.stages.audio.inference.lid.AudioLIDInferenceStage
     name: WhisperLangID
     adapter_target: nemo_curator.models.audio.lid.whisper.WhisperLIDAdapter
     model_id: WhisperLangID
-    tag: tertiary
+    tag: secondary
     waveform_key: waveform
     min_duration_sec: 1
     max_duration_sec: 30
@@ -264,11 +243,35 @@ stages:
     name: MetadataManifestWriter
     output_path: ${output_dir}/metadata.jsonl
 
-  # Keep the full metadata audit above; only selected English clips reach ASR.
-  - _target_: nemo_curator.stages.audio.common.PreserveByValueStage
-    input_value_key: source_lang
-    target_value: en
-    operator: eq
+  # Keep the full metadata audit above; only clips in the European languages below reach ASR.
+  - _target_: nemo_curator.stages.audio.common.PreserveByValueConditionsStage
+    _convert_: all
+    conditions:
+      - {input_value_key: source_lang, target_value: de, operator: eq}
+      - {input_value_key: source_lang, target_value: es, operator: eq}
+      - {input_value_key: source_lang, target_value: fr, operator: eq}
+      - {input_value_key: source_lang, target_value: it, operator: eq}
+      - {input_value_key: source_lang, target_value: pt, operator: eq}
+      - {input_value_key: source_lang, target_value: ru, operator: eq}
+      - {input_value_key: source_lang, target_value: nl, operator: eq}
+      - {input_value_key: source_lang, target_value: pl, operator: eq}
+      - {input_value_key: source_lang, target_value: cs, operator: eq}
+      - {input_value_key: source_lang, target_value: ro, operator: eq}
+      - {input_value_key: source_lang, target_value: hu, operator: eq}
+      - {input_value_key: source_lang, target_value: el, operator: eq}
+      - {input_value_key: source_lang, target_value: fi, operator: eq}
+      - {input_value_key: source_lang, target_value: da, operator: eq}
+      - {input_value_key: source_lang, target_value: sv, operator: eq}
+      - {input_value_key: source_lang, target_value: lt, operator: eq}
+      - {input_value_key: source_lang, target_value: lv, operator: eq}
+      - {input_value_key: source_lang, target_value: hr, operator: eq}
+      - {input_value_key: source_lang, target_value: et, operator: eq}
+      - {input_value_key: source_lang, target_value: bg, operator: eq}
+      - {input_value_key: source_lang, target_value: sk, operator: eq}
+      - {input_value_key: source_lang, target_value: sl, operator: eq}
+      - {input_value_key: source_lang, target_value: mt, operator: eq}
+      - {input_value_key: source_lang, target_value: uk, operator: eq}
+    condition_logic: or
     missing_value_policy: drop
 
   # AudioSegmentWriter removed the parent WAV path; resample the emitted Opus clip.
@@ -279,10 +282,10 @@ stages:
     target_format: wav
     target_nchannels: 1
   - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
+    name: QwenOmni_primary
     adapter_target: nemo_curator.models.asr.qwen_omni.QwenOmniASRAdapter
     model_id: ${model_id}
-    default_language: en
-    supported_language_codes: [en, zh, ko, ja, de, ru, it, fr, es, pt, ms, nl, id, tr, vi, yue, ar, ur]
+    supported_language_codes: [de, es, fr, it, pt, ru, nl]
     unsupported_language_marks_skip: false
     pred_text_key: primary_model_prediction
     batch_size: 32
@@ -336,49 +339,38 @@ stages:
         OUTPUT FORMAT:
         - Return only the final text.
         - No explanations, no JSON, no lists.
-      en_prompt_text: |-
-        You receive English audio. The audio is the ground truth.
 
-        MAIN GOAL: Listen carefully to the audio and transcribe exactly what is spoken, including all disfluencies present in the audio.
-        - Do NOT invent words or content not spoken in the audio.
-        - Do NOT remove substantive content that is spoken in the audio.
-        - Do NOT paraphrase, polish grammar or rewrite sentences.
+  - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
+    name: ParakeetV3_primary
+    adapter_target: nemo_curator.models.asr.nemo_asr.NeMoASRAdapter
+    model_id: nvidia/parakeet-tdt-0.6b-v3
+    supported_language_codes: [pl, cs, ro, hu, el, fi, da, sv]
+    unsupported_language_marks_skip: false
+    skip_if_output_exists: true
+    max_audio_sec_per_actor: 2400.0
+    pred_text_key: primary_model_prediction
+    batch_size: 64
+    adapter_kwargs:
+      empty_audio_marks_skip: false
+      use_cuda_graph_decoder: false
+    resources:
+      _target_: nemo_curator.stages.resources.Resources
+      gpu_memory_gb: 8
 
-        ENTITIES (names, places, brands, titles, etc.):
-        - Keep every named entity as spoken. This includes names, places, brands, titles, acronyms, and other proper nouns.
-        - Do not ever transliterate, translate, re-spell, normalize, or "correct" an entity into another script.
-        - If enetities are part code switched data it should stay the same.
+  - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
+    name: Whisper_primary
+    adapter_target: nemo_curator.models.asr.faster_whisper.FasterWhisperASR
+    model_id: large-v3
+    supported_language_codes: [lt, lv, hr, et, bg, sk, sl, mt, uk]
+    unsupported_language_marks_skip: false
+    skip_if_output_exists: true
+    max_audio_sec_per_actor: 2400.0
+    pred_text_key: primary_model_prediction
+    batch_size: 16
+    resources:
+      _target_: nemo_curator.stages.resources.Resources
+      gpu_memory_gb: 16
 
-        KEEP DISFLUENCIES:
-        - Keep fillers, repetitions, false starts, colloquial reductions, and grammatical errors spoken in the audio.
-        - Add hesitation markers and fillers natural to English wherever they are spoken in the audio.
-        - Do NOT clean up, normalize, or remove disfluencies spoken in the audio.
-        - Add consecutive instances of the same word or short phrase when spoken unintentionally.
-          - Example: "I I think" if that is what is spoken.
-
-
-        BACKGROUND / QUIET / OVERLAPPING SPEECH:
-        - Keep all audible speech, including quieter, distant, or overlapping voices — not just the loudest speaker.
-        - Add background or secondary speech that is audible; do not drop words because they sound like background.
-
-        FALSE STARTS:
-        - Add incomplete words or phrases the speaker abandons, marked with a hyphen.
-          - Example: "I was go- going to the store."
-        - Do NOT remove false starts spoken in the audio.
-
-        COLLOQUIAL REDUCTIONS:
-        - If the speaker used reductions, use the spoken form: "want to" → "wanna", "going to" → "gonna", etc.
-        - Preserve forms such as "wanna", "gonna", "kinda", "lemme", "lotta", "outta", "Imma", "sorta", "ya", "m'kay", "finna", "tryna", etc. Do NOT expand them.
-
-        WRONG GRAMMAR:
-        - Keep grammatical errors as spoken. Do NOT correct subject-verb agreement, tense errors, or other grammar issues.
-
-        NUMERICALS:
-        - Keep numbers as spoken in words. Do NOT convert them to digits.
-          - Example: keep "oh eleven" or "zero eleven".
-
-        Output format:
-        - Return ONLY the transcription text.
   - _target_: nemo_curator.stages.audio.text_filtering.WhisperHallucinationStage
     name: WhisperHallucination_primary
     common_hall_file: tutorials/audio/whisper_hallucination/phrases.txt
@@ -392,10 +384,11 @@ stages:
   - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
     name: QwenASR_recovery
     run_only_if_hallucinated: true
+    skip_if_output_exists: true
     adapter_target: nemo_curator.models.asr.qwen_asr.QwenASRAdapter
     model_id: ${recovery_model_id}
-    default_language: en
-    supported_language_codes: [en]
+    supported_language_codes: [de, es, fr, it, pt, ru, nl]
+    unsupported_language_marks_skip: false
     # An empty recovery result must not replace the primary hallucination flag.
     preserve_existing_skip: true
     pred_text_key: fallback_model_prediction
@@ -406,6 +399,41 @@ stages:
       gpu_memory_utilization: 0.95
       max_new_tokens: 4096
       max_inference_batch_size: 128
+
+  - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
+    name: Whisper_recovery
+    run_only_if_hallucinated: true
+    skip_if_output_exists: true
+    adapter_target: nemo_curator.models.asr.faster_whisper.FasterWhisperASR
+    supported_language_codes: [pl, cs, ro, hu, el, fi, da, sv]
+    unsupported_language_marks_skip: false
+    preserve_existing_skip: true
+    max_audio_sec_per_actor: 2400.0
+    pred_text_key: fallback_model_prediction
+    model_id: large-v3
+    batch_size: 16
+    resources:
+      _target_: nemo_curator.stages.resources.Resources
+      gpu_memory_gb: 16
+
+  - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
+    name: ParakeetV3_recovery
+    run_only_if_hallucinated: true
+    skip_if_output_exists: true
+    adapter_target: nemo_curator.models.asr.nemo_asr.NeMoASRAdapter
+    supported_language_codes: [lt, lv, hr, et, bg, sk, sl, mt, uk]
+    unsupported_language_marks_skip: false
+    preserve_existing_skip: true
+    max_audio_sec_per_actor: 2400.0
+    pred_text_key: fallback_model_prediction
+    model_id: nvidia/parakeet-tdt-0.6b-v3
+    batch_size: 64
+    adapter_kwargs:
+      empty_audio_marks_skip: false
+      use_cuda_graph_decoder: false
+    resources:
+      _target_: nemo_curator.stages.resources.Resources
+      gpu_memory_gb: 8
 
   - _target_: nemo_curator.stages.audio.text_filtering.WhisperHallucinationStage
     name: WhisperHallucination_asr
