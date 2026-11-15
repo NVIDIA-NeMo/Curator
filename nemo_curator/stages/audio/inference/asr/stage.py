@@ -448,8 +448,11 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
         msg = f"{type(self).__name__} only supports process_batch"
         raise NotImplementedError(msg)
 
+    def _is_hallucinated(self, task: AudioTask) -> bool:
+        return str(task.data.get(self.skip_me_key, "")).startswith("Hallucination")
+
     def input_spec_for_task(self, task: AudioTask) -> tuple[list[str], list[str]]:
-        if self.run_only_if_hallucinated and not str(task.data.get(self.skip_me_key, "")).startswith("Hallucination"):
+        if self.run_only_if_hallucinated and not self._is_hallucinated(task):
             return [], []
         return super().input_spec_for_task(task)
 
@@ -457,9 +460,7 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
         """Run one ASR batch."""
         eligible_tasks = tasks
         if self.run_only_if_hallucinated:
-            eligible_tasks = [
-                task for task in tasks if str(task.data.get(self.skip_me_key, "")).startswith("Hallucination")
-            ]
+            eligible_tasks = [task for task in tasks if self._is_hallucinated(task)]
         if len(eligible_tasks) == 0:
             return tasks
         tasks_to_process, output_exists_skipped = self._partition_inference_tasks(eligible_tasks)

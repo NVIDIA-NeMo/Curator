@@ -148,8 +148,13 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], [self.text_key, self.duration_key]
 
+    def _bypass(self, task: AudioTask) -> bool:
+        return self.run_only_if_hallucinated and not str(task.data.get(self.skip_me_key, "")).startswith(
+            "Hallucination"
+        )
+
     def input_spec_for_task(self, task: AudioTask) -> tuple[list[str], list[str]]:
-        if self.run_only_if_hallucinated and not str(task.data.get(self.skip_me_key, "")).startswith("Hallucination"):
+        if self._bypass(task):
             return [], []
         return super().input_spec_for_task(task)
 
@@ -198,7 +203,7 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
         return is_scriptio_continua(task.data.get(self.language_key))
 
     def process(self, task: AudioTask) -> AudioTask:
-        if self.run_only_if_hallucinated and not str(task.data.get(self.skip_me_key, "")).startswith("Hallucination"):
+        if self._bypass(task):
             return task
         current_flag = str(task.data.setdefault(self.skip_me_key, ""))
         if not self.overwrite and current_flag:
