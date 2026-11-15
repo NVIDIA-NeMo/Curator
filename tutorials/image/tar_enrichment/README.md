@@ -17,6 +17,8 @@ catalog Parquet
 
 ## Run
 
+Install the `image_cpu` (or `image_cuda12`) extra; reading `s3://` TARs also needs `s3fs`.
+
 ```bash
 export AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=...   # or an AWS profile
 python tutorials/image/tar_enrichment/main.py \
@@ -30,7 +32,7 @@ python tutorials/image/tar_enrichment/main.py \
 
 ## Output
 
-One row per catalog row: `image_id`, `metadata` (the catalog columns plus
+One row per catalog row: `image_id`, `metadata` (the four locator columns plus
 `image_decode_status`, `image_width`, `image_height`, sharpness and QR fields with their statuses),
 `embedding` (768 floats), `aesthetic_score` and `nsfw_score`.
 Images that could not be fetched or decoded keep their row with null scores;
@@ -45,7 +47,8 @@ On one node (4 GPUs, 108 CPUs) with the default pool sizes, 248k web images from
   ranged reads. Each fetch reserves a quarter CPU.
 - `--cpu-workers`: decode, measurement and resize are fused into one CPU task, so native-resolution
   pixels never cross the object store.
-- `--clip-workers`: CLIP actors use half a GPU each and TF32 matmuls (about 5.6x faster than strict
+- `--clip-workers`: CLIP actors use half a GPU each (default: every GPU but the half shared by the
+  aesthetic and NSFW heads) and TF32 matmuls (about 5.6x faster than strict
   FP32, with the same embeddings).
 - The reader sorts rows by TAR and offset itself. Selecting whole TARs keeps each ranged read dense;
   a sparse selection also downloads the bytes between selected images.

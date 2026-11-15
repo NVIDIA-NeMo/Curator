@@ -100,3 +100,21 @@ def test_missing_tar_keeps_rows_without_bytes(rows: list[dict], tmp_path: Path) 
 def test_rejects_non_positive_limits() -> None:
     with pytest.raises(ValueError, match="positive"):
         ImageTarRangeReader(images_per_batch=0)
+
+
+def test_rows_without_locator_pass_through(rows: list[dict]) -> None:
+    rows = [*rows, {"tar_path": None, "byte_offset": None, "byte_size": None, "image_id": "nowhere.jpg"}]
+    batches = _run(ImageTarRangeReader(), rows)
+    images = {image.image_id: image for batch in batches for image in batch.data}
+    assert len(images) == len(rows)
+    assert images["nowhere.jpg"].image_bytes is None
+    assert images["a0.jpg"].image_bytes == bytes([0]) * 100
+
+
+def test_split_children_do_not_share_task_state(rows: list[dict]) -> None:
+    split, _ = ImageTarRangeReader(images_per_batch=1).decompose()
+    children = split.process(DocumentBatch(dataset_name="test", data=pd.DataFrame(rows)))
+    children[0]._stage_perf.append("perf")
+    children[0]._metadata["key"] = "value"
+    assert children[1]._stage_perf == []
+    assert "key" not in children[1]._metadata

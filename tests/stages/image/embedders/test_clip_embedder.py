@@ -386,7 +386,7 @@ class TestImageEmbeddingStage:
         """Test image embedding stage on GPU."""
 
         class _DummyCLIPImageEmbeddings:
-            def __init__(self, _model_dir: str | None = None) -> None:
+            def __init__(self, _model_dir: str | None = None, allow_tf32: bool = False) -> None:
                 pass
 
             def setup(self) -> None:
@@ -496,11 +496,14 @@ def test_stacks_uniform_images_and_skips_undecoded(mock_clip_embeddings: Mock) -
     assert images[0].embedding is not None
 
 
-def test_clip_features_accepts_transformers5_output() -> None:
-    from types import SimpleNamespace
-
-    from nemo_curator.models.clip import _features
-
-    tensor = torch.ones(2, 3)
-    assert _features(tensor) is tensor
-    assert _features(SimpleNamespace(pooler_output=tensor)) is tensor
+@patch("nemo_curator.stages.image.embedders.clip_embedder.CLIPImageEmbeddings")
+def test_same_shape_but_not_presized_keeps_processor_path(mock_clip_embeddings: Mock) -> None:
+    # An image's embedding must not depend on whether its batch neighbors share its shape.
+    images = [ImageObject(image_id=f"img_{i}", image_data=np.zeros((256, 256, 3), np.uint8)) for i in range(2)]
+    mock_clip_embeddings.return_value.return_value = torch.ones(2, 4)
+    stage = ImageEmbeddingStage(model_dir="test_models/clip")
+    stage.setup()
+    stage.process(ImageBatch(data=images, dataset_name="test"))
+    (model_input,), _ = mock_clip_embeddings.return_value.call_args
+    assert isinstance(model_input, list)
+    mock_clip_embeddings.assert_called_once_with("test_models/clip", allow_tf32=True)

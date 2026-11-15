@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import io
+from typing import TYPE_CHECKING
 
 import numpy as np
 import torch
@@ -23,6 +24,9 @@ from torchvision import transforms
 
 from nemo_curator.stages.image.preprocess import ImageDecodeStage, ImageResizeStage
 from nemo_curator.tasks import ImageBatch, ImageObject
+
+if TYPE_CHECKING:
+    import pytest
 
 
 def _png(width: int, height: int) -> bytes:
@@ -70,10 +74,9 @@ def test_resize_matches_clip_transform_and_skips_missing() -> None:
     np.testing.assert_array_equal(out.data[0].image_data, expected)
 
 
-def test_task_repr_does_not_format_image_arrays() -> None:
-    # Ray Data calls repr() on every stage output; formatting arrays made GPU stages CPU-bound.
-    batch = ImageBatch(
-        data=[ImageObject(embedding=np.ones(768, np.float32), image_data=np.ones((224, 224, 3), np.uint8))] * 128,
-        dataset_name="test",
+def test_decompression_bomb_is_a_resource_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 100)
+    out = ImageDecodeStage(max_pixels=10**9).process(
+        ImageBatch(data=[ImageObject(image_bytes=_png(40, 30))], dataset_name="test")
     )
-    assert repr(batch) == "ImageBatch(task_id=, dataset_name=test)"
+    assert out.data[0].metadata["image_decode_status"] == "resource_limit"

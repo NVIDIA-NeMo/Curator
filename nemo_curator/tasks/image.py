@@ -47,10 +47,10 @@ class ImageObject:
     image_id: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
     # raw data
-    image_bytes: bytes | None = None
-    image_data: np.ndarray | None = None
+    image_bytes: bytes | None = field(default=None, repr=False)
+    image_data: np.ndarray | None = field(default=None, repr=False)
     # embedding data
-    embedding: np.ndarray | None = None
+    embedding: np.ndarray | None = field(default=None, repr=False)
     # classification score
     aesthetic_score: float | None = None
     nsfw_score: float | None = None

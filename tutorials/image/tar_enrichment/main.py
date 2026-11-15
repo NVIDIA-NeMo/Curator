@@ -25,6 +25,8 @@ from __future__ import annotations
 import argparse
 import time
 
+import torch
+
 from nemo_curator.backends.ray_data import RayDataExecutor
 from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
@@ -65,10 +67,16 @@ def build_pipeline(args: argparse.Namespace) -> Pipeline:
             ).with_(num_workers=args.clip_workers),
             # score_threshold=None annotates every image instead of filtering.
             ImageAestheticFilterStage(
-                model_dir=args.model_dir, num_gpus_per_worker=0.5, model_inference_batch_size=128, score_threshold=None
+                model_dir=args.model_dir,
+                num_gpus_per_worker=0.25,
+                model_inference_batch_size=128,
+                score_threshold=None,
             ),
             ImageNSFWFilterStage(
-                model_dir=args.model_dir, num_gpus_per_worker=0.5, model_inference_batch_size=128, score_threshold=None
+                model_dir=args.model_dir,
+                num_gpus_per_worker=0.25,
+                model_inference_batch_size=128,
+                score_threshold=None,
             ),
             ConvertImageBatchToDocumentBatchStage(
                 fields=["image_id", "metadata", "embedding", "aesthetic_score", "nsfw_score"]
@@ -88,11 +96,14 @@ def main() -> None:
     parser.add_argument("--offset-column", default="byte_offset")
     parser.add_argument("--size-column", default="byte_size")
     parser.add_argument("--id-column", default="image_id")
-    # Defaults fit one node with 4 GPUs and ~110 CPUs; scale with the cluster.
+    # CPU defaults fit one node with ~110 CPUs; scale them with the cluster.
     parser.add_argument("--fetch-workers", type=int, default=64, help="Concurrent ranged reads")
     parser.add_argument("--cpu-workers", type=int, default=76, help="Decode/measurement/resize workers")
-    parser.add_argument("--clip-workers", type=int, default=6, help="CLIP actors, half a GPU each")
+    parser.add_argument("--clip-workers", type=int, help="CLIP actors, half a GPU each (default: fill the node)")
     args = parser.parse_args()
+    if args.clip_workers is None:
+        # Half a GPU per CLIP actor; the aesthetic and NSFW heads share the last half GPU.
+        args.clip_workers = max(1, 2 * torch.cuda.device_count() - 1)
 
     client = RayClient()
     client.start()

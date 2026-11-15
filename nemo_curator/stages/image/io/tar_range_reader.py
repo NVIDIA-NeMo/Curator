@@ -17,6 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import fsspec
+import pandas as pd
 from loguru import logger
 
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
@@ -36,10 +37,13 @@ class _SplitByTarStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     name: str = "split_by_tar"
 
     def process(self, task: DocumentBatch) -> list[DocumentBatch]:
-        df = task.to_pandas().sort_values([self.tar_column, self.offset_column], kind="stable")
+        df = task.to_pandas()
+        # Rows without a complete locator have nothing to fetch; they pass through with image_bytes=None.
+        missing = df[[self.tar_column, self.offset_column, self.size_column]].isna().any(axis=1)
+        unlocated, df = df[missing], df[~missing].sort_values([self.tar_column, self.offset_column], kind="stable")
         tars, starts = df[self.tar_column].tolist(), df[self.offset_column].tolist()
         ends = (df[self.offset_column] + df[self.size_column]).tolist()
-        bounds, first = [], 0
+        groups, first = [], 0
         for i in range(1, len(df) + 1):
             if (
                 i == len(df)
@@ -47,16 +51,19 @@ class _SplitByTarStage(ProcessingStage[DocumentBatch, DocumentBatch]):
                 or i - first == self.images_per_batch
                 or ends[i] - starts[first] > self.max_request_bytes
             ):
-                bounds.append((first, i))
+                groups.append(df.iloc[first:i])
                 first = i
+        groups += [
+            unlocated.iloc[i : i + self.images_per_batch] for i in range(0, len(unlocated), self.images_per_batch)
+        ]
         return [
             DocumentBatch(
                 dataset_name=task.dataset_name,
-                data=df.iloc[a:b],
-                _metadata=task._metadata,
-                _stage_perf=task._stage_perf,
+                data=group,
+                _metadata=dict(task._metadata),
+                _stage_perf=list(task._stage_perf),
             )
-            for a, b in bounds
+            for group in groups
         ]
 
 
@@ -75,23 +82,31 @@ class _FetchTarRangeStage(ProcessingStage[DocumentBatch, ImageBatch]):
 
     def process(self, task: DocumentBatch) -> ImageBatch:
         rows = task.to_pandas().to_dict("records")
-        uri = rows[0][self.tar_column]
-        start = rows[0][self.offset_column]
-        end = max(row[self.offset_column] + row[self.size_column] for row in rows)
-        try:
-            fs, path = fsspec.core.url_to_fs(uri, **self.storage_options)
-            blob = fs.cat_file(path, start=start, end=end)
-        except FileNotFoundError:
-            logger.warning(f"TAR not found, keeping {len(rows)} rows without bytes: {uri}")
-            blob = None
-        if blob is not None and len(blob) != end - start:
-            msg = f"Short read from {uri}: expected {end - start} bytes, got {len(blob)}"
-            raise OSError(msg)
-        images = []
-        for row in rows:
-            offset = row[self.offset_column] - start
-            payload = None if blob is None else blob[offset : offset + row[self.size_column]]
-            images.append(ImageObject(image_id=str(row[self.id_column]), metadata=row, image_bytes=payload))
+        tar, off, size = self.tar_column, self.offset_column, self.size_column
+        uri, start, blob = rows[0][tar], rows[0][off], None
+        # A group holds either one TAR's rows or rows without a complete locator (nothing to fetch).
+        if not any(pd.isna(rows[0][column]) for column in (tar, off, size)):
+            # Nulls elsewhere in the input can turn integer columns into floats.
+            for row in rows:
+                row[off], row[size] = int(row[off]), int(row[size])
+            start = rows[0][off]
+            end = max(row[off] + row[size] for row in rows)
+            try:
+                fs, path = fsspec.core.url_to_fs(uri, **self.storage_options)
+                blob = fs.cat_file(path, start=start, end=end)
+            except FileNotFoundError:
+                logger.warning(f"TAR not found, keeping {len(rows)} rows without bytes: {uri}")
+            if blob is not None and len(blob) != end - start:
+                msg = f"Short read from {uri}: expected {end - start} bytes, got {len(blob)}"
+                raise OSError(msg)
+        images = [
+            ImageObject(
+                image_id=str(row[self.id_column]),
+                metadata=row,
+                image_bytes=None if blob is None else blob[row[off] - start : row[off] - start + row[size]],
+            )
+            for row in rows
+        ]
         return ImageBatch(
             dataset_name=task.dataset_name,
             data=images,
@@ -113,7 +128,8 @@ class ImageTarRangeReader(CompositeStage[DocumentBatch, ImageBatch]):
     Object stores often cap per-connection throughput, so set ``fetch_workers`` to run
     many concurrent fetches (each reserves a quarter CPU); ``None`` lets Ray decide.
 
-    Rows whose TAR does not exist are kept with ``image_bytes=None``. Short reads and
+    Rows whose TAR does not exist, or with a null TAR path, offset or size, are kept with
+    ``image_bytes=None``. Short reads and
     other I/O errors are raised so the executor can retry the task.
     """
 

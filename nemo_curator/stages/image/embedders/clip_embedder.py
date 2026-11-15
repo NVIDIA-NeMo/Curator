@@ -40,6 +40,7 @@ class ImageEmbeddingStage(ProcessingStage[ImageBatch, ImageBatch]):
     model_inference_batch_size: int = 32  # Number of images to process through model at once
     verbose: bool = False
     remove_image_data: bool = False
+    allow_tf32: bool = True  # ~5.6x faster image encoding; embeddings differ from FP32 only by rounding
     name: str = "image_embedding"
 
     def __post_init__(self) -> None:
@@ -62,7 +63,7 @@ class ImageEmbeddingStage(ProcessingStage[ImageBatch, ImageBatch]):
         """Initialize the CLIP image embedding model."""
         # Use positional arg for compatibility with test doubles that may
         # not accept keyword arguments
-        self.model = CLIPImageEmbeddings(self.model_dir)
+        self.model = CLIPImageEmbeddings(self.model_dir, allow_tf32=self.allow_tf32)
         self.model.setup()
 
         if self.verbose:
@@ -97,10 +98,11 @@ class ImageEmbeddingStage(ProcessingStage[ImageBatch, ImageBatch]):
             if not batch:
                 continue
             loaded_images = [img_obj.image_data for img_obj in batch]
-            # Same-shape images (e.g. after ImageResizeStage) use the model's batched GPU transform
-            # instead of the per-image CPU processor.
-            same_shape = len({image.shape for image in loaded_images}) == 1
-            batch_tensor = np.stack(loaded_images) if same_shape else loaded_images
+            # Images already at CLIP's input size (e.g. from ImageResizeStage) take the batched GPU
+            # transform, which leaves them unchanged; other images keep the processor path, so an
+            # image's embedding never depends on which images share its batch.
+            presized = all(image.shape == (224, 224, 3) and image.dtype == np.uint8 for image in loaded_images)
+            batch_tensor = np.stack(loaded_images) if presized else loaded_images
 
             # Generate embeddings
             with torch.no_grad():

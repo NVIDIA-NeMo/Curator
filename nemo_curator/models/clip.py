@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Final
 
@@ -30,6 +31,8 @@ from .aesthetics import AestheticScorer
 from .base import ModelInterface
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from transformers.modeling_outputs import BaseModelOutputWithPooling
 
 _CLIP_MODEL_ID: Final = "openai/clip-vit-large-patch14"
@@ -41,12 +44,28 @@ def _features(output: torch.Tensor | BaseModelOutputWithPooling) -> torch.Tensor
     return output if isinstance(output, torch.Tensor) else output.pooler_output
 
 
+@contextmanager
+def _matmul_tf32(enabled: bool) -> Iterator[None]:
+    """Enable TF32 matmuls for the enclosed calls only, leaving the process-wide setting unchanged."""
+    previous = torch.backends.cuda.matmul.allow_tf32
+    torch.backends.cuda.matmul.allow_tf32 = previous or enabled
+    try:
+        yield
+    finally:
+        torch.backends.cuda.matmul.allow_tf32 = previous
+
+
 class CLIPImageEmbeddings(ModelInterface):
     """Interface for generating CLIP image embeddings from input images."""
 
-    def __init__(self, model_dir: str) -> None:
-        """Initialize the CLIPImageEmbeddings model."""
+    def __init__(self, model_dir: str, allow_tf32: bool = False) -> None:
+        """Initialize the CLIPImageEmbeddings model.
+
+        ``allow_tf32`` runs image-encoder matmuls in TF32: about 5.6x faster than strict FP32
+        on recent GPUs, changing embeddings only at FP32 rounding level.
+        """
         super().__init__()
+        self.allow_tf32 = allow_tf32
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.dtype = torch.float32
         self.model_dir = model_dir
@@ -68,8 +87,6 @@ class CLIPImageEmbeddings(ModelInterface):
     def setup(self) -> None:
         """Set up the CLIPImageEmbeddings model."""
         weight_file = str(Path(self.model_dir) / self.model_id_names[0])
-        # TF32 matmuls: ~5.6x faster than strict FP32 on recent GPUs; embeddings match FP32 to cosine 1.0000.
-        torch.backends.cuda.matmul.allow_tf32 = True
         self.clip = CLIPModel.from_pretrained(weight_file).to(self.device).eval()
         self.processor = CLIPProcessor.from_pretrained(weight_file)
 
@@ -113,7 +130,8 @@ class CLIPImageEmbeddings(ModelInterface):
             inputs = self.processor(images=images, return_tensors="pt")["pixel_values"]
             inputs = inputs.to(self.device)
 
-        embed = _features(self.clip.get_image_features(pixel_values=inputs))
+        with _matmul_tf32(self.allow_tf32):
+            embed = _features(self.clip.get_image_features(pixel_values=inputs))
 
         # Normalize embeddings
         return embed / torch.linalg.vector_norm(embed, dim=-1, keepdim=True)  # type: ignore[no-any-return]

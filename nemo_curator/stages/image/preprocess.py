@@ -66,6 +66,8 @@ class ImageDecodeStage(ProcessingStage[ImageBatch, ImageBatch]):
                     status = "resource_limit" if too_large else "ok"
                     if not too_large:
                         image.image_data = decode_image_rgb(raw)
+                except Image.DecompressionBombError:
+                    status = "resource_limit"
                 except MemoryError:
                     raise
                 except Exception:  # noqa: BLE001 - Pillow raises many exception types for corrupt files
@@ -80,7 +82,8 @@ class ImageResizeStage(ProcessingStage[ImageBatch, ImageBatch]):
 
     Uses the same bicubic, antialiased transform as
     :class:`~nemo_curator.models.clip.CLIPImageEmbeddings`, so GPU stages receive small,
-    uniformly shaped uint8 arrays instead of native-resolution pixels.
+    uniformly shaped uint8 arrays instead of native-resolution pixels. Expects
+    ``(height, width, 3)`` uint8 RGB ``image_data``, as produced by :class:`ImageDecodeStage`.
     Place it after stages that need native pixels, such as :class:`~nemo_curator.stages.image.measurements.ImageMeasurementStage`.
     """
 
@@ -88,7 +91,6 @@ class ImageResizeStage(ProcessingStage[ImageBatch, ImageBatch]):
     name: str = "image_resize"
 
     def process(self, task: ImageBatch) -> ImageBatch:
-        torch.set_num_threads(1)  # many CPU workers share the node
         resize = transforms.Compose(
             [
                 transforms.Resize(self.size, interpolation=transforms.InterpolationMode.BICUBIC, antialias=True),
