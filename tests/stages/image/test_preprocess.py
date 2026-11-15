@@ -80,3 +80,11 @@ def test_decompression_bomb_is_a_resource_limit(monkeypatch: pytest.MonkeyPatch)
         ImageBatch(data=[ImageObject(image_bytes=_png(40, 30))], dataset_name="test")
     )
     assert out.data[0].metadata["image_decode_status"] == "resource_limit"
+
+
+def test_resize_rejects_extreme_aspect_ratio_before_allocating() -> None:
+    # 1x100000 would expand to 224x22.4M (~15 GB) before the crop.
+    narrow = np.zeros((1, 100_000, 3), np.uint8)
+    out = ImageResizeStage().process(ImageBatch(data=[ImageObject(image_data=narrow)], dataset_name="test"))
+    assert out.data[0].image_data is None
+    assert out.data[0].metadata["image_resize_status"] == "resource_limit"

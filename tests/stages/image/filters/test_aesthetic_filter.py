@@ -550,3 +550,12 @@ def test_setup_on_node_triggers_weight_download(mock_aesthetic_scorer: Mock) -> 
         stage.setup_on_node()
 
         mock_aesthetic_scorer.download_weights_on_node.assert_called_once_with(tmp_dir)
+
+
+@patch("nemo_curator.stages.image.filters.aesthetic_filter.AestheticScorer")
+def test_verbose_filtering_with_missing_embedding(mock_aesthetic_scorer: Mock) -> None:
+    images = [ImageObject(image_id="ok", embedding=np.ones(768)), ImageObject(image_id="failed")]
+    mock_aesthetic_scorer.return_value.return_value = torch.tensor([0.9])
+    stage = ImageAestheticFilterStage(model_dir="test_models/aesthetics", score_threshold=0.5, verbose=True)
+    stage.setup()
+    assert [image.image_id for image in stage.process(ImageBatch(data=images, dataset_name="test")).data] == ["ok"]

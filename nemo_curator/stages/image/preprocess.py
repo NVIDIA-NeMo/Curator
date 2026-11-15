@@ -84,10 +84,13 @@ class ImageResizeStage(ProcessingStage[ImageBatch, ImageBatch]):
     :class:`~nemo_curator.models.clip.CLIPImageEmbeddings`, so GPU stages receive small,
     uniformly shaped uint8 arrays instead of native-resolution pixels. Expects
     ``(height, width, 3)`` uint8 RGB ``image_data``, as produced by :class:`ImageDecodeStage`.
+    ``metadata["image_resize_status"]`` is ``ok``, ``missing`` (no pixels) or ``resource_limit``:
+    the intermediate resize would exceed ``max_pixels``, so the image keeps no pixels.
     Place it after stages that need native pixels, such as :class:`~nemo_curator.stages.image.measurements.ImageMeasurementStage`.
     """
 
     size: int = 224
+    max_pixels: int = 25_000_000
     name: str = "image_resize"
 
     def process(self, task: ImageBatch) -> ImageBatch:
@@ -98,7 +101,19 @@ class ImageResizeStage(ProcessingStage[ImageBatch, ImageBatch]):
             ]
         )
         for image in task.data:
+            status = "missing"
             if image.image_data is not None:
-                pixels = resize(torch.from_numpy(image.image_data).permute(2, 0, 1))
-                image.image_data = pixels.permute(1, 2, 0).contiguous().numpy()
+                height, width = image.image_data.shape[:2]
+                # Resizing the shorter side first can blow up extreme aspect ratios (1x100000 -> 224x22.4M).
+                status = (
+                    "ok"
+                    if self.size * int(self.size * max(height, width) / min(height, width)) <= self.max_pixels
+                    else "resource_limit"
+                )
+                if status == "ok":
+                    pixels = resize(torch.from_numpy(image.image_data).permute(2, 0, 1))
+                    image.image_data = pixels.permute(1, 2, 0).contiguous().numpy()
+                else:
+                    image.image_data = None
+            image.metadata["image_resize_status"] = status
         return task

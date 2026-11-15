@@ -15,14 +15,27 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 import fsspec
-import pandas as pd
 from loguru import logger
 
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import DocumentBatch, ImageBatch, ImageObject
+
+if TYPE_CHECKING:
+    import pandas as pd
+
+
+def _unfetchable(df: pd.DataFrame, tar: str, offset: str, size: str, max_request_bytes: int) -> pd.Series:
+    """Rows without a valid locator, or larger than one request, are not fetched.
+
+    They pass through with ``image_bytes=None``, so one bad catalog row cannot fail or exhaust a task.
+    """
+    skip = df[[tar, offset, size]].isna().any(axis=1)
+    skip |= (df[offset] < 0) | (df[size] <= 0) | (df[size] > max_request_bytes)
+    return skip.fillna(value=True).astype(bool)
 
 
 @dataclass
@@ -38,9 +51,8 @@ class _SplitByTarStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     def process(self, task: DocumentBatch) -> list[DocumentBatch]:
         df = task.to_pandas()
-        # Rows without a complete locator have nothing to fetch; they pass through with image_bytes=None.
-        missing = df[[self.tar_column, self.offset_column, self.size_column]].isna().any(axis=1)
-        unlocated, df = df[missing], df[~missing].sort_values([self.tar_column, self.offset_column], kind="stable")
+        skip = _unfetchable(df, self.tar_column, self.offset_column, self.size_column, self.max_request_bytes)
+        unlocated, df = df[skip], df[~skip].sort_values([self.tar_column, self.offset_column], kind="stable")
         tars, starts = df[self.tar_column].tolist(), df[self.offset_column].tolist()
         ends = (df[self.offset_column] + df[self.size_column]).tolist()
         groups, first = [], 0
@@ -75,17 +87,19 @@ class _FetchTarRangeStage(ProcessingStage[DocumentBatch, ImageBatch]):
     offset_column: str
     size_column: str
     id_column: str
+    max_request_bytes: int
     storage_options: dict
     name: str = "fetch_tar_range"
     # Network-bound: a fractional CPU lets many fetches overlap with CPU decoding.
     resources = Resources(cpus=0.25)
 
     def process(self, task: DocumentBatch) -> ImageBatch:
-        rows = task.to_pandas().to_dict("records")
+        df = task.to_pandas()
+        rows = df.to_dict("records")
         tar, off, size = self.tar_column, self.offset_column, self.size_column
         uri, start, blob = rows[0][tar], rows[0][off], None
-        # A group holds either one TAR's rows or rows without a complete locator (nothing to fetch).
-        if not any(pd.isna(rows[0][column]) for column in (tar, off, size)):
+        # A group holds either one TAR's fetchable rows or only unfetchable rows.
+        if not _unfetchable(df.iloc[:1], tar, off, size, self.max_request_bytes).iloc[0]:
             # Nulls elsewhere in the input can turn integer columns into floats.
             for row in rows:
                 row[off], row[size] = int(row[off]), int(row[size])
@@ -128,8 +142,8 @@ class ImageTarRangeReader(CompositeStage[DocumentBatch, ImageBatch]):
     Object stores often cap per-connection throughput, so set ``fetch_workers`` to run
     many concurrent fetches (each reserves a quarter CPU); ``None`` lets Ray decide.
 
-    Rows whose TAR does not exist, or with a null TAR path, offset or size, are kept with
-    ``image_bytes=None``. Short reads and
+    Rows whose TAR does not exist, with a null or negative locator, or larger than
+    ``max_request_bytes`` on their own are kept with ``image_bytes=None``. Short reads and
     other I/O errors are raised so the executor can retry the task.
     """
 
@@ -155,7 +169,10 @@ class ImageTarRangeReader(CompositeStage[DocumentBatch, ImageBatch]):
             _SplitByTarStage(
                 **columns, images_per_batch=self.images_per_batch, max_request_bytes=self.max_request_bytes
             ),
-            _FetchTarRangeStage(**columns, id_column=self.id_column, storage_options=self.storage_options).with_(
-                num_workers=self.fetch_workers
-            ),
+            _FetchTarRangeStage(
+                **columns,
+                id_column=self.id_column,
+                max_request_bytes=self.max_request_bytes,
+                storage_options=self.storage_options,
+            ).with_(num_workers=self.fetch_workers),
         ]

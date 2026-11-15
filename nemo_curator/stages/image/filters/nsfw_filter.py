@@ -97,7 +97,7 @@ class ImageNSFWFilterStage(BaseFilterStage):
                 filtered_count += 1
                 if self.verbose:
                     logger.info(
-                        f"Image {image_obj.image_id} (path: {image_obj.image_path}) has NSFW score {image_obj.nsfw_score:.3f} "
+                        f"Image {image_obj.image_id} (path: {image_obj.image_path}) has NSFW score {image_obj.nsfw_score} "
                         f"above threshold {self.score_threshold}, filtered out as NSFW."
                     )
 

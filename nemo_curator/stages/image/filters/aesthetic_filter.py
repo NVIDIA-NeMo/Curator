@@ -95,7 +95,7 @@ class ImageAestheticFilterStage(BaseFilterStage):
                 filtered_count += 1
                 if self.verbose:
                     logger.info(
-                        f"Image {image_obj.image_id} (path: {image_obj.image_path}) has aesthetic score {image_obj.aesthetic_score:.3f} "
+                        f"Image {image_obj.image_id} (path: {image_obj.image_path}) has aesthetic score {image_obj.aesthetic_score} "
                         f"below threshold {self.score_threshold}, filtered out."
                     )
 

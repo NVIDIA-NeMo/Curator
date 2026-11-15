@@ -118,3 +118,10 @@ def test_split_children_do_not_share_task_state(rows: list[dict]) -> None:
     children[0]._metadata["key"] = "value"
     assert children[1]._stage_perf == []
     assert "key" not in children[1]._metadata
+
+
+def test_rows_larger_than_one_request_are_not_fetched(rows: list[dict]) -> None:
+    oversized = {**rows[0], "image_id": "huge.jpg", "byte_size": 10**12}  # e.g. a corrupt catalog size
+    with patch("fsspec.implementations.local.LocalFileSystem.cat_file", autospec=True, side_effect=AssertionError):
+        (batch,) = _run(ImageTarRangeReader(max_request_bytes=1000), [oversized])
+    assert batch.data[0].image_bytes is None
