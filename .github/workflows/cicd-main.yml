@@ -120,9 +120,9 @@ jobs:
         uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
         with:
           enable-cache: false
-      - name: Run CPU tests (Python 3.11)
+      - name: Run CPU tests (Python 3.12)
         timeout-minutes: 40
-        run: bash tests/L0_Unit_Test_CPU.sh "${{ matrix.folder }}" 3.11
+        run: bash tests/L0_Unit_Test_CPU.sh "${{ matrix.folder }}" 3.12
       - name: Run CPU tests (Python 3.13)
         timeout-minutes: 40
         run: bash tests/L0_Unit_Test_CPU.sh "${{ matrix.folder }}" 3.13
