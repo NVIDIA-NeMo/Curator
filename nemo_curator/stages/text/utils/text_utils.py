@@ -125,7 +125,7 @@ def get_comments_and_docstring(source: str, comments: bool = True, clean_comment
       Args:
           source: the code to parse
           comments: if True extract comments two
-          clean_comment: if True remove # from extracted comments
+          clean_comments: if True remove # from extracted comments
       Returns:
           a string with concatenated docstrings and comments
     """
