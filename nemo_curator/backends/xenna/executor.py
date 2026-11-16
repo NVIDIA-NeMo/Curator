@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -20,6 +20,7 @@ from cosmos_xenna.utils.verbosity import VerbosityLevel
 from loguru import logger
 
 from nemo_curator.backends.base import BaseExecutor
+from nemo_curator.backends.failed_task_markers import failed_task_runtime_env_vars
 from nemo_curator.backends.utils import (
     get_stage_num_workers_per_node,
     register_loguru_serializer,
@@ -170,6 +171,7 @@ class XennaExecutor(BaseExecutor):
                     # We need to set this env var to avoid ray from setting CUDA_VISIBLE_DEVICES and let xenna do it
                     "env_vars": {
                         "RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES": "1",
+                        **failed_task_runtime_env_vars(),
                     }
                 },
             )

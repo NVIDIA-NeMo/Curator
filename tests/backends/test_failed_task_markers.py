@@ -18,12 +18,14 @@ from pathlib import Path
 import pytest
 from pytest import MonkeyPatch
 
+from nemo_curator.backends.slurm_array import SLURM_ARRAY_SHARD_INDEX_ENV_VAR
 from nemo_curator.backends.failed_task_markers import (
     FAILED_TASK_MANIFEST_FILENAME,
     FAILED_TASKS_DIR_ENV_VAR,
     configure_failed_task_manifest_dir,
     configure_slurm_array_failed_task_manifest_dir,
     failed_task_manifest_exists,
+    failed_task_runtime_env_vars,
     record_failed_tasks,
 )
 
@@ -125,3 +127,19 @@ class TestFailedTaskManifest:
 
         assert failed_task_manifest_exists(manifest_dir)
         assert not failed_task_manifest_exists(tmp_path / "missing")
+
+    def test_failed_task_runtime_env_vars_forwards_configured_directory(
+        self, tmp_path: Path, monkeypatch: MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv(FAILED_TASKS_DIR_ENV_VAR, str(tmp_path))
+        assert failed_task_runtime_env_vars() == {FAILED_TASKS_DIR_ENV_VAR: str(tmp_path)}
+
+        monkeypatch.delenv(FAILED_TASKS_DIR_ENV_VAR)
+        assert failed_task_runtime_env_vars() == {}
+
+    def test_record_failed_tasks_in_slurm_array_run_without_directory_raises(self, monkeypatch: MonkeyPatch) -> None:
+        monkeypatch.delenv(FAILED_TASKS_DIR_ENV_VAR, raising=False)
+        monkeypatch.setenv(SLURM_ARRAY_SHARD_INDEX_ENV_VAR, "3")
+
+        with pytest.raises(RuntimeError, match="cannot be recorded"):
+            record_failed_tasks()

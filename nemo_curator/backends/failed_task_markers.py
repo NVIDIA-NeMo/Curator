@@ -16,6 +16,7 @@ import os
 import uuid
 from pathlib import Path
 
+from nemo_curator.backends.slurm_array import SLURM_ARRAY_SHARD_INDEX_ENV_VAR
 from nemo_curator.utils.retry_manifest import METADATA_DIRNAME
 
 FAILED_TASKS_DIR_ENV_VAR = "NEMO_CURATOR_FAILED_TASKS_DIR"
@@ -60,10 +61,26 @@ def configure_slurm_array_failed_task_manifest_dir(checkpoint_path: str | Path, 
     return _configure_failed_task_manifest_dir(manifest_dir)
 
 
+def failed_task_runtime_env_vars() -> dict[str, str]:
+    """Env vars Ray workers need to record FailedTasks.
+
+    The manifest directory is configured in the driver after the Ray cluster is up, so workers
+    do not inherit it. Executors must forward these through ``ray.init(runtime_env=...)``.
+    """
+    manifest_dir = os.environ.get(FAILED_TASKS_DIR_ENV_VAR)
+    return {FAILED_TASKS_DIR_ENV_VAR: manifest_dir} if manifest_dir else {}
+
+
 def record_failed_tasks() -> None:
     """Write one attempt-scoped manifest after any FailedTask is detected."""
     manifest_dir = os.environ.get(FAILED_TASKS_DIR_ENV_VAR)
     if not manifest_dir:
+        if os.environ.get(SLURM_ARRAY_SHARD_INDEX_ENV_VAR) is not None:
+            msg = (
+                f"A FailedTask was emitted in a Slurm array run but {FAILED_TASKS_DIR_ENV_VAR} is not set "
+                "in this worker, so the failure cannot be recorded and the shard would be marked complete."
+            )
+            raise RuntimeError(msg)
         return
 
     manifest_path = Path(manifest_dir, FAILED_TASK_MANIFEST_FILENAME)

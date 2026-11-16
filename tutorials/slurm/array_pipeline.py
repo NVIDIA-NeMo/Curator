@@ -20,6 +20,9 @@ Refer to the README for more details.
 from __future__ import annotations
 
 import argparse
+import os
+import random
+import time
 
 from loguru import logger
 
@@ -73,6 +76,46 @@ def build_pipeline(
     return pipeline
 
 
+RAY_START_ATTEMPTS = 5
+
+
+def _build_isolated_ray_client() -> RayClient:
+    """Build a RayClient that can share a node with other array tasks.
+
+    Each array task has its own SLURM_JOB_ID, so it gets its own Ray temp dir. CPUs are capped at the
+    task's allocation, and the dashboard is disabled to avoid extra contended ports.
+    """
+    cpus = os.environ.get("SLURM_CPUS_PER_TASK")
+    return RayClient(
+        ray_temp_dir=f"/tmp/ray_{os.environ.get('SLURM_JOB_ID', os.getpid())}",  # noqa: S108
+        num_cpus=int(cpus) if cpus else None,
+        include_dashboard=False,
+    )
+
+
+def _start_ray_with_retries(ray_client: RayClient | SlurmRayClient) -> None:
+    """Start Ray, retrying with a random delay if tasks on the same node race for the same ports.
+
+    The multi-node SlurmRayClient is not retried here: its worker nodes block inside start().
+    """
+    if isinstance(ray_client, SlurmRayClient):
+        ray_client.start()
+        return
+    for attempt in range(1, RAY_START_ATTEMPTS + 1):
+        try:
+            ray_client.start()
+        except Exception as e:  # noqa: BLE001
+            if attempt == RAY_START_ATTEMPTS:
+                raise
+            delay = random.uniform(1, 10)  # noqa: S311
+            logger.warning(
+                f"Ray failed to start (attempt {attempt}/{RAY_START_ATTEMPTS}): {e}. Retrying in {delay:.1f}s"
+            )
+            time.sleep(delay)
+        else:
+            return
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Slurm array file-partitioning demo")
     parser.add_argument("--input-dir", required=True, help="Directory containing input files")
@@ -112,7 +155,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    ray_client = SlurmRayClient() if args.slurm else RayClient()
+    ray_client = SlurmRayClient() if args.slurm else _build_isolated_ray_client()
 
     pipeline = build_pipeline(
         args.input_dir,
@@ -124,7 +167,7 @@ def main() -> None:
     logger.info(f"\n{pipeline.describe()}")
 
     try:
-        ray_client.start()
+        _start_ray_with_retries(ray_client)
         pipeline.run(checkpoint_path=args.checkpoint_path)
     except Exception as e:
         logger.error(f"Error running pipeline; shard remains incomplete: {e}")

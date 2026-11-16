@@ -15,6 +15,7 @@
 # available to every allocated node through a registry or shared image path.
 #
 # Usage:
+#   mkdir -p logs   # Slurm needs the log directory to exist before the job starts
 #   sbatch tutorials/slurm/submit.sh
 #
 # Override resources without editing this file:
@@ -35,8 +36,10 @@
 
 set -euo pipefail
 
-# Root of the NeMo Curator checkout — auto-detected from this script's location.
-CURATOR_DIR="${CURATOR_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
+# Root of the NeMo Curator checkout. sbatch runs a copy of this script from a spool
+# directory, so default to the submit directory (submit from the repo root) and
+# fall back to the script location outside Slurm. Set CURATOR_DIR to override.
+CURATOR_DIR="${CURATOR_DIR:-${SLURM_SUBMIT_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}}"
 
 # Shared directory for Ray port broadcast — must be visible to ALL nodes.
 # On most clusters /tmp is node-local, so we use a path on the shared FS.

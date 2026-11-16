@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -23,6 +23,7 @@ from ray.util.actor_pool import ActorPool
 from tqdm import tqdm
 
 from nemo_curator.backends.base import BaseExecutor
+from nemo_curator.backends.failed_task_markers import failed_task_runtime_env_vars
 from nemo_curator.backends.utils import (
     RayStageSpecKeys,
     execute_setup_on_node,
@@ -56,6 +57,7 @@ def _parse_runtime_env(runtime_env: dict) -> dict:
             "RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES is already set in the runtime env for RayActorPool. Overriding it to be empty."
         )
     env_vars["RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES"] = ""
+    env_vars.update(failed_task_runtime_env_vars())
     return user_runtime_env
 
 
