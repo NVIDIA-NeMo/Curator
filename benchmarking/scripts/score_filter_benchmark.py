@@ -27,7 +27,8 @@ from typing import Any
 import hydra
 from hydra import compose, initialize_config_dir
 from loguru import logger
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
+from text_metrics import VOLUME_KEYS, MeasureText, collect_text_metrics
 from utils import load_dataset_files, setup_executor, write_benchmark_results
 
 from nemo_curator.pipeline import Pipeline
@@ -51,7 +52,11 @@ def create_pipeline_from_yaml(cfg: DictConfig, file_paths: list[str] | None = No
         stage = hydra.utils.instantiate(p)
         if i == 0 and file_paths is not None:
             stage.file_paths = file_paths
+        if i == len(cfg.stages) - 1:
+            pipeline.add_stage(MeasureText("output", text_field=cfg.get("text_field", "text")))
         pipeline.add_stage(stage)
+        if i == 0:
+            pipeline.add_stage(MeasureText("input", text_field=cfg.get("text_field", "text")))
 
     return pipeline
 
@@ -106,9 +111,9 @@ def run_score_filter_benchmark(  # noqa: PLR0913
         output_tasks = pipeline.run(executor)
         run_time_taken = time.perf_counter() - run_start_time
 
-        # _stage_perf[0] is the file partitioning stage, so _stage_perf[1] is the file reading stage
-        num_documents_processed = sum(task._stage_perf[1].num_items_processed for task in output_tasks)
-        num_kept_documents = sum(task._stage_perf[-1].num_items_processed for task in output_tasks)
+        text_metrics = collect_text_metrics(output_tasks)
+        num_documents_processed = text_metrics["num_input_documents"]
+        num_kept_documents = text_metrics["num_output_documents"]
 
         logger.success(f"Benchmark completed in {run_time_taken:.2f}s")
         logger.success(f"Processed {num_documents_processed} rows (documents)")
@@ -123,6 +128,7 @@ def run_score_filter_benchmark(  # noqa: PLR0913
         run_time_taken = time.perf_counter() - run_start_time
         num_documents_processed = 0
         num_kept_documents = 0
+        text_metrics = dict.fromkeys(VOLUME_KEYS)
         success = False
 
     return {
@@ -131,12 +137,19 @@ def run_score_filter_benchmark(  # noqa: PLR0913
             "input_path": str(input_path),
             "output_path": str(output_path),
             "benchmark_results_path": str(benchmark_results_path),
+            "dataset_size_gb": dataset_size_gb,
+            "dataset_size_unit": "GiB file cap; not measured text bytes",
+            "resolved_pipeline": OmegaConf.to_container(cfg, resolve=True),
+            "timing_boundary": "Pipeline.run including measurement, read/filter/write; excludes construction, selection and result aggregation/serialization",
+            "measurement_semantics": "configured heuristic filter cascade",
         },
         "metrics": {
             "is_success": success,
             "time_taken_s": run_time_taken,
             "num_documents_processed": num_documents_processed,
             "num_kept_documents": num_kept_documents,
+            "num_rejected_documents": num_documents_processed - num_kept_documents if success else None,
+            **text_metrics,
             "num_output_tasks": len(output_tasks),
             "throughput_docs_per_sec": num_documents_processed / run_time_taken if run_time_taken > 0 else 0,
         },

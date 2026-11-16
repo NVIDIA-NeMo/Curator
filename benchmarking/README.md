@@ -1344,7 +1344,33 @@ values for the four new volume metrics, retaining legacy zero
 processed-count/throughput failure values. Metrics
 are written with `--no-save-tasks` as well. Counters travel with each batch through
 the current one-to-one modifier/writer graph; this approach must be revisited
-before adding filtering, splitting, merging, or retry outputs to that graph.
+before adding stages that discard tasks, split or merge batches, or duplicate
+retry outputs. The current score filters preserve empty batches as tasks.
+
+The score-filter and combined FastText benchmarks use the same input/output
+counters around their configured filters and retain their existing recipes.
+Fully rejected batches still contribute their input documents and UTF-8 bytes;
+their output counts and bytes are zero. `num_rejected_documents` is the difference
+between input and output counts. Parameters include the resolved YAML settings.
+The FastText result remains a combined language-plus-quality measurement: neither
+its elapsed time nor throughput is attributed to either filter independently.
+
+The removal benchmark similarly records explicit input/output counts and text
+bytes around removal, `num_removed_documents` as their count difference, and
+`removal_fraction` against input documents. The existing legacy removal count is
+retained. Corpus, removal-ID and registry paths record lineage inputs; they do not
+prove that a fixture represents exact or fuzzy removal. The existing nightly
+fixture remains fuzzy removal.
+
+Exact and fuzzy identification report `num_input_documents` from the inclusive
+document-ID ranges allocated in their completed workflow's ID registry. File
+counts and duplicate counts are not used as input denominators. These counters
+describe allocated document rows, deduplicating repeated registrations of the
+same file group. Registry aggregation is outside the existing workflow timer;
+the registry path and measurement basis are recorded. Without a registry the
+count is null, not zero. Identification `input_text_bytes` remains null until
+text-volume instrumentation is available at the GPU read boundary. Identification
+emits IDs and does not itself produce a retained corpus or a removal yield.
 
 ## Writing Benchmark Scripts
 

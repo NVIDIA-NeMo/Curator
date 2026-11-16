@@ -15,6 +15,7 @@
 import json
 import pickle
 import sys
+import tempfile
 from pathlib import Path
 
 import pandas as pd
@@ -28,6 +29,7 @@ import modifier_benchmark as benchmark
 from utils import write_benchmark_results
 
 from nemo_curator.backends.base import BaseStageAdapter
+from nemo_curator.core.client import RayClient
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import DocumentBatch, EmptyTask, Task
 
@@ -60,10 +62,10 @@ def test_measure_text_counts_utf8_without_changing_payload(arrow: bool) -> None:
     assert task.data.equals(before)
     assert task._metadata == {
         "source_files": ["input"],
-        "modifier_benchmark": {"num_input_documents": 4, "input_text_bytes": 9},
+        "text_volume": {"num_input_documents": 4, "input_text_bytes": 9},
     }
     benchmark.MeasureText("output").process(task)
-    assert task._metadata["modifier_benchmark"] == {
+    assert task._metadata["text_volume"] == {
         "num_input_documents": 4,
         "input_text_bytes": 9,
         "num_output_documents": 4,
@@ -76,7 +78,7 @@ def test_measure_text_rejects_invalid_text(text: object) -> None:
     task = DocumentBatch(dataset_name="test", data=pd.DataFrame({"text": [text]}))
     with pytest.raises((TypeError, UnicodeEncodeError)):
         benchmark.MeasureText("input").process(task)
-    assert "modifier_benchmark" not in task._metadata
+    assert "text_volume" not in task._metadata
 
 
 def test_measure_text_requires_text_column() -> None:
@@ -174,7 +176,7 @@ def test_failed_benchmark_does_not_report_complete_volumes(
             tasks = original_run(pipeline, executor)
             if failure == "empty":
                 return []
-            counts = tasks[0]._metadata["modifier_benchmark"]
+            counts = tasks[0]._metadata["text_volume"]
             if failure == "count_changed":
                 counts["num_output_documents"] = 0
             else:
@@ -190,3 +192,30 @@ def test_failed_benchmark_does_not_report_complete_volumes(
     assert metrics["num_documents_processed"] == metrics["throughput_docs_per_sec"] == 0
     for key in ("num_input_documents", "num_output_documents", "input_text_bytes", "output_text_bytes"):
         assert metrics[key] is None
+
+
+@pytest.mark.parametrize("executor", ["xenna", "ray_data"])
+def test_real_backend_preserves_measurements(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, executor: str) -> None:
+    source = tmp_path / "input"
+    source.mkdir()
+    batches = [["**café**", '"Hello"', "lorem ipsum"], ["", "A\n\n\nB https://example.org", "cafÃ©"]]
+    for index, texts in enumerate(batches):
+        (source / f"{index}.jsonl").write_text("".join(json.dumps({"text": text}) + "\n" for text in texts))
+    monkeypatch.delenv("RAY_ADDRESS", raising=False)
+    monkeypatch.setenv("OMP_NUM_THREADS", "1")
+    monkeypatch.setenv("OPENBLAS_NUM_THREADS", "1")
+    with tempfile.TemporaryDirectory(prefix="n519-ray-") as ray_dir:
+        client = RayClient(
+            num_cpus=16, num_gpus=0, object_store_memory=2 * 1024**3, include_dashboard=False, ray_temp_dir=ray_dir
+        )
+        client.start()
+        try:
+            results = benchmark.run_modify_benchmark(source, tmp_path / "output", executor, tmp_path / "results")
+            metrics = results["metrics"]
+            assert metrics["is_success"]
+            assert metrics["num_input_documents"] == metrics["num_output_documents"] == 6
+            assert metrics["input_text_bytes"] == 59
+            assert metrics["output_text_bytes"] == 20
+            assert sum(pq.read_table(task.data[0]).num_rows for task in results["tasks"]) == 6
+        finally:
+            client.stop()

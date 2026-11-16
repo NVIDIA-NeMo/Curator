@@ -22,16 +22,14 @@ import argparse
 import inspect
 import time
 import traceback
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
-import pyarrow as pa
 from loguru import logger
+from text_metrics import MeasureText, collect_text_metrics
 from utils import load_dataset_files, setup_executor, write_benchmark_results
 
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.text.io.reader import JsonlReader, ParquetReader
 from nemo_curator.stages.text.io.writer import ParquetWriter
 from nemo_curator.stages.text.modifiers import Modify
@@ -43,59 +41,6 @@ from nemo_curator.stages.text.modifiers.string import (
     UrlRemover,
 )
 from nemo_curator.stages.text.modifiers.unicode import UnicodeReformatter
-from nemo_curator.tasks import DocumentBatch, FileGroupTask
-
-
-@dataclass
-class MeasureText(ProcessingStage[DocumentBatch, DocumentBatch]):
-    boundary: Literal["input", "output"]
-
-    def __post_init__(self):
-        self.name = f"measure_{self.boundary}_text"
-
-    def inputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], ["text"]
-
-    def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], ["text"]
-
-    def process(self, task: DocumentBatch) -> DocumentBatch:
-        texts = task.data["text"]
-        if isinstance(texts, pa.ChunkedArray):
-            texts = texts.to_pylist()
-        text_bytes = 0
-        for text in texts:
-            if not isinstance(text, str):
-                msg = "Text measurement requires non-null strings in the text column"
-                raise TypeError(msg)
-            text_bytes += len(text.encode("utf-8"))
-        task._metadata = {
-            **task._metadata,
-            "modifier_benchmark": {
-                **task._metadata.get("modifier_benchmark", {}),
-                f"num_{self.boundary}_documents": task.num_items,
-                f"{self.boundary}_text_bytes": text_bytes,
-            },
-        }
-        return task
-
-
-def collect_text_metrics(tasks: list[FileGroupTask]) -> dict[str, int]:
-    if not tasks:
-        msg = "No completed document batches to measure"
-        raise ValueError(msg)
-    metrics = dict.fromkeys(
-        ("num_input_documents", "num_output_documents", "input_text_bytes", "output_text_bytes"), 0
-    )
-    # These counters require the current one-to-one batch flow through modifiers and writer.
-    for task in tasks:
-        counts = task._metadata["modifier_benchmark"]
-        if counts["num_input_documents"] != counts["num_output_documents"]:
-            msg = "Normalization changed the document count"
-            raise ValueError(msg)
-        for key in metrics:
-            metrics[key] += counts[key]
-    return metrics
 
 
 def run_modify_benchmark(  # noqa: PLR0913
@@ -162,7 +107,7 @@ def run_modify_benchmark(  # noqa: PLR0913
         output_tasks = pipeline.run(executor)
         run_time_taken = time.perf_counter() - run_start_time
 
-        text_metrics = collect_text_metrics(output_tasks)
+        text_metrics = collect_text_metrics(output_tasks, preserve_document_count=True)
         num_documents_processed = text_metrics["num_input_documents"]
 
         logger.success(f"Benchmark completed in {run_time_taken:.2f}s")
