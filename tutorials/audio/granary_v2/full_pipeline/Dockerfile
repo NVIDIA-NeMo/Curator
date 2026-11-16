@@ -3,12 +3,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # Image for en_granary_pipeline.yaml and european_granary_pipeline.yaml.
-# Build with `docker buildx bake -f tutorials/audio/granary_v2/full_pipeline/docker-bake.hcl full`
-# from the repository root: bake builds the repository's docker/Dockerfile (public CUDA 12.9 base,
-# Torch 2.11, vLLM 0.22, Dynamo, etcd/NATS, FFmpeg) with the audio and inference-server extras and
-# passes it here as the named context `curator`. That image already holds this checkout at
-# /opt/Curator, so nothing is copied here.
-FROM curator
+# Build the base first (see README.md section 1): the repository's docker/Dockerfile with the
+# audio_tensorrt and inference_server extras (public CUDA 12.9 base, Torch 2.11, vLLM 0.22, Dynamo,
+# etcd/NATS). It already holds this checkout at /opt/Curator, so nothing is copied here.
+ARG BASE_IMAGE=curator-base
+FROM ${BASE_IMAGE}
 
 # The eight-speaker Sortformer checkpoint needs this NeMo encoder (see the metadata tutorial).
 # TensorRT builds and runs the Silero and SED engines; it is the pin of the repository's

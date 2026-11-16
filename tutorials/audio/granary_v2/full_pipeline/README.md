@@ -55,13 +55,20 @@ Run commands from this checkout's root. The default configuration needs **16 H10
 recommended): four Dynamo replicas reserve two GPUs each, and the other eight GPUs serve the audio
 stages. Docker and the NVIDIA Container Toolkit are required.
 
-Build the images from the repository root. One command builds everything from public base images; no
-prebuilt or local image is needed:
+Build the images from the repository root, from public base images. English and European:
 
 ```bash
-docker buildx bake --builder default --load \
-  -f tutorials/audio/granary_v2/full_pipeline/docker-bake.hcl   # curator-granary-full + curator-granary-indic
-# or one of them: append `full` (English and European) or `indic`
+docker build -f docker/Dockerfile --target nemo_curator \
+  --build-arg CURATOR_EXTRA="audio_tensorrt --extra inference_server" --build-arg CURATOR_GROUPS="" \
+  -t curator-base .
+docker build -f tutorials/audio/granary_v2/full_pipeline/Dockerfile -t curator-granary-full .
+```
+
+Indic:
+
+```bash
+docker build -f docker/audio/Dockerfile.trt_llm --target granary -t curator-granary-base .
+docker build -f tutorials/audio/granary_v2/full_pipeline/Dockerfile.trt_llm_granary -t curator-granary-indic .
 ```
 
 - [Dockerfile](Dockerfile) extends the repository's [docker/Dockerfile](../../../../docker/Dockerfile)

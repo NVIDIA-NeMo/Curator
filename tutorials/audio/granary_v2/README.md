@@ -20,7 +20,7 @@ Run commands from the repository root. Follow each tutorial's README for its
 entrypoint, required arguments, environment and hardware requirements. The full
 pipelines manage Dynamo serving through their shared `main.py`; the other
 tutorials use `nemo_curator/config/run.py`. The full pipelines build their own
-images with one `docker buildx bake` command; see the [full pipeline README](full_pipeline/README.md).
+images from the repository's Dockerfiles; see the [full pipeline README](full_pipeline/README.md).
 
 The [benchmarks](../../../benchmarking/README.md#audio-benchmark-data-setup)
 remain under `benchmarking/` and use these tutorial configurations on larger
