@@ -1,6 +1,6 @@
 # Granary v2 full pipelines
 
-Turn recordings into speech clips, ASR transcripts and enriched text in one Ray Data
+Turn recordings into speech clips with metadata, ASR transcripts and enriched text in one Ray Data
 cluster. One entrypoint, [main.py](main.py), runs one of three pipelines, chosen with `--config-name`:
 
 | Pipeline | Languages | Language ID | ASR (primary → recovery) | Image |
@@ -16,27 +16,30 @@ They differ only where the table does:
 
 ```mermaid
 flowchart TD
-    A[Recording manifest] --> B[Decode once: 16 kHz mono waveform + Sortformer diarization]
+    A[Recording manifest] --> B[Resample + Sortformer diarization]
     B --> C[Silero VAD speech segments]
     C --> D[Sound events + language ID]
-    D --> F[Keep this pipeline's languages]
-    F --> G[Primary ASR on the segment waveform]
+    D --> E[Write Opus clips + metadata.jsonl]
+    E --> F[Keep this pipeline's languages]
+    F --> G[Resample clips + primary ASR]
     G --> R{Primary hallucination flagged?}
     R -->|Yes| S[Recovery ASR + recheck]
-    S --> H[Selection]
+    S --> H[Selection + cleanup]
     R -->|No| H
-    H --> E[Write Opus clips + clips.jsonl]
-    E --> J[Cleanup]
-    J --> I[Nine text operations on the Dynamo server]
+    H --> I[Nine text operations on the Dynamo server]
     I --> L[english / european / indic .jsonl]
 ```
 
-The recording is decoded and resampled once; each segment carries its own waveform through language ID and ASR,
-and the Opus clip is written afterwards. Only clips whose selected `source_lang` is in the pipeline's
-language set continue to ASR, so rows for other languages and no-speech recordings are dropped without an
-audit row. Unrecovered ASR and
+The metadata audit keeps non-matching, rejected and no-speech rows in `metadata.jsonl`; only clips
+whose selected `source_lang` is in the pipeline's language set continue to ASR. Unrecovered ASR and
 text rejection flags stay in the final manifest, so the output is an audit manifest, not a guarantee
 that every row suits training.
+
+**Audio handling.** Audio is read from memory between stages instead of being re-read from intermediate
+files: the recording is decoded once into a 16 kHz mono waveform, and each Opus clip is decoded once into
+the 16-bit samples every ASR stage hears. Those samples are bit-identical to what the earlier file-based
+flow gave each stage, and `DropKeysStage` releases the clip waveform after the last ASR stage. ffmpeg still
+writes a temporary WAV per recording and per clip, which is read back and deleted; no WAVs are kept.
 
 **Language ID.** `SelectAudioLanguageStage` accepts Whisper's answer when it is `en`; otherwise it
 needs SpeechBrain and Whisper to agree, and Indic languages need Indic Canary to agree as well. The
@@ -153,13 +156,13 @@ several minutes on first use.
 
 | Path | Contents |
 | --- | --- |
-| `clips.jsonl` | Opus clips with primary/recovery predictions and selection, before text enrichment |
+| `metadata.jsonl` | All metadata results, including rejected, other-language and no-speech audit rows |
 | `english.jsonl`, `european.jsonl` or `indic.jsonl` | Selected clips with primary/recovery predictions, selection source, enriched text and rejection notes |
-| `audio/` | Opus clips for the selected languages |
+| `audio/` | Opus clips for all speech segments |
 | `rttm/` | Recording-level speaker turns |
 | `speechbrain_cache/` | Language-model loading cache |
 
-Check that final rows map to clips and inspect flags separately from successful enrichment
+Check that final rows map to metadata clips and inspect flags separately from successful enrichment
 (pass the output file name and the pipeline's language codes):
 
 ```bash
@@ -171,9 +174,9 @@ from pathlib import Path
 
 root = Path('/output/run')
 name, langs = sys.argv[1], set(sys.argv[2].split(','))
-clips = [json.loads(line) for line in (root / 'clips.jsonl').read_text().splitlines()]
+metadata = [json.loads(line) for line in (root / 'metadata.jsonl').read_text().splitlines()]
 final = [json.loads(line) for line in (root / name).read_text().splitlines()]
-expected = {row['audio_item_id']: row for row in clips}
+expected = {row['audio_item_id']: row for row in metadata if row.get('source_lang') in langs}
 actual = {row['audio_item_id']: row for row in final}
 assert len(actual) == len(final) == len(expected)
 assert actual.keys() == expected.keys()
@@ -196,17 +199,16 @@ for clip_id, row in actual.items():
         print('FLAGGED', clip_id, row['_skipme'], row.get('additional_notes'))
     else:
         assert all(isinstance(row.get(key), str) and row[key].strip() for key in fields), row
-print(f'{len(clips)} clips; {len(final)} final rows; {flagged} flagged')
-assert final, 'No clips selected; inspect the input audio and language routing'
+print(f'{len(metadata)} metadata rows; {len(final)} final rows; {flagged} flagged')
+assert final, 'No clips selected; inspect metadata language/VAD notes'
 PY
 ```
 
 For the other pipelines pass `european.jsonl` or `indic.jsonl` and the matching comma-separated
 language codes (for example `de,es,fr,it,pt,ru,nl,pl,cs,ro,hu,el,fi,da,sv,lt,lv,hr,et,bg,sk,sl,mt,uk`).
 
-Empty output can reflect no speech, language rejection or the wrong pipeline for the input; run the
-`granary_v2/metadata` pipeline on the same input to see rejected and no-speech rows before changing
-settings. Nonempty fields and successful requests do not establish
+Empty output can reflect no speech, language rejection or the wrong pipeline for the input; inspect
+`metadata.jsonl` before changing settings. Nonempty fields and successful requests do not establish
 transcript accuracy or semantic quality; review generated text and `additional_notes` first.
 
 ## 5. Validation status

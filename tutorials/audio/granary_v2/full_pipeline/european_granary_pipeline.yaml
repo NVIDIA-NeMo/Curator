@@ -18,7 +18,7 @@ documentation: |
   + Whisper), keep clips in 24 European languages, transcribe each language group
   with its primary and recovery model (Qwen3-Omni + Qwen3-ASR, Parakeet-v3 + Whisper,
   Whisper + Parakeet-v3), then enrich the selected text.
-  clips.jsonl holds the Opus clips with their ASR result, before text enrichment;
+  metadata.jsonl retains every metadata result, including rejected/audit rows;
   european.jsonl contains the selected clips with ASR and text features.
 
 output_path: ${output_dir}/european.jsonl
@@ -34,8 +34,10 @@ stages:
   - ${shared.speech_brain_lang_i_d}
   - ${shared.whisper_lang_i_d}
   - ${shared.select_audio_language_stage}
+  - ${shared.audio_segment_writer_stage}
+  - ${shared.metadata_manifest_writer}
 
-  # Only clips in the European languages below reach ASR.
+  # Keep the full metadata audit above; only clips in the European languages below reach ASR.
   - _target_: nemo_curator.stages.audio.common.PreserveByValueConditionsStage
     _convert_: all
     conditions:
@@ -65,6 +67,7 @@ stages:
       - {input_value_key: source_lang, target_value: uk, operator: eq}
     condition_logic: or
     missing_value_policy: drop
+  - ${shared.resample_english_clip}
   - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
     waveform_key: waveform
     sample_rate_key: sample_rate
@@ -229,8 +232,7 @@ stages:
       gpu_memory_gb: 8
   - ${shared.whisper_hallucination_asr}
   - ${shared.select_best_prediction_stage}
-  - ${shared.audio_segment_writer_stage}
-  - ${shared.clip_manifest_writer}
+  - ${shared.drop_clip_waveform}
   - ${shared.regex_substitution_stage}
   - ${shared.abbreviation_concat_stage}
   - ${shared.recover_entities}

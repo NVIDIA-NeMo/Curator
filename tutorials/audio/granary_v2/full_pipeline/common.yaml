@@ -5,6 +5,7 @@
 manifest_path: ???
 model_dir: ???
 output_dir: ???
+workspace_dir: ${output_dir}/asr_workspace
 model_id: Qwen/Qwen3-Omni-30B-A3B-Instruct
 model_revision: 26291f793822fb6be9555850f06dfe95f2d7e695  # pragma: allowlist secret
 recovery_model_id: Qwen/Qwen3-ASR-0.6B
@@ -104,7 +105,7 @@ shared:
 
   resample_audio_stage:
     _target_: nemo_curator.stages.audio.tagging.resample_audio.ResampleAudioStage
-    # Decode and resample once; every later stage reads the waveform from the task, not a file.
+    # The converted audio is loaded into the task (the file is a temporary), so Mono reads memory.
     resampled_audio_dir: ${output_dir}/resampled  # required argument, unused with write_to_disk: false
     target_sample_rate: 16000
     target_format: wav
@@ -232,16 +233,26 @@ shared:
   select_audio_language_stage:
     _target_: nemo_curator.stages.audio.postprocessing.lid_selection.SelectAudioLanguageStage
 
-  # The writer drops the waveform, so it runs after the last stage that hears audio.
   audio_segment_writer_stage:
     _target_: nemo_curator.stages.audio.io.write_audio.AudioSegmentWriterStage
     output_dir: ${output_dir}
 
-  clip_manifest_writer:
+  metadata_manifest_writer:
     _target_: nemo_curator.stages.audio.common.ManifestWriterStage
-    name: ClipManifestWriter
-    output_path: ${output_dir}/clips.jsonl
+    name: MetadataManifestWriter
+    output_path: ${output_dir}/metadata.jsonl
 
+  # AudioSegmentWriter removed the parent WAV path; resample the emitted Opus clip.
+  resample_english_clip:
+    _target_: nemo_curator.stages.audio.tagging.ResampleAudioStage
+    name: ResampleEnglishClip
+    resampled_audio_dir: ${workspace_dir}/audio_resampled
+    target_sample_rate: 16000
+    target_format: wav
+    target_nchannels: 1
+    # Decode the Opus clip once, as before, but keep the 16-bit samples in the task for ASR.
+    keep_waveform_in_task: true
+    write_to_disk: false
   whisper_hallucination_primary:
     _target_: nemo_curator.stages.audio.text_filtering.WhisperHallucinationStage
     name: WhisperHallucination_primary
@@ -266,6 +277,11 @@ shared:
     long_word_threshold: 25
     long_word_rel_threshold: 3.0
     max_char_rate: 40.0
+
+  # Release the clip waveform once the last ASR stage has run; ManifestWriterStage cannot serialize it.
+  drop_clip_waveform:
+    _target_: nemo_curator.stages.audio.common.DropKeysStage
+    keys: [waveform]
 
   select_best_prediction_stage:
     _target_: nemo_curator.stages.audio.text_filtering.SelectBestPredictionStage

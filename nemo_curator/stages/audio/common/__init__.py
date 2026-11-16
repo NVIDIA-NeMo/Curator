@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from nemo_curator.stages.audio.common.drop_keys import DropKeysStage as DropKeysStage
 from nemo_curator.stages.audio.common.duration import GetAudioDurationStage as GetAudioDurationStage
 from nemo_curator.stages.audio.common.duration import get_audio_duration as get_audio_duration
 from nemo_curator.stages.audio.common.folder_source import (
@@ -35,6 +36,7 @@ from nemo_curator.stages.audio.common.value_filters import _ValueCondition as _V
 
 __all__ = [
     "CreateInitialManifestAudioFolderStage",
+    "DropKeysStage",
     "GetAudioDurationStage",
     "ManifestCheckpointStage",
     "ManifestReader",
@@ -52,6 +54,7 @@ __all__ = [
 
 # Preserve pipeline fingerprints and existing pickle paths across the module split.
 for _export in (
+    DropKeysStage,
     get_audio_duration,
     GetAudioDurationStage,
     PreserveByValueStage,

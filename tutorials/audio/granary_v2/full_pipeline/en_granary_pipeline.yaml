@@ -17,7 +17,7 @@ documentation: |
   Extract metadata and Opus speech clips from recordings (language ID: SpeechBrain
   + Whisper), retain English clips, transcribe with Qwen3-Omni and Qwen3-ASR
   recovery, then enrich the selected text.
-  clips.jsonl holds the Opus clips with their ASR result, before text enrichment;
+  metadata.jsonl retains every metadata result, including rejected/audit rows;
   english.jsonl contains the selected English clips with ASR and text features.
 
 output_path: ${output_dir}/english.jsonl
@@ -33,13 +33,16 @@ stages:
   - ${shared.speech_brain_lang_i_d}
   - ${shared.whisper_lang_i_d}
   - ${shared.select_audio_language_stage}
+  - ${shared.audio_segment_writer_stage}
+  - ${shared.metadata_manifest_writer}
 
-  # Only selected English clips reach ASR.
+  # Keep the full metadata audit above; only selected English clips reach ASR.
   - _target_: nemo_curator.stages.audio.common.PreserveByValueStage
     input_value_key: source_lang
     target_value: en
     operator: eq
     missing_value_policy: drop
+  - ${shared.resample_english_clip}
   - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
     waveform_key: waveform
     sample_rate_key: sample_rate
@@ -168,8 +171,7 @@ stages:
       max_inference_batch_size: 128
   - ${shared.whisper_hallucination_asr}
   - ${shared.select_best_prediction_stage}
-  - ${shared.audio_segment_writer_stage}
-  - ${shared.clip_manifest_writer}
+  - ${shared.drop_clip_waveform}
   - ${shared.regex_substitution_stage}
   - ${shared.abbreviation_concat_stage}
   - ${shared.recover_entities}
