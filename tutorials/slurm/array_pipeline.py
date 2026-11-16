@@ -104,7 +104,7 @@ def _start_ray_with_retries(ray_client: RayClient | SlurmRayClient) -> None:
     for attempt in range(1, RAY_START_ATTEMPTS + 1):
         try:
             ray_client.start()
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             if attempt == RAY_START_ATTEMPTS:
                 raise
             delay = random.uniform(1, 10)  # noqa: S311

@@ -18,7 +18,6 @@ from pathlib import Path
 import pytest
 from pytest import MonkeyPatch
 
-from nemo_curator.backends.slurm_array import SLURM_ARRAY_SHARD_INDEX_ENV_VAR
 from nemo_curator.backends.failed_task_markers import (
     FAILED_TASK_MANIFEST_FILENAME,
     FAILED_TASKS_DIR_ENV_VAR,
@@ -28,6 +27,7 @@ from nemo_curator.backends.failed_task_markers import (
     failed_task_runtime_env_vars,
     record_failed_tasks,
 )
+from nemo_curator.backends.slurm_array import SLURM_ARRAY_SHARD_INDEX_ENV_VAR
 
 
 class TestFailedTaskManifest:
@@ -71,9 +71,7 @@ class TestFailedTaskManifest:
 
         assert configure_slurm_array_failed_task_manifest_dir(tmp_path / "checkpoint", shard_index=9) == override
 
-    def test_record_failed_tasks_writes_single_manifest(
-        self, tmp_path: Path, monkeypatch: MonkeyPatch
-    ) -> None:
+    def test_record_failed_tasks_writes_single_manifest(self, tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
         manifest_dir = tmp_path / "failed-tasks"
         monkeypatch.setenv(FAILED_TASKS_DIR_ENV_VAR, str(manifest_dir))
 
