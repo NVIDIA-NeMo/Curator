@@ -352,6 +352,7 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
                     condition=f"the row has a Hallucination flag in {self.skip_me_key!r}",
                 )
             )
+            writes = []  # clean rows pass through without a prediction, so nothing is guaranteed
         return StageContract(
             reads=reads,
             optional_reads=IOSpec(

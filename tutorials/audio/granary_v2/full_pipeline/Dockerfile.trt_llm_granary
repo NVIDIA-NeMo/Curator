@@ -6,10 +6,11 @@
 # SpeechBrain, Whisper) plus the Dynamo driver for the text model. It adds no in-process vLLM:
 # the Indic ASR stages run on TensorRT-LLM / NeMo, and Dynamo resolves its own vLLM in isolated
 # Ray worker environments.
-# Build docker/audio/Dockerfile.trt_llm --target granary from this checkout first: the base
-# image already holds this checkout at /opt/Curator, so nothing is copied here.
-ARG GRANARY_IMAGE=curator-granary-metadata
-FROM ${GRANARY_IMAGE}
+# Build with `docker buildx bake -f tutorials/audio/granary_v2/full_pipeline/docker-bake.hcl`
+# from the repository root: bake builds docker/audio/Dockerfile.trt_llm --target granary and
+# passes it here as the named context `granary`. The base already holds this checkout at
+# /opt/Curator, so nothing is copied here.
+FROM granary
 
 # Freeze every installed package as an override so the TensorRT-LLM stack stays unchanged.
 RUN uv pip freeze --python /opt/venv/bin/python --exclude-editable > /tmp/granary-overrides.txt \

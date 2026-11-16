@@ -19,9 +19,8 @@ examples can also be run independently.
 Run commands from the repository root. Follow each tutorial's README for its
 entrypoint, required arguments, environment and hardware requirements. The full
 pipelines manage Dynamo serving through their shared `main.py`; the other
-tutorials use `nemo_curator/config/run.py`. The English, European, metadata, Qwen
-and text tutorials can use the image built by the [full pipeline Dockerfile](full_pipeline/README.md);
-the Indic pipeline uses its `Dockerfile.trt_llm_granary`.
+tutorials use `nemo_curator/config/run.py`. The full pipelines build their own
+images with one `docker buildx bake` command; see the [full pipeline README](full_pipeline/README.md).
 
 The [benchmarks](../../../benchmarking/README.md#audio-benchmark-data-setup)
 remain under `benchmarking/` and use these tutorial configurations on larger

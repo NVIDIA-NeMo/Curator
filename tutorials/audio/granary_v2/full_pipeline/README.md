@@ -55,42 +55,38 @@ Run commands from this checkout's root. The default configuration needs **16 H10
 recommended): four Dynamo replicas reserve two GPUs each, and the other eight GPUs serve the audio
 stages. Docker and the NVIDIA Container Toolkit are required.
 
-Follow the metadata tutorial's [environment and model preparation](../metadata/README.md#1-build-and-prepare-the-shared-environment)
-to build `curator-granary-metadata` (`docker/audio/Dockerfile.trt_llm --target granary`) and prepare
-the model directory, stopping before its Hindi samples. Then build the image for your pipeline:
+Build the images from the repository root. One command builds everything from public base images; no
+prebuilt or local image is needed:
 
 ```bash
-# English and European
-docker buildx build --builder default --load \
-  -f tutorials/audio/granary_v2/full_pipeline/Dockerfile -t curator-granary-full .
-# Indic
-docker buildx build --builder default --load \
-  -f tutorials/audio/granary_v2/full_pipeline/Dockerfile.trt_llm_granary -t curator-granary-indic .
+docker buildx bake --builder default --load \
+  -f tutorials/audio/granary_v2/full_pipeline/docker-bake.hcl   # curator-granary-full + curator-granary-indic
+# or one of them: append `full` (English and European) or `indic`
 ```
 
-Both files extend the Granary base, which already holds this checkout at `/opt/Curator`, so build the
-base from the same checkout first. They freeze every installed package as a `uv` override, which keeps
-the TensorRT-LLM, NeMo and Torch 2.9.1 stack unchanged, and add only:
+- [Dockerfile](Dockerfile) extends the repository's [docker/Dockerfile](../../../../docker/Dockerfile)
+  (CUDA 12.9, Python 3.13, Torch 2.11, vLLM 0.22, Dynamo, etcd/NATS), built with the `audio_tensorrt`
+  and `inference_server` extras. It adds the NeMo encoder the eight-speaker Sortformer checkpoint needs
+  and Ubuntu's `ffmpeg` (libopus included), which torchcodec and the Opus clips need.
+- [Dockerfile.trt_llm_granary](Dockerfile.trt_llm_granary) extends the Granary image from
+  [docker/audio/Dockerfile.trt_llm](../../../../docker/audio/Dockerfile.trt_llm) (`--target granary`: Torch 2.9.1,
+  TensorRT-LLM 1.2.1) with `ai-dynamo`, etcd/NATS and the CUDA 12.9 compiler. It adds no in-process vLLM:
+  the Indic ASR stages run on TensorRT-LLM and NeMo.
 
-- [Dockerfile](Dockerfile): `vllm==0.15.1` and `qwen-omni-utils` for the in-process Qwen stages,
-  `ai-dynamo` and the etcd/NATS binaries for the text server, the CUDA 12.9 compiler that the
-  serving workers need for FlashInfer, the `Qwen3ASRConfig` module that the vLLM 0.15.1 wheel omits
-  and two `qwen-asr` keyword arguments that vLLM 0.15.1 removed (the build fails if the installed
-  `qwen-asr` differs from what the patch expects).
-- [Dockerfile.trt_llm_granary](Dockerfile.trt_llm_granary): `ai-dynamo`, etcd/NATS and the CUDA 12.9
-  compiler only. The Indic ASR stages run on TensorRT-LLM and NeMo, so no in-process vLLM is added.
-
+The English and European image needs a host driver that supports CUDA 12.9 (R575 or newer).
 Dynamo's text-model workers run in isolated Ray environments (Transformers 5.8.0 from the YAML) and
-resolve their packages at startup, so neither image freezes them. The inherited audio environment has
-dependency declaration conflicts: `uv pip check` is not clean.
+resolve their packages at startup, so neither image freezes them.
 
 `main.py` sets `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:False` before Ray starts, because vLLM
-tensor-parallel CUDA graphs need CUDA-IPC-compatible allocations. The base image keeps `True` for its
-TensorRT stages.
+tensor-parallel CUDA graphs need CUDA-IPC-compatible allocations.
 
 ## 2. Supply models and a recording manifest
 
-`model_dir` holds the prepared models from the metadata tutorial: `sortformer.nemo`, `silero.plan`,
+`model_dir` holds the prepared models described in the metadata tutorial's
+[model preparation](../metadata/README.md#1-build-and-prepare-the-shared-environment). Build the Silero and SED
+TensorRT engines inside the image you will run (`curator-granary-full` for English and European,
+`curator-granary-indic` for Indic): TensorRT engines only load under the TensorRT version that built them,
+and the two images differ. The directory holds: `sortformer.nemo`, `silero.plan`,
 `sed.pth`, `sed.plan`, `speechbrain/` and `whisper.pt`. The Indic pipeline also needs
 `indic_canary/` (the prebuilt TensorRT-LLM engine) and `indic_parakeet/` (`model.nemo` and its
 TensorRT engine). Qwen3-Omni, the text model and, for the Indic and European recovery models,
@@ -204,8 +200,8 @@ transcript accuracy or semantic quality; review generated text and `additional_n
 ## 5. Validation status
 
 CPU checks cover configuration loading, building each YAML's pipeline and importing every stage and
-adapter class with its third-party dependencies in the matching image. GPU inference and end-to-end
-execution of these single-cluster pipelines are **not** verified: GPU scaling, transcript quality,
-the European language-group routing and the Indic recovery routing remain unproven. Qwen3-ASR loading
-under vLLM 0.15.1 was checked on a local GPU only. Plain `uv pip check` conflicts in the inherited
-environment require separate validation.
+adapter class with its third-party dependencies in the matching image. On a local GPU, language ID, Parakeet-v3,
+Whisper and Qwen3-ASR (vLLM 0.22) transcribed real European audio. Multi-GPU execution, Qwen3-Omni, the
+Indic TensorRT-LLM engines and the end-to-end single-cluster runs are **not** verified: GPU scaling,
+transcript quality and the language-group routing on real data remain unproven. The Indic image inherits
+dependency declaration conflicts from the Granary base, so plain `uv pip check` is not clean there.
