@@ -20,6 +20,11 @@ import sys
 from typing import Any
 
 
+def is_hallucination_flagged(task_data: dict[str, Any], skip_me_key: str) -> bool:
+    """Whether a hallucination stage flagged this row (its skip reason starts with ``Hallucination``)."""
+    return str(task_data.get(skip_me_key, "")).startswith("Hallucination")
+
+
 def begin_resource_probe(stage: Any) -> bool:  # noqa: ANN401
     """Reset CUDA peak accounting for a GPU-reserving stage when available.
 

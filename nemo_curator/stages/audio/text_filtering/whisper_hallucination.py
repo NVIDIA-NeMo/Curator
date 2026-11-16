@@ -25,6 +25,7 @@ from typing import Any
 from loguru import logger
 
 from nemo_curator.stages.audio.text_filtering.scriptio_continua import is_scriptio_continua
+from nemo_curator.stages.audio.utils import is_hallucination_flagged
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -149,9 +150,7 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
         return [], [self.text_key, self.duration_key]
 
     def _bypass(self, task: AudioTask) -> bool:
-        return self.run_only_if_hallucinated and not str(task.data.get(self.skip_me_key, "")).startswith(
-            "Hallucination"
-        )
+        return self.run_only_if_hallucinated and not is_hallucination_flagged(task.data, self.skip_me_key)
 
     def input_spec_for_task(self, task: AudioTask) -> tuple[list[str], list[str]]:
         if self._bypass(task):

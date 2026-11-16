@@ -45,6 +45,7 @@ from nemo_curator.stages.audio.model_input_segmentation import (
     plan_audio_segments,
     resolve_max_model_input_duration,
 )
+from nemo_curator.stages.audio.utils import is_hallucination_flagged
 from nemo_curator.stages.resources import Resources
 
 if TYPE_CHECKING:
@@ -450,7 +451,7 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
         raise NotImplementedError(msg)
 
     def _is_hallucinated(self, task: AudioTask) -> bool:
-        return str(task.data.get(self.skip_me_key, "")).startswith("Hallucination")
+        return is_hallucination_flagged(task.data, self.skip_me_key)
 
     def input_spec_for_task(self, task: AudioTask) -> tuple[list[str], list[str]]:
         if self.run_only_if_hallucinated and not self._is_hallucinated(task):
