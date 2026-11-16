@@ -9,8 +9,10 @@ cluster. One entrypoint, [main.py](main.py), runs one of three pipelines, chosen
 | [european_granary_pipeline.yaml](european_granary_pipeline.yaml) | 24 European languages | SpeechBrain + Whisper | Qwen3-Omni → Qwen3-ASR (`de es fr it pt ru nl`); Parakeet-v3 → Whisper (`pl cs ro hu el fi da sv`); Whisper → Parakeet-v3 (`lt lv hr et bg sk sl mt uk`) | [Dockerfile](Dockerfile) |
 | [indic_granary_pipeline.yaml](indic_granary_pipeline.yaml) | 22 Indic languages | SpeechBrain + Indic Canary + Whisper | Indic Canary (TensorRT-LLM) → Parakeet-Riva (`hi`) or IndicConformer (other languages) | [Dockerfile.trt_llm_granary](Dockerfile.trt_llm_granary) |
 
-The language groups and model pairs follow the production Granary v2 routing. All three YAMLs
-share the same stages around the ASR step. They differ only where the table does:
+The language groups and model pairs follow the production Granary v2 routing. The stages around
+the ASR step are identical in all three pipelines, so they and the shared settings live once in
+[common.yaml](common.yaml); each pipeline YAML adds only its language ID, ASR stages and output file.
+They differ only where the table does:
 
 ```mermaid
 flowchart TD
