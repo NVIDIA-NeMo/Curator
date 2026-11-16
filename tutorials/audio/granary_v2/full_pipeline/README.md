@@ -40,13 +40,13 @@ Indic pipeline keeps.
 
 **ASR routing.** Each European ASR stage handles only its language group
 (`supported_language_codes`) and skips rows that already have a prediction
-(`skip_if_output_exists`). Recovery stages run only on rows the primary check flagged. A stage that
+(`skip_if_output_exists`). By default recovery stages run only on rows the primary check flagged; pass
+`recovery_only_if_hallucinated=false` to run them on every row, as the reference pipeline does. A stage that
 does not support a row's language adds the audit note `skipped (unsupported language: xx)` under its
 own name in `additional_notes`; the stage that does support the language replaces any such
 prediction-key note, so selection sees only the model that ran.
 
-Xenna is unsupported: its GPU allocation is independent of Ray's serving reservations, and Curator
-rejects GPU stages with Xenna while a managed inference server is active. Use Ray Data.
+Use `backend=ray_data` (the default here). Curator raises an error for GPU stages under Xenna while the managed inference server is active.
 
 ## 1. Build the image
 

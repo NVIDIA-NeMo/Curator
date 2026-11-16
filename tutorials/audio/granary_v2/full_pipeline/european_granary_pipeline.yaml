@@ -37,6 +37,8 @@ language_key: source_lang
 regex_yaml: tutorials/audio/granary_v2/full_pipeline/regex.yaml
 
 backend: ray_data
+# true: recovery ASR runs only on rows the primary hallucination check flagged; false: on every row, as the reference does.
+recovery_only_if_hallucinated: true
 batch_size: 128
 num_workers: 12
 max_concurrent_requests: 256
@@ -383,7 +385,7 @@ stages:
 
   - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
     name: QwenASR_recovery
-    run_only_if_hallucinated: true
+    run_only_if_hallucinated: ${recovery_only_if_hallucinated}
     skip_if_output_exists: true
     adapter_target: nemo_curator.models.asr.qwen_asr.QwenASRAdapter
     model_id: ${recovery_model_id}
@@ -402,7 +404,7 @@ stages:
 
   - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
     name: Whisper_recovery
-    run_only_if_hallucinated: true
+    run_only_if_hallucinated: ${recovery_only_if_hallucinated}
     skip_if_output_exists: true
     adapter_target: nemo_curator.models.asr.faster_whisper.FasterWhisperASR
     supported_language_codes: [pl, cs, ro, hu, el, fi, da, sv]
@@ -418,7 +420,7 @@ stages:
 
   - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
     name: ParakeetV3_recovery
-    run_only_if_hallucinated: true
+    run_only_if_hallucinated: ${recovery_only_if_hallucinated}
     skip_if_output_exists: true
     adapter_target: nemo_curator.models.asr.nemo_asr.NeMoASRAdapter
     supported_language_codes: [lt, lv, hr, et, bg, sk, sl, mt, uk]
@@ -437,7 +439,7 @@ stages:
 
   - _target_: nemo_curator.stages.audio.text_filtering.WhisperHallucinationStage
     name: WhisperHallucination_asr
-    run_only_if_hallucinated: true
+    run_only_if_hallucinated: ${recovery_only_if_hallucinated}
     common_hall_file: tutorials/audio/whisper_hallucination/phrases.txt
     text_key: fallback_model_prediction
     language_key: source_lang

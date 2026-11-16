@@ -24,9 +24,6 @@ from nemo_curator.config.run import (
 
 @hydra.main(version_base=None, config_path=".", config_name=None)
 def main(cfg: DictConfig) -> None:
-    if cfg.backend != "ray_data":
-        msg = "The granary pipelines support only backend=ray_data; see README.md."
-        raise ValueError(msg)
     if Path(cfg.output_dir).exists():
         msg = f"Choose a new output_dir: {cfg.output_dir}"
         raise FileExistsError(msg)
