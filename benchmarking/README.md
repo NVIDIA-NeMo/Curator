@@ -1287,6 +1287,65 @@ All eight GPUs recorded sustained work in both benchmark process windows;
 this does not establish scaling efficiency or isolate individual operation
 throughput.
 
+## Text normalization measurements
+
+`scripts/modifier_benchmark.py` reads JSONL or Parquet, applies the existing
+boilerplate, Markdown, newline, quotation, Unicode and URL modifiers in that
+order, and writes Parquet. It does not filter rows: even text changed to an
+empty string remains a document. This is a candidate normalization component
+of a Common Crawl cleaning workflow, not a WARC download/extraction benchmark.
+The configured commoncrawl corpus is already prepared; its suitability as
+freshly extracted text must be established separately.
+
+The benchmark records `num_input_documents` immediately after reading and
+`num_output_documents` immediately before writing, and fails if those counts
+differ in any returned batch. `num_documents_processed` remains the input count;
+`throughput_docs_per_sec` remains that count divided by `time_taken_s`.
+`input_text_bytes` and `output_text_bytes` sum the UTF-8 encoded lengths of the
+`text` column at the same boundaries. Empty strings contribute zero bytes;
+missing columns, null/non-string values and unencodable text fail the run.
+These are text payload bytes, not JSONL/Parquet file sizes, compressed sizes,
+Arrow buffer sizes, or generic `task_*_input_data_size_mb` telemetry.
+
+`time_taken_s` retains the existing wall-time boundary around `Pipeline.run`:
+it includes reading, all modifiers, both measurement stages, writing, and
+executor setup/cleanup performed by that call. It excludes executor construction,
+file selection, stage construction, result aggregation/validation and result
+serialization. Measurement overhead is included and has not been calibrated;
+do not subtract summed worker times from pipeline wall time or assume timings
+are interchangeable with uninstrumented historical results.
+
+`params.json` retains the effective input format, text field, ordered modifier
+constructor settings, requested dataset cap, timing definition and
+`text_measurement_version: 1`. Despite its name, `dataset_size_gb` is a GiB-sized
+file-selection cap, not a measured workload. Pair these parameters with runner
+resource/environment artifacts; benchmark/library revisions and dataset lineage
+must be verified independently when unknown. No hardware scaling is implied.
+
+For example, an **illustrative, unmeasured** result could contain:
+
+```json
+{
+  "is_success": true,
+  "time_taken_s": 4.0,
+  "num_documents_processed": 6,
+  "throughput_docs_per_sec": 1.5,
+  "num_input_documents": 6,
+  "num_output_documents": 6,
+  "input_text_bytes": 59,
+  "output_text_bytes": 20
+}
+```
+
+The byte/count ratios describe mean text length and normalization's size change;
+they do not characterize a full length distribution or validate extrapolation.
+Pipeline execution or measurement failures emit `is_success: false` and null
+values for the four new volume metrics, retaining legacy zero
+processed-count/throughput failure values. Metrics
+are written with `--no-save-tasks` as well. Counters travel with each batch through
+the current one-to-one modifier/writer graph; this approach must be revisited
+before adding filtering, splitting, merging, or retry outputs to that graph.
+
 ## Writing Benchmark Scripts
 
 ### Script Location

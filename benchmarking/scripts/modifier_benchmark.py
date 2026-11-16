@@ -19,15 +19,19 @@ with comprehensive metrics collection using various executors and logs results t
 """
 
 import argparse
+import inspect
 import time
 import traceback
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
+import pyarrow as pa
 from loguru import logger
 from utils import load_dataset_files, setup_executor, write_benchmark_results
 
 from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.text.io.reader import JsonlReader, ParquetReader
 from nemo_curator.stages.text.io.writer import ParquetWriter
 from nemo_curator.stages.text.modifiers import Modify
@@ -39,6 +43,59 @@ from nemo_curator.stages.text.modifiers.string import (
     UrlRemover,
 )
 from nemo_curator.stages.text.modifiers.unicode import UnicodeReformatter
+from nemo_curator.tasks import DocumentBatch, FileGroupTask
+
+
+@dataclass
+class MeasureText(ProcessingStage[DocumentBatch, DocumentBatch]):
+    boundary: Literal["input", "output"]
+
+    def __post_init__(self):
+        self.name = f"measure_{self.boundary}_text"
+
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return ["data"], ["text"]
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return ["data"], ["text"]
+
+    def process(self, task: DocumentBatch) -> DocumentBatch:
+        texts = task.data["text"]
+        if isinstance(texts, pa.ChunkedArray):
+            texts = texts.to_pylist()
+        text_bytes = 0
+        for text in texts:
+            if not isinstance(text, str):
+                msg = "Text measurement requires non-null strings in the text column"
+                raise TypeError(msg)
+            text_bytes += len(text.encode("utf-8"))
+        task._metadata = {
+            **task._metadata,
+            "modifier_benchmark": {
+                **task._metadata.get("modifier_benchmark", {}),
+                f"num_{self.boundary}_documents": task.num_items,
+                f"{self.boundary}_text_bytes": text_bytes,
+            },
+        }
+        return task
+
+
+def collect_text_metrics(tasks: list[FileGroupTask]) -> dict[str, int]:
+    if not tasks:
+        msg = "No completed document batches to measure"
+        raise ValueError(msg)
+    metrics = dict.fromkeys(
+        ("num_input_documents", "num_output_documents", "input_text_bytes", "output_text_bytes"), 0
+    )
+    # These counters require the current one-to-one batch flow through modifiers and writer.
+    for task in tasks:
+        counts = task._metadata["modifier_benchmark"]
+        if counts["num_input_documents"] != counts["num_output_documents"]:
+            msg = "Normalization changed the document count"
+            raise ValueError(msg)
+        for key in metrics:
+            metrics[key] += counts[key]
+    return metrics
 
 
 def run_modify_benchmark(  # noqa: PLR0913
@@ -75,15 +132,26 @@ def run_modify_benchmark(  # noqa: PLR0913
     else:
         reader = JsonlReader(input_path) if input_filetype == "jsonl" else ParquetReader(input_path)
     pipeline.add_stage(reader)
+    pipeline.add_stage(MeasureText("input"))
 
-    # Add modify stages
-    pipeline.add_stage(Modify(BoilerPlateStringModifier()))
-    pipeline.add_stage(Modify(MarkdownRemover()))
-    pipeline.add_stage(Modify(NewlineNormalizer()))
-    pipeline.add_stage(Modify(QuotationRemover()))
-    pipeline.add_stage(Modify(UnicodeReformatter()))
-    pipeline.add_stage(Modify(UrlRemover()))
+    modifier_classes = (
+        BoilerPlateStringModifier,
+        MarkdownRemover,
+        NewlineNormalizer,
+        QuotationRemover,
+        UnicodeReformatter,
+        UrlRemover,
+    )
+    recipe = []
+    for modifier_class in modifier_classes:
+        settings = inspect.signature(modifier_class).bind()
+        settings.apply_defaults()
+        recipe.append(
+            {"class": f"{modifier_class.__module__}.{modifier_class.__name__}", "settings": settings.arguments}
+        )
+        pipeline.add_stage(Modify(modifier_class(**settings.arguments)))
 
+    pipeline.add_stage(MeasureText("output"))
     pipeline.add_stage(ParquetWriter(output_path))
 
     run_start_time = time.perf_counter()
@@ -94,7 +162,8 @@ def run_modify_benchmark(  # noqa: PLR0913
         output_tasks = pipeline.run(executor)
         run_time_taken = time.perf_counter() - run_start_time
 
-        num_documents_processed = sum(task._stage_perf[1].num_items_processed for task in output_tasks)
+        text_metrics = collect_text_metrics(output_tasks)
+        num_documents_processed = text_metrics["num_input_documents"]
 
         logger.success(f"Benchmark completed in {run_time_taken:.2f}s")
         logger.success(f"Processed {num_documents_processed} documents")
@@ -107,6 +176,9 @@ def run_modify_benchmark(  # noqa: PLR0913
         output_tasks = []
         run_time_taken = time.perf_counter() - run_start_time
         num_documents_processed = 0
+        text_metrics = dict.fromkeys(
+            ("num_input_documents", "num_output_documents", "input_text_bytes", "output_text_bytes")
+        )
         success = False
 
     return {
@@ -115,6 +187,16 @@ def run_modify_benchmark(  # noqa: PLR0913
             "input_path": str(input_path),
             "output_path": str(output_path),
             "benchmark_results_path": str(benchmark_results_path),
+            "input_filetype": input_filetype,
+            "dataset_size_gb": dataset_size_gb,
+            "dataset_size_unit": "GiB cap on selected files, not measured text bytes",
+            "text_field": "text",
+            "modifier_recipe": recipe,
+            "timing_boundary": (
+                "Pipeline.run including text measurement; excludes executor/stage construction, "
+                "file selection and result aggregation/serialization"
+            ),
+            "text_measurement_version": 1,
         },
         "metrics": {
             "is_success": success,
@@ -122,6 +204,7 @@ def run_modify_benchmark(  # noqa: PLR0913
             "num_documents_processed": num_documents_processed,
             "num_output_tasks": len(output_tasks),
             "throughput_docs_per_sec": num_documents_processed / run_time_taken if run_time_taken > 0 else 0,
+            **text_metrics,
         },
         "tasks": output_tasks,
     }
