@@ -18,7 +18,7 @@ documentation: |
   + Whisper), keep clips in 24 European languages, transcribe each language group
   with its primary and recovery model (Qwen3-Omni + Qwen3-ASR, Parakeet-v3 + Whisper,
   Whisper + Parakeet-v3), then enrich the selected text.
-  metadata.jsonl retains every metadata result, including rejected/audit rows;
+  clips.jsonl holds the Opus clips with their ASR result, before text enrichment;
   european.jsonl contains the selected clips with ASR and text features.
 
 output_path: ${output_dir}/european.jsonl
@@ -34,10 +34,8 @@ stages:
   - ${shared.speech_brain_lang_i_d}
   - ${shared.whisper_lang_i_d}
   - ${shared.select_audio_language_stage}
-  - ${shared.audio_segment_writer_stage}
-  - ${shared.metadata_manifest_writer}
 
-  # Keep the full metadata audit above; only clips in the European languages below reach ASR.
+  # Only clips in the European languages below reach ASR.
   - _target_: nemo_curator.stages.audio.common.PreserveByValueConditionsStage
     _convert_: all
     conditions:
@@ -67,8 +65,10 @@ stages:
       - {input_value_key: source_lang, target_value: uk, operator: eq}
     condition_logic: or
     missing_value_policy: drop
-  - ${shared.resample_english_clip}
   - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
+    waveform_key: waveform
+    sample_rate_key: sample_rate
+    keep_waveform: true
     name: QwenOmni_primary
     adapter_target: nemo_curator.models.asr.qwen_omni.QwenOmniASRAdapter
     model_id: ${model_id}
@@ -128,6 +128,9 @@ stages:
         - No explanations, no JSON, no lists.
 
   - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
+    waveform_key: waveform
+    sample_rate_key: sample_rate
+    keep_waveform: true
     name: ParakeetV3_primary
     adapter_target: nemo_curator.models.asr.nemo_asr.NeMoASRAdapter
     model_id: nvidia/parakeet-tdt-0.6b-v3
@@ -145,6 +148,9 @@ stages:
       gpu_memory_gb: 8
 
   - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
+    waveform_key: waveform
+    sample_rate_key: sample_rate
+    keep_waveform: true
     name: Whisper_primary
     adapter_target: nemo_curator.models.asr.faster_whisper.FasterWhisperASR
     model_id: large-v3
@@ -160,6 +166,9 @@ stages:
   - ${shared.whisper_hallucination_primary}
 
   - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
+    waveform_key: waveform
+    sample_rate_key: sample_rate
+    keep_waveform: true
     name: QwenASR_recovery
     run_only_if_hallucinated: ${recovery_only_if_hallucinated}
     skip_if_output_exists: true
@@ -179,6 +188,9 @@ stages:
       max_inference_batch_size: 128
 
   - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
+    waveform_key: waveform
+    sample_rate_key: sample_rate
+    keep_waveform: true
     name: Whisper_recovery
     run_only_if_hallucinated: ${recovery_only_if_hallucinated}
     skip_if_output_exists: true
@@ -195,6 +207,9 @@ stages:
       gpu_memory_gb: 16
 
   - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
+    waveform_key: waveform
+    sample_rate_key: sample_rate
+    keep_waveform: true
     name: ParakeetV3_recovery
     run_only_if_hallucinated: ${recovery_only_if_hallucinated}
     skip_if_output_exists: true
@@ -214,6 +229,8 @@ stages:
       gpu_memory_gb: 8
   - ${shared.whisper_hallucination_asr}
   - ${shared.select_best_prediction_stage}
+  - ${shared.audio_segment_writer_stage}
+  - ${shared.clip_manifest_writer}
   - ${shared.regex_substitution_stage}
   - ${shared.abbreviation_concat_stage}
   - ${shared.recover_entities}

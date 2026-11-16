@@ -18,7 +18,7 @@ documentation: |
   + Indic Canary + Whisper), keep clips in 22 Indic languages, transcribe with Indic
   Canary (TensorRT-LLM) and Parakeet-Riva / IndicConformer recovery, then enrich the
   selected text.
-  metadata.jsonl retains every metadata result, including rejected/audit rows;
+  clips.jsonl holds the Opus clips with their ASR result, before text enrichment;
   indic.jsonl contains the selected clips with ASR and text features.
 
 output_path: ${output_dir}/indic.jsonl
@@ -77,10 +77,8 @@ stages:
     resources:
       gpu_memory_gb: 8
   - ${shared.select_audio_language_stage}
-  - ${shared.audio_segment_writer_stage}
-  - ${shared.metadata_manifest_writer}
 
-  # Keep the full metadata audit above; only clips in the 22 Indic languages below reach ASR.
+  # Only clips in the 22 Indic languages below reach ASR.
   - _target_: nemo_curator.stages.audio.common.PreserveByValueConditionsStage
     _convert_: all
     conditions:
@@ -108,10 +106,9 @@ stages:
       - {input_value_key: source_lang, target_value: ur, operator: eq}
     condition_logic: or
     missing_value_policy: drop
-  - ${shared.resample_english_clip}
-  - ${shared.mono_conversion_stage}
 
   - _target_: nemo_curator.stages.audio.inference.indic_canary.InferenceIndicCanaryStage
+    keep_waveform: true
     name: IndicCanary_primary
     engine_dir: ${model_dir}/indic_canary
     num_beams: 4
@@ -129,6 +126,9 @@ stages:
   - ${shared.whisper_hallucination_primary}
 
   - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
+    waveform_key: waveform
+    sample_rate_key: sample_rate
+    keep_waveform: true
     name: ParakeetRiva_recovery
     run_only_if_hallucinated: ${recovery_only_if_hallucinated}
     skip_if_output_exists: true
@@ -150,6 +150,9 @@ stages:
       gpu_memory_gb: 24
 
   - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
+    waveform_key: waveform
+    sample_rate_key: sample_rate
+    keep_waveform: true
     name: IndicConformer_recovery
     run_only_if_hallucinated: ${recovery_only_if_hallucinated}
     skip_if_output_exists: true
@@ -178,6 +181,8 @@ stages:
     use_ground_truth_for_short_audio: false
     output_key: best_prediction
     primary_model_type: indic_canary
+  - ${shared.audio_segment_writer_stage}
+  - ${shared.clip_manifest_writer}
   - ${shared.regex_substitution_stage}
   - ${shared.abbreviation_concat_stage}
   - ${shared.recover_entities}

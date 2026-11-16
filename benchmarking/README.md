@@ -1157,7 +1157,7 @@ shutdown diagnostics despite complete outputs and normal process exits.
 
 `scripts/audio_granary_full_english_benchmark.py` runs the whole
 [en_granary_pipeline.yaml](../tutorials/audio/granary_v2/full_pipeline/en_granary_pipeline.yaml)
-graph on Ray Data: recordings to Opus speech clips and metadata, Qwen3-Omni transcription with
+graph on Ray Data: recordings to Opus speech clips, Qwen3-Omni transcription with
 Qwen3-ASR recovery, then nine text operations on a managed Dynamo server. It starts that server
 the way the tutorial's `main.py` does and times only the pipeline run; Ray and server start-up
 are reported separately as `inference_server_startup_s`. Like the Indic ASR and audio text
@@ -1178,7 +1178,7 @@ python benchmarking/scripts/audio_granary_full_english_benchmark.py \
 ```
 
 The benchmark fails if no English clip is produced, if an output row is missing from
-`metadata.jsonl`, or if an unflagged row has an empty `best_prediction`. Metrics include
+`clips.jsonl`, or if an unflagged row has an empty `best_prediction`. Metrics include
 `time_taken_s`, `num_output_rows`, `num_flagged_rows`, `total_audio_duration_hours` and
 `throughput_audio_hours_per_hour`. Throughput is not accuracy: review transcripts separately.
 

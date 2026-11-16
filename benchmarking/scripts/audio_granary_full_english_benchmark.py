@@ -45,17 +45,17 @@ def _read_jsonl(path: Path) -> list[dict[str, Any]]:
 
 
 def _collect_output_metrics(output_dir: Path, num_recordings: int) -> dict[str, float | int]:
-    metadata = _read_jsonl(output_dir / "metadata.jsonl")
+    clips = _read_jsonl(output_dir / "clips.jsonl")
     rows = _read_jsonl(output_dir / "english.jsonl")
     if not rows:
-        msg = "No English clips reached the output; inspect metadata.jsonl"
+        msg = "No English clips reached the output; inspect the input audio"
         raise ValueError(msg)
-    metadata_ids = {row["audio_item_id"] for row in metadata}
+    clip_ids = {row["audio_item_id"] for row in clips}
     flagged = 0
     duration_s = 0.0
     for row in rows:
-        if row["audio_item_id"] not in metadata_ids or row.get("source_lang") != "en":
-            msg = f"Output row does not match the metadata audit: {row['audio_item_id']}"
+        if row["audio_item_id"] not in clip_ids or row.get("source_lang") != "en":
+            msg = f"Output row does not match clips.jsonl: {row['audio_item_id']}"
             raise ValueError(msg)
         if row.get("_skipme"):
             flagged += 1
@@ -65,7 +65,7 @@ def _collect_output_metrics(output_dir: Path, num_recordings: int) -> dict[str, 
         duration_s += float(row["duration"])
     return {
         "num_input_recordings": num_recordings,
-        "num_metadata_rows": len(metadata),
+        "num_clip_rows": len(clips),
         "num_output_rows": len(rows),
         "num_flagged_rows": flagged,
         "total_audio_duration_hours": duration_s / 3600,
