@@ -160,7 +160,7 @@ class AudioSegmentWriterStage(AgentReady, ProcessingStage[AudioTask, AudioTask])
         if not isinstance(source, str) or not source:
             msg = "A source recording path is required to identify audio segments"
             raise ValueError(msg)
-        data = {key: value for key, value in task.data.items() if key not in self._removed_keys()}
+        data = type(task.data)({key: value for key, value in task.data.items() if key not in self._removed_keys()})
         data[self.original_file_key] = source
         if task.data.get(self.vad_empty_key):
             data[self.audio_filepath_key] = source
