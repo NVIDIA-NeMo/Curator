@@ -75,7 +75,7 @@ def test_measure_text_counts_utf8_without_changing_payload(arrow: bool) -> None:
 
 @pytest.mark.parametrize("text", [None, 123, b"bytes", "\ud800"])
 def test_measure_text_rejects_invalid_text(text: object) -> None:
-    task = DocumentBatch(dataset_name="test", data=pd.DataFrame({"text": [text]}))
+    task = DocumentBatch(dataset_name="test", data=pd.DataFrame({"text": [text]}, dtype=object))
     with pytest.raises((TypeError, UnicodeEncodeError)):
         benchmark.MeasureText("input").process(task)
     assert "text_volume" not in task._metadata
