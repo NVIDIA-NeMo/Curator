@@ -114,7 +114,9 @@ def _preflight_errors(args: argparse.Namespace) -> list[str]:
             alias = judge.get("model_alias")
             if alias is not None and str(alias) not in aliases:
                 errors.append(f"Judge {name!r}: unknown model_alias {str(alias)!r} (configured: {sorted(aliases)}).")
-            for key in ("prompt_path", "system_prompt_path"):
+            if not judge.get("prompt_path"):
+                errors.append(f"Judge {name!r}: prompt_path is required and must not be empty.")
+            for key in ("prompt_path", "system_prompt_path"):  # only system_prompt_path is optional
                 if template := judge.get(key):
                     template_path = config_path.parent / template  # absolute paths replace the parent
                     if not template_path.is_file():

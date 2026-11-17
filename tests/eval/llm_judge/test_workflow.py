@@ -80,6 +80,29 @@ def test_example_configs_and_templates_are_valid(filename: str, models: int, sta
             )
 
 
+PROMPT_FIELD_TAGS = {"raw_text": "raw_text", "justext_text": "candidate_a", "trafilatura_text": "candidate_b"}
+
+
+@pytest.mark.parametrize(
+    "prompt_filename", ["text_extraction_prompt.jinja", "text_extraction_disagreement_prompt.jinja"]
+)
+@pytest.mark.parametrize("missing_field", list(PROMPT_FIELD_TAGS))
+@pytest.mark.parametrize("missing_value", [None, float("nan")], ids=["none", "nan"])
+def test_example_prompts_render_missing_fields_empty(
+    prompt_filename: str, missing_field: str, missing_value: float | None
+) -> None:
+    # Pandas turns a missing JSONL value into a truthy float NaN, which `(x or "")[:n]` cannot slice.
+    values: dict[str, Any] = {field: f"{field} text" for field in PROMPT_FIELD_TAGS}
+    values[missing_field] = missing_value
+    prompt = (EXAMPLE_DIR / prompt_filename).read_text(encoding="utf-8")
+
+    rendered = Environment(undefined=StrictUndefined).from_string(prompt).render(**values)  # noqa: S701
+
+    for field, tag in PROMPT_FIELD_TAGS.items():
+        expected = "" if field == missing_field else f"{field} text"
+        assert f"<{tag}>\n{expected}\n</{tag}>" in rendered
+
+
 def test_place_filters_after_their_producing_stage() -> None:
     config, stages = _config_with_filters()
 

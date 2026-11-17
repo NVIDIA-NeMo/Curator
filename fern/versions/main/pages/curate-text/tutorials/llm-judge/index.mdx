@@ -73,7 +73,7 @@ The example separates data preparation, workflow execution, serving configuratio
 | `cc_extract_example/text_extraction_system.jinja` | Supplies instructions shared by the extraction-quality and disagreement judges. |
 | `cc_extract_example/text_extraction_prompt.jinja` | Renders the raw HTML and anonymized extraction candidates for winner, fidelity, and boilerplate scoring. |
 | `cc_extract_example/text_extraction_disagreement_prompt.jinja` | Renders the candidates for the separate semantic-disagreement score. |
-| `cc_extract_example/text_extraction_qwen_gemma_judges.yaml` | Optional two-model configuration for comparing Qwen and Gemma judgments. |
+| `cc_extract_example/text_extraction_qwen_gemma_judges_8xh100.yaml` | Optional two-model configuration for comparing Qwen and Gemma judgments. |
 
 The file names in this table are relative to `tutorials/eval/llm_judge`. Run all shell commands in the rest of the tutorial from the Curator repository root. The Jinja paths inside a judge YAML are instead resolved relative to that YAML file.
 
@@ -323,7 +323,7 @@ Write this filtered run to a new output directory. Because the configuration cha
 
 ## 7. Optionally Compare Two Judge Models
 
-`text_extraction_qwen_gemma_judges.yaml` applies the same two rubrics with Qwen and Gemma. As supplied, it requests eight GPUs: four single-GPU replicas for each model.
+`text_extraction_qwen_gemma_judges_8xh100.yaml` applies the same two rubrics with Qwen and Gemma. As supplied, it requests eight GPUs: four single-GPU replicas for each model.
 
 Before running it:
 
