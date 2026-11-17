@@ -35,15 +35,19 @@ Before you start the tutorial, confirm the following requirements:
 - Access to Common Crawl over HTTPS, or `s5cmd` access when using `--use-aws-to-download`.
 - One or more NVIDIA GPUs with enough aggregate memory for the selected judge model.
 - A Hugging Face-format instruction model available as local weights or a repository ID supported by the installed vLLM version.
+- The `etcd` and `nats-server` binaries on your `PATH`. The local Dynamo server starts both. The NeMo Curator container includes them; in a source environment outside the container, install them with [`docker/common/install_etcd_nats.sh`](https://github.com/NVIDIA-NeMo/Curator/blob/main/docker/common/install_etcd_nats.sh), or point Dynamo at existing services with `etcd_endpoint` and `nats_url` under `dynamo_server` in the judge config.
 
 This tutorial requires both CUDA extras: `text_cuda12` for Common Crawl processing and text extraction, and `sdg_cuda12` for NeMo Data Designer and local inference serving. `text_cuda12` also supplies the optional FastText language gate, although the main tutorial command does not enable that gate. From the Curator source checkout, create or update the environment with:
 
 ```bash
 uv sync --extra text_cuda12 --extra sdg_cuda12 --all-groups
 source .venv/bin/activate
+uv pip install pip
 ```
 
-Run this command and the remaining tutorial commands from the repository root. Refer to [Install NeMo Curator](/main/get-started/installation#package-extras) for CUDA requirements and other supported installation methods.
+The last command is required: Ray workers started by the local server need `pip` in the active environment, and environments created by `uv` do not include it. Without it, the run fails with `No module named pip`.
+
+Run these commands and the remaining tutorial commands from the repository root. Refer to [Install NeMo Curator](/main/get-started/installation#package-extras) for CUDA requirements and other supported installation methods.
 
 <Note>
 The language gate is optional. To enable it, download FastText's [`lid.176.bin` language-identification model](https://fasttext.cc/docs/en/language-identification.html):

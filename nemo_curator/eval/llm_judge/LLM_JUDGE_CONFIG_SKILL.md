@@ -111,15 +111,17 @@ analysis scripts compare against them.
 
 - `{{ field_name }}` renders a value from the current row — only reference
   fields that actually exist; check a real input row, don't guess.
-- Guard optional fields: `{{ (field or "")[:8000] }}`, not `{{ field[:8000] }}`
-  — a bare `None` errors or renders as the string `"None"`. Also state the
+- Guard optional fields: `{{ field[:8000] if field is string else "" }}`, not
+  `{{ field[:8000] }}` — a bare `None` errors or renders as the string `"None"`.
+  Don't use `(field or "")[:8000]`: a null can arrive as a float `NaN`, which
+  is truthy, so slicing it raises `'float' object is not subscriptable`. Also state the
   *policy* when an empty value should affect the rubric (e.g. "an empty
   candidate is only correct when the source has no meaningful content").
 - Wrap untrusted source content in delimiter tags and tell the model to
   treat it as evidence, not instructions:
   ```jinja
   <candidate_text>
-  {{ (candidate_text or "")[:8000] }}
+  {{ candidate_text[:8000] if candidate_text is string else "" }}
   </candidate_text>
   ```
 - For blind evaluation, don't leak which candidate came from which source,

@@ -4,6 +4,18 @@ Use this example to add LLM-based evaluations to JSONL or Parquet records. The Y
 
 The included example compares jusText and Trafilatura web-text extractions. The same runner can judge parser output, extraction quality, or any task whose inputs can be rendered into a Jinja prompt.
 
+## Setup
+
+You need a Linux machine with one or more NVIDIA GPUs. From a Curator source checkout, install both CUDA extras and add `pip`, which the local server's Ray workers need and `uv` environments do not include by default:
+
+```bash
+uv sync --extra text_cuda12 --extra sdg_cuda12 --all-groups
+source .venv/bin/activate
+uv pip install pip
+```
+
+The local Dynamo server also starts `etcd` and `nats-server`, so both binaries must be on your `PATH`. The NeMo Curator container includes them. In a source environment outside the container, install them with `docker/common/install_etcd_nats.sh`, or point Dynamo at existing services with `etcd_endpoint` and `nats_url` under `dynamo_server` in the judge config.
+
 ## Quick start
 
 Start by copying and editing the files in `cc_extract_example/`. The YAML refers to adjacent Jinja files by relative path, so keep them together.
@@ -29,6 +41,8 @@ python tutorials/eval/llm_judge/run_llm_judge.py \
 The bundled [text_extraction_qwen_gemma_judges_8xh100.yaml](cc_extract_example/text_extraction_qwen_gemma_judges_8xh100.yaml) runs the same extraction rubrics with both Qwen and Gemma, and as bundled uses **8 GPUs** (two models, each `num_replicas: 4` × `tensor_parallel_size: 1`) with concurrency settings (`num_workers`, `max_num_seqs`, `max_parallel_requests`) tuned for an 8xH100 node. Use it when you want to compare model agreement; update the model paths, `num_replicas`/`tensor_parallel_size` per model, and other serving settings for your hardware before running it.
 
 Use `--checkpoint-path output/judge_checkpoint` to write Curator checkpoint metadata to a durable location. It is useful for normal pipeline recovery, but you should still inspect input and output counts after a run.
+
+Before Ray or the model server starts, `run_llm_judge.py` checks that every judge's `model_alias` is a configured model, that its `prompt_path` and `system_prompt_path` files exist, and that `--input-path` matches at least one input file. It reports all problems at once and exits, so these mistakes fail immediately instead of after a large model finishes loading. These checks live in the CLI script; calling `LLMJudgeWorkflow` directly (below) skips them.
 
 `run_llm_judge.py` is a thin CLI over `LLMJudgeWorkflow` (`nemo_curator/eval/llm_judge/workflow.py`, importable as `from nemo_curator.eval.llm_judge import LLMJudgeWorkflow`). Each `--flag` above maps to a same-named constructor argument, so call it directly when you want to run a judge pass from your own script instead of the CLI (for example, as one step alongside other Curator workflows):
 
@@ -80,7 +94,7 @@ Data Designer adds one top-level column for each judge. A judge named `extractio
 }
 ```
 
-An input field can be `null`. Make optional Jinja fields null-safe, for example `{{ (trafilatura_text or "")[:8000] }}` rather than `{{ trafilatura_text[:8000] }}`.
+An input field can be `null`. Make optional Jinja fields null-safe, for example `{{ trafilatura_text[:8000] if trafilatura_text is string else "" }}` rather than `{{ trafilatura_text[:8000] }}`. Avoid `{{ (trafilatura_text or "")[:8000] }}`: a null can arrive as a float `NaN`, which is truthy, so `or ""` does not replace it and slicing it raises `'float' object is not subscriptable`.
 
 ## Scaling with Slurm job arrays
 
@@ -243,15 +257,15 @@ Add a second Jinja template and a second judge entry in the YAML, same pattern a
 ```jinja
 {# text_extraction_prompt_swapped.jinja #}
 <raw_text>
-{{ (raw_text or "")[:12000] }}
+{{ raw_text[:12000] if raw_text is string else "" }}
 </raw_text>
 
 <candidate_a>
-{{ (trafilatura_text or "")[:8000] }}
+{{ trafilatura_text[:8000] if trafilatura_text is string else "" }}
 </candidate_a>
 
 <candidate_b>
-{{ (justext_text or "")[:8000] }}
+{{ justext_text[:8000] if justext_text is string else "" }}
 </candidate_b>
 ```
 
@@ -268,6 +282,8 @@ Pull each judge's `best_extraction.score` into its own column, then remap the sw
 Rows where the normalized verdict flips are evidence of position bias rather than a genuine judgment; read both `reasoning` fields the same way as a model-agreement disagreement to decide whether the rubric or prompt needs tightening. This costs one extra LLM call per row for the swapped judge, so run it on a calibration sample before deciding whether to keep it in a full production run.
 
 ## Operating guidance
+
+Read the run logs after every run to see how many rows were dropped. A row whose judge response fails structured-output validation is dropped with only a warning in the log: the run still exits 0 and prints no row count, so the output can contain far fewer rows than the input. Compare input and output row counts, and use the log warnings to understand why rows were lost before trusting the results.
 
 Start with a manually reviewed calibration sample. Confirm rendered prompts, structured results, and context lengths before increasing concurrency. For a model that fits on one GPU, begin with one replica and modest `max_parallel_requests`; increase requests gradually only after checking for context-length errors, malformed outputs, and GPU memory pressure. Add replicas when additional GPUs are available and the workload is large enough to use them.
 
