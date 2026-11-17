@@ -64,7 +64,11 @@ class ImageAestheticFilterStage(BaseFilterStage):
         """
 
         # Process images in batches to generate scores
-        for batch in self.yield_next_batch(task):
+        for full_batch in self.yield_next_batch(task):
+            # Images without an embedding (e.g. failed to decode) keep a score of None.
+            batch = [img_obj for img_obj in full_batch if img_obj.embedding is not None]
+            if not batch:
+                continue
             # Stack embeddings into batch tensor (N, embedding_dim)
             embeddings = [img_obj.embedding for img_obj in batch]
             batch_tensor = np.stack(embeddings, axis=0)
@@ -77,18 +81,21 @@ class ImageAestheticFilterStage(BaseFilterStage):
             for i, image_obj in enumerate(batch):
                 image_obj.aesthetic_score = float(scores[i])
 
+        if self.score_threshold is None:
+            return task
+
         # Filter images based on aesthetic score threshold
         filtered_images = []
         filtered_count = 0
 
         for image_obj in task.data:
-            if image_obj.aesthetic_score >= self.score_threshold:
+            if image_obj.aesthetic_score is not None and image_obj.aesthetic_score >= self.score_threshold:
                 filtered_images.append(image_obj)
             else:
                 filtered_count += 1
                 if self.verbose:
                     logger.info(
-                        f"Image {image_obj.image_id} (path: {image_obj.image_path}) has aesthetic score {image_obj.aesthetic_score:.3f} "
+                        f"Image {image_obj.image_id} (path: {image_obj.image_path}) has aesthetic score {image_obj.aesthetic_score} "
                         f"below threshold {self.score_threshold}, filtered out."
                     )
 

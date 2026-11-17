@@ -386,7 +386,7 @@ class TestImageEmbeddingStage:
         """Test image embedding stage on GPU."""
 
         class _DummyCLIPImageEmbeddings:
-            def __init__(self, _model_dir: str | None = None) -> None:
+            def __init__(self, _model_dir: str | None = None, allow_tf32: bool = False) -> None:
                 pass
 
             def setup(self) -> None:
@@ -479,3 +479,31 @@ class TestImageEmbeddingStage:
         assert all(img.image_data is not None for img in result.data)
         # Optionally, verify identity preservation (no replacement)
         assert all(img.image_data is original_arrays[i] for i, img in enumerate(result.data))
+
+
+@patch("nemo_curator.stages.image.embedders.clip_embedder.CLIPImageEmbeddings")
+def test_stacks_uniform_images_and_skips_undecoded(mock_clip_embeddings: Mock) -> None:
+    images = [ImageObject(image_id=f"img_{i}", image_data=np.zeros((224, 224, 3), np.uint8)) for i in range(3)]
+    images[1].image_data = None  # e.g. failed to decode
+    mock_clip_embeddings.return_value.return_value = torch.ones(2, 4)
+    stage = ImageEmbeddingStage(model_dir="test_models/clip", model_inference_batch_size=8)
+    stage.setup()
+    stage.process(ImageBatch(data=images, dataset_name="test"))
+    (model_input,), _ = mock_clip_embeddings.return_value.call_args
+    assert isinstance(model_input, np.ndarray)
+    assert model_input.shape == (2, 224, 224, 3)
+    assert images[1].embedding is None
+    assert images[0].embedding is not None
+
+
+@patch("nemo_curator.stages.image.embedders.clip_embedder.CLIPImageEmbeddings")
+def test_same_shape_but_not_presized_keeps_processor_path(mock_clip_embeddings: Mock) -> None:
+    # An image's embedding must not depend on whether its batch neighbors share its shape.
+    images = [ImageObject(image_id=f"img_{i}", image_data=np.zeros((256, 256, 3), np.uint8)) for i in range(2)]
+    mock_clip_embeddings.return_value.return_value = torch.ones(2, 4)
+    stage = ImageEmbeddingStage(model_dir="test_models/clip")
+    stage.setup()
+    stage.process(ImageBatch(data=images, dataset_name="test"))
+    (model_input,), _ = mock_clip_embeddings.return_value.call_args
+    assert isinstance(model_input, list)
+    mock_clip_embeddings.assert_called_once_with("test_models/clip", allow_tf32=True)

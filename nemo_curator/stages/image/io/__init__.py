@@ -13,5 +13,6 @@
 # limitations under the License.
 
 from .image_reader import ImageReaderStage
+from .tar_range_reader import ImageTarRangeReader
 
-__all__ = ["ImageReaderStage"]
+__all__ = ["ImageReaderStage", "ImageTarRangeReader"]

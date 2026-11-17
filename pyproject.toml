@@ -159,6 +159,7 @@ audio_tensorrt = [
 ]
 
 image_cpu = [
+    "nemo_curator[cv2]",
     "Pillow",
     "torchvision"
 ]

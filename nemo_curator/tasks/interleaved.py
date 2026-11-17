@@ -70,7 +70,7 @@ INTERLEAVED_SCHEMA = pa.schema(
 RESERVED_COLUMNS: frozenset[str] = frozenset(INTERLEAVED_SCHEMA.names)
 
 
-@dataclass
+@dataclass(repr=False)  # keep Task.__repr__: Ray formats task reprs on every stage output
 class InterleavedBatch(Task[pa.Table | pd.DataFrame]):
     """Task carrying row-wise multimodal records.
 

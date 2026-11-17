@@ -33,7 +33,7 @@ class BaseFilterStage(ProcessingStage[ImageBatch, ImageBatch]):
     model_dir: str = None
     num_gpus_per_worker: float = 0.25
     model_inference_batch_size: int = 32  # Number of images to process through model at once
-    score_threshold: float = 0.5
+    score_threshold: float | None = 0.5  # None scores every image without filtering
     verbose: bool = False
     name: str = "image_filter"
 

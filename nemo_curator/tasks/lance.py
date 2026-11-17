@@ -22,7 +22,7 @@ from .tasks import Task
 FragmentIds: TypeAlias = list[int]
 
 
-@dataclass
+@dataclass(repr=False)  # keep Task.__repr__: Ray formats task reprs on every stage output
 class LanceReadTask(Task[FragmentIds]):
     """Task containing Lance fragment ids assigned to one read partition.
 

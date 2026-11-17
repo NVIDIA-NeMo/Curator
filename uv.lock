@@ -5574,6 +5574,7 @@ all = [
     { name = "open-clip-torch" },
     { name = "openai-whisper", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { name = "opencc-python-reimplemented" },
+    { name = "opencv-python-headless" },
     { name = "peft" },
     { name = "pillow" },
     { name = "praatio" },
@@ -5741,6 +5742,7 @@ deduplication-cuda12 = [
     { name = "rapidsmpf-cu12" },
 ]
 image-cpu = [
+    { name = "opencv-python-headless" },
     { name = "pillow" },
     { name = "torchvision", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')" },
 ]
@@ -5751,6 +5753,7 @@ image-cuda12 = [
     { name = "gpustat" },
     { name = "nvidia-dali-cuda120" },
     { name = "nvidia-ml-py" },
+    { name = "opencv-python-headless" },
     { name = "pillow" },
     { name = "pylibcugraph-cu12" },
     { name = "pylibraft-cu12" },
@@ -6048,6 +6051,7 @@ requires-dist = [
     { name = "nemo-curator", extras = ["cuda12"], marker = "extra == 'sdg-cuda12'" },
     { name = "nemo-curator", extras = ["cuda12"], marker = "extra == 'text-cuda12'" },
     { name = "nemo-curator", extras = ["cuda12"], marker = "extra == 'video-cuda12'" },
+    { name = "nemo-curator", extras = ["cv2"], marker = "extra == 'image-cpu'" },
     { name = "nemo-curator", extras = ["deduplication-cuda12"], marker = "extra == 'image-cuda12'" },
     { name = "nemo-curator", extras = ["deduplication-cuda12"], marker = "extra == 'math-cuda12'" },
     { name = "nemo-curator", extras = ["deduplication-cuda12"], marker = "extra == 'text-cuda12'" },
