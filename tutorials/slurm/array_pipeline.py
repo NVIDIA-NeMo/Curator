@@ -20,6 +20,7 @@ Refer to the README for more details.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import os
 import random
 import time
@@ -82,8 +83,9 @@ RAY_START_ATTEMPTS = 5
 def _build_isolated_ray_client() -> RayClient:
     """Build a RayClient that can share a node with other array tasks.
 
-    Each array task has its own SLURM_JOB_ID, so it gets its own Ray temp dir. CPUs are capped at the
-    task's allocation, and the dashboard is disabled to avoid extra contended ports.
+    Each array task has its own SLURM_JOB_ID, so it gets its own Ray temp dir, and CPUs are capped at the
+    task's allocation. ``include_dashboard=False`` only skips the Prometheus/Grafana integration; Ray's own
+    dashboard still starts.
     """
     cpus = os.environ.get("SLURM_CPUS_PER_TASK")
     return RayClient(
@@ -93,18 +95,31 @@ def _build_isolated_ray_client() -> RayClient:
     )
 
 
-def _start_ray_with_retries(ray_client: RayClient | SlurmRayClient) -> None:
-    """Start Ray, retrying with a random delay if tasks on the same node race for the same ports.
+def _start_ray(*, multi_node: bool) -> RayClient | SlurmRayClient:
+    """Start Ray and return the running client.
 
-    The multi-node SlurmRayClient is not retried here: its worker nodes block inside start().
+    Single-node tasks retry with a random delay when tasks on the same node race for the same ports. Each
+    attempt uses a new RayClient because ``RayClient.start()`` overwrites its default ports with the free ports
+    it found, and a reused client would then insist on a port another task may have taken. The multi-node
+    SlurmRayClient is not retried: its worker nodes block inside ``start()``.
     """
-    if isinstance(ray_client, SlurmRayClient):
-        ray_client.start()
-        return
-    for attempt in range(1, RAY_START_ATTEMPTS + 1):
+    if multi_node:
+        client = SlurmRayClient()
         try:
-            ray_client.start()
+            client.start()
+        except Exception:
+            if is_slurm_array_driver_process():
+                client.stop()
+            raise
+        return client
+
+    for attempt in range(1, RAY_START_ATTEMPTS + 1):
+        client = _build_isolated_ray_client()
+        try:
+            client.start()
         except Exception as e:
+            with contextlib.suppress(Exception):
+                client.stop()
             if attempt == RAY_START_ATTEMPTS:
                 raise
             delay = random.uniform(1, 10)  # noqa: S311
@@ -113,7 +128,9 @@ def _start_ray_with_retries(ray_client: RayClient | SlurmRayClient) -> None:
             )
             time.sleep(delay)
         else:
-            return
+            return client
+    msg = "unreachable"
+    raise AssertionError(msg)
 
 
 def main() -> None:
@@ -155,8 +172,6 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    ray_client = SlurmRayClient() if args.slurm else _build_isolated_ray_client()
-
     pipeline = build_pipeline(
         args.input_dir,
         args.input_file_type,
@@ -166,14 +181,15 @@ def main() -> None:
     )
     logger.info(f"\n{pipeline.describe()}")
 
+    ray_client = None
     try:
-        _start_ray_with_retries(ray_client)
+        ray_client = _start_ray(multi_node=args.slurm)
         pipeline.run(checkpoint_path=args.checkpoint_path)
     except Exception as e:
         logger.error(f"Error running pipeline; shard remains incomplete: {e}")
         raise
     finally:
-        if is_slurm_array_driver_process():
+        if ray_client is not None and is_slurm_array_driver_process():
             ray_client.stop()
 
 

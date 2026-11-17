@@ -27,7 +27,6 @@ from nemo_curator.backends.failed_task_markers import (
     failed_task_runtime_env_vars,
     record_failed_tasks,
 )
-from nemo_curator.backends.slurm_array import SLURM_ARRAY_SHARD_INDEX_ENV_VAR
 
 
 class TestFailedTaskManifest:
@@ -135,9 +134,19 @@ class TestFailedTaskManifest:
         monkeypatch.delenv(FAILED_TASKS_DIR_ENV_VAR)
         assert failed_task_runtime_env_vars() == {}
 
-    def test_record_failed_tasks_in_slurm_array_run_without_directory_raises(self, monkeypatch: MonkeyPatch) -> None:
+    @pytest.mark.parametrize(
+        "array_env",
+        [
+            {"NEMO_CURATOR_SLURM_ARRAY_SHARD_INDEX": "3", "NEMO_CURATOR_SLURM_ARRAY_TOTAL_SHARDS": "4"},
+            {"SLURM_ARRAY_TASK_ID": "3", "SLURM_ARRAY_TASK_COUNT": "4"},
+        ],
+    )
+    def test_record_failed_tasks_in_slurm_array_run_without_directory_raises(
+        self, monkeypatch: MonkeyPatch, array_env: dict[str, str]
+    ) -> None:
         monkeypatch.delenv(FAILED_TASKS_DIR_ENV_VAR, raising=False)
-        monkeypatch.setenv(SLURM_ARRAY_SHARD_INDEX_ENV_VAR, "3")
+        for key, value in array_env.items():
+            monkeypatch.setenv(key, value)
 
         with pytest.raises(RuntimeError, match="cannot be recorded"):
             record_failed_tasks()
