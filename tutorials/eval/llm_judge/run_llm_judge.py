@@ -111,9 +111,11 @@ def _preflight_errors(args: argparse.Namespace) -> list[str]:
     for stage in config.get("execution", {}).get("stages", []):
         for judge in stage.get("judges", []):
             name = judge.get("name")
-            alias = judge.get("model_alias")
-            if alias is not None and str(alias) not in aliases:
-                errors.append(f"Judge {name!r}: unknown model_alias {str(alias)!r} (configured: {sorted(aliases)}).")
+            # Omitting model_alias selects the first model; an explicit value (including null) is looked up as str().
+            if "model_alias" in judge and str(judge["model_alias"]) not in aliases:
+                errors.append(
+                    f"Judge {name!r}: unknown model_alias {str(judge['model_alias'])!r} (configured: {sorted(aliases)})."
+                )
             if not judge.get("prompt_path"):
                 errors.append(f"Judge {name!r}: prompt_path is required and must not be empty.")
             for key in ("prompt_path", "system_prompt_path"):  # only system_prompt_path is optional

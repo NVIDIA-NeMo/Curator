@@ -186,6 +186,8 @@ num_replicas * tensor_parallel_size
 
 The example disables Qwen thinking with `extra_body.chat_template_kwargs.enable_thinking: false`. This setting prevents private deliberation from consuming the completion budget needed for structured JSON. Remove the setting when the selected model does not support it. Do not lower `max_model_len` below the rendered prompt plus the requested completion budget. The Jinja character limits do not automatically adapt to this setting.
 
+The supplied extraction-quality judge sets `with_trace: last_message`, which records only the model's reply. Step 4 asks you to inspect the rendered evidence, which only the `all_messages` trace includes. For the calibration run, change the extraction-quality judge (`qwen3_8_27b_text_extraction_judgment`) to `with_trace: all_messages`; use `last_message` for reply-only debugging afterward, or remove `with_trace` when traces are no longer needed. Full traces duplicate prompt content in the output, so avoid them on large runs.
+
 Do not change the Jinja field names for this tutorial. They match the dataset created in step 1. When adapting the workflow to another task, use the [`llm-judge-config` authoring skill](/main/curate-text/process-data/quality-assessment/llm-judge#create-configuration-files-with-the-authoring-skill) to design new YAML and Jinja files from the actual input schema.
 
 ## 3. Run the Judge Workflow
