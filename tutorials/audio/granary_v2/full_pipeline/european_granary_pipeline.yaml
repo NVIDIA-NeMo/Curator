@@ -97,10 +97,12 @@ stages:
         trust_remote_code: true
         enable_prefix_caching: true
         prefix_caching_hash_algo: xxhash
-        # Keep vision slots enabled to avoid vLLM meta DeepStack buffers at startup.
+        # Keep the image slot so the vision tower still loads (avoids vLLM meta DeepStack buffers at startup).
+        # No video slot: vLLM 0.22 then profiles the encoder cache with a video item, and Qwen3-Omni's video
+        # encoder fails with "cu_seqlens_q must be on CUDA". With only an image slot it profiles an image item.
         limit_mm_per_prompt:
           image: 1
-          video: 1
+          video: 0
           audio: 2
         seed: 1234
       sampling_kwargs:
