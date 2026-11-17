@@ -153,7 +153,6 @@ stages:
     sample_rate_key: sample_rate
     keep_waveform: true
     name: QwenASR_recovery
-    run_only_if_hallucinated: ${recovery_only_if_hallucinated}
     skip_if_output_exists: true
     adapter_target: nemo_curator.models.asr.qwen_asr.QwenASRAdapter
     model_id: ${recovery_model_id}
@@ -175,7 +174,6 @@ stages:
     sample_rate_key: sample_rate
     keep_waveform: true
     name: Whisper_recovery
-    run_only_if_hallucinated: ${recovery_only_if_hallucinated}
     skip_if_output_exists: true
     adapter_target: nemo_curator.models.asr.faster_whisper.FasterWhisperASR
     supported_language_codes: [pl, cs, ro, hu, el, fi, da, sv]
@@ -194,7 +192,6 @@ stages:
     sample_rate_key: sample_rate
     keep_waveform: true
     name: ParakeetV3_recovery
-    run_only_if_hallucinated: ${recovery_only_if_hallucinated}
     skip_if_output_exists: true
     adapter_target: nemo_curator.models.asr.nemo_asr.NeMoASRAdapter
     supported_language_codes: [lt, lv, hr, et, bg, sk, sl, mt, uk]

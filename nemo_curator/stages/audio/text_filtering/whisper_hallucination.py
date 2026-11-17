@@ -25,7 +25,6 @@ from typing import Any
 from loguru import logger
 
 from nemo_curator.stages.audio.text_filtering.scriptio_continua import is_scriptio_continua
-from nemo_curator.stages.audio.utils import is_hallucination_flagged
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -75,9 +74,7 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
     from some other filter is never clobbered. Setting ``overwrite=True`` turns
     the stage into a re-check that can also *clear* a previous hallucination
     flag when a second-pass transcript now looks clean, which is how an ASR
-    recovery pass promotes its result. With ``run_only_if_hallucinated=True``,
-    rows without a ``Hallucination`` skip flag pass through unchanged, without
-    requiring the secondary transcript.
+    recovery pass promotes its result.
 
     ``recovery_value`` is a caller-selected note written only when
     ``overwrite=True`` clears an existing hallucination flag. For example,
@@ -107,7 +104,6 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
     text_key: str = "pred_text"
     skip_me_key: str = "_skipme"
     notes_key: str = "additional_notes"
-    run_only_if_hallucinated: bool = False
     overwrite: bool = False
     recovery_value: str = ""
     name: str = "WhisperHallucination"
@@ -148,14 +144,6 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], [self.text_key, self.duration_key]
-
-    def _bypass(self, task: AudioTask) -> bool:
-        return self.run_only_if_hallucinated and not is_hallucination_flagged(task.data, self.skip_me_key)
-
-    def input_spec_for_task(self, task: AudioTask) -> tuple[list[str], list[str]]:
-        if self._bypass(task):
-            return [], []
-        return super().input_spec_for_task(task)
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.skip_me_key, self.notes_key]
@@ -202,8 +190,6 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
         return is_scriptio_continua(task.data.get(self.language_key))
 
     def process(self, task: AudioTask) -> AudioTask:
-        if self._bypass(task):
-            return task
         current_flag = str(task.data.setdefault(self.skip_me_key, ""))
         if not self.overwrite and current_flag:
             self._set_note(task.data, "skipped (flagged)")

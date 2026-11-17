@@ -1153,17 +1153,23 @@ shutdown diagnostics despite complete outputs and normal process exits.
 
 ---
 
-## Granary Full English Pipeline Benchmark
+## Granary Full Pipeline Benchmarks
 
-`scripts/audio_granary_full_english_benchmark.py` runs the whole
-[en_granary_pipeline.yaml](../tutorials/audio/granary_v2/full_pipeline/en_granary_pipeline.yaml)
-graph on Ray Data: recordings to Opus speech clips and metadata, Qwen3-Omni transcription with
-Qwen3-ASR recovery, then nine text operations on a managed Dynamo server. It starts that server
-the way the tutorial's `main.py` does and times only the pipeline run; Ray and server start-up
-are reported separately as `inference_server_startup_s`. Like the Indic ASR and audio text
-benchmarks, it has no entries or enablement overlay in the standard nightly matrix.
+One script per pipeline runs the whole graph of the tutorial's own YAML on Ray Data, read directly from
+`tutorials/audio/granary_v2/full_pipeline`: recordings to Opus speech clips and metadata, ASR with recovery,
+then nine text operations on a managed Dynamo server.
 
-Build the `curator-granary-full` image and prepare models and a recordings manifest as in the
+| Script | YAML | Output | Image |
+| --- | --- | --- | --- |
+| `scripts/audio_granary_full_english_benchmark.py` | [en_granary_pipeline.yaml](../tutorials/audio/granary_v2/full_pipeline/en_granary_pipeline.yaml) | `english.jsonl` | `curator-granary-full` |
+| `scripts/audio_granary_full_european_benchmark.py` | [european_granary_pipeline.yaml](../tutorials/audio/granary_v2/full_pipeline/european_granary_pipeline.yaml) | `european.jsonl` | `curator-granary-full` |
+| `scripts/audio_granary_full_indic_benchmark.py` | [indic_granary_pipeline.yaml](../tutorials/audio/granary_v2/full_pipeline/indic_granary_pipeline.yaml) | `indic.jsonl` | `curator-granary-indic` |
+
+Each starts that server the way the tutorial's `main.py` does and times only the pipeline run; Ray and
+server start-up are reported separately as `inference_server_startup_s`. Like the Indic ASR and audio
+text benchmarks, they have no entries or enablement overlay in the standard nightly matrix.
+
+Build the image from the table and prepare models and a recordings manifest as in the
 [full pipeline README](../tutorials/audio/granary_v2/full_pipeline/README.md), then run from the
 repository root inside that image on the sixteen-GPU node (the YAML's default allocation):
 
@@ -1174,11 +1180,11 @@ python benchmarking/scripts/audio_granary_full_english_benchmark.py \
   --model-dir=/models \
   --cache-root=/cache/compilation
 # fewer GPUs: --override=ray_client.num_gpus=8 --override=inference_server.models.0.num_replicas=2
-# recovery only on flagged rows (default: every row): --override=recovery_only_if_hallucinated=true
 ```
 
-The benchmark fails if no English clip is produced, if an output row is missing from
-`metadata.jsonl`, or if an unflagged row has an empty `best_prediction`. Metrics include
+The command above is for English; the European and Indic scripts take the same arguments. A benchmark
+fails if no clip is produced, if an output row is missing from `metadata.jsonl` or its `source_lang` is
+outside the languages the YAML keeps, or if an unflagged row has an empty `best_prediction`. Metrics include
 `time_taken_s`, `num_output_rows`, `num_flagged_rows`, `total_audio_duration_hours` and
 `throughput_audio_hours_per_hour`. Throughput is not accuracy: review transcripts separately.
 

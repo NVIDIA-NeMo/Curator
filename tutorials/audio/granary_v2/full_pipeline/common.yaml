@@ -18,9 +18,6 @@ language_key: source_lang
 regex_yaml: tutorials/audio/granary_v2/full_pipeline/regex.yaml
 
 backend: ray_data
-# false: recovery ASR runs on every row, as the reference pipeline does (the high_quality filter compares the primary
-# and recovery predictions of every row); true: only on rows the primary hallucination check flagged, which saves GPU time.
-recovery_only_if_hallucinated: false
 batch_size: 128
 num_workers: 12
 max_concurrent_requests: 256
@@ -268,7 +265,6 @@ shared:
   whisper_hallucination_asr:
     _target_: nemo_curator.stages.audio.text_filtering.WhisperHallucinationStage
     name: WhisperHallucination_asr
-    run_only_if_hallucinated: ${recovery_only_if_hallucinated}
     common_hall_file: tutorials/audio/whisper_hallucination/phrases.txt
     text_key: fallback_model_prediction
     language_key: source_lang

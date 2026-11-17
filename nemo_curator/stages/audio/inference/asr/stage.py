@@ -45,7 +45,6 @@ from nemo_curator.stages.audio.model_input_segmentation import (
     plan_audio_segments,
     resolve_max_model_input_duration,
 )
-from nemo_curator.stages.audio.utils import is_hallucination_flagged
 from nemo_curator.stages.resources import Resources
 
 if TYPE_CHECKING:
@@ -142,9 +141,6 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
     into adapter calls bounded by ``max_audio_sec_per_actor``. Enabling
     ``local_bucketing`` first orders those segments by duration to reduce GPU
     padding; disabling it preserves their input order.
-
-    ``run_only_if_hallucinated=True`` transcribes only rows whose configured
-    skip flag starts with ``Hallucination``; all other rows pass through unchanged.
     """
 
     # Adapter selection.
@@ -172,7 +168,6 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
     preserve_existing_skip: bool = False
     missing_language_is_unsupported: bool = False
 
-    run_only_if_hallucinated: bool = False
     skip_if_output_exists: bool = False
     fail_on_audio_error: bool = False
 
@@ -330,11 +325,11 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
             ),
         ]
         if self.language_key is not None:
-            if self.skip_if_output_exists or self.run_only_if_hallucinated:
+            if self.skip_if_output_exists:
                 conditional_writes.append(
                     ConditionalWrite(
                         writes=IOSpec(data_keys=[self.language_key]),
-                        condition="the row is transcribed; other rows retain their existing language key if present",
+                        condition="the row is transcribed; reused rows retain their existing language key if present",
                     )
                 )
             else:
@@ -346,14 +341,6 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
                     condition="the adapter returns non-empty metadata for the item",
                 )
             )
-        if self.run_only_if_hallucinated:
-            conditional_writes.append(
-                ConditionalWrite(
-                    writes=IOSpec(data_keys=writes),
-                    condition=f"the row has a Hallucination flag in {self.skip_me_key!r}",
-                )
-            )
-            writes = []  # clean rows pass through without a prediction, so nothing is guaranteed
         return StageContract(
             reads=reads,
             optional_reads=IOSpec(
@@ -450,22 +437,11 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
         msg = f"{type(self).__name__} only supports process_batch"
         raise NotImplementedError(msg)
 
-    def _is_hallucinated(self, task: AudioTask) -> bool:
-        return is_hallucination_flagged(task.data, self.skip_me_key)
-
-    def input_spec_for_task(self, task: AudioTask) -> tuple[list[str], list[str]]:
-        if self.run_only_if_hallucinated and not self._is_hallucinated(task):
-            return [], []
-        return super().input_spec_for_task(task)
-
     def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
         """Run one ASR batch."""
-        eligible_tasks = tasks
-        if self.run_only_if_hallucinated:
-            eligible_tasks = [task for task in tasks if self._is_hallucinated(task)]
-        if len(eligible_tasks) == 0:
-            return tasks
-        tasks_to_process, output_exists_skipped = self._partition_inference_tasks(eligible_tasks)
+        if len(tasks) == 0:
+            return []
+        tasks_to_process, output_exists_skipped = self._partition_inference_tasks(tasks)
 
         for task in tasks_to_process:
             if not self.validate_input(task):
@@ -487,7 +463,7 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
             results,
         )
         if self.waveform_key and not self.keep_waveform:
-            for task in eligible_tasks:
+            for task in tasks:
                 task.data.pop(self.waveform_key, None)
         if output_exists_skipped:
             logger.info(

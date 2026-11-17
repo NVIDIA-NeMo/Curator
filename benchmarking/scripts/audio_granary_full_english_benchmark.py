@@ -27,6 +27,7 @@ import hydra
 from huggingface_hub import snapshot_download
 from hydra import compose, initialize_config_dir
 from loguru import logger
+from omegaconf import DictConfig, OmegaConf
 from utils import write_benchmark_results
 
 from nemo_curator.config.run import (
@@ -44,17 +45,35 @@ def _read_jsonl(path: Path) -> list[dict[str, Any]]:
         return [json.loads(line) for line in f if line.strip()]
 
 
-def _collect_output_metrics(output_dir: Path, num_recordings: int) -> dict[str, float | int]:
+def _pipeline_languages(cfg: DictConfig) -> set[str]:
+    """The languages the YAML's gate keeps (``source_lang`` equal to one of them), read from the YAML itself."""
+    languages: set[str] = set()
+    for stage in OmegaConf.to_container(cfg.stages, resolve=True):
+        if stage["_target_"].endswith(".PreserveByValueStage") and stage.get("input_value_key") == "source_lang":
+            languages.add(stage["target_value"])
+        elif stage["_target_"].endswith(".PreserveByValueConditionsStage"):
+            languages.update(
+                c["target_value"] for c in stage["conditions"] if c.get("input_value_key") == "source_lang"
+            )
+    if not languages:
+        msg = "The pipeline YAML has no source_lang gate to take the language set from"
+        raise ValueError(msg)
+    return languages
+
+
+def _collect_output_metrics(
+    output_dir: Path, num_recordings: int, output_file: str, languages: set[str]
+) -> dict[str, float | int]:
     metadata = _read_jsonl(output_dir / "metadata.jsonl")
-    rows = _read_jsonl(output_dir / "english.jsonl")
+    rows = _read_jsonl(output_dir / output_file)
     if not rows:
-        msg = "No English clips reached the output; inspect metadata.jsonl"
+        msg = f"No clips reached {output_file}; inspect metadata.jsonl"
         raise ValueError(msg)
     metadata_ids = {row["audio_item_id"] for row in metadata}
     flagged = 0
     duration_s = 0.0
     for row in rows:
-        if row["audio_item_id"] not in metadata_ids or row.get("source_lang") != "en":
+        if row["audio_item_id"] not in metadata_ids or row.get("source_lang") not in languages:
             msg = f"Output row does not match the metadata audit: {row['audio_item_id']}"
             raise ValueError(msg)
         if row.get("_skipme"):
@@ -72,7 +91,9 @@ def _collect_output_metrics(output_dir: Path, num_recordings: int) -> dict[str, 
     }
 
 
-def run_audio_granary_full_english_benchmark(
+def run_granary_full_benchmark(  # noqa: PLR0913
+    config_name: str,
+    output_file: str,
     benchmark_results_path: str,
     input_manifest: str,
     model_dir: str,
@@ -86,7 +107,7 @@ def run_audio_granary_full_english_benchmark(
         raise FileExistsError(msg)
     with initialize_config_dir(config_dir=str(_CONFIG_DIR), version_base=None):
         cfg = compose(
-            _CONFIG_NAME,
+            config_name,
             overrides=[
                 f"manifest_path={Path(input_manifest).resolve()}",
                 f"model_dir={model_dir}",
@@ -107,6 +128,7 @@ def run_audio_granary_full_english_benchmark(
         cfg.model_name = str(cfg.model_name)
         server = stack.enter_context(hydra.utils.instantiate(cfg.inference_server))
         cfg.endpoint = server.endpoint
+        languages = _pipeline_languages(cfg)
         startup_s = time.perf_counter() - server_start
 
         pipeline = create_pipeline_from_yaml(cfg, log_config=False)
@@ -115,15 +137,14 @@ def run_audio_granary_full_english_benchmark(
         pipeline.run(executor=create_executor_from_yaml(cfg))
         elapsed = time.perf_counter() - start
 
-    output_metrics = _collect_output_metrics(output_dir, num_recordings)
+    output_metrics = _collect_output_metrics(output_dir, num_recordings, output_file, languages)
     return {
         "params": {
             "input_manifest": str(Path(input_manifest).resolve()),
             "model_dir": model_dir,
-            "config_name": _CONFIG_NAME,
+            "config_name": config_name,
             "overrides": overrides or [],
             "backend": cfg.backend,
-            "recovery_only_if_hallucinated": cfg.recovery_only_if_hallucinated,
         },
         "metrics": {
             "is_success": True,
@@ -136,8 +157,10 @@ def run_audio_granary_full_english_benchmark(
     }
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
+def main(
+    config_name: str = _CONFIG_NAME, output_file: str = "english.jsonl", description: str | None = __doc__
+) -> int:
+    parser = argparse.ArgumentParser(description=description)
     parser.add_argument("--benchmark-results-path", required=True)
     parser.add_argument("--input-manifest", required=True, help="JSONL of recordings: audio_item_id, audio_filepath")
     parser.add_argument("--model-dir", required=True, help="Prepared metadata models directory")
@@ -152,7 +175,9 @@ def main() -> int:
     results: dict[str, Any] = {"params": vars(args), "metrics": {"is_success": False}, "tasks": []}
     try:
         results.update(
-            run_audio_granary_full_english_benchmark(
+            run_granary_full_benchmark(
+                config_name,
+                output_file,
                 args.benchmark_results_path,
                 args.input_manifest,
                 args.model_dir,

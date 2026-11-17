@@ -47,8 +47,7 @@ Indic pipeline keeps.
 **ASR routing.** Each European ASR stage handles only its language group
 (`supported_language_codes`) and skips rows that already have a prediction
 (`skip_if_output_exists`). Recovery stages run on every row, as in the reference pipeline: its `high_quality`
-filter compares the primary and recovery prediction of every row. Pass `recovery_only_if_hallucinated=true` to
-run them only on rows the primary check flagged and save GPU time. A stage that
+filter compares the primary and recovery prediction of every row. A stage that
 does not support a row's language adds the audit note `skipped (unsupported language: xx)` under its
 own name in `additional_notes`; the stage that does support the language replaces any such
 prediction-key note, so selection sees only the model that ran.

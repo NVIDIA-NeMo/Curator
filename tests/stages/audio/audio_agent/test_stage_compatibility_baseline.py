@@ -95,9 +95,8 @@ ADDITIVE_STAGE_NAMES = (
 # an intentional compatibility change; it must never conceal an unexplained one.
 # This surface includes adapter-backed VAD/diarization, conservative IO gates,
 # and the additive resampling/timestamp parameters shipped with those stages.
-# It also includes ASRStage's opt-in ``run_only_if_hallucinated`` (default ``False``).
 EXPECTED_LEGACY_COMPATIBILITY_SHA256 = (
-    "b96dc0d33e375415d5cc08189f56d2038b8a805f8501e0d870e4452fbb3bf586"  # pragma: allowlist secret
+    "f834c4c69829f0fcd92036cb56b49d19b2d39189200de8b49aa95a12f2e78e9b"  # pragma: allowlist secret
 )
 
 
