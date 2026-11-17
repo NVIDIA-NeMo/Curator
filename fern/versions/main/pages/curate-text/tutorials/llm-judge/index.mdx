@@ -317,6 +317,8 @@ filters:
     value: 4
 ```
 
+This filter works because `content_fidelity` has only numeric options. If you add your own score, do not mix numeric and label options in it (for example `1` through `5` plus `unresolved`): scores can come back as strings in some output partitions, and a numeric filter then silently drops those rows. Put "unresolved" in a separate label score instead.
+
 Write this filtered run to a new output directory. Because the configuration changed, also use a new checkpoint directory rather than reusing the checkpoint from the unfiltered run.
 
 ## 7. Optionally Compare Two Judge Models

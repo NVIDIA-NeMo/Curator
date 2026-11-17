@@ -174,7 +174,7 @@ Each entry under a stage's `judges:` list is one LLM call per input row, regardl
 
 `alias` is the name judges use to select a served model. `model` is the model identifier or local weights path. `served_model_name` is the API name exposed by Dynamo/vLLM and is useful when it differs from the local path.
 
-Each judge needs a unique `name`, a `prompt_path`, and one or more rubric scores. Score option keys may be numeric or string labels, such as `unclear`. Use bare keys for intentional numeric outputs. Quote string labels that YAML would otherwise coerce to another type, such as `"yes"`, `"no"`, `"true"`, `"false"`, `"on"`, `"off"`, and `"null"`. A judge may omit `model_alias` to use the first configured model.
+Each judge needs a unique `name`, a `prompt_path`, and one or more rubric scores. Score option keys may be numeric or string labels, such as `unclear`. Use bare keys for intentional numeric outputs. Quote string labels that YAML would otherwise coerce to another type, such as `"yes"`, `"no"`, `"true"`, `"false"`, `"on"`, `"off"`, and `"null"`. Do not mix numeric and label options in one score (for example `1` through `5` plus `unresolved`): scores can come back as strings in some output partitions, and a numeric filter such as `gte 4` then silently drops those rows. Keep a numeric score purely numeric and put "unresolved" in a separate label score. A judge may omit `model_alias` to use the first configured model.
 
 The bundled Qwen example disables thinking through `inference_parameters.extra_body.chat_template_kwargs.enable_thinking`. Keep that setting for Qwen structured judging; remove it for providers that do not support it.
 
@@ -238,7 +238,7 @@ filters:
     value: 4
 ```
 
-The example supports `eq`, `ne`, `gt`, `gte`, `lt`, `lte`, `in`, and `not_in`. Multiple filters use AND semantics. Top-level filters are placed immediately after the stage that produces their judge column; a filter can also be placed under a specific execution stage when you deliberately need it later. Before Ray or the model server starts, the runner checks that every filter refers to a configured judge column and score.
+The example supports `eq`, `ne`, `gt`, `gte`, `lt`, `lte`, `in`, and `not_in`. Multiple filters use AND semantics. A row whose score has a type incompatible with the filter `value` (for example the string `"4"` against `gte 4`) is dropped without a warning, so keep each filtered score to one option type. Top-level filters are placed immediately after the stage that produces their judge column; a filter can also be placed under a specific execution stage when you deliberately need it later. Before Ray or the model server starts, the runner checks that every filter refers to a configured judge column and score.
 
 ## Analyzing results
 
@@ -288,6 +288,15 @@ Read the run logs after every run to see how many rows were dropped. A row whose
 Start with a manually reviewed calibration sample. Confirm rendered prompts, structured results, and context lengths before increasing concurrency. For a model that fits on one GPU, begin with one replica and modest `max_parallel_requests`; increase requests gradually only after checking for context-length errors, malformed outputs, and GPU memory pressure. Add replicas when additional GPUs are available and the workload is large enough to use them.
 
 Before trusting the rubric, poke it with counterfactuals: take a row with a score you already trust, swap the candidates, rename a source field, reformat without changing content, or splice in a sentence that reads like an instruction. Change one variable per fixture. A score that moves when the thing it's supposed to measure didn't change is a prompt or rubric weakness — cheaper to catch on one hand-picked row than to find as noise across a full run.
+
+If the server stops during startup because the host ran out of RAM (compiler processes OOM-killed), the cause can be vLLM's startup kernel compilation, which runs many parallel compiler processes that each use several GB of host RAM. This was seen on a host with many CPU cores and limited RAM; it is not needed on every machine. If you hit it, cap the compile parallelism with `MAX_JOBS` under `dynamo_server.subprocess_env`, sized so the number of jobs times roughly 6 GB fits comfortably in host RAM:
+
+```yaml
+dynamo_server:
+  subprocess_env:
+    DYN_SYSTEM_PORT: "0"
+    MAX_JOBS: "8"
+```
 
 `max_model_len` limits total request context, while `max_tokens` limits only the completion. Increasing `max_model_len` consumes KV-cache capacity; it does not make oversized raw documents safe. `max_num_seqs` should be at least the intended in-flight load, but increasing it by itself does not improve throughput.
 

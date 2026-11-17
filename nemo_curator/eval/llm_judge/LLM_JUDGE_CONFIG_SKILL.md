@@ -105,7 +105,10 @@ labels that YAML would otherwise coerce to another type, such as `"yes"`,
 `"no"`, `"true"`, `"false"`, `"on"`, `"off"`, and `"null"`, so
 `yaml.safe_load` does not convert them to booleans or null. Keep one score's
 option values deliberately typed and stable — downstream filters and
-analysis scripts compare against them.
+analysis scripts compare against them. Never mix numeric and label options in
+one score (e.g. `1`..`5` plus `unresolved`): scores can come back as strings
+in some output partitions, and a numeric filter such as `gte 4` then silently
+drops those rows (a `TypeError` in the comparison is treated as "no match").
 
 ## Writing the Jinja prompt
 
@@ -161,8 +164,11 @@ the listed option values, and cap reasoning length (e.g. "at most 30 words").
 - Each option value is a one-sentence anchor shown to the model — keep
   anchors mutually exclusive and ordered if the scale is ordinal.
 - If the rubric can legitimately face insufficient/ambiguous evidence, add
-  an explicit escape hatch (e.g. `unresolved: ...`) plus a system-prompt
-  instruction to use it rather than guess.
+  an explicit escape hatch plus a system-prompt instruction to use it rather
+  than guess. For a label score, make it an option (e.g. `unresolved: ...`).
+  For a numeric score, do not add a label option to it — add a separate
+  label score (e.g. `evidence` with `sufficient` / `insufficient`) so each
+  score keeps a single option type.
 - `reasoning` is included automatically — don't add a redundant
   "explain your answer" score.
 - After renaming a score/judge, check `filters:` — a stale reference fails
