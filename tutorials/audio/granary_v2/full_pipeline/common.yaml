@@ -18,8 +18,9 @@ language_key: source_lang
 regex_yaml: tutorials/audio/granary_v2/full_pipeline/regex.yaml
 
 backend: ray_data
-# true: recovery ASR runs only on rows the primary hallucination check flagged; false: on every row, as the reference does.
-recovery_only_if_hallucinated: true
+# false: recovery ASR runs on every row, as the reference pipeline does (the high_quality filter compares the primary
+# and recovery predictions of every row); true: only on rows the primary hallucination check flagged, which saves GPU time.
+recovery_only_if_hallucinated: false
 batch_size: 128
 num_workers: 12
 max_concurrent_requests: 256

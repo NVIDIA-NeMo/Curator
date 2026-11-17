@@ -1174,7 +1174,7 @@ python benchmarking/scripts/audio_granary_full_english_benchmark.py \
   --model-dir=/models \
   --cache-root=/cache/compilation
 # fewer GPUs: --override=ray_client.num_gpus=8 --override=inference_server.models.0.num_replicas=2
-# recovery on every row: --override=recovery_only_if_hallucinated=false
+# recovery only on flagged rows (default: every row): --override=recovery_only_if_hallucinated=true
 ```
 
 The benchmark fails if no English clip is produced, if an output row is missing from
