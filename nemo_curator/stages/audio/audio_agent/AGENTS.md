@@ -59,7 +59,7 @@ module named 'cosmos_xenna'` before it can diagnose anything — `doctor` cannot
 itself. Create the environment first, once:
 
 ```bash
-uv sync --extra audio_cuda12   # --extra audio_cpu if there is no GPU
+uv sync --extra audio_cuda13   # --extra audio_cpu if there is no GPU
 ```
 
 All verbs print JSON. The host runs them with the interpreter that owns the Curator

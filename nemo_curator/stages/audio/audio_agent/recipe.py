@@ -494,7 +494,7 @@ def build_stages(recipe: Recipe) -> tuple[list[ProcessingStage] | None, list[dic
                     "stage_index": idx,
                     "stage": s.ref,
                     "message": f"{s.ref!r} is not a registered agent-ready audio stage in this environment",
-                    "fix": "check the name via discover(), or install the extra that provides it (audio_cpu/audio_cuda12)",
+                    "fix": "check the name via discover(), or install the extra that provides it (audio_cpu/audio_cuda13)",
                 }
             )
             continue

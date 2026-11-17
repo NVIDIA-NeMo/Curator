@@ -86,7 +86,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
         --default-index https://pypi.org/simple \
         --constraints /tmp/security.txt --overrides /tmp/shared-overrides.txt \
         --overrides /tmp/trt-llm.txt --requirements /tmp/trt-llm.txt \
-        --editable '.[audio_cuda12]' --group dev --group test --group linting \
+        --editable '.[audio_cuda13]' --group dev --group test --group linting \
     && uv pip uninstall --python /opt/venv/bin/python opencv-python-headless \
     && rm /tmp/security.txt /tmp/shared-overrides.txt /tmp/trt-llm.txt \
     && find /opt/venv -type d -path '*/site-packages/ray/jars' -prune -exec rm -rf {} + \
