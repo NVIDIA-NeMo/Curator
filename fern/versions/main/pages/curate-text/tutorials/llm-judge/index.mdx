@@ -222,7 +222,7 @@ JsonlReader
   -> JsonlWriter
 ```
 
-If you enable a workflow FastText language gate, it is inserted after `JsonlReader` and before the first Data Designer stage. If you enable a score filter, it is inserted directly after the stage that creates the referenced judge column, not deferred until after both judges.
+If you enable a workflow FastText language gate, it is inserted after `JsonlReader` and before the first Data Designer stage. If you enable a score filter, it is inserted directly after the stage that creates the referenced judge column, not deferred until after both judges. Do not enable both together if the language gate could empty an entire input file: the empty batch reaches the score filter without the judge's column and the run can fail with no output.
 
 There are no active score filters in the supplied YAML. The workflow therefore does not intentionally remove rows based on the three rubrics. NeMo Data Designer can still reject rows whose model response does not satisfy the structured output contract, so compare input and output counts.
 

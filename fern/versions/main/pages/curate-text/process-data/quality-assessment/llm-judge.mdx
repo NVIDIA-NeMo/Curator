@@ -286,6 +286,8 @@ The optional FastText gate runs before any judge. It is useful when the input co
 
 <Note>
 If a language or score filter removes every row from one partition, a downstream `DataDesignerStage` passes that empty batch through without calling `DataDesigner.preview()` or sending judge requests. It records zero input, output, timing, and token metrics for that batch, while non-empty partitions continue through the pipeline normally.
+
+The empty batch is passed through unchanged, so it does not contain the judge's output column. A score filter placed after that judge requires the column, so combining a language gate with a score filter can fail the run when the gate empties a whole partition (for example, a non-English input file). If you use both, make sure the language gate cannot empty an entire input file, for example by splitting the input so each file is mostly in the target language. Otherwise, leave `filters:` out of the YAML and apply the score threshold when you analyze the output.
 </Note>
 
 #### 6. Execute the Pipeline and Always Stop Inference

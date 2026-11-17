@@ -302,4 +302,4 @@ dynamo_server:
 
 The bundled examples set `max_model_len` to the judge model's actual max context length. vLLM would infer that value on its own if the key were omitted; it's spelled out explicitly as a reminder to size prompt truncation (the Jinja character caps) to fit within it.
 
-For the optional FastText language gate, provide `--language`, `--fasttext-langid-model-path`, and optionally `--min-langid-score` and `--language-text-field`. Omitting `--language` skips the stage and does not require FastText.
+For the optional FastText language gate, provide `--language`, `--fasttext-langid-model-path`, and optionally `--min-langid-score` and `--language-text-field`. Omitting `--language` skips the stage and does not require FastText. Do not combine the language gate with a `filters:` score filter if the gate could empty an entire input file (for example, a non-English file): the empty batch reaches the score filter without the judge's column and the run can fail with no output. Split the input so each file is mostly in the target language, or leave `filters:` out and apply the score threshold when you analyze the output.
