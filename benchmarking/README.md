@@ -1174,7 +1174,7 @@ server start-up are reported separately as `inference_server_startup_s`. Like th
 text benchmarks, they have no entries or enablement overlay in the standard nightly matrix.
 
 For the European Qwen3-Omni script, `prepare_audio_granary_italian_data.py` stages the open Italian FLEURS test split
-(Hugging Face `google/fleurs`, `it_it`, CC-BY-4.0, revision `70bb2e84`): 865 recordings, 3.52 hours, about 780 MB, as
+(Hugging Face `google/fleurs`, `it_it`, CC-BY-4.0, revision `70bb2e84`): 865 recordings, 3.52 hours, about 810 MB, as
 `{datasets_path}/audio_granary_full_italian_fleurs_test_3p5h_70bb2e84/manifest.jsonl` (name = pipeline, source, split,
 hours, revision). It is not part of the nightly data setup.
 
