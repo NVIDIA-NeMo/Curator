@@ -22,10 +22,8 @@ flowchart TD
     D --> E[Write Opus clips + metadata.jsonl]
     E --> F[Keep this pipeline's languages]
     F --> G[Resample clips + primary ASR]
-    G --> R{Primary hallucination flagged?}
-    R -->|Yes| S[Recovery ASR + recheck]
-    S --> H[Selection + cleanup]
-    R -->|No| H
+    G --> R[Recovery ASR + recheck on every row]
+    R --> H[Selection + cleanup]
     H --> I[Nine text operations on the Dynamo server]
     I --> L[english / european / indic .jsonl]
 ```

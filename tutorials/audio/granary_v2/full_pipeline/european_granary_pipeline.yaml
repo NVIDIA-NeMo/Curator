@@ -108,28 +108,7 @@ stages:
         temperature: 0.0
         top_k: 1
         repetition_penalty: 1.0
-      prompt_text: |-
-        You receive an audio file.
-
-        Goal: To transcribe the audio, normalize numbers into words, and include any disfluencies that are present in the audio.
-
-        TRANSCRIPTION RULES:
-        1) Normalize numeric expressions into words exactly as they are SPOKEN in the audio.
-        - Mixed format is forbidden:
-            Bad: "5 percent", "2 zeros"
-            Good: "five percent", "two zeros"
-        - Normalize: percentages, currencies, units, ranges, decimals, dates/years — ONLY if they are spoken.
-        - If a unit (for example “percent”) is NOT spoken, do not add it.
-        2) Include any disfluencies present in the audio.
-        - Disfluencies as "um", "uh" that are present in the audio should be added to the text.
-        - If a word is repeated in the audio, include every repetition in the text.
-
-        ENTITIES (names, places, brands, titles, etc.):
-        - Keep every named entity as spoken. This includes names, places, brands, titles, acronyms, and other proper nouns.
-
-        OUTPUT FORMAT:
-        - Return only the final text.
-        - No explanations, no JSON, no lists.
+      prompt_text: ${prompts.omni_asr}
 
   - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
     waveform_key: waveform
