@@ -25,16 +25,12 @@ nemo_curator/stages/text/classifiers/ @sarahyurick @praateekmahajan @VibhuJawa
 tests/stages/text/classifiers/ @sarahyurick @praateekmahajan @VibhuJawa
 
 # Backends
-nemo_curator/backends/ @oyilmaz-nvidia @praateekmahajan @abhinavg4 @ayushdg
-tests/backends/ @oyilmaz-nvidia @praateekmahajan @abhinavg4 @ayushdg
+nemo_curator/backends/ @praateekmahajan @ayushdg
+tests/backends/ @praateekmahajan @ayushdg
 
-# Synthetic Data Generation (SDG)
-nemo_curator/stages/synthetic/ @huvunvidia
-tests/stages/synthetic/ @huvunvidia
-
-# Video
-nemo_curator/stages/video/ @suiyoubi @abhinavg4
-tests/stages/video/ @suiyoubi @abhinavg4
+# Audio
+nemo_curator/stages/audio/ @mohammadaaftabv @shubhamNvidia
+tests/stages/audio/ @mohammadaaftabv @shubhamNvidia
 
 # Benchmarking
 benchmarking/ @rlratzel @praateekmahajan @sarahyurick @ayushdg
