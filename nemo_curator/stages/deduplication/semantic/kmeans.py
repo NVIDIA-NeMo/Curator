@@ -27,7 +27,7 @@ import pylibcudf as plc
 from cudf.utils import ioutils
 from loguru import logger
 
-from nemo_curator.backends.base import WorkerMetadata
+from nemo_curator.backends.base import Backend, WorkerMetadata
 from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.deduplication.io_utils import DeduplicationIO
@@ -59,6 +59,8 @@ def validate_embedding_output_dtype(embedding_output_dtype: object) -> None:
 
 class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], DeduplicationIO):
     """KMeans clustering stage that requires RAFT for distributed processing."""
+
+    supported_backends = frozenset({Backend.RAY_ACTOR_POOL})
 
     def __init__(  # noqa: PLR0913
         self,

@@ -22,7 +22,7 @@ from loguru import logger
 from ray.util.actor_pool import ActorPool
 from tqdm import tqdm
 
-from nemo_curator.backends.base import BaseExecutor
+from nemo_curator.backends.base import Backend, BaseExecutor
 from nemo_curator.backends.utils import (
     RayStageSpecKeys,
     execute_setup_on_node,
@@ -78,6 +78,8 @@ class RayActorPoolExecutor(BaseExecutor):
     3. Lets Ray handle object ownership and garbage collection automatically
     4. Provides better backpressure management through ActorPool
     """
+
+    backend = Backend.RAY_ACTOR_POOL
 
     def __init__(
         self,
