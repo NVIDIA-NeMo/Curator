@@ -12,8 +12,6 @@ recovery_model_id: Qwen/Qwen3-ASR-0.6B
 recovery_model_revision: 5eb144179a02acc5e5ba31e748d22b0cf3e303b0  # pragma: allowlist secret
 endpoint: ???
 text_key: abbreviated_text
-# Use the selected clip prediction, never an inherited parent-recording transcript.
-ground_truth_key: best_prediction
 language_key: source_lang
 regex_yaml: tutorials/audio/granary_v2/full_pipeline/regex.yaml
 
@@ -111,13 +109,6 @@ shared:
     target_nchannels: 1
     keep_waveform_in_task: true
     write_to_disk: false
-
-  mono_conversion_stage:
-    _target_: nemo_curator.stages.audio.preprocessing.MonoConversionStage
-    input_residency: waveform
-    output_sample_rate: 16000
-    waveform_key: waveform
-    sample_rate_key: sample_rate
 
   inference_sortformer_stage:
     _target_: nemo_curator.stages.audio.inference.speaker_diarization.stage.InferenceSortformerStage
@@ -301,34 +292,12 @@ shared:
     source_lang_key: source_lang
     default_language: en
 
-  # 2. Recover named entities.
-  recover_entities:
-    <<: *text_stage
-    name: RecoverEntities
-    prompt: ${prompts.recover_entities}
-    text_key: ${text_key}
-    output_text_key: entity_recovered_text
-    validation_mode: none
-    min_word_retention_ratio: 0.3
-    generation_config:
-      max_tokens: 1024
-      temperature: 0.0
-      top_p: 1.0
-      seed: 0
-      extra_kwargs:
-        extra_body:
-          chat_template_kwargs:
-            enable_thinking: false
-    mode: recover_entities
-    user_prompt: ${prompts.recover_entities_user}
-    ground_truth_key: ${ground_truth_key}
-
-  # 3. Restore punctuation and capitalization.
+  # 2. Restore punctuation and capitalization.
   pn_c_restoration:
     <<: *text_stage
     name: PnCRestoration
     prompt: ${prompts.pnc_restoration}
-    text_key: entity_recovered_text
+    text_key: ${text_key}
     output_text_key: pnc_text
     validation_mode: itn
     min_word_retention_ratio: 0.3
@@ -342,7 +311,7 @@ shared:
           chat_template_kwargs:
             enable_thinking: false
 
-  # 4. Predict and verify the transcript language.
+  # 3. Predict and verify the transcript language.
   language_i_d:
     <<: *text_stage
     name: LanguageID
@@ -354,7 +323,7 @@ shared:
     generation_config: *text_generation
     mode: language_id
 
-  # 5. Normalize written text to spoken form.
+  # 4. Normalize written text to spoken form.
   text_normalization:
     <<: *text_stage
     name: TextNormalization
@@ -365,7 +334,7 @@ shared:
     min_word_retention_ratio: 0.3
     generation_config: *text_generation
 
-  # 6. Run captioning, code switching, and speech QA concurrently.
+  # 5. Run captioning, code switching, and speech QA concurrently.
   fused_text_l_l_m:
     <<: *text_stage
     name: FusedTextLLM
@@ -395,7 +364,7 @@ shared:
         language_rules: null
         prompt: ${prompts.speech_qa}
 
-  # 7. Restore written-form numbers, dates, and other expressions.
+  # 6. Restore written-form numbers, dates, and other expressions.
   i_t_n_restoration:
     <<: *text_stage
     name: ITNRestoration
@@ -406,7 +375,7 @@ shared:
     min_word_retention_ratio: 0.3
     generation_config: *text_generation
 
-  # 8. Remove disfluencies.
+  # 7. Remove disfluencies.
   disfluency_removal:
     <<: *text_stage
     name: DisfluencyRemoval
@@ -417,7 +386,7 @@ shared:
     min_word_retention_ratio: 0.5
     generation_config: *text_generation
 
-  # 9. Write the enriched audio manifest.
+  # 8. Write the enriched audio manifest.
   manifest_writer_stage:
     _target_: nemo_curator.stages.audio.ManifestWriterStage
     output_path: ${output_path}

@@ -93,7 +93,6 @@ def _collect_output_metrics(
 
 def run_granary_full_benchmark(  # noqa: PLR0913
     config_name: str,
-    output_file: str,
     benchmark_results_path: str,
     input_manifest: str,
     model_dir: str,
@@ -116,6 +115,7 @@ def run_granary_full_benchmark(  # noqa: PLR0913
                 *(overrides or []),
             ],
         )
+    output_file = Path(cfg.output_path).name
     num_recordings = len(_read_jsonl(Path(input_manifest)))
 
     with ExitStack() as stack:
@@ -157,9 +157,7 @@ def run_granary_full_benchmark(  # noqa: PLR0913
     }
 
 
-def main(
-    config_name: str = _CONFIG_NAME, output_file: str = "english.jsonl", description: str | None = __doc__
-) -> int:
+def main(config_name: str = _CONFIG_NAME, description: str | None = __doc__) -> int:
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument("--benchmark-results-path", required=True)
     parser.add_argument("--input-manifest", required=True, help="JSONL of recordings: audio_item_id, audio_filepath")
@@ -177,7 +175,6 @@ def main(
         results.update(
             run_granary_full_benchmark(
                 config_name,
-                output_file,
                 args.benchmark_results_path,
                 args.input_manifest,
                 args.model_dir,

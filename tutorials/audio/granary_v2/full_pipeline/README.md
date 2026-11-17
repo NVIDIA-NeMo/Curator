@@ -1,16 +1,19 @@
 # Granary v2 full pipelines
 
 Turn recordings into speech clips with metadata, ASR transcripts and enriched text in one Ray Data
-cluster. One entrypoint, [main.py](main.py), runs one of three pipelines, chosen with `--config-name`:
+cluster. One entrypoint, [main.py](main.py), runs one of five pipelines, chosen with `--config-name`:
 
 | Pipeline | Languages | Language ID | ASR (primary → recovery) | Image |
 | --- | --- | --- | --- | --- |
 | [en_granary_pipeline.yaml](en_granary_pipeline.yaml) | English | SpeechBrain + Whisper | Qwen3-Omni → Qwen3-ASR | [Dockerfile](Dockerfile) |
-| [european_granary_pipeline.yaml](european_granary_pipeline.yaml) | 24 European languages | SpeechBrain + Whisper | Qwen3-Omni → Qwen3-ASR (`de es fr it pt ru nl`); Parakeet-v3 → Whisper (`pl cs ro hu el fi da sv`); Whisper → Parakeet-v3 (`lt lv hr et bg sk sl mt uk`) | [Dockerfile](Dockerfile) |
+| [european_qwen_omni_granary_pipeline.yaml](european_qwen_omni_granary_pipeline.yaml) | `de es fr it pt ru nl` | SpeechBrain + Whisper | Qwen3-Omni → Qwen3-ASR | [Dockerfile](Dockerfile) |
+| [european_parakeet_v3_granary_pipeline.yaml](european_parakeet_v3_granary_pipeline.yaml) | `pl cs ro hu el fi da sv` | SpeechBrain + Whisper | Parakeet-v3 → Whisper | [Dockerfile](Dockerfile) |
+| [european_whisper_granary_pipeline.yaml](european_whisper_granary_pipeline.yaml) | `lt lv hr et bg sk sl mt uk` | SpeechBrain + Whisper | Whisper → Parakeet-v3 | [Dockerfile](Dockerfile) |
 | [indic_granary_pipeline.yaml](indic_granary_pipeline.yaml) | 22 Indic languages | SpeechBrain + Indic Canary + Whisper | Indic Canary (TensorRT-LLM) → Parakeet-Riva (`hi`) or IndicConformer (other languages) | [Dockerfile.trt_llm_granary](Dockerfile.trt_llm_granary) |
 
-The language groups and model pairs follow the production Granary v2 routing. The stages around
-the ASR step are identical in all three pipelines, so they and the shared settings live once in
+The language groups and model pairs follow the production Granary v2 routing, where each European routing
+group is its own run with one primary and one recovery model. The stages around
+the ASR step are identical in all five pipelines, so they and the shared settings live once in
 [common.yaml](common.yaml); each pipeline YAML adds only its language ID, ASR stages and output file.
 They differ only where the table does:
 
@@ -24,8 +27,8 @@ flowchart TD
     F --> G[Resample clips + primary ASR]
     G --> R[Recovery ASR + recheck on every row]
     R --> H[Selection + cleanup]
-    H --> I[Nine text operations on the Dynamo server]
-    I --> L[english / european / indic .jsonl]
+    H --> I[Eight text operations on the Dynamo server]
+    I --> L[english / european_* / indic .jsonl]
 ```
 
 The metadata audit keeps non-matching, rejected and no-speech rows in `metadata.jsonl`; only clips
@@ -44,13 +47,10 @@ needs SpeechBrain and Whisper to agree, and Indic languages need Indic Canary to
 English and European pipelines therefore drop the Canary stage and its TensorRT-LLM engine, which the
 Indic pipeline keeps.
 
-**ASR routing.** Each European ASR stage handles only its language group
-(`supported_language_codes`) and skips rows that already have a prediction
-(`skip_if_output_exists`). Recovery stages run on every row, as in the reference pipeline: its `high_quality`
-filter compares the primary and recovery prediction of every row. A stage that
-does not support a row's language adds the audit note `skipped (unsupported language: xx)` under its
-own name in `additional_notes`; the stage that does support the language replaces any such
-prediction-key note, so selection sees only the model that ran.
+**European routing.** Each European YAML is one routing group of the reference. Its gate keeps only that
+group's languages, so run the three YAMLs separately on the same recordings; rows of the other groups stay
+in `metadata.jsonl` only. Recovery stages run on every row, as in the reference pipeline: its `high_quality`
+filter compares the primary and recovery prediction of every row.
 
 Use `backend=ray_data` (the default here). Curator raises an error for GPU stages under Xenna while the managed inference server is active.
 
@@ -138,13 +138,14 @@ docker run --rm --gpus all --ipc=host \
   output_dir=/output/run cache_root=/cache/compilation
 ```
 
-Use `--config-name european_granary_pipeline` with the same image, or `--config-name
+Use `--config-name european_qwen_omni_granary_pipeline`, `european_parakeet_v3_granary_pipeline` or
+`european_whisper_granary_pipeline` with the same image, or `--config-name
 indic_granary_pipeline` with `curator-granary-indic`. For fewer GPUs, override
 `ray_client.num_gpus`, `ray_client.num_cpus` and `inference_server.models.0.num_replicas`.
 
 The entrypoint starts one Ray cluster, downloads the pinned text model snapshot and enters the YAML's
 `InferenceServer` context. Dynamo handles placement, readiness and routing; the pipeline starts after
-the endpoint is ready and reuses it for all nine text operations. On completion or failure the
+the endpoint is ready and reuses it for all eight text operations. On completion or failure the
 entrypoint closes the server before Ray. Model downloads and worker environment setup can take
 several minutes on first use.
 
@@ -155,7 +156,7 @@ several minutes on first use.
 | Path | Contents |
 | --- | --- |
 | `metadata.jsonl` | All metadata results, including rejected, other-language and no-speech audit rows |
-| `english.jsonl`, `european.jsonl` or `indic.jsonl` | Selected clips with primary/recovery predictions, selection source, enriched text and rejection notes |
+| `english.jsonl`, `european_<group>.jsonl` or `indic.jsonl` | Selected clips with primary/recovery predictions, selection source, enriched text and rejection notes |
 | `audio/` | Opus clips for all speech segments |
 | `rttm/` | Recording-level speaker turns |
 | `speechbrain_cache/` | Language-model loading cache |
@@ -180,7 +181,7 @@ assert len(actual) == len(final) == len(expected)
 assert actual.keys() == expected.keys()
 fields = (
     'primary_model_prediction', 'best_prediction',
-    'abbreviated_text', 'entity_recovered_text',
+    'abbreviated_text',
     'pnc_text', 'llm_language_prediction', 'tn_raw', 'captioning_text',
     'code_switched_text', 'speech_qa_text', 'itn_raw', 'itn_clean',
 )
@@ -202,8 +203,9 @@ assert final, 'No clips selected; inspect metadata language/VAD notes'
 PY
 ```
 
-For the other pipelines pass `european.jsonl` or `indic.jsonl` and the matching comma-separated
-language codes (for example `de,es,fr,it,pt,ru,nl,pl,cs,ro,hu,el,fi,da,sv,lt,lv,hr,et,bg,sk,sl,mt,uk`).
+For the other pipelines pass `european_qwen_omni.jsonl`, `european_parakeet_v3.jsonl`, `european_whisper.jsonl` or
+`indic.jsonl` and the matching comma-separated language codes (for example `de,es,fr,it,pt,ru,nl` for
+`european_qwen_omni.jsonl`).
 
 Empty output can reflect no speech, language rejection or the wrong pipeline for the input; inspect
 `metadata.jsonl` before changing settings. Nonempty fields and successful requests do not establish

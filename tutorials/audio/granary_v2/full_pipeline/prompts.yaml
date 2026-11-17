@@ -1,22 +1,6 @@
 # Prompts for the text operations and the Qwen3-Omni ASR stages, referenced as ${prompts.<name>}.
 # Placeholders such as {language}, {language_rules} and {text} are filled in by AudioTextLLMStage.
 prompts:
-  recover_entities: "You are given TWO transcriptions of the same audio clip:\n\n- INITIAL: Initial reference with named entity spelling/casing.\n\
-    - NORMALIZED: Normalized transcription.\n\nYour task:\n\n1. In the INITIAL text, identify ONLY proper-noun named entities\
-    \ made of letters/words only (no digits): people, places, organizations, companies, products, brands, and acronyms/initialisms.\
-    \ \n\n2. If a candidate contains any digit (0-9), it is NOT an entity and must be excluded.\n\n3. Titles/honorifics\
-    \ are NOT entities and must be excluded.\n\n4. For each remaining entity, locate its match in the NORMALIZED text and\
-    \ substitute it with the INITIAL spelling/casing. Change ONLY the entity itself — leave all normalization untouched:\
-    \ keep numbers, dates, times, money, units, and titles in their written form.\n\n\nReturn ONLY the resulting NORMALIZED\
-    \ text. No explanations, labels, or extra formatting."
-
-  recover_entities_user: |-
-    INITIAL:
-    "{ground_truth}"
-
-    NORMALIZED:
-    "{normalized}"
-
   pnc_restoration: |-
     Add punctuation and capitalization to the raw ASR transcription in {language} below. That is the ONLY change you are allowed to make.
     Raw ASR transcription in {language}:

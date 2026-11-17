@@ -27,7 +27,6 @@ regex_yaml: tutorials/audio/granary_v2/indic_asr/regex.yaml
 stages:
   - ${shared.manifest_reader}
   - ${shared.resample_audio_stage}
-  - ${shared.mono_conversion_stage}
   - ${shared.inference_sortformer_stage}
   - ${shared.v_a_d_segmentation_stage}
   - ${shared.s_e_d_inference_stage}
@@ -109,7 +108,6 @@ stages:
     condition_logic: or
     missing_value_policy: drop
   - ${shared.resample_english_clip}
-  - ${shared.mono_conversion_stage}
 
   - _target_: nemo_curator.stages.audio.inference.indic_canary.InferenceIndicCanaryStage
     keep_waveform: true
@@ -186,7 +184,6 @@ stages:
   - ${shared.drop_clip_waveform}
   - ${shared.regex_substitution_stage}
   - ${shared.abbreviation_concat_stage}
-  - ${shared.recover_entities}
   - ${shared.pn_c_restoration}
   - ${shared.language_i_d}
   - ${shared.text_normalization}

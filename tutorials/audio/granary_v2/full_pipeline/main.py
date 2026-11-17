@@ -3,8 +3,8 @@
 
 """Run a combined audio/text granary pipeline on Ray Data with managed serving.
 
-Pick the pipeline with ``--config-name`` (en_granary_pipeline, european_granary_pipeline or
-indic_granary_pipeline); see README.md.
+Pick the pipeline with ``--config-name`` (en_granary_pipeline, european_qwen_omni_granary_pipeline,
+european_parakeet_v3_granary_pipeline, european_whisper_granary_pipeline or indic_granary_pipeline); see README.md.
 """
 
 import os

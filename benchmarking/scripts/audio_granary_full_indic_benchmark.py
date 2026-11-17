@@ -17,4 +17,4 @@
 from audio_granary_full_english_benchmark import main
 
 if __name__ == "__main__":
-    raise SystemExit(main("indic_granary_pipeline", "indic.jsonl", __doc__))
+    raise SystemExit(main("indic_granary_pipeline", __doc__))

@@ -1157,12 +1157,14 @@ shutdown diagnostics despite complete outputs and normal process exits.
 
 One script per pipeline runs the whole graph of the tutorial's own YAML on Ray Data, read directly from
 `tutorials/audio/granary_v2/full_pipeline`: recordings to Opus speech clips and metadata, ASR with recovery,
-then nine text operations on a managed Dynamo server.
+then eight text operations on a managed Dynamo server.
 
 | Script | YAML | Output | Image |
 | --- | --- | --- | --- |
 | `scripts/audio_granary_full_english_benchmark.py` | [en_granary_pipeline.yaml](../tutorials/audio/granary_v2/full_pipeline/en_granary_pipeline.yaml) | `english.jsonl` | `curator-granary-full` |
-| `scripts/audio_granary_full_european_benchmark.py` | [european_granary_pipeline.yaml](../tutorials/audio/granary_v2/full_pipeline/european_granary_pipeline.yaml) | `european.jsonl` | `curator-granary-full` |
+| `scripts/audio_granary_full_european_qwen_omni_benchmark.py` | [european_qwen_omni_granary_pipeline.yaml](../tutorials/audio/granary_v2/full_pipeline/european_qwen_omni_granary_pipeline.yaml) | `european_qwen_omni.jsonl` | `curator-granary-full` |
+| `scripts/audio_granary_full_european_parakeet_v3_benchmark.py` | [european_parakeet_v3_granary_pipeline.yaml](../tutorials/audio/granary_v2/full_pipeline/european_parakeet_v3_granary_pipeline.yaml) | `european_parakeet_v3.jsonl` | `curator-granary-full` |
+| `scripts/audio_granary_full_european_whisper_benchmark.py` | [european_whisper_granary_pipeline.yaml](../tutorials/audio/granary_v2/full_pipeline/european_whisper_granary_pipeline.yaml) | `european_whisper.jsonl` | `curator-granary-full` |
 | `scripts/audio_granary_full_indic_benchmark.py` | [indic_granary_pipeline.yaml](../tutorials/audio/granary_v2/full_pipeline/indic_granary_pipeline.yaml) | `indic.jsonl` | `curator-granary-indic` |
 
 Each starts that server the way the tutorial's `main.py` does and times only the pipeline run; Ray and
@@ -1182,7 +1184,7 @@ python benchmarking/scripts/audio_granary_full_english_benchmark.py \
 # fewer GPUs: --override=ray_client.num_gpus=8 --override=inference_server.models.0.num_replicas=2
 ```
 
-The command above is for English; the European and Indic scripts take the same arguments. A benchmark
+The command above is for English; the three European and the Indic scripts take the same arguments. A benchmark
 fails if no clip is produced, if an output row is missing from `metadata.jsonl` or its `source_lang` is
 outside the languages the YAML keeps, or if an unflagged row has an empty `best_prediction`. Metrics include
 `time_taken_s`, `num_output_rows`, `num_flagged_rows`, `total_audio_duration_hours` and

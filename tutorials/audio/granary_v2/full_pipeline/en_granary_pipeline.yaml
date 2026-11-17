@@ -25,7 +25,6 @@ output_path: ${output_dir}/english.jsonl
 stages:
   - ${shared.manifest_reader}
   - ${shared.resample_audio_stage}
-  - ${shared.mono_conversion_stage}
   - ${shared.inference_sortformer_stage}
   - ${shared.v_a_d_segmentation_stage}
   - ${shared.s_e_d_inference_stage}
@@ -111,7 +110,6 @@ stages:
   - ${shared.drop_clip_waveform}
   - ${shared.regex_substitution_stage}
   - ${shared.abbreviation_concat_stage}
-  - ${shared.recover_entities}
   - ${shared.pn_c_restoration}
   - ${shared.language_i_d}
   - ${shared.text_normalization}

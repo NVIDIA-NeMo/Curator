@@ -12,9 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Benchmark the Granary v2 full European pipeline (recordings to enriched transcripts) on Ray Data."""
+"""Benchmark the Granary v2 full European pipeline for the Parakeet-v3 + Whisper language group on Ray Data."""
 
 from audio_granary_full_english_benchmark import main
 
 if __name__ == "__main__":
-    raise SystemExit(main("european_granary_pipeline", "european.jsonl", __doc__))
+    raise SystemExit(main("european_parakeet_v3_granary_pipeline", __doc__))
