@@ -1,0 +1,43 @@
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+version: 2
+registries:
+  vllm-cu130:
+    type: python-index
+    url: https://wheels.vllm.ai/0.22.0/cu130
+updates:
+  - package-ecosystem: "uv"
+    directory: "/"
+    registries:
+      - vllm-cu130
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "08:00"
+      timezone: "Etc/UTC"
+    # Keep dependency declarations and coordinated CUDA/PyTorch pins unchanged.
+    versioning-strategy: "lockfile-only"
+    cooldown:
+      default-days: 7
+      semver-major-days: 30
+      semver-minor-days: 14
+      semver-patch-days: 7
+    groups:
+      weekly-dependencies:
+        applies-to: version-updates
+        patterns:
+          - "*"
+    allow:
+      - dependency-type: "all"
