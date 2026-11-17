@@ -886,6 +886,50 @@ entries:
       - metric: throughput_docs_per_sec
         min_value: 70000
 
+  - name: fasttext_language_xenna
+    enabled: true
+    script: fasttext_filter_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --output-path={session_entry_dir}/scratch/output
+      --executor=xenna
+      --input-path={dataset:commoncrawl,jsonl}
+      --dataset-size-gb=300
+      --yaml-config={curator_repo_dir}/nemo_curator/config/text/fasttext_filter_pipeline.yaml
+      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
+      --fasttext-quality-model-path={dataset:fasttext_quality_model,bin}
+      --filter-mode=language
+    timeout_s: 1200
+    ray:
+      num_gpus: 0
+    requirements:
+      - metric: num_input_documents
+        exact_value: 71270771
+      - metric: throughput_docs_per_sec
+        min_value: 70000
+
+  - name: fasttext_quality_xenna
+    enabled: true
+    script: fasttext_filter_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --output-path={session_entry_dir}/scratch/output
+      --executor=xenna
+      --input-path={dataset:commoncrawl,jsonl}
+      --dataset-size-gb=300
+      --yaml-config={curator_repo_dir}/nemo_curator/config/text/fasttext_filter_pipeline.yaml
+      --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
+      --fasttext-quality-model-path={dataset:fasttext_quality_model,bin}
+      --filter-mode=quality
+    timeout_s: 1200
+    ray:
+      num_gpus: 0
+    requirements:
+      - metric: num_input_documents
+        exact_value: 71270771
+      - metric: throughput_docs_per_sec
+        min_value: 70000
+
   - name: modifier_raydata
     enabled: true
     script: modifier_benchmark.py

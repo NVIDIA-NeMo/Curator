@@ -1352,8 +1352,18 @@ counters around their configured filters and retain their existing recipes.
 Fully rejected batches still contribute their input documents and UTF-8 bytes;
 their output counts and bytes are zero. `num_rejected_documents` is the difference
 between input and output counts. Parameters include the resolved YAML settings.
-The FastText result remains a combined language-plus-quality measurement: neither
-its elapsed time nor throughput is attributed to either filter independently.
+The default FastText result remains a combined language-plus-quality measurement:
+neither its elapsed time nor throughput is attributed to either filter independently.
+`--filter-mode=language` or `--filter-mode=quality` selects exactly one existing
+FastText filter from that recipe, retaining its settings and the reader/writer.
+Unrecognized intermediate stages are rejected rather than silently omitted.
+`fasttext_language_xenna` and `fasttext_quality_xenna` measure these standalone
+pipelines on the same 300 GiB file-cap workload. The language recipe retains
+confidence >= 0.3 with no requested language; it is not English-only selection.
+The quality recipe retains label `__label__hq`, Pareto alpha 3 and seed 42.
+Its sampling means output counts need not be identical across actor schedules.
+Standalone timings include reading, measurement, one filter and writing; they
+are independent workloads, not a connected language-then-quality execution.
 
 The removal benchmark similarly records explicit input/output counts and text
 bytes around removal, `num_removed_documents` as their count difference, and
