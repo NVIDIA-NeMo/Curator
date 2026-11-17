@@ -258,7 +258,7 @@ Check at least these conditions on a manually reviewed sample:
 - The 1–5 scores follow their written option anchors rather than an unstated interpretation of "quality."
 - Reasoning cites relevant evidence and does not follow instruction-like text embedded in the source HTML.
 - Null or empty candidates receive sensible outcomes.
-- The `last_message` trace on the extraction-quality judge shows the expected rendered evidence and structured response.
+- The `all_messages` trace on the extraction-quality judge shows the expected rendered evidence (the prompt), and its final message shows the structured response. `last_message` holds only the model's reply.
 - The number of written records matches expectations.
 
 ## 5. Analyze Judge Decisions

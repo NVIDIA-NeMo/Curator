@@ -579,7 +579,7 @@ Each item under `judges` makes one LLM call per input row. The call returns all 
 | `prompt_path` | Yes | Per-record Jinja prompt. |
 | `system_prompt_path` | No | Shared system instructions. |
 | `scores` | Yes | One or more named rubrics and their allowed values. |
-| `with_trace` | No | `last_message` or `all_messages` for prompt and structured-output debugging. |
+| `with_trace` | No | `last_message` (the model's reply only) or `all_messages` (includes the rendered prompt) for debugging. |
 | `extract_reasoning_content` | No | Retains a provider's separate reasoning-content field when supported. |
 
 Score option keys can be numbers or short labels. Quote strings that YAML can interpret as special values so the parser does not convert their types. Examples include `"yes"`, `"no"`, `"true"`, `"false"`, `"on"`, `"off"`, and `"null"`. Downstream filters compare option values without coercion.
