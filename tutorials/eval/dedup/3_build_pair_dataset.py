@@ -160,6 +160,10 @@ def _parse_args() -> argparse.Namespace:
 def main() -> None:  # noqa: C901, PLR0912, PLR0915
     args = _parse_args()
     cache_dir = Path(args.cache_dir)
+    output_dir = Path(args.output_path)
+    if output_dir.exists() and any(output_dir.iterdir()):
+        msg = f"{output_dir} is not empty. Point --output-path at a new directory or delete it first."
+        raise RuntimeError(msg)
 
     id_generator_path = str(Path(args.fuzzy_output_dir) / ID_GENERATOR_OUTPUT_FILENAME)
     logger.info(f"Re-reading corpus from {args.input_path} with ids replayed from {id_generator_path}...")
@@ -169,6 +173,8 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
         "input_path": args.input_path,
         "input_filetype": args.input_filetype,
         "input_blocksize": args.input_blocksize,
+        "text_field": args.text_field,
+        "url_field": args.url_field,
     }
 
     cached_metadata = json.loads(metadata_file.read_text(encoding="utf-8")) if metadata_file.exists() else None
@@ -245,7 +251,6 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
     )
     logger.info(f"Loaded {len(removed_ids)} ids fuzzy dedup marked for removal.")
 
-    output_dir = Path(args.output_path)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     if args.pair_strategy == "cross_group_sample":

@@ -11,7 +11,7 @@
 # full reasoning the model is asked to follow.
 #
 # The model is not shown raw text_a/text_b directly -- pair.jinja renders the semantic_diff span
-# packet built by 4_span_alignment.py's build_semantic_diff() instead: a deterministic
+# packet built by SpanChunkingStage in 4_span_alignment.py instead: a deterministic
 # SHARED/A_ONLY/B_ONLY lexical alignment with stable span IDs, so a short conflicting value (an
 # id, price, date) in otherwise-identical text is surfaced explicitly rather than left for the
 # model to notice unaided. semantic_diff also flags truncated pairs; the rubric's unresolved/low
@@ -32,7 +32,7 @@ models:
           setup_timeout_seconds: 1800
       engine_kwargs:
         tensor_parallel_size: 1
-        max_model_len: 32768  # size prompt truncation (pair.jinja) to fit this
+        max_model_len: 32768  # 4_span_alignment.py --max-visible-chars sizes the prompt to fit this
         max_num_seqs: 64
         gpu_memory_utilization: 0.92
         enable_prefix_caching: true
