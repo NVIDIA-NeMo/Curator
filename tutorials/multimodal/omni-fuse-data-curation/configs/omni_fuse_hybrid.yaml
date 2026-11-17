@@ -60,8 +60,6 @@ parallelism:
   eee_workers: 1
   sns_gpus_per_worker: 0.5
   eee_gpus_per_worker: 1.0
-  autoscale_interval_s: 10
-  logging_interval_s: 60
 
 projection:
   device: "auto"

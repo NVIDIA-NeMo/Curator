@@ -72,15 +72,10 @@ class _ModelStage(_Stage):
     def num_workers(self) -> int | None:
         return self.workers
 
-    def xenna_stage_spec(self) -> dict[str, Any]:
-        return {"slots_per_actor": 1}
-
     def _output_dir(self, metadata: dict[str, Any], step: str) -> Path:
         directory = self.config.run_dir / step
         if not self.sharded:
             return directory
-        if not isinstance(metadata.get("shard_index"), int):
-            raise ValueError(f"Sharded {self.name} tasks require integer shard_index metadata")
         directory = directory / "shards" / f"{metadata['shard_index']:05d}"
         metadata[f"{step}_shard_dir"] = str(directory)
         return directory
@@ -112,11 +107,12 @@ class SNSStage(_ModelStage):
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], ["sns_annotation", "sns_raw_text"]
 
-    def process(self, task: DocumentBatch) -> DocumentBatch:
-        if self._engine is None:
-            from omnifuse_tutorial.sns import SNS
+    def setup(self, _worker: Any = None) -> None:
+        from omnifuse_tutorial.sns import SNS
 
-            self._engine = SNS(self.config)
+        self._engine = SNS(self.config)
+
+    def process(self, task: DocumentBatch) -> DocumentBatch:
         results = [self._engine.process_record(record) for record in task_records(task)]
         metadata = dict(task._metadata)
         manifest = write_jsonl(self._output_dir(metadata, "sns") / "manifest.jsonl", [row for _, row in results])
@@ -130,11 +126,12 @@ class EEEEmbeddingStage(_ModelStage):
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], ["pair_id", "sns_annotation", "modality"]
 
-    def process(self, task: DocumentBatch) -> DocumentBatch:
-        if self._engine is None:
-            from omnifuse_tutorial.eee import EEEBackend
+    def setup(self, _worker: Any = None) -> None:
+        from omnifuse_tutorial.eee import EEEBackend
 
-            self._engine = EEEBackend(self.config.eee, self.config.runtime)
+        self._engine = EEEBackend(self.config.eee, self.config.runtime)
+
+    def process(self, task: DocumentBatch) -> DocumentBatch:
         records, errors, metadata = task_records(task), [], dict(task._metadata)
         experts = list(self.config.eee.experts)
         embeddings = {

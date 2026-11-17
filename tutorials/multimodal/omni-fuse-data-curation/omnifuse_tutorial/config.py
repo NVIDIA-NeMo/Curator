@@ -173,18 +173,11 @@ class ParallelismConfig:
     eee_workers: int = 1
     sns_gpus_per_worker: float = 1.0
     eee_gpus_per_worker: float = 1.0
-    autoscale_interval_s: int = 10
-    logging_interval_s: int = 60
 
     def __post_init__(self) -> None:
-        names = ("records_per_shard", "sns_workers", "eee_workers", "autoscale_interval_s", "logging_interval_s")
-        _at_least_one("parallelism", self, *names)
+        _at_least_one("parallelism", self, "records_per_shard", "sns_workers", "eee_workers")
         if self.sns_gpus_per_worker <= 0 or self.eee_gpus_per_worker <= 0:
             raise ValueError("parallelism GPU allocations must be greater than 0")
-
-    @property
-    def required_gpus(self) -> float:
-        return self.sns_workers * self.sns_gpus_per_worker + self.eee_workers * self.eee_gpus_per_worker
 
 
 @dataclass

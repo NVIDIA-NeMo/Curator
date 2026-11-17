@@ -20,6 +20,7 @@ import argparse
 import json
 from typing import TYPE_CHECKING, Any
 
+from nemo_curator.backends.ray_data import RayDataExecutor
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.tasks import EmptyTask
 
@@ -78,7 +79,6 @@ def validate_inputs(config: ExperimentConfig) -> dict[str, Any]:
             "records_per_shard": parallel.records_per_shard,
             "sns_workers": parallel.sns_workers,
             "eee_workers": parallel.eee_workers,
-            "required_gpus": parallel.required_gpus,
         },
     }
 
@@ -110,7 +110,7 @@ def run_datablend(config: ExperimentConfig) -> dict[str, Any]:
 def _run(config: ExperimentConfig, step: str, stages: list[Any], initial_task: Any) -> Any:
     name = f"{config.experiment_id}-{step}"
     tasks = Pipeline(name=name, description=f"Omni-Fuse tutorial step: {name}", stages=stages).run(
-        initial_tasks=[initial_task]
+        executor=RayDataExecutor(), initial_tasks=[initial_task]
     )
     if not tasks:
         raise RuntimeError(f"Curator pipeline {name} produced no output tasks")

@@ -124,11 +124,7 @@ def _torch_device(config: ProjectionConfig) -> tuple[Any, int]:
         if config.device == "cuda":
             raise RuntimeError("Projection requested CUDA, but no CUDA device is visible")
         return torch.device("cpu"), 0
-    if torch.cuda.device_count() < config.num_gpus:
-        raise RuntimeError(
-            f"Projection requested {config.num_gpus} GPUs, but only {torch.cuda.device_count()} are visible"
-        )
-    return torch.device("cuda:0"), config.num_gpus
+    return torch.device("cuda:0"), min(config.num_gpus, torch.cuda.device_count())
 
 
 def _contrastive_loss(projected: Any, anchors: Any, temperature: float) -> Any:
