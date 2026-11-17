@@ -123,7 +123,12 @@ Xenna deployment needs its Ray dashboard/state API; that is not a requirement
 of this Actor Pool example.
 Workers receive the fully resolved planning configuration before the selected
 meeting count and isolated execution paths are set. A setting such as
-`seed: ${n_meetings}` therefore keeps its planned value during one-request smoke.
+`seed: ${n_meetings}` is resolved at planning time. Each native batch then derives
+its execution seed from that base value, the job identity and the smallest
+selected meeting ordinal. Disjoint batches of one job have different seeds
+even when process IDs repeat. Input bytes are
+hashed once per worker and each native job is admitted once; file versions and
+the worker lock guard the immutable snapshot before and after every batch.
 Frozen YAML and worker temporary files stay below each run's output directory,
 including when the caller's `TMPDIR` points into a native input tree.
 

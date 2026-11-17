@@ -17,8 +17,8 @@
 One manifest row requests exactly one complete mixed meeting. Planning expands
 native YAML counts without generating audio. Execution groups compatible rows
 and calls the native bulk recipe once per group, capped at the selected count.
-All acoustic settings remain native; count, output/cache paths, CPU allocation
-and reference-export flags are the documented adapter-owned execution settings.
+Acoustic settings remain native; count, batch seed, output/cache paths, CPU
+allocation and reference-export flags are adapter-owned execution settings.
 
 The initial adapter supports local, already aligned embedded MonoCuts without
 lazy transforms, noise, RIR generation, forced-alignment splitting or transition fitting. These
@@ -40,6 +40,7 @@ import json
 import math
 import os
 import re
+import stat
 import sys
 import time
 from collections import Counter, defaultdict
@@ -71,6 +72,15 @@ _MAX_EXPORTED_SPEAKER_BYTES = 200
 
 def _digest(value: object) -> str:
     return hashlib.sha256(json.dumps(value, sort_keys=True, allow_nan=False).encode()).hexdigest()
+
+
+def _batch_seed(config: dict, request_ids: list[str]) -> int:
+    """Give disjoint batches of one job distinct uint32 seeds, independent of PID/order."""
+    job_id = request_ids[0].rsplit(":", 1)[0]
+    offset = int(_digest([config.get("seed"), job_id])[:8], 16)
+    # A job has at most 100,000 ordinals: shifting them modulo 2**32 is injective.
+    first_index = min(int(request_id.rsplit(":", 1)[1]) for request_id in request_ids)
+    return (offset + first_index) % 2**32
 
 
 def _worker_identity() -> dict:
@@ -251,6 +261,46 @@ class _NativeInputs:
                             digest.update(chunk)
         digest.update(json.dumps(_worker_identity(), sort_keys=True).encode())
         return digest.hexdigest()
+
+    def _input_versions(self) -> dict:
+        """Guard immutable worker inputs without rereading their contents."""
+        versions = {}
+        count = size = 0
+        deadline = time.monotonic() + 60
+
+        def record(path: Path, *, native: bool = True) -> None:
+            nonlocal count, size
+            metadata = path.lstat()
+            if stat.S_ISLNK(metadata.st_mode):
+                msg = "Symlinked native trees are unsupported by meeting requests"
+                raise ValueError(msg)
+            if native and stat.S_ISREG(metadata.st_mode):
+                count += 1
+                size += metadata.st_size
+            if count > _MAX_FILES or size > _MAX_BYTES or time.monotonic() > deadline:
+                msg = "Native inputs exceed the 10,000-file/1-GiB/60-second admission budget"
+                raise ValueError(msg)
+            versions[str(path)] = (
+                metadata.st_dev,
+                metadata.st_ino,
+                metadata.st_mode,
+                metadata.st_size,
+                metadata.st_mtime_ns,
+                metadata.st_ctime_ns,
+            )
+
+        try:
+            for name in ("native_inputs_path", "engine_path", "recipe_path"):
+                root = Path(getattr(self, name))
+                record(root)
+                for current, directories, files in os.walk(root):
+                    for entry in [*directories, *files]:
+                        record(Path(current) / entry)
+            record(Path(self.worker_lock_path), native=False)
+        except OSError as error:
+            msg = "Native dependencies missing or changed; prepare a new worker and request manifest"
+            raise ValueError(msg) from error
+        return versions
 
     def _plan(self, config_path: str, overrides: list[str]) -> dict:
         """Compose native defaults and admit the supported scope without audio I/O."""
@@ -505,6 +555,13 @@ class FastMSSRequestStage(_NativeInputs, AgentReady, ProcessingStage[AudioTask, 
     than introducing undeclared top-level fields. ``request_id_key`` binds one generated
     meeting to one planning request; it is not a source utterance identity.
 
+    Each batch combines the resolved native seed and job identity with its lowest
+    selected ordinal. Disjoint batches of a job therefore have different seeds
+    even when worker PIDs repeat. Input contents
+    are hashed once per worker and each native job is admitted once. File versions
+    (including inode and change time) guard that immutable snapshot before/after
+    subsequent batches; changes require a new worker and planning manifest.
+
     Batch size changes native invocation boundaries and stochastic results; no
     bit-exact equivalence across batches or worker PIDs is claimed. Missing or
     excess meetings fail the batch instead of being counted as filtered requests.
@@ -574,6 +631,31 @@ class FastMSSRequestStage(_NativeInputs, AgentReady, ProcessingStage[AudioTask, 
     def process(self, task: AudioTask) -> AudioTask:
         return self.process_batch([task])[0]
 
+    def setup(self, worker_metadata: object = None) -> None:
+        super().setup(worker_metadata)
+        self._admitted_worker = None
+
+    def teardown(self) -> None:
+        self._admitted_worker = None
+
+    def _assert_unchanged(self, versions: dict) -> None:
+        if self._input_versions() != versions:
+            msg = "Native dependencies changed during execution; prepare a new worker and request manifest"
+            raise ValueError(msg)
+
+    def _worker_inputs(self) -> tuple[str, dict, dict]:
+        worker = getattr(self, "_admitted_worker", None)
+        if worker is None or worker[0] != os.getpid():
+            self._check_worker()
+            versions = self._input_versions()
+            identity = self._identity()
+            self._assert_unchanged(versions)
+            worker = (os.getpid(), identity, versions, {})
+            self._admitted_worker = worker
+        else:
+            self._assert_unchanged(worker[2])
+        return worker[1], worker[2], worker[3]
+
     def _admit_request(self, request: object, identity: str, plans: dict) -> dict:
         if not isinstance(request, dict):
             msg = "Missing meeting request object"
@@ -608,10 +690,9 @@ class FastMSSRequestStage(_NativeInputs, AgentReady, ProcessingStage[AudioTask, 
         if len(tasks) > self.batch_size:
             msg = "Batch exceeds the declared native generation bound"
             raise ValueError(msg)
-        identity = self._identity()
+        identity, versions, plans = self._worker_inputs()
         groups = defaultdict(list)
         seen = set()
-        plans = {}
         for position, task in enumerate(tasks):
             request = self._admit_request(task.data.get(self.request_key), identity, plans)
             if request["request_id"] in seen:
@@ -620,9 +701,14 @@ class FastMSSRequestStage(_NativeInputs, AgentReady, ProcessingStage[AudioTask, 
             seen.add(request["request_id"])
             groups[request["job_id"]].append((position, task, request))
         # Admission of every selected row finishes before any generation writes.
+        self._assert_unchanged(versions)
         outputs = {}
         for group in groups.values():
             request = group[0][2]
+            config = {
+                **request["native_config"],
+                "seed": _batch_seed(request["native_config"], [entry[2]["request_id"] for entry in group]),
+            }
             simulation = FastMSSSimulationStage(
                 output_dir=self.output_dir,
                 fastmss_root=str(Path(self.recipe_path).parent),
@@ -630,7 +716,7 @@ class FastMSSRequestStage(_NativeInputs, AgentReady, ProcessingStage[AudioTask, 
                 max_meetings=len(group),
                 expected_meetings=len(group),
                 expected_duration=request["native_config"]["duration"],
-                planned_config=request["native_config"],
+                planned_config=config,
                 jobs_per_config=self.jobs_per_config,
                 timeout_seconds=self.timeout_seconds,
             )
@@ -664,9 +750,7 @@ class FastMSSRequestStage(_NativeInputs, AgentReady, ProcessingStage[AudioTask, 
                 row._stage_perf = list(parent._stage_perf)
                 row._source_id = parent._source_id
                 outputs[position] = row
-        if self._identity() != identity:
-            msg = "Native dependencies changed during generation; results are not reusable"
-            raise RuntimeError(msg)
+        self._assert_unchanged(versions)
         return [outputs[index] for index in range(len(tasks))]
 
     def describe(self) -> StageContract:

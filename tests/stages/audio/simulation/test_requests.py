@@ -16,6 +16,7 @@
 
 import gzip
 import json
+import os
 import sys
 import wave
 from importlib.metadata import distribution
@@ -32,6 +33,169 @@ from nemo_curator.stages.audio.audio_agent.recipe import Recipe, StageRef, build
 from nemo_curator.stages.audio.simulation import FastMSSRequestStage, FastMSSSimulationStage, write_fastmss_requests
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask, EmptyTask, FileGroupTask, Task
+
+
+def test_disjoint_batches_cover_the_complete_admitted_seed_range_without_collisions() -> None:
+    from nemo_curator.stages.audio.simulation.requests import _batch_seed
+
+    # Truncating a separate hash per selection collided within this admitted job.
+    job_id = "8c44a2a91f18aa3414eff38a5d87d2fd2794ba8a8baf9610aab8a5eca16605ce"
+    seeds = {_batch_seed({"seed": 42}, [f"{job_id}:{index}"]) for index in range(100_000)}
+    assert len(seeds) == 100_000
+    assert min(seeds) >= 0
+    assert max(seeds) < 2**32
+
+
+@pytest.mark.parametrize("budget", ["_MAX_FILES", "_MAX_BYTES"])
+def test_worker_lock_does_not_reduce_the_native_input_admission_budget(
+    native_job: SimpleNamespace, budget: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from nemo_curator.stages.audio.simulation import requests as module
+
+    files = [
+        path
+        for root in (native_job.inputs, native_job.engine, native_job.recipes)
+        for path in root.rglob("*")
+        if path.is_file()
+    ]
+    boundary = len(files) if budget == "_MAX_FILES" else sum(path.stat().st_size for path in files)
+    monkeypatch.setattr(module, budget, boundary)
+    recipe = request_recipe(native_job)
+    task = source_rows(recipe)[0]
+    row = build_stages(recipe)[0][1].process(task)
+    assert row.data.fastmss_request_id == task.data.fastmss_request["request_id"]
+
+
+def test_worker_hashes_inputs_and_plans_each_job_once_across_batches(
+    native_job: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    recipe = request_recipe(native_job)
+    tasks = source_rows(recipe)
+    generator = build_stages(recipe)[0][1]
+    calls = {"identity": 0, "plan": 0}
+    identity, plan = generator._identity, generator._plan
+
+    def count_identity() -> str:
+        calls["identity"] += 1
+        return identity()
+
+    def count_plan(*args: object) -> dict:
+        calls["plan"] += 1
+        return plan(*args)
+
+    monkeypatch.setattr(generator, "_identity", count_identity)
+    monkeypatch.setattr(generator, "_plan", count_plan)
+    generator.setup()
+    for task in tasks:
+        assert generator.process(task).data.fastmss_request_id == task.data.fastmss_request["request_id"]
+    assert calls == {"identity": 1, "plan": 1}
+    generator.teardown()
+    generator.setup()
+    generator.process(tasks[0])
+    assert calls == {"identity": 2, "plan": 2}
+
+
+@pytest.mark.parametrize("target", ["audio", "config", "default", "engine", "cutset", "added", "deleted", "lock"])
+def test_cached_worker_rejects_changed_inputs_before_the_next_batch(native_job: SimpleNamespace, target: str) -> None:
+    recipe = request_recipe(native_job)
+    tasks = source_rows(recipe)
+    generator = build_stages(recipe)[0][1]
+    generator.process(tasks[0])
+    if target == "added":
+        (native_job.inputs / "new-file").touch()
+    elif target == "deleted":
+        native_job.audio.unlink()
+    else:
+        path = {
+            "audio": native_job.audio,
+            "config": native_job.config,
+            "default": native_job.recipes / "default.yaml",
+            "engine": native_job.engine / "__init__.py",
+            "cutset": native_job.inputs / "source_train.jsonl.gz",
+            "lock": Path(roots(native_job)["worker_lock_path"]),
+        }[target]
+        previous = path.stat()
+        content = path.read_bytes()
+        path.write_bytes(bytes([content[0] ^ 1]) + content[1:] if content else b"changed")
+        os.utime(path, ns=(previous.st_atime_ns, previous.st_mtime_ns))
+    with pytest.raises(ValueError, match=r"changed|Stale|missing|Changed"):
+        generator.process(tasks[1])
+    assert len(list((native_job.root / "production").glob("*/effective_config.json"))) == 1
+
+
+def test_native_batches_get_request_bound_seeds_without_changing_the_plan(native_job: SimpleNamespace) -> None:
+    recipe = request_recipe(native_job)
+    tasks = source_rows(recipe)
+    original = json.dumps([task.data.fastmss_request for task in tasks], sort_keys=True)
+
+    def run_batches(directory: str, batches: list[list[AudioTask]]) -> list[int]:
+        generator = FastMSSRequestStage(output_dir=str(native_job.root / directory), **roots(native_job))
+        seeds = []
+        for batch in batches:
+            before = set((native_job.root / directory).glob("*/effective_config.json"))
+            generator.process_batch(batch)
+            paths = set((native_job.root / directory).glob("*/effective_config.json")) - before
+            seeds.append(json.loads(paths.pop().read_text())["seed"])
+        return seeds
+
+    batches = [tasks[:2], tasks[2:]]
+    seeds = run_batches("first", batches)
+    assert seeds[0] != seeds[1]
+    assert all(isinstance(seed, int) and 0 <= seed < 2**32 for seed in seeds)
+    assert run_batches("replayed", [list(reversed(batch)) for batch in batches]) == seeds
+    assert run_batches("reordered", list(reversed(batches))) == list(reversed(seeds))
+    assert json.dumps([task.data.fastmss_request for task in tasks], sort_keys=True) == original
+
+
+def test_real_engine_batches_use_different_random_streams_at_the_same_native_pid(
+    real_native_job: SimpleNamespace,
+) -> None:
+    import subprocess
+
+    job = real_native_job
+    recipe = request_recipe(job)
+    tasks = source_rows(recipe)
+    generator = build_stages(recipe)[0][1]
+    for task in tasks:
+        generator.process(task)
+    configs = [json.loads(path.read_text()) for path in (job.root / "production").glob("*/effective_config.json")]
+    assert len(configs) == 2
+    # Match the native worker's import isolation; tutorial folders may share its package name.
+    program = """
+import json, os, runpy, sys
+import numpy as np
+from lhotse import CutSet
+from omegaconf import OmegaConf
+configs = json.loads(sys.argv[1])
+worker_init = runpy.run_path(sys.argv[2])["_worker_init"]
+cuts = list(CutSet.from_file(sys.argv[3]))
+worker_init.__globals__["_global_spk2cuts"] = {cut.supervisions[0].speaker: [cut] for cut in cuts}
+os.getpid = lambda: 1234
+streams = []
+for config in configs:
+    worker_init(OmegaConf.create(config), sys.argv[4], None, None, config["seed"])
+    streams.append(np.random.random(16).tolist())
+print(json.dumps(streams))
+"""
+    result = subprocess.run(  # noqa: S603 - fixture-owned Python code and local paths
+        [
+            sys.executable,
+            "-c",
+            program,
+            json.dumps(configs),
+            str(job.recipes / "sim.py"),
+            str(job.inputs / "source_train.jsonl.gz"),
+            str(job.root / "fixed-pid"),
+        ],
+        env={**os.environ, "PYTHONPATH": str(job.engine.parent)},
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stderr
+    first, second = json.loads(result.stdout)
+    assert first != second
 
 
 class LocalExecutor(BaseExecutor):
@@ -401,15 +565,17 @@ def test_real_native_bulk_and_adapter_preserve_effective_configuration(real_nati
     direct = native.process(FileGroupTask(dataset_name="native_equivalence", data=[str(job.config)]))[0]
     rows = build_stages(recipe)[0][1].process_batch(source_rows(recipe))
     assert len(rows) == len(Path(direct.data[0]).read_text().splitlines()) == 2
-    # Compare the actual worker settings; native PID seeding precludes waveform-byte comparisons.
+    # Request batches use their own seed; direct native calls retain the YAML seed.
     direct_config = json.loads(next((job.root / "direct").glob("*/effective_config.json")).read_text())
     adapted_config = json.loads(next((job.root / "production").glob("*/effective_config.json")).read_text())
     for config in (direct_config, adapted_config):
         for key in ("output_dir", "data_dir", "rir_dir"):
             config.pop(key)
+    assert adapted_config.pop("seed") != direct_config["seed"]
+    direct_seed = direct_config.pop("seed")
     assert direct_config == adapted_config
     assert direct_config["n_meetings"] == 2
-    assert direct_config["seed"] == 42
+    assert direct_seed == 42
     for row in rows:
         assert row.data.text.strip()
         assert Path(row.data.rttm_filepath).is_file()
@@ -567,7 +733,17 @@ def test_bounded_requests_preserve_all_resolved_nonmanaged_settings(
     rows = generator.process_batch(tasks[:selected])
     assert len(rows) == selected
     actual = json.loads(next((job.root / "production").glob("*/worker_observed_config.json")).read_text())
-    managed = {"n_meetings", "output_dir", "data_dir", "rir_dir", "n_jobs", "stage", "save_rttm", "save_nemo_manifest"}
+    managed = {
+        "n_meetings",
+        "seed",
+        "output_dir",
+        "data_dir",
+        "rir_dir",
+        "n_jobs",
+        "stage",
+        "save_rttm",
+        "save_nemo_manifest",
+    }
     assert {k: v for k, v in actual.items() if k not in managed} == {
         k: v for k, v in planned.items() if k not in managed
     }
@@ -575,7 +751,9 @@ def test_bounded_requests_preserve_all_resolved_nonmanaged_settings(
     assert actual["n_jobs"] == 2
 
 
-def test_real_engine_keeps_planned_seed_when_only_one_request_is_selected(real_native_job: SimpleNamespace) -> None:
+def test_real_engine_derives_batch_seed_without_re_resolving_the_planned_base_seed(
+    real_native_job: SimpleNamespace,
+) -> None:
     job = real_native_job
     job.config.write_text(job.config.read_text().replace("seed: 42", "seed: ${n_meetings}"))
     recipe = request_recipe(job)
@@ -583,7 +761,8 @@ def test_real_engine_keeps_planned_seed_when_only_one_request_is_selected(real_n
     rows = build_stages(recipe)[0][1].process_batch([task])
     actual = json.loads(next((job.root / "production").glob("*/effective_config.json")).read_text())
     assert len(rows) == actual["n_meetings"] == 1
-    assert actual["seed"] == task.data.fastmss_request["native_config"]["seed"] == 2
+    assert task.data.fastmss_request["native_config"]["seed"] == 2
+    assert actual["seed"] not in {1, 2}
 
 
 def test_legacy_request_with_a_changed_external_rir_is_rejected_before_generation(
