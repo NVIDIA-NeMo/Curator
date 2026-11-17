@@ -138,7 +138,8 @@ def run_removal_benchmark(  # noqa: PLR0913
     reader_key = f"{input_filetype}_reader"
     writer_key = f"{output_filetype}_writer"
     io_time = task_metrics.get(reader_key, 0) + task_metrics.get(writer_key, 0)
-    total_time = sum(task_metrics.values())
+    # Keep the legacy I/O ratio independent of the added measurement stages.
+    total_time = sum(v for k, v in task_metrics.items() if k not in {"measure_input_text", "measure_output_text"})
     io_percentage = round(io_time * 100 / total_time, 2) if total_time > 0 else 0
 
     return {
