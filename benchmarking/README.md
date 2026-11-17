@@ -1180,7 +1180,7 @@ hours, revision). It is not part of the nightly data setup.
 
 Build the image from the table and prepare models and a recordings manifest as in the
 [full pipeline README](../tutorials/audio/granary_v2/full_pipeline/README.md), then run from the
-repository root inside that image on the sixteen-GPU node (the YAML's default allocation):
+repository root inside that image on an eight-GPU node (the YAML's default allocation):
 
 ```bash
 python benchmarking/scripts/audio_granary_full_english_benchmark.py \
@@ -1188,7 +1188,7 @@ python benchmarking/scripts/audio_granary_full_english_benchmark.py \
   --input-manifest=/data/manifest.jsonl \
   --model-dir=/models \
   --cache-root=/cache/compilation
-# fewer GPUs: --override=ray_client.num_gpus=8 --override=inference_server.models.0.num_replicas=2
+# other GPU counts: --override=ray_client.num_gpus=16 --override=inference_server.models.0.num_replicas=4
 ```
 
 The command above is for English; the European and Indic scripts take the same arguments. A benchmark

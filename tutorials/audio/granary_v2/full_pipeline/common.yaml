@@ -31,8 +31,8 @@ cache_root: ???
 ray_client:
   _target_: nemo_curator.core.client.RayClient
   include_dashboard: false
-  num_cpus: 256
-  num_gpus: 16
+  num_cpus: 128
+  num_gpus: 8
   object_store_memory: 536870912000
 
 # The tutorial entrypoint manages this server on the pipeline's Ray cluster.
@@ -46,7 +46,7 @@ inference_server:
       _convert_: all
       model_identifier: ${model_identifier}
       model_name: ${model_name}
-      num_replicas: 4
+      num_replicas: 2
       runtime_env:
         uv:
           packages:
