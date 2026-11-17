@@ -28,10 +28,6 @@ tests/stages/text/classifiers/ @sarahyurick @praateekmahajan @VibhuJawa
 nemo_curator/backends/ @praateekmahajan @ayushdg
 tests/backends/ @praateekmahajan @ayushdg
 
-# Synthetic Data Generation (SDG)
-nemo_curator/stages/synthetic/ @sarahyurick @praateekmahajan
-tests/stages/synthetic/ @sarahyurick @praateekmahajan
-
 # Audio
 nemo_curator/stages/audio/ @mohammadaaftabv @shubhamNvidia
 tests/stages/audio/ @mohammadaaftabv @shubhamNvidia
