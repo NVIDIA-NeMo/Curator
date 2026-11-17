@@ -1365,6 +1365,33 @@ Its sampling means output counts need not be identical across actor schedules.
 Standalone timings include reading, measurement, one filter and writing; they
 are independent workloads, not a connected language-then-quality execution.
 
+`common_crawl_2024_18_warc_sample_xenna` uses the checked-in two-object
+`fixtures/cc-main-2024-18-two-warcs.json` manifest (1,924,426,402 compressed bytes).
+Manifest mode rechecks sizes/ETags, limits the sample to 1–3 complete files and
+5 GiB, bounds HTTP writes, requires fresh local directories and verifies full
+iteration receipts. It records sequential acquisition time separately from
+full-file extraction/measurement/output-write time, compressed object bytes,
+response records, output documents/UTF-8 payload/file bytes and HTTP cache
+headers. Completed object-body bytes are not total wire/retry traffic. Fresh
+local paths do not imply a cold upstream CDN or storage cache. This convenience
+sample is not representative of the full snapshot. The older snapshot-range
+mode is unchanged.
+
+`exact_dedup_removal_sample_xenna` prepares at most 256 MiB of distinct
+prepared-CC text, writes every selected text twice, runs exact identification,
+validates its counts/registry, then calls `dedup_removal_benchmark.py`. That
+dependency is enforced sequentially by the script, not YAML list order. Its
+primary elapsed time is removal-only; fixture generation, identification and
+post-run validation are separate. Counts/bytes must match the paired fixture,
+and written Parquet must contain exactly one copy of every original text.
+Corpus hashes, source selection, exact IDs and registry are retained with the
+entry (`delete_scratch: false`), as are the WARC sample artifacts. Budget this
+entry as fixture/identification plus removal work, even though it is one CI job.
+It has controlled 50% duplicate prevalence and a small workload; startup,
+partitioning, cache and retention effects limit linear extrapolation. The job
+retains the existing 8-GPU allocation for identification; removal uses CPU
+stages on that same allocation.
+
 The removal benchmark similarly records explicit input/output counts and text
 bytes around removal, `num_removed_documents` as their count difference, and
 `removal_fraction` against input documents. The existing legacy removal count is

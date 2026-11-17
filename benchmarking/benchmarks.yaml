@@ -312,6 +312,49 @@ entries:
       - metric: throughput_docs_per_sec
         min_value: 7000
 
+  - name: common_crawl_2024_18_warc_sample_xenna
+    enabled: true
+    script: common_crawl_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --warc-manifest=cc-main-2024-18-two-warcs.json
+      --download_path={session_entry_dir}/scratch/warcs
+      --output_path={session_entry_dir}/scratch/extracted
+      --output_format=parquet
+      --html_extraction=justext
+      --executor=xenna
+    timeout_s: 1200
+    delete_scratch: false
+    ray:
+      num_gpus: 0
+    requirements:
+      - metric: input_compressed_bytes
+        exact_value: 1924426402
+      - metric: num_completed_warc_files
+        exact_value: 2
+      - metric: cached_files_before
+        exact_value: 0
+      - metric: num_output_documents
+        min_value: 1
+      - metric: output_text_bytes
+        min_value: 1
+
+  - name: exact_dedup_removal_sample_xenna
+    enabled: true
+    script: exact_removal_sample_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --source-path={dataset:commoncrawl,jsonl}
+      --work-path={session_entry_dir}/scratch
+      --max-source-text-bytes=268435456
+    timeout_s: 1800
+    delete_scratch: false
+    requirements:
+      - metric: num_duplicates_removed
+        min_value: 1
+      - metric: output_correctness_verified
+        exact_value: true
+
   - name: exact_dedup_identification
     enabled: true
     script: exact_dedup_identification_benchmark.py
