@@ -89,6 +89,7 @@ class EEEConfig:
     embedding_dim: int = 2048
     nvidia_api_key: str | None = None
     nvidia_api_base_url: str = "https://integrate.api.nvidia.com/v1"
+    nvidia_embedding_base_url: str | None = None
     nvidia_image_describer_model: str = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
     nvidia_video_describer_model: str = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
     nvidia_audio_describer_model: str = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
@@ -104,6 +105,18 @@ class EEEConfig:
     @property
     def api_key(self) -> str | None:
         return self.nvidia_api_key or os.environ.get("NV_BUILD_API_KEY") or os.environ.get("NVIDIA_API_KEY")
+
+    @property
+    def base_urls(self) -> tuple[str, str]:
+        """(chat, embeddings) base URLs; env vars override the config, embeddings default to the chat URL."""
+        chat = os.environ.get("NVIDIA_API_BASE_URL") or self.nvidia_api_base_url
+        embed = os.environ.get("NVIDIA_EMBEDDING_BASE_URL") or self.nvidia_embedding_base_url or chat
+        return chat.rstrip("/"), embed.rstrip("/")
+
+    @property
+    def needs_api_key(self) -> bool:
+        """Only NVIDIA-hosted endpoints require a key; self-hosted servers may run without auth."""
+        return not self.api_key and any("api.nvidia.com" in url for url in self.base_urls)
 
 
 @dataclass

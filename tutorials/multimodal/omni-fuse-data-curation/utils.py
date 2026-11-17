@@ -55,7 +55,7 @@ def main(description: str, step: Callable[[ExperimentConfig], dict[str, Any]]) -
 
 def validate_inputs(config: ExperimentConfig) -> dict[str, Any]:
     records = load_records(config.data_pools)
-    missing = [] if config.eee.api_key else ["NV_BUILD_API_KEY"]
+    missing = ["NV_BUILD_API_KEY"] if config.eee.needs_api_key else []
     if "fusion" in config.eee.experts and not languagebind_root().exists():
         missing.append("LANGUAGEBIND_ROOT")
     video_forward = config.sns.direction in {"forward", "bidirectional"} and any(

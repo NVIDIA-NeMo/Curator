@@ -20,7 +20,7 @@ Install the tutorial dependencies from the tutorial directory:
 
 ```bash
 cd tutorials/multimodal/omni-fuse-data-curation/
-uv sync --extra dev
+uv sync
 ```
 
 You will need to do the following before you're able to run the tutorial:
@@ -32,6 +32,20 @@ You will need to do the following before you're able to run the tutorial:
 - Download pre-trained weights for CG-DETR model from [Lighthouse](https://github.com/line/lighthouse#pre-trained-weights) and save it to `model_files/best.ckpt` We use `cg_detr/qvhighlight/clip/best.ckpt`.
 - We recommend using GPUs as we run several local models
 - Set the paths to the datasets you want to use in `configs/omni_fuse_hybrid.yaml` and change other settings as you see fit.
+
+### Self-Hosting the API Models
+
+Instead of `build.nvidia.com`, you can serve the describer and embedder yourself with any OpenAI-compatible
+server, such as vLLM or NIM. Keep their GPUs separate from the ones the pipeline uses (`CUDA_VISIBLE_DEVICES`):
+
+```bash
+vllm serve nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16 --served-model-name nvidia/nemotron-3-nano-omni-30b-a3b-reasoning \
+  --trust-remote-code --tensor-parallel-size 2 --max-model-len 32768 --port 8000
+vllm serve nvidia/llama-nemotron-embed-vl-1b-v2 --trust-remote-code --max-model-len 10240 --port 8001
+```
+
+Then set `NVIDIA_API_BASE_URL=http://localhost:8000/v1` and `NVIDIA_EMBEDDING_BASE_URL=http://localhost:8001/v1` in
+`.env`. No API key is needed for non-NVIDIA URLs; if your server requires one, set `NV_BUILD_API_KEY` to it.
 
 ### Data Layout
 
@@ -124,7 +138,7 @@ with Grounding-DINO/AM-DETR/CG-DETR.
 
 Audio descriptions use the same inline `input_audio` payload as EmbedSim.
 If the endpoint rejects the payload size, the tutorial automatically falls back
-to an NVCF asset upload and finally to an inline preview. Bidirectional forward
+to an inline preview of the opening segment. Bidirectional forward
 and backward extraction both start from the original pair, matching EmbedSim.
 With `sns.continue_on_error: true` (the default), a per-record SNS failure keeps
 the original pair, writes `status: "error"` and error details to the SNS

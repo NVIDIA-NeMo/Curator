@@ -193,7 +193,6 @@ class LanguageBind:
             "video": (languagebind.LanguageBindVideo, languagebind.LanguageBindVideoProcessor),
         }
         self.tokenizer_class, self.tokenizer = languagebind.LanguageBindImageTokenizer, None
-        np.random.seed(13)
 
     def _modality(self, modality: str) -> tuple[Any, Any]:
         if modality not in self.loaded:
@@ -216,7 +215,10 @@ class LanguageBind:
 
     def encode_text(self, text: str) -> np.ndarray:
         model, _ = self._modality("video")
-        batch = self.tokenizer([text], max_length=77, padding="max_length", truncation=True, return_tensors="pt")
+        max_length = model.config.text_config.max_position_embeddings
+        batch = self.tokenizer(
+            [text], max_length=max_length, padding="max_length", truncation=True, return_tensors="pt"
+        )
         with torch.inference_mode():
             features = model.get_text_features(**{key: value.to(self.device) for key, value in batch.items()})
         return F.normalize(features, dim=-1)[0].float().cpu().numpy()

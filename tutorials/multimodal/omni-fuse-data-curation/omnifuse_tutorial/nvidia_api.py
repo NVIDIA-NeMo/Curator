@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import base64
 import io
-import os
 import time
 import wave
 from typing import TYPE_CHECKING, Any
@@ -30,10 +29,7 @@ if TYPE_CHECKING:
 
     from omnifuse_tutorial.config import EEEConfig
 
-AUDIO_CHAT_MODELS = {"microsoft/phi-4-multimodal-instruct", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"}
-NVCF_ASSET_UPLOAD_THRESHOLD_BYTES = 180 * 1024
 AUDIO_INLINE_PREVIEW_BYTES = 160 * 1024
-NVCF_ASSET_BASE_URL = "https://api.nvcf.nvidia.com/v2/nvcf"
 RETRYABLE_STATUS = {500, 502, 503, 504}
 MIME_TYPES = {
     ".jpg": "image/jpeg",
@@ -55,14 +51,13 @@ MIME_TYPES = {
 
 class NvidiaApi:
     def __init__(self, eee: EEEConfig, timeout: int = 120):
-        if not eee.api_key:
+        if eee.needs_api_key:
             raise ValueError("NVIDIA API key required. Set NV_BUILD_API_KEY in .env or eee.nvidia_api_key.")
-        self.base_url = os.environ.get("NVIDIA_API_BASE_URL", eee.nvidia_api_base_url).rstrip("/")
-        self.headers = {
-            "Authorization": f"Bearer {eee.api_key}",
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-        }
+        self.base_url, self.embedding_url = eee.base_urls
+        self.headers = {"Content-Type": "application/json", "Accept": "application/json"}
+        if eee.api_key:
+            self.headers["Authorization"] = f"Bearer {eee.api_key}"
+        self.nim_embeddings = False
         self.models = {
             "image": eee.nvidia_image_describer_model,
             "audio": eee.nvidia_audio_describer_model,
@@ -74,14 +69,15 @@ class NvidiaApi:
         vectors = []
         for start in range(0, len(texts), batch_size):
             chunk = texts[start : start + batch_size]
-            payload = {
-                "model": self.embedding_model,
-                "input": chunk,
-                "input_type": input_type,
-                "encoding_format": "float",
-                "truncate": "END",
-            }
-            response = self._post(f"{self.base_url}/embeddings", self.headers, payload)
+            response = self._post(
+                f"{self.embedding_url}/embeddings", self.headers, self._embed_payload(chunk, input_type)
+            )
+            # NIM rejects the OpenAI-style payload; vLLM silently ignores input_type, so its prefix goes in the text.
+            if not self.nim_embeddings and response.status_code == 400 and "input_type" in response.text:
+                self.nim_embeddings = True
+                response = self._post(
+                    f"{self.embedding_url}/embeddings", self.headers, self._embed_payload(chunk, input_type)
+                )
             response.raise_for_status()
             data = sorted(response.json()["data"], key=lambda item: int(item.get("index", 0)))
             if len(data) != len(chunk):
@@ -89,79 +85,50 @@ class NvidiaApi:
             vectors += [[float(value) for value in item["embedding"]] for item in data]
         return vectors
 
+    def _embed_payload(self, chunk: list[str], input_type: str) -> dict[str, Any]:
+        payload = {"model": self.embedding_model, "encoding_format": "float"}
+        if self.nim_embeddings:
+            return {**payload, "input": chunk, "input_type": input_type, "truncate": "END"}
+        return {**payload, "input": [f"{input_type}: {text}" for text in chunk]}
+
     def describe(self, path: Path, modality: str, prompt: str) -> str:
-        """Describe an image, audio, or video file; large images/videos go through NVCF asset upload."""
+        """Describe an image, audio, or video file sent inline as base64."""
         model, url = self.models[modality], f"{self.base_url}/chat/completions"
         mime = MIME_TYPES.get(path.suffix.lower(), "application/octet-stream")
-        headers = self.headers
-        if modality == "audio" and model in AUDIO_CHAT_MODELS:
-            return self._describe_audio(path, model, prompt, url)
         if modality == "audio":
-            content = _inline_audio(path, prompt)
-        elif path.stat().st_size > NVCF_ASSET_UPLOAD_THRESHOLD_BYTES:
-            asset_id = self._upload_asset(path, mime)
-            headers = {**self.headers, "NVCF-INPUT-ASSET-REFERENCES": asset_id}
-            content = (
-                f'{prompt}\n<{"img" if modality == "image" else "video"} src="data:{mime};asset_id,{asset_id}" />'
-            )
-        else:
-            kind, encoded = f"{modality}_url", base64.b64encode(path.read_bytes()).decode("utf-8")
-            content = [
-                {"type": "text", "text": prompt},
-                {kind: {"url": f"data:{mime};base64,{encoded}"}, "type": kind},
-            ]
-        response = self._post(url, headers, _chat(model, [{"role": "user", "content": content}]))
-        return _response_text(self._resolve(response, headers, model, url).json(), model, url)
+            return self._describe_audio(path, model, prompt, url)
+        # shortcut: no NVCF asset upload (that API is retired), so media over the inline size limit fails; resize first
+        kind, encoded = f"{modality}_url", base64.b64encode(path.read_bytes()).decode("utf-8")
+        content = [
+            {"type": "text", "text": prompt},
+            {kind: {"url": f"data:{mime};base64,{encoded}"}, "type": kind},
+        ]
+        response = self._post(url, self.headers, _chat(model, [{"role": "user", "content": content}]))
+        return _response_text(self._resolve(response, self.headers, model, url).json(), model, url)
 
     def _describe_audio(self, path: Path, model: str, prompt: str, url: str) -> str:
-        """Audio chat models: inline audio, then an NVCF asset if too large, then an inline opening preview."""
-        mime = "audio/wav" if _audio_format(path) == "wav" else "audio/mpeg"
-        payload = _chat(model, _audio_messages(_inline_audio(path, prompt)))
-        headers = self.headers
-        response = self._post(url, headers, payload)
+        """Audio chat models: inline audio, then an inline opening preview if the full file is too large."""
+        payload = _chat(model, [{"role": "user", "content": _inline_audio(path, prompt)}])
+        response = self._post(url, self.headers, payload)
         if response.status_code == 413 or (
             response.status_code == 400
             and any(hint in response.text.lower() for hint in ("payload", "too large", "request size", "audio_url"))
         ):
-            asset_id = self._upload_asset(path, mime)
-            headers = {**self.headers, "NVCF-INPUT-ASSET-REFERENCES": asset_id}
-            asset = f'{prompt}\n<audio src="data:{mime};asset_id,{asset_id}" />'
-            response = self._post(url, headers, {**payload, "messages": _audio_messages(asset)})
-            missing_asset = response.status_code == 400 and (
-                "not found in nvcf_assets" in response.text or "NVCF asset ID" in response.text
-            )
-            if missing_asset or response.status_code in {413, *RETRYABLE_STATUS}:
-                headers = self.headers
-                preview = _inline_audio(path, prompt, preview=True)
-                response = self._post(url, headers, {**payload, "messages": _audio_messages(preview)})
-        return _response_text(self._resolve(response, headers, model, url).json(), model, url)
-
-    def _upload_asset(self, path: Path, mime: str) -> str:
-        description = f"omni-fuse tutorial media asset {path.name}"
-        create_url = f"{os.environ.get('NVIDIA_NVCF_ASSET_BASE_URL', NVCF_ASSET_BASE_URL).rstrip('/')}/assets"
-        body = {"contentType": mime, "description": description}
-        response = requests.post(create_url, headers=self.headers, json=body, timeout=self.timeout)
-        _raise_for_status(response, "nvcf-asset", create_url)
-        payload = response.json()
-        asset_id = _first_string(payload, ("assetId", "asset_id", "id"))
-        upload_url = _first_string(payload, ("uploadUrl", "upload_url", "uploadURL", "url"))
-        if not asset_id or not upload_url:
-            raise RuntimeError(f"NVIDIA NVCF asset response missing assetId/uploadUrl: {str(payload)[:1000]}")
-        upload_headers = {"Content-Type": mime, "x-amz-meta-nvcf-asset-description": description}
-        with path.open("rb") as handle:
-            upload = requests.put(upload_url, data=handle, headers=upload_headers, timeout=self.timeout)
-        if upload.status_code >= 400:
-            raise RuntimeError(
-                f"NVIDIA NVCF asset upload failed: status={upload.status_code} body={upload.text[:1000]}"
-            )
-        return asset_id
+            preview = _inline_audio(path, prompt, preview=True)
+            response = self._post(url, self.headers, {**payload, "messages": [{"role": "user", "content": preview}]})
+        return _response_text(self._resolve(response, self.headers, model, url).json(), model, url)
 
     def _post(self, url: str, headers: dict[str, str], payload: dict[str, Any], attempts: int = 3) -> Any:
         for attempt in range(attempts):
-            response = requests.post(url, headers=headers, json=payload, timeout=self.timeout)
-            degraded = response.status_code in {400, 503} and "DEGRADED function" in response.text
-            if not (degraded or response.status_code in RETRYABLE_STATUS) or attempt == attempts - 1:
-                break
+            try:
+                response = requests.post(url, headers=headers, json=payload, timeout=self.timeout)
+            except requests.Timeout:
+                if attempt == attempts - 1:
+                    raise
+            else:
+                degraded = response.status_code in {400, 503} and "DEGRADED function" in response.text
+                if not (degraded or response.status_code in RETRYABLE_STATUS) or attempt == attempts - 1:
+                    break
             time.sleep(2 * (attempt + 1))
         return response
 
@@ -190,11 +157,15 @@ class NvidiaApi:
 
 
 def _chat(model: str, messages: list[dict[str, Any]]) -> dict[str, Any]:
-    return {"model": model, "messages": messages, "max_tokens": 512, "temperature": 0.2, "stream": False}
-
-
-def _audio_messages(content: Any) -> list[dict[str, Any]]:
-    return [{"role": "system", "content": "/no_think"}, {"role": "user", "content": content}]
+    return {
+        "model": model,
+        "messages": messages,
+        "max_tokens": 512,
+        "temperature": 0.2,
+        "stream": False,
+        # The hosted reasoning describer ignores /no_think and otherwise spends max_tokens thinking, leaving no content.
+        "chat_template_kwargs": {"enable_thinking": False},
+    }
 
 
 def _inline_audio(path: Path, prompt: str, preview: bool = False) -> list[dict[str, Any]]:

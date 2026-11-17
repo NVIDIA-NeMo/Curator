@@ -19,7 +19,7 @@ from __future__ import annotations
 import json
 import math
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -89,7 +89,7 @@ def run_parallel_sns_eee(config: ExperimentConfig) -> dict[str, Any]:
             "logging_interval": parallel.logging_interval_s,
         }
     )
-    started_at, started = datetime.now(timezone.utc), time.perf_counter()
+    started_at, started = datetime.now(UTC), time.perf_counter()
     pipeline = Pipeline(
         name=f"{config.experiment_id}-1-2-parallel-sns-eee",
         description="Sharded pipeline-parallel Omni-Fuse SNS and EEE tutorial steps",
@@ -101,7 +101,7 @@ def run_parallel_sns_eee(config: ExperimentConfig) -> dict[str, Any]:
     summary = {
         **_merge(config, tasks),
         "started_at": started_at.isoformat(),
-        "completed_at": datetime.now(timezone.utc).isoformat(),
+        "completed_at": datetime.now(UTC).isoformat(),
         "elapsed_seconds": time.perf_counter() - started,
     }
     return {**summary, "summary_path": str(write_json(config.run_dir / "parallelism" / "summary.json", summary))}

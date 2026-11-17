@@ -44,11 +44,6 @@ dependencies = [
     "pytorchvideo>=0.1.5",
 ]
 
-[project.optional-dependencies]
-dev = [
-    "pytest>=8.0",
-]
-
 [tool.uv]
 override-dependencies = [
     "numpy>=1.26,<2.5",
