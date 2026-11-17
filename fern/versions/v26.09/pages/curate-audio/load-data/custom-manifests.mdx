@@ -67,7 +67,9 @@ results = pipeline.run(RayDataExecutor())
 
 All turn audio must have the same sample rate and be accessible on every worker. An unreadable turn or a rate mismatch filters the entire conversation. Missing or unusable RTTM retains the full waveform and sets `mfa_fallback`. Positive `overlap` requests simultaneous speech; negative values insert a pause. RTTM, CTM, and segment-list timestamps follow the samples retained and placed in the output.
 
-Each output directory contains `mixed.wav`, `multichannel.wav`, `all.rttm`, optional `all.ctm`, and `segments.seglst.json`. Per-speaker files use generated names under `speakers/`; the result's `speaker_artifacts` mapping connects original speaker labels to their zero-based channel indices and file paths. An absent CTM has an empty output path. Existing conversation destinations are refused, so select a fresh output directory for reruns.
+Each output directory contains `mixed.wav`, `multichannel.wav`, `all.rttm`, optional `all.ctm`, and `segments.seglst.json`. Per-speaker files use generated names under `speakers/`; the result's `speaker_artifacts` mapping connects original speaker labels to their zero-based channel indices and file paths. An absent CTM has an empty output path.
+
+The directory also contains `.merge-commit.json`, published together with the artifacts. A retry after a worker loses its result verifies input contents, output-affecting turn fields, configuration, and all artifact checksums, then returns the committed result without regenerating audio or randomized pauses. Workers publishing the same conversation coordinate through persistent locks in `.merge-locks/`; that directory name is reserved. Existing destinations without a matching, verifiable commit record raise `FileExistsError` rather than silently dropping the conversation. Select a fresh output root when changing inputs or configuration, and keep commit records with their artifacts.
 
 ## Optional Fields
 
