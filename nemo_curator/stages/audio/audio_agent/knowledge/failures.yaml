@@ -1,0 +1,130 @@
+# First matching case-insensitive regex wins (failures.py). Specific causes must
+# precede wrapper symptoms. These are triage hypotheses, not proof of a root cause
+# or authorization to change a recipe/environment. Confirm from logs and doctor.
+
+failures:
+  - code: stage_input_validation
+    symptom_signature: ["failed validation for stage", "failed input validation", "missing required attributes", "missing required .* (key|attribute)"]
+    likely_cause: "a required input field is absent or invalid at the failing stage"
+    layer: recipe
+    auto_fix: null
+    user_guidance: "compare configured describe/cards with actual upstream fields; align *_key parameters or supply the missing producer only when the input does not already contain the required data"
+
+  - code: sample_rate_mismatch
+    symptom_signature: ["sample rate mismatch", "unsupported sample rate", "expected .* hz", "sampling rate .* not supported", "must be 16000 ?hz", "sr must be"]
+    likely_cause: "the selected audio rate is incompatible with the configured consumer"
+    layer: data
+    auto_fix: null
+    user_guidance: "verify the actual rate and consumer requirements; if conversion is needed, use ResampleAudioStage(target_sample_rate=...) and route the consumer to its converted path or waveform/rate pair. MonoConversionStage does not resample"
+
+  - code: disk_full
+    symptom_signature: ["no space left on device", "\\benospc\\b", "\\berrno 28\\b", "disk quota exceeded"]
+    likely_cause: "the failing filesystem has exhausted usable capacity or quota"
+    layer: env
+    auto_fix: null
+    user_guidance: "identify the exact filesystem and required headroom; choose an approved cleanup or larger cache/temp/output location before retrying"
+
+  - code: permission_denied
+    symptom_signature: ["permission denied", "\\berrno 13\\b", "read-only file system", "\\berofs\\b"]
+    likely_cause: "the process cannot access a required path, device or executable"
+    layer: env
+    auto_fix: null
+    user_guidance: "verify the denied target, execution identity and mount/permission policy; select an accessible location or an approved access change"
+
+  - code: native_library_mismatch
+    symptom_signature: ["undefined symbol", "\\bglibcxx_[0-9.]+", "version [`']?glibc", "cannot open shared object file", "wrong elf class"]
+    likely_cause: "a compiled dependency or its native libraries may be missing or ABI-incompatible"
+    layer: env
+    auto_fix: null
+    user_guidance: "capture the library/symbol and package versions; compare with the supported environment before proposing dependency or host changes"
+
+  - code: cuda_driver_runtime
+    symptom_signature: ["cuda driver version is insufficient", "forward compatibility was attempted on non supported hw", "\\berror 804\\b", "found no nvidia driver", "no cuda gpus are available", "cuda initialization error"]
+    likely_cause: "the failing process cannot use its configured CUDA runtime and GPU allocation"
+    layer: env
+    auto_fix: null
+    user_guidance: "run doctor in the failing launch context; distinguish masked devices/allocation from driver/framework incompatibility before choosing a remedy"
+
+  - code: tls_certificate
+    symptom_signature: ["certificate verify failed", "\\bsslerror\\b", "unable to get local issuer certificate", "\\bx509\\b"]
+    likely_cause: "TLS verification failed in the launch environment"
+    layer: env
+    auto_fix: null
+    user_guidance: "inspect the certificate error, clock, approved proxy and CA bundle; do not disable TLS verification"
+
+  - code: target_capacity_unknown
+    symptom_signature: ["gpu vram capacity is unknown", "executor capacity is .*unverified", "target capacity .*unknown"]
+    likely_cause: "available evidence does not establish execution-target capacity for the recipe"
+    layer: env
+    auto_fix: null
+    user_guidance: "collect worker-side resource facts or bounded smoke evidence; driver hardware is not evidence of remote-worker capacity"
+
+  - code: out_of_memory
+    symptom_signature: ["out of memory", "cuda out of memory", "\\boom\\b", "cublas_status_alloc_failed"]
+    likely_cause: "the workload exceeded available device or host memory"
+    layer: exec
+    auto_fix: null
+    user_guidance: "identify the failing memory pool and stage; inspect batch size, input length and concurrency before proposing a supported smaller workload or larger target. Reducing total file count alone may not reduce peak memory"
+
+  - code: model_auth_or_download
+    symptom_signature: ["unauthorized", "forbidden", "\\bgated\\b", "connection error", "failed to download", "could not reach"]
+    likely_cause: "remote model access or download may be blocked by credentials, authorization or connectivity"
+    layer: model
+    auto_fix: null
+    user_guidance: "inspect the failing endpoint/status; verify required model access and network/cache availability in the execution context. Configure credentials through the supported secret mechanism, not chat"
+
+  - code: bad_path
+    symptom_signature: ["no such file", "filenotfounderror", "does not exist", "path .* not found", "no audio files found"]
+    likely_cause: "a required path, executable or matching input file was not found"
+    layer: data
+    auto_fix: null
+    user_guidance: "inspect the exact missing target and configured path/selector in the failing execution context; do not enable dataset downloads for an arbitrary directory"
+
+  - code: unreadable_file
+    symptom_signature: ["error opening", "format not recognised", "soundfileerror", "failed to load audio", "unable to open"]
+    likely_cause: "audio could not be opened or decoded; the file, format, path or access may be invalid"
+    layer: data
+    auto_fix: null
+    user_guidance: "inspect the offending path and decoder error before dropping or re-encoding files"
+
+  - code: asr_decoder_cuda_graph
+    symptom_signature: ["nvrtc", "unsupported[ _]ptx", "cuda_error_unsupported_ptx_version", "\\berror 222\\b", "cuda[_. ]graph", "cudagraph", "stream is capturing", "capture_end", "cudaerrorstreamcapture"]
+    likely_cause: "a runtime kernel-compilation or CUDA-graph failure; unsupported PTX can indicate a driver/toolkit incompatibility, while other capture errors need their own evidence"
+    layer: env
+    auto_fix: null
+    user_guidance: "run doctor and inspect the exact stage/checkpoint/error before choosing a fix. For ASRStage with a configurable NeMo RNNT decoder, adapter_kwargs.use_cuda_graph_decoder=False is a candidate; hybrid alignment checkpoints may support decoder_type='ctc'. Neither applies universally. Recipe changes require fresh validation and smoke"
+
+  - code: worker_env_mismatch
+    symptom_signature: ['(?s)(?=.*(?:node setup failed for stage|working_dir_files|_ray_pkg_|runtime_resources))(?=.*(?:modulenotfounderror|no module named|importerror|cannot import name))']
+    likely_cause: "an import failed in a worker context; its environment may differ from the driver or lack a required dependency"
+    layer: env
+    auto_fix: null
+    user_guidance: "compare driver and worker imports and run doctor. If launcher evidence confirms a uv command omitted required extras, use the intended installed interpreter or explicit extras; a worker traceback alone does not establish that cause"
+
+  - code: missing_dependency
+    symptom_signature: ["modulenotfounderror", "no module named", "importerror", "cannot import name"]
+    likely_cause: "a dependency may be absent or incompatible in the failing Python environment"
+    layer: env
+    auto_fix: null
+    user_guidance: "identify the missing import and interpreter; use doctor and the repository's supported dependency profile before proposing an installation or environment change"
+
+  - code: empty_vad_output
+    symptom_signature: ["no speech segments", "empty vad", "no segments detected", "\\b0 segments\\b"]
+    likely_cause: "no segments met the configured detector and duration conditions, or the input supplied no usable speech"
+    layer: data
+    auto_fix: null
+    user_guidance: "inspect input and segmentation evidence first; if supported by that evidence, adjust VADSegmentationStage.threshold/min_duration_sec in the recipe (or the corresponding composite config) and revalidate/re-smoke"
+
+  - code: zero_rows_retained
+    symptom_signature: ["\\b0 rows\\b", "zero retained", "empty output", "all filtered"]
+    likely_cause: "the source emitted no usable items or later stages removed all candidates"
+    layer: data
+    auto_fix: null
+    user_guidance: "locate the first empty stage using source counts, filter statistics and observed values; change inputs or policy only when the evidence supports it. Do not assume a particular filter is responsible"
+
+  - code: executor_error
+    symptom_signature: ["\\bray\\b", "\\bactor\\b", "xenna", "worker died", "af_unix path length", "raylet"]
+    likely_cause: "an executor/worker reported failure; wrapper text alone does not identify the underlying cause"
+    layer: exec
+    auto_fix: null
+    user_guidance: "inspect the innermost error and worker logs before retrying. A shorter RAY_TMPDIR may help only a confirmed AF_UNIX path-length error; choose resource/environment changes from actual diagnostics"

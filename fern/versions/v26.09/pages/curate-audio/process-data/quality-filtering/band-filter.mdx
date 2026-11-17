@@ -1,0 +1,161 @@
+---
+description: "Filter audio by spectral bandwidth — full-band vs narrow-band — using BandFilterStage and a scikit-learn classifier"
+categories: ["audio-processing"]
+tags: ["audio-filtering", "band-filter", "bandwidth", "narrow-band", "full-band", "telephony"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "beginner"
+content_type: "how-to"
+modality: "audio-only"
+---
+
+# Band Filter
+
+Classify each audio segment as **`full_band`** or **`narrow_band`** and drop anything that doesn't match the configured target band. Use it when your training set requires a consistent acoustic bandwidth.
+
+## Understanding Audio Bandwidth
+
+### Full-Band vs Narrow-Band
+
+Audio bandwidth describes the highest frequency the recording captures, set by the codec or transmission medium:
+
+| Band | Frequency Range | Typical Sources |
+|------|-----------------|------------------|
+| **Full-band** | 0–20 kHz (or 0–24 kHz) | Studio recordings, modern smartphones, professional broadcast, music production |
+| **Wide-band** | 0–8 kHz | Modern voice-over-IP, some podcasts |
+| **Narrow-band** | 0–4 kHz | Traditional telephony (PSTN), older codecs (G.711, GSM) |
+
+`BandFilterStage` distinguishes specifically between **full-band** and **narrow-band** — it does not currently classify wide-band as a separate category.
+
+### When to Use the Band Filter
+
+- **Train TTS or voice cloning models**: full-band only — narrow-band audio lacks the high-frequency content needed for natural reconstruction.
+- **Train ASR for call-center / customer-service**: narrow-band only — match the deployment domain.
+- **Heterogeneous web crawls**: choose one based on downstream use; log how much you drop to assess data composition.
+
+If your dataset is known to be uniformly one band, you can skip this stage. The classifier is most useful for filtering mixed sources.
+
+## Basic Band Filtering
+
+### Step 1: Configure the Stage
+
+```python
+from nemo_curator.stages.audio.filtering.band import BandFilterStage
+
+# Keep only full-band audio
+band = BandFilterStage(band_value="full_band")
+pipeline.add_stage(band)
+
+# Or keep only narrow-band audio
+band = BandFilterStage(band_value="narrow_band")
+pipeline.add_stage(band)
+```
+
+The stage uses a scikit-learn classifier trained on spectral features. The default model is downloaded on first use; cache the location with `cache_dir`:
+
+```python
+band = BandFilterStage(
+    band_value="full_band",
+    cache_dir="./.cache/band_filter",
+)
+```
+
+### Step 2: Choose Standalone vs In-Pipeline Mode
+
+The stage supports two input modes:
+
+| Mode | Input | When to Use |
+|------|-------|-------------|
+| **In-pipeline** | `waveform` from upstream (e.g., from `MonoConversionStage` or `VADSegmentationStage`) | Default — pulls existing waveform; no extra disk I/O. |
+| **Standalone** | `audio_filepath` only | Useful when running the filter as a one-off classification step before any other stages. |
+
+In-pipeline mode is automatic when an upstream stage has populated `waveform`; otherwise the stage falls back to reading from `audio_filepath`.
+
+## Parameters
+
+| Parameter | Type | Default | Description |
+| --- | --- | --- | --- |
+| `model_path` | str \| None | `None` | Local path to the band-classifier `.joblib` model. When `None`, the stage downloads the default model (`nvidia/nemocurator-speech-bandwidth-filter`) into `cache_dir`. |
+| `cache_dir` | str \| None | `None` | Directory for caching the downloaded model. |
+| `band_value` | `"full_band"` \| `"narrow_band"` | `"full_band"` | Band class to keep; segments classified differently are filtered out. |
+
+The default resource allocation is `Resources(cpus=4.0)` — the classifier is CPU-only.
+
+## Domain-Specific Tuning
+
+### TTS / Voice Cloning Training
+
+Demand full-band only:
+
+```python
+BandFilterStage(band_value="full_band")
+```
+
+### Call-Center ASR
+
+Train against the deployment domain:
+
+```python
+BandFilterStage(band_value="narrow_band")
+```
+
+### Mixed Web Crawls
+
+Keep both bands but log the split for analysis. Run the classifier in score-only mode by adding it to the pipeline upstream of any other filter, then export the manifest before applying `band_value` filtering:
+
+```python
+# Score and inspect; do not filter yet
+import pandas as pd
+
+df = pd.read_json("./scored.jsonl", lines=True)
+print(df["band_classification"].value_counts())
+```
+
+If the distribution is severely skewed, you may want to filter; if balanced, training on both can improve robustness.
+
+## Complete Band-Filter Pipeline Example
+
+```python
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.backends.xenna import XennaExecutor
+from nemo_curator.stages.audio.preprocessing.mono_conversion import MonoConversionStage
+from nemo_curator.stages.audio.segmentation.vad_segmentation import VADSegmentationStage
+from nemo_curator.stages.audio.filtering.band import BandFilterStage
+from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
+from nemo_curator.stages.text.io.writer import JsonlWriter
+
+pipeline = Pipeline(name="band_filtering")
+
+# 1. Normalize input
+pipeline.add_stage(MonoConversionStage(output_sample_rate=48000))
+
+# 2. Segment
+pipeline.add_stage(VADSegmentationStage(min_duration_sec=2.0))
+
+# 3. Keep only full-band segments
+pipeline.add_stage(
+    BandFilterStage(
+        band_value="full_band",
+        cache_dir="./.cache/band_filter",
+    )
+)
+
+# 4. Export
+pipeline.add_stage(AudioToDocumentStage())
+pipeline.add_stage(JsonlWriter(path="./full_band_audio"))
+
+executor = XennaExecutor()
+pipeline.run(executor)
+```
+
+## Best Practices
+
+- **Verify your assumption first**: don't band-filter without first confirming your dataset actually contains a mix. If everything is full-band, you'll just add latency for no benefit.
+- **Cache the model**: set `cache_dir` to avoid re-downloading the classifier on every run, especially in containerized or ephemeral environments.
+- **Place band filter early**: it's cheap (CPU-only). Run it before expensive GPU stages (UTMOS, SIGMOS, speaker separation) so you don't pay for scoring audio you'd reject anyway.
+- **Don't mix `band_value` with `MonoConversionStage` resampling**: if upstream resampling has changed the spectrum, the classifier may misclassify. Place the band filter immediately after VAD on the original-rate audio when possible.
+
+## Related Topics
+
+- **[UTMOS Filter](/curate-audio/process-data/quality-filtering/utmos)** — quality scoring; commonly run after band filtering.
+- **[VAD Segmentation](/curate-audio/process-data/quality-filtering/vad)** — typical upstream stage producing the segments classified here.
+- **[`AudioDataFilterStage` Composite](/curate-audio/process-data/quality-filtering/audio-data-filter-stage)** — bundles the band filter into the standard pipeline.

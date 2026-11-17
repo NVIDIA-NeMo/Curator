@@ -17,16 +17,24 @@ Merge Alignment and Diarization Stage.
 """
 
 import time
-from dataclasses import dataclass
+from dataclasses import KW_ONLY, dataclass
 
 from loguru import logger
 
+from nemo_curator.stages.audio._agent._agent_ready import (
+    AgentReady,
+    ConditionalWrite,
+    Gates,
+    IOSpec,
+    StageContract,
+)
+from nemo_curator.stages.audio._agent._residency import validate_audio_key_configuration
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask
 
 
 @dataclass
-class MergeAlignmentDiarizationStage(ProcessingStage[AudioTask, AudioTask]):
+class MergeAlignmentDiarizationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """
     Stage that merges alignment and diarization information.
 
@@ -48,18 +56,47 @@ class MergeAlignmentDiarizationStage(ProcessingStage[AudioTask, AudioTask]):
               words_key: "words"
     """
 
-    # Output keys
+    # Output keys (legacy positional slots)
     text_key: str = "text"
     words_key: str = "words"
 
-    # Stage metadata
+    # Stage metadata (legacy positional slot)
     name: str = "MergeAlignmentDiarization"
 
+    # Agent-added knobs are keyword-only (KW_ONLY sentinel) so the legacy positional slots
+    # above keep their historical order and meaning.
+    _: KW_ONLY
+    alignment_key: str = "alignment"
+    segments_key: str = "segments"
+
+    def __post_init__(self) -> None:
+        validate_audio_key_configuration(
+            type(self).__name__,
+            input_keys={
+                "alignment_key": self.alignment_key,
+                "segments_key": self.segments_key,
+            },
+            output_keys={},
+        )
+
     def inputs(self) -> tuple[list[str], list[str]]:
-        return [], ["alignment", "segments"]
+        return [], [self.alignment_key, self.segments_key]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], ["alignment", "segments"]
+        return [], [self.alignment_key, self.segments_key]
+
+    def describe(self) -> StageContract:
+        return StageContract(
+            reads=IOSpec(data_keys=[self.alignment_key, self.segments_key]),
+            conditional_writes=[
+                ConditionalWrite(
+                    writes=IOSpec(segment_data_keys=[self.text_key, self.words_key]),
+                    condition=(f"both '{self.alignment_key}' and '{self.segments_key}' are non-empty"),
+                )
+            ],
+            # Merges this row's own alignment with this row's own segments.
+            gates=Gates(per_row_independent=True),
+        )
 
     @staticmethod
     def align_words_to_segments(
@@ -183,8 +220,8 @@ class MergeAlignmentDiarizationStage(ProcessingStage[AudioTask, AudioTask]):
         """Process entry to merge alignment and diarization."""
         t0 = time.perf_counter()
         data_entry = task.data
-        alignment = data_entry.get("alignment", [])
-        segments = data_entry.get("segments", [])
+        alignment = data_entry.get(self.alignment_key, [])
+        segments = data_entry.get(self.segments_key, [])
 
         if alignment and segments:
             self.align_words_to_segments(alignment, segments, self.text_key, self.words_key)

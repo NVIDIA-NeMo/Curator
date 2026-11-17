@@ -46,17 +46,19 @@ if TYPE_CHECKING:
 
 from loguru import logger
 
+from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, StageContract, StaticHints
 from nemo_curator.stages.audio.filtering import BandFilterStage, SIGMOSFilterStage, UTMOSFilterStage
 from nemo_curator.stages.audio.postprocessing import TimestampMapperStage
 from nemo_curator.stages.audio.preprocessing import MonoConversionStage, SegmentConcatenationStage
 from nemo_curator.stages.audio.segmentation import SpeakerSeparationStage, VADSegmentationStage
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.resources import Resources
+from nemo_curator.tasks import AudioTask
 
 from .config import _deep_merge, _validate, get_enabled_stages, load_config
 
 
-class AudioDataFilterStage(CompositeStage):
+class AudioDataFilterStage(AgentReady, CompositeStage[AudioTask, AudioTask]):
     """Complete audio data filtering and curation pipeline (CompositeStage).
 
     Decomposes into independent stages that the executor can schedule with
@@ -78,6 +80,9 @@ class AudioDataFilterStage(CompositeStage):
         name: Name for this composite stage instance.
     """
 
+    # A configurable VAD adapter may depend on other rows; only an instance can resolve this.
+    AGENT_STATIC = StaticHints(gates=Gates(per_row_independent=False))
+
     def __init__(
         self,
         config_path: str | Path | None = None,
@@ -90,6 +95,22 @@ class AudioDataFilterStage(CompositeStage):
         if config:
             self._cfg = _deep_merge(self._cfg, config)
         _validate(self._cfg)
+
+    def describe(self) -> StageContract:
+        per_row_independent = True
+        if self._cfg.get("vad", {}).get("enable", True):
+            vad = self._make_vad(
+                self._cfg,
+                suffix="",
+                nested=self._cfg.get("speaker_separation", {}).get("enable", True),
+            )
+            per_row_independent = vad.describe().gates.per_row_independent
+        return StageContract(
+            wrappable=False,
+            # The other delegates are row-local and in-memory. Both VAD passes use the same
+            # adapter configuration, so its declaration also covers the per-speaker pass.
+            gates=Gates(per_row_independent=per_row_independent),
+        )
 
     def decompose(self) -> list[ProcessingStage]:
         """Build a self-consistent pipeline topology based on enabled features."""

@@ -1,4 +1,5 @@
 ---
+name: getting-started
 description: Set up NeMo Curator for data curation (text, image, video, audio)
 ---
 

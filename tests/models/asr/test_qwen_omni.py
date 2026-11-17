@@ -28,6 +28,7 @@ from nemo_curator.models.asr.qwen_omni import QwenOmniASRAdapter
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+    from pathlib import Path
 
 _SR = 16000
 
@@ -111,6 +112,13 @@ def test_qwen_adapter_download_weights_forwards_its_revision(mock_download: Magi
     adapter.download_weights_on_node()
 
     mock_download.assert_called_once_with("mock/qwen-omni", revision="abc123")
+
+
+@patch("nemo_curator.models.asr.qwen_omni.snapshot_download")
+def test_qwen_adapter_download_weights_reuses_local_directory(mock_download: MagicMock, tmp_path: Path) -> None:
+    QwenOmniASRAdapter(model_id=str(tmp_path)).download_weights_on_node()
+
+    mock_download.assert_not_called()
 
 
 @pytest.mark.parametrize("num_gpus", [0, -1, 1.5, True])

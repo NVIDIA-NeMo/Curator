@@ -693,3 +693,343 @@ def test_configurable_session_and_read_error_keys_are_used(tmp_path: Path) -> No
     blocked = AudioTask(task_id="blocked", data={"failed": True})
     assert stage.process_batch([blocked]) == [blocked]
     assert len(adapter.items) == 1
+
+
+@pytest.mark.parametrize("input_residency", ["waveform", "auto"])
+@pytest.mark.parametrize(
+    "adapter_target",
+    [
+        "nemo_curator.models.audio.speaker_diarization.sortformer.NeMoSortformerAdapter",
+        "nemo_curator.models.audio.speaker_diarization.sortformer_tensorrt.TensorRTSortformerAdapter",
+    ],
+)
+def test_fanout_preserves_source_audio_and_transcribes_each_turn(input_residency: str, adapter_target: str) -> None:
+    from nemo_curator.backends.ray_data.adapter import RayDataStageAdapter
+    from nemo_curator.models.asr.base import ASRResult
+    from nemo_curator.stages.audio.inference.asr.stage import ASRStage
+
+    waveform = np.arange(80, dtype=np.float32).reshape(2, 40) / 80
+    stage = InferenceSortformerStage(
+        input_residency=input_residency,
+        fanout=True,
+        target_sample_rate=20,
+        adapter_target=adapter_target,
+    )
+    stage._adapter = _RecordingAdapter(
+        results=[
+            DiarizationResult(
+                segments=[
+                    {"start": -0.2, "end": 0.5, "speaker": "speaker_0"},
+                    {"start": 0.5, "end": 3.0, "speaker": "speaker_1"},
+                ]
+            )
+        ]
+    )
+    parent = AudioTask(
+        task_id="parent",
+        data={
+            "waveform": waveform,
+            "sample_rate": 10,
+            "audio_filepath": "/stale/full.wav",
+            "resampled_audio_filepath": "/stale/resampled.wav",
+            "pred_text": "full recording",
+            "num_speakers": 99,
+            "original_file": "source.wav",
+        },
+    )
+    children = RayDataStageAdapter(stage)._process_batch_internal({"item": [parent]})["item"]
+    assert len(children) == 2
+    assert stage._adapter.items[0]["sample_rate"] == 20
+    assert stage._adapter.items[0]["waveform"].shape == (80,)
+    for child, expected in zip(children, [waveform[:, :5], waveform[:, 5:30]], strict=True):
+        np.testing.assert_array_equal(child.data["waveform"], expected)
+        assert not np.shares_memory(child.data["waveform"], waveform)
+        assert child.data["sample_rate"] == 10
+        assert child.data["num_speakers"] == 2
+        assert child.data["original_file"] == "source.wav"
+        assert not {"pred_text", "diar_segments", "audio_filepath", "resampled_audio_filepath"} & child.data.keys()
+    asr = ASRStage(
+        adapter_target="package.Adapter",
+        model_id="model",
+        waveform_key="waveform",
+        sample_rate_key="sample_rate",
+        target_sample_rate=10,
+        max_audio_sec_per_actor=2400,
+        skip_if_output_exists=True,
+    )
+
+    class Adapter:
+        def transcribe_batch(self, items: list[dict]) -> list[ASRResult]:
+            assert len(items) == 2
+            return [ASRResult(text="first turn"), ASRResult(text="second turn")]
+
+    asr._adapter = Adapter()
+    assert [
+        t.data["pred_text"] for t in RayDataStageAdapter(asr)._process_batch_internal({"item": children})["item"]
+    ] == ["first turn", "second turn"]
+
+
+def test_auto_batch_isolates_bad_file_without_dropping_resident_peer() -> None:
+    stage = InferenceSortformerStage(input_residency="auto", target_sample_rate=16000)
+
+    class Adapter:
+        def diarize_batch(self, items: list[dict]) -> list[DiarizationResult]:
+            if any("audio_filepath" in item for item in items):
+                msg = "bad file"
+                raise DiarizationInputError(msg)
+            return [DiarizationResult(segments=[]) for _ in items]
+
+    stage._adapter = Adapter()
+    resident = _waveform_task("resident", 160)
+    bad = AudioTask(task_id="bad", data={"audio_filepath": "/missing.wav"})
+    assert stage.process_batch([bad, resident]) == [bad, resident]
+    assert bad.data["additional_notes"][stage.name] == "audio_load_error"
+    assert "additional_notes" not in resident.data
+    assert resident.data["num_speakers"] == 0
+
+
+@pytest.mark.parametrize("resident", [False, True])
+def test_source_hash_rttm_is_stable_across_metadata_resume_and_subset_retry(tmp_path: Path, resident: bool) -> None:
+    import soundfile as sf
+
+    stage = InferenceSortformerStage(
+        input_residency="waveform" if resident else "file",
+        rttm_naming="source_hash",
+        rttm_out_dir=str(tmp_path / "rttm"),
+        target_sample_rate=16000,
+    )
+    stage._adapter = _RecordingAdapter(
+        results=[
+            DiarizationResult(
+                segments=[
+                    {"start": 0.0, "end": 0.01, "speaker": "speaker_0"},
+                ]
+            )
+        ]
+    )
+    paths = []
+    for index in range(2):
+        folder = tmp_path / str(index)
+        folder.mkdir()
+        path = folder / "same.wav"
+        sf.write(path, np.zeros(160, dtype=np.float32) + index / 10, 16000, subtype="FLOAT")
+        paths.append(path)
+
+    def task(index: int, task_id: str, shard: str, stale_path: str | None = None) -> AudioTask:
+        data = {"audio_filepath": stale_path or str(paths[index]), "session_name": "same"}
+        if resident:
+            data.update(waveform=np.zeros(160, dtype=np.float32) + index / 10, sample_rate=16000)
+        return AudioTask(task_id=task_id, data=data, _metadata={"_shard_key": shard})
+
+    first = task(0, "first", "part-a")
+    stage.process_batch([first])
+    same = task(0, "reloaded", "part-b", "/stale/name.wav" if resident else None)
+    stage.process_batch([same])
+    assert same.data["rttm_filepath"] == first.data["rttm_filepath"]
+    other = task(1, "other", "part-c")
+    stage.process_batch([other])
+    assert other.data["rttm_filepath"] != first.data["rttm_filepath"]
+    assert len(list((tmp_path / "rttm").rglob("*.rttm"))) == 2
+    assert not stage.describe().gates.requires_stable_task_id
+    assert stage.describe().gates.per_row_independent
+    assert stage.describe().metadata_reads == []
+
+
+@pytest.mark.parametrize("key", [None, "recording_speakers"])
+def test_optional_speaker_count_with_remapped_fanout_outputs(key: str | None) -> None:
+    stage = InferenceSortformerStage(
+        input_residency="waveform",
+        fanout=True,
+        store_segments=False,
+        waveform_key="samples",
+        sample_rate_key="rate",
+        num_speakers_key=key,
+        start_key="begin",
+        end_key="finish",
+        speaker_key="who",
+        pred_text_key="transcript",
+    )
+    stage._adapter = _RecordingAdapter(
+        results=[
+            DiarizationResult(
+                segments=[
+                    {"start": 0.0, "end": 0.01, "speaker": "speaker_0"},
+                ]
+            )
+        ]
+    )
+    result = stage.process_batch(
+        [
+            AudioTask(
+                data={
+                    "samples": np.ones(160, dtype=np.float32),
+                    "rate": 16000,
+                    "transcript": "parent",
+                }
+            )
+        ]
+    )
+    assert len(result) == 1
+    assert result[0].data["who"] == "speaker_0"
+    assert result[0].data["finish"] == 0.01
+    assert "transcript" not in result[0].data
+    assert None not in result[0].data
+    if key is not None:
+        assert result[0].data[key] == 1
+    assert not stage.is_resumable
+
+
+@pytest.mark.parametrize("segments", [[], [{"start": 5.0, "end": 6.0, "speaker": "speaker_0"}]])
+def test_empty_fanout_does_not_emit_a_parent_recording(segments: list[dict]) -> None:
+    stage = InferenceSortformerStage(input_residency="waveform", fanout=True)
+    stage._adapter = _RecordingAdapter(results=[DiarizationResult(segments=segments)])
+    assert stage.process_batch([_waveform_task("empty", 160)]) == []
+    assert not stage.is_resumable
+
+
+def test_fanout_contract_matches_execution_and_rejects_file_only_asr() -> None:
+    from nemo_curator.stages.audio._agent._planning import validate_pipeline
+    from nemo_curator.stages.audio.inference.asr.stage import ASRStage
+
+    stage = InferenceSortformerStage(input_residency="waveform", fanout=True)
+    stage._adapter = _RecordingAdapter(
+        results=[
+            DiarizationResult(
+                segments=[
+                    {"start": 0.0, "end": 0.01, "speaker": "speaker_0"},
+                ]
+            )
+        ]
+    )
+    contract = assert_agent_ready(
+        stage,
+        lambda: _waveform_task("parent", 160),
+        expected_cardinality="1:N fan-out",
+        available_keys={"waveform", "sample_rate"},
+    )
+    assert "pred_text" in contract.removes_keys
+    assert "diar_segments" in contract.removes_keys
+    asr = ASRStage(adapter_target="package.Adapter", model_id="model", max_audio_sec_per_actor=2400)
+    report = validate_pipeline(
+        [stage, asr], initial_keys={"waveform", "sample_rate", "audio_filepath"}, initial_task_type="AudioTask"
+    )
+    assert not report.ok
+
+
+def test_source_hash_does_not_alias_differently_scaled_resident_dtypes(tmp_path: Path) -> None:
+    stage = InferenceSortformerStage(
+        input_residency="waveform",
+        rttm_naming="source_hash",
+        rttm_out_dir=str(tmp_path),
+    )
+    stage._adapter = _RecordingAdapter(
+        results=[
+            DiarizationResult(
+                segments=[
+                    {"start": 0.0, "end": 0.01, "speaker": "speaker_0"},
+                ]
+            )
+        ]
+    )
+    pcm = np.full(160, 16384, dtype=np.int16)
+    tasks = [
+        AudioTask(data={"waveform": audio, "sample_rate": 16000, "session_name": "same"})
+        for audio in (pcm, pcm.astype(np.float32) / 32768)
+    ]
+    observed = []
+    for task in tasks:
+        stage.process_batch([task])
+        observed.append(stage._adapter.items[0]["waveform"].copy())
+    assert not np.array_equal(observed[0], observed[1])
+    assert tasks[0].data["rttm_filepath"] != tasks[1].data["rttm_filepath"]
+
+
+@pytest.mark.parametrize("naming", ["task_id", "legacy", "source_hash"])
+@pytest.mark.parametrize("label", ["日本語" * 10, "session_" * 60])
+def test_rttm_exports_long_session_labels_without_collisions(tmp_path: Path, naming: str, label: str) -> None:
+    stage = InferenceSortformerStage(
+        input_residency="waveform",
+        rttm_out_dir=str(tmp_path),
+        rttm_naming=naming,
+    )
+    stage._adapter = _RecordingAdapter(
+        results=[
+            DiarizationResult(
+                segments=[
+                    {"start": 0.0, "end": 0.01, "speaker": "speaker_0"},
+                ]
+            )
+        ]
+    )
+    paths = []
+    for session in (label, label + "different", label):
+        task = _waveform_task("parent", 160)
+        task.data["session_name"] = session
+        stage.process_batch([task])
+        path = tmp_path / task.data["rttm_filepath"]
+        assert path.is_file()
+        assert len(path.name.encode("utf-8")) <= 255
+        assert path.read_text().startswith(f"SPEAKER {session} 1 ")
+        paths.append(path)
+    assert paths[0] == paths[2]
+    assert paths[0] != paths[1]
+
+
+@pytest.mark.parametrize("residency", ["waveform", "auto"])
+@pytest.mark.parametrize("remap", [False, True])
+def test_resident_fanout_preserves_explicit_source_identity(residency: str, remap: bool) -> None:
+    keys = {"session_name_key": "session", "audio_item_id_key": "item", "original_file_key": "source"} if remap else {}
+    stage = InferenceSortformerStage(input_residency=residency, fanout=True, **keys)
+    stage._adapter = _RecordingAdapter(
+        results=[
+            DiarizationResult(
+                segments=[
+                    {"start": 0.0, "end": 0.01, "speaker": "speaker_0"},
+                ]
+            )
+        ]
+    )
+
+    def child_source(**metadata: str) -> str:
+        task = _waveform_task("parent", 160)
+        task.data.update(metadata)
+        return stage.process_batch([task])[0].data[stage.original_file_key]
+
+    for name in ("meeting_a", "meeting_b"):
+        assert child_source(**{stage.session_name_key: name, stage.audio_item_id_key: "fallback"}) == name
+    assert child_source(**{stage.audio_item_id_key: "item_a"}) == "item_a"
+    assert (
+        child_source(
+            **{
+                stage.original_file_key: "original",
+                stage.session_name_key: "meeting",
+                stage.audio_item_id_key: "item",
+            }
+        )
+        == "original"
+    )
+    unnamed = child_source()
+    assert unnamed.startswith("audio_")
+    assert child_source() == unnamed
+    assert {stage.session_name_key, stage.audio_item_id_key, stage.original_file_key} <= set(
+        stage.describe().optional_reads.data_keys
+    )
+
+
+def test_file_fanout_keeps_selected_path_ahead_of_session_identity(tmp_path: Path) -> None:
+    import soundfile as sf
+
+    path = tmp_path / "source.wav"
+    sf.write(path, np.zeros(160, dtype=np.float32), 16000, subtype="FLOAT")
+    stage = InferenceSortformerStage(input_residency="file", fanout=True)
+    stage._adapter = _RecordingAdapter(
+        results=[
+            DiarizationResult(
+                segments=[
+                    {"start": 0.0, "end": 0.01, "speaker": "speaker_0"},
+                ]
+            )
+        ]
+    )
+    parent = AudioTask(data={"audio_filepath": str(path), "session_name": "meeting", "audio_item_id": "item"})
+    assert stage.process_batch([parent])[0].data["original_file"] == str(path)

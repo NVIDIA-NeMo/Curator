@@ -1,0 +1,48 @@
+# Abstracted composition/ordering rules distilled from blueprints. These teach
+# the host router/planner idiomatic ordering that neither contracts nor cards
+# reveal. `kind: enforced` rules are ALSO enforced by the validator's own Python
+# checks in checks.py (the source of truth). NOTE: this file is NOT parsed by the
+# validator -- it is a teaching layer kept in sync with checks.py by hand, so editing
+# a rule here does not change enforcement. `kind: advisory` rules are expert judgment
+# the planner may adapt.
+
+patterns:
+  - id: mono-first
+    kind: advisory
+    when: "a consumer requires mono and its selected input may have multiple channels"
+    then: "if conversion is needed, use ChannelCountStage(action='convert', target_channels=1) for its supported channel layouts, or MonoConversionStage(strict_sample_rate=False) for a mono downmix without a rate gate. Enable a strict rate gate or use channel filtering only when discarding mismatches is intended"
+
+  - id: resample-before-16k-models
+    kind: advisory
+    when: "a model stage's card lists supported_sample_rates=[16000] and the data has other rates"
+    then: "if the stage does not resample internally, use ResampleAudioStage and route the consumer to its converted path or retained waveform/rate pair. MonoConversionStage verifies a rate and drops mismatches by default; it does not resample"
+
+  - id: sanitize-before-json-sink
+    kind: enforced
+    when: "non-JSON values can reach a JSON/JSONL writer"
+    then: "establish a serializable boundary with the correct task carrier. AudioToDocumentStage(strict_json=True) -> DocumentBatchJsonlWriterStage is one option; TimestampMapperStage(sanitize_output=True) -> ManifestWriterStage is another when timestamp mapping is needed. ManifestWriterStage accepts AudioTask only. A mapper/converter with its default settings is not a general JSON boundary; validate the configured chain"
+
+  - id: filter-after-metric
+    kind: advisory
+    when: "filtering on a metric field (e.g. wer, duration, mos)"
+    then: "use an existing compatible metric field or compute it before filtering. Confirm its meaning, units and scope at that point; selecting earlier saves downstream cost only when it preserves the requested semantics"
+
+  - id: cheap-filters-first
+    kind: advisory
+    when: "multiple independent quality filters are used"
+    then: "prefer low-cost filters before expensive model work when they act on the same items and reordering preserves meaning. Use observed cost and retention to choose the order; no filter is universally the most selective. Do not add a filter solely to reduce cost"
+
+  - id: wer-needs-reference
+    kind: enforced
+    when: "WER/CER filtering is requested"
+    then: "provide reference and hypothesis text under the metric's configured keys. Run ASR only when hypotheses are missing; existing predictions need no additional ASR. Reference text is required for WER/CER, but not for transcription itself"
+
+  - id: vad-changes-granularity
+    kind: advisory
+    when: "the user wants per-segment (not whole-file) scores"
+    then: "reuse conforming segments when present; otherwise add segmentation only when needed. Match fan-out rows or nested segments to the consumer's configured scope. For whole-file scoring, select task scope rather than assuming a per-segment score describes the original file"
+
+  - id: diarization-needs-continuous-audio
+    kind: enforced
+    when: "speaker separation follows VAD segmentation"
+    then: "for VADSegmentationStage -> SegmentConcatenationStage -> SpeakerSeparationStage, configure VAD with nested=True and retain segment waveforms. Default fan-out VAD rows lack the segment list this concatenator requires. Concatenation creates a new timeline; omit segmentation/rejoining when diarization should use the original continuous audio"

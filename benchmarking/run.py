@@ -27,6 +27,12 @@ from pathlib import Path
 from typing import Any
 
 from loguru import logger
+from nemo_curator_benchmarking.config import (
+    assert_valid_config_dict,
+    merge_config_files,
+    remove_disabled_blocks,
+    resolve_env_vars,
+)
 
 from nemo_curator.pipeline.workflow import WorkflowRunResult
 from nemo_curator.tasks.utils import TaskPerfUtils
@@ -54,16 +60,7 @@ from runner.ray_cluster import (
 )
 from runner.session import Session
 from runner.sinks.sink import call_sink_hook, initialize_sinks
-from runner.utils import (
-    assert_valid_config_dict,
-    find_result,
-    get_gpu_stats,
-    get_obj_for_json,
-    log_gpu_stats,
-    merge_config_files,
-    remove_disabled_blocks,
-    resolve_env_vars,
-)
+from runner.utils import find_result, get_gpu_stats, get_obj_for_json, log_gpu_stats
 from runner.viewer_url import resolve_viewer_url
 
 
@@ -161,6 +158,9 @@ def build_subprocess_environment(
     """Return the full subprocess environment and the configured names safe to consider for value logging."""
     entry_environment = {}
     for name, value in entry.environment.items():
+        # The runner owns the cluster address; entry settings must not redirect its subprocess.
+        if name == "RAY_ADDRESS":
+            continue
         resolved_value = entry.substitute_reserved_placeholders(value, session_entry_path, dataset_resolver)
         resolved_value = entry.substitute_container_or_host_paths(resolved_value, path_resolver)
         entry_environment[name] = resolved_value
@@ -285,7 +285,9 @@ def run_entry(  # noqa: PLR0913
             create_or_overwrite_dir(directory)
         ensure_dir(logs_path)
 
-        startup_env, _ = build_subprocess_environment(entry, session_entry_path, path_resolver, dataset_resolver)
+        startup_env, configured_env_names = build_subprocess_environment(
+            entry, session_entry_path, path_resolver, dataset_resolver
+        )
         ray_client, ray_temp_dir = setup_ray_cluster_and_env(
             num_cpus=ray_num_cpus,
             num_gpus=ray_num_gpus,
@@ -293,6 +295,7 @@ def run_entry(  # noqa: PLR0913
             ray_log_path=logs_path / "ray.log",
             object_store_size=None if entry.object_store_size == "default" else entry.object_store_size,
             ray_data_log_level=startup_env.get("RAY_DATA_LOG_LEVEL"),
+            environment={name: startup_env[name] for name in configured_env_names},
         )
 
         # Prepopulate <session_entry_path>/params.json with entry params.

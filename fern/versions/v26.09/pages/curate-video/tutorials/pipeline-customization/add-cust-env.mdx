@@ -1,0 +1,73 @@
+---
+description: "Guide to creating and managing custom Docker environments for specialized video curation pipeline requirements"
+categories: ["video-curation"]
+tags: ["customization", "docker", "environments", "pipeline", "deployment", "advanced"]
+personas: ["mle-focused", "devops-focused"]
+difficulty: "advanced"
+content_type: "tutorial"
+modality: "video-only"
+
+---
+
+# Add Custom Environment
+
+Package additional dependencies for a NeMo Curator pipeline in a container image.
+
+The repository Dockerfile creates a Python environment with dependencies selected by its build arguments. Build it from the source revision you plan to use, then add system or Python packages your pipeline needs. Follow the [image build procedure](/reference/infra/container-environments#build-an-image) and check the Dockerfile for its defaults.
+
+## Before You Start
+
+Before you create the image, complete these tasks:
+
+* Review the [pipeline concepts and diagrams](/about/concepts/video).
+* Build a base image from the NeMo Curator Dockerfile or choose another suitable image.
+* [Create custom code](/curate-video/tutorials/pipeline-customization/add-cust-code) if your environment supports a new module.
+
+---
+
+## How to Add Dependencies with a Dockerfile
+
+Create a Dockerfile that adds system or Python packages to the base image.
+
+### Define Build Steps
+
+Use these steps to create and build the image:
+
+1. Create an `environments` directory anywhere on your system to organize your custom pipeline stage environments.
+2. Create a new folder for your environment, for example: `my-env/`.
+3. Create a `Dockerfile` that installs your environment's dependencies on top of `nemo-curator:local`.
+
+   ```dockerfile
+   FROM nemo-curator:local
+
+   # System deps
+   RUN apt-get update && apt-get install -y --no-install-recommends \
+       wget git && rm -rf /var/lib/apt/lists/*
+
+   # Python deps (prefer aligning with pyproject optional extras)
+   # Example: install video stacks used by NeMo Curator
+   RUN pip install --no-cache-dir \
+       av==13.1.0 opencv-python einops easydict
+
+   # Optional: CV-CUDA (choose wheel that matches your CUDA/Python)
+   # RUN pip install cvcuda_cu12
+
+   # Optional: vLLM (see platform markers in pyproject)
+   # RUN pip install vllm==0.9.2
+
+   # Copy your code if needed
+   COPY . /workspace
+   WORKDIR /workspace
+   ```
+
+### Build the Image
+
+Build and tag the image from the directory containing the Dockerfile:
+
+```bash
+docker build -t my-ray-curator:latest .
+```
+
+## Next Steps
+
+Use the image in a [custom code pipeline](/curate-video/tutorials/pipeline-customization/add-cust-code).

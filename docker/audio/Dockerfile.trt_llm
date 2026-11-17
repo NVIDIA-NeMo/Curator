@@ -3,16 +3,20 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # This image runs the entire Indic pipeline; it does not extend the Torch 2.11 image.
-FROM nvidia/cuda:12.8.1-cudnn-runtime-ubuntu24.04
+FROM nvidia/cuda:12.8.1-cudnn-runtime-ubuntu24.04 AS trt_llm
 ENV DEBIAN_FRONTEND=noninteractive \
     VIRTUAL_ENV=/opt/venv \
     PATH=/opt/venv/bin:/usr/local/bin:$PATH \
     CURATOR_ENVIRONMENT=ci \
     NVIDIA_PRODUCT_NAME="NeMo Curator Indic ASR"
 
+ENV MAX_JOBS=1 CMAKE_BUILD_PARALLEL_LEVEL=1 \
+    UV_CONCURRENT_BUILDS=1 UV_CONCURRENT_INSTALLS=1 \
+    OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMBA_NUM_THREADS=1
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
         python3.12 python3.12-dev python3.12-venv build-essential pkg-config \
-        ca-certificates curl git libmagic1t64 libnuma1 libsndfile1 openssh-client nasm \
+        ca-certificates curl git libmagic1t64 libnuma1 libopus-dev libsndfile1 openssh-client nasm \
     && apt-get upgrade -y \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 COPY --from=ghcr.io/astral-sh/uv:0.12.1 /uv /usr/local/bin/uv
@@ -20,14 +24,16 @@ RUN python3.12 -m venv /opt/venv
 
 # Match Curator's FFmpeg release, with only the local audio codecs this pipeline uses.
 RUN curl -fsSL https://www.ffmpeg.org/releases/ffmpeg-8.0.1.tar.bz2 -o /tmp/ffmpeg.tar.bz2 \
+    && echo '65ff433fab5727fb2dc41f1d508dc60e6192fea44cab2e0301194feee4bcf1d7  /tmp/ffmpeg.tar.bz2' | sha256sum -c - \
     && tar -xjf /tmp/ffmpeg.tar.bz2 -C /tmp \
     && cd /tmp/ffmpeg-8.0.1 \
     && ./configure --enable-shared --disable-static --disable-everything \
         --disable-autodetect --disable-network --disable-doc --disable-ffplay \
-        --enable-protocol=file,pipe --enable-demuxer=wav,flac \
-        --enable-decoder=flac,pcm_s16le,pcm_s24le,pcm_s32le,pcm_f32le \
-        --enable-parser=flac --enable-filter=aresample \
-    && make -j8 && make install && ldconfig \
+        --enable-libopus --enable-protocol=file,pipe --enable-demuxer=wav,flac,ogg,pcm_f32le \
+        --enable-decoder=flac,pcm_s16le,pcm_s24le,pcm_s32le,pcm_f32le,opus \
+        --enable-encoder=pcm_s16le,pcm_f32le,libopus --enable-muxer=wav,ogg,pcm_s16le \
+        --enable-parser=flac,opus --enable-filter=aresample,aformat,anull \
+    && make -j1 && make install && ldconfig \
     && rm -rf /tmp/ffmpeg-8.0.1 /tmp/ffmpeg.tar.bz2
 
 WORKDIR /opt/Curator
@@ -99,3 +105,23 @@ RUN chmod +x /opt/venv/env.sh \
 
 # Native TensorRT-LLM import requires a host GPU driver: run check_trt_llm.py with --gpus all.
 CMD ["bash"]
+
+FROM trt_llm AS granary
+# The eight-speaker checkpoint needs this NeMo encoder and EOS needs CUDA 13 compatibility libraries.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git-lfs cuda-compat-13-3=610.57.04-1ubuntu1 \
+    && git lfs install --system \
+    && apt-get clean && rm -rf /var/lib/apt/lists/* \
+    && git init /tmp/nemo-reference \
+    && git -C /tmp/nemo-reference remote add origin https://github.com/ipmedenn/NeMo.git \
+    && git -C /tmp/nemo-reference fetch --depth 1 origin 5d56c27c0e80f4cd8c93b28bacca5f98440a45f9 \
+    && git -C /tmp/nemo-reference checkout --detach FETCH_HEAD \
+    && uv pip uninstall --python /opt/venv/bin/python nemo-toolkit \
+    && uv pip install --no-config --no-sources --python /opt/venv/bin/python \
+        --no-deps --no-build-isolation /tmp/nemo-reference \
+    && rm -rf /tmp/nemo-reference
+ENV LD_LIBRARY_PATH=/usr/local/cuda-13.3/compat:$LD_LIBRARY_PATH \
+    PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+# Preserve the existing default image; Granary is selected explicitly with --target granary.
+FROM trt_llm AS final

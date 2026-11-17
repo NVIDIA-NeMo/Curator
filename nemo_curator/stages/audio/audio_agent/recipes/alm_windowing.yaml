@@ -1,0 +1,42 @@
+# Recipe template (Recipe IR). Replace REQUIRED_* paths in stages[].params.
+# Optional inputs / --data only assert those paths; they never populate stage parameters.
+# Input rows need audio_filepath, audio_sample_rate (Hz), and ordered speaker/start/end segments.
+# Referenced by knowledge/blueprints/alm.yaml.
+recipe_id: alm-windowing
+name: alm_windowing
+intent: "build audio-language-model training windows from a diarized manifest, then filter overlaps"
+rationale: "Replace REQUIRED_* paths in stages[].params; inputs and --data are optional consistency assertions, not substitutions. Rows need audio_filepath, audio_sample_rate in Hz, and ordered segments with speaker/start/end; text is copied when present. Adapt window settings to the request. Consume filtered_windows for overlap-selected output; windows remains the original builder output."
+stages:
+  - ref: ManifestReader
+    params: {manifest_path: "REQUIRED_manifest_path", files_per_partition: 1}
+  - ref: ALMDataBuilderStage
+    params:
+      target_window_duration: 120.0
+      tolerance: 0.1
+      min_sample_rate: 16000
+      # Missing per-segment bandwidth is treated as zero; use a floor only with measurements.
+      min_bandwidth: 0
+      min_speakers: 2
+      max_speakers: 5
+      truncation: true
+      drop_fields: "words"
+      drop_fields_top_level: "words,segments"
+  - ref: ALMDataOverlapStage
+    params: {overlap_percentage: 50, target_duration: 120.0}
+  - ref: ManifestWriterStage
+    params: {output_path: "REQUIRED_output_manifest"}
+# Check filtered_windows, not the original windows retained by ALMDataOverlapStage.
+# Adapt window settings and acceptance to the requested deliverable.
+acceptance_criteria:
+  - id: every_row_yields_a_window
+    type: output_completeness
+    description: "every written row carries at least one window -- catches files the duration and
+      speaker gates silently reduced to nothing, which a row count still reports as success"
+    check: {field: filtered_windows}
+    severity: must
+  - id: windows_survive_overlap_filter
+    type: yield
+    description: "the pipeline retained rows at all (counts rows, not windows -- pair it with the
+      completeness criterion above, which is the one that sees empty windows)"
+    check: {op: ">", value: 0}
+    severity: must

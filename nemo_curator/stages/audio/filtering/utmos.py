@@ -35,6 +35,7 @@ Example:
 
 import math
 from dataclasses import KW_ONLY, dataclass, field
+from pathlib import Path
 from typing import Any, ClassVar, Literal
 
 import torch
@@ -42,7 +43,7 @@ import torchaudio
 from loguru import logger
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
-from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, StageContract, StaticHints
+from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract, StaticHints
 from nemo_curator.stages.audio._agent._residency import (
     normalize_audio_waveform,
     resolve_audio,
@@ -214,6 +215,10 @@ class UTMOSFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             reads_one_of=reads_one_of,
             conditional_reads=conditional_reads,
             writes=writes,
+            invalidates_prior_writes=IOSpec(
+                data_keys=[self.score_key] if self.mode in {"task", "auto"} else [],
+                segment_data_keys=[self.score_key] if self.mode in {"segments", "auto"} else [],
+            ),
             conditional_writes=[
                 *scoped_file_audio_hydration_writes(
                     self.input_residency,
@@ -257,7 +262,7 @@ class UTMOSFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                 skip_validation=True,
             )
         except Exception:  # noqa: BLE001
-            logger.warning("UTMOS repo pre-download in setup_on_node failed.")
+            logger.opt(exception=True).warning("UTMOS repo pre-download in setup_on_node failed.")
 
     def setup(self, _: WorkerMetadata | None = None) -> None:
         self._ensure_model()
@@ -289,10 +294,12 @@ class UTMOSFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                 skip_validation=True,
             )
         except Exception:  # noqa: BLE001
-            logger.warning("UTMOS download failed, loading from cache...")
+            repo, ref = _UTMOS_REPO.rsplit(":", 1)
+            cached_repo = Path(torch.hub.get_dir()) / f"{repo.replace('/', '_')}_{ref.replace('/', '_')}"
+            logger.opt(exception=True).warning(f"UTMOS initial load failed; trying local cache at {cached_repo}")
             try:
                 predictor = torch.hub.load(
-                    _UTMOS_REPO,
+                    str(cached_repo),
                     _UTMOS_ENTRYPOINT,
                     trust_repo=True,
                     source="local",

@@ -290,6 +290,295 @@ def test_rejects_invalid_replacement(tmp_path: Path) -> None:
         stage.setup()
 
 
-def test_requires_rules_path() -> None:
-    with pytest.raises(ValueError, match="regex_params_yaml is required"):
-        RegexSubstitutionStage()
+@pytest.mark.parametrize(
+    "rules",
+    [
+        [],
+        [
+            {"pattern": r"\bfoo\b", "repl": "A P I", "count": 1},
+            {"pattern": r"\bA P I\b", "repl": "GPU"},
+        ],
+        [{"pattern": r"\S+", "repl": ""}],
+    ],
+)
+def test_inline_rules_match_file_results(tmp_path: Path, rules: list[dict[str, object]]) -> None:
+    file_stage = RegexSubstitutionStage(regex_params_yaml=_rules(tmp_path, rules))
+    inline_stage = RegexSubstitutionStage(rules=rules)
+    rows = [
+        {"pred_text": "  foo   foo  "},
+        {"pred_text": "   ", "_skipme": ""},
+        {"pred_text": "foo", "text": "preserved", "_skipme": "read_error"},
+    ]
+    file_stage.setup()
+    inline_stage.setup()
+
+    file_results = file_stage.process_batch([AudioTask(data=dict(row)) for row in rows])
+    inline_results = inline_stage.process_batch([AudioTask(data=dict(row)) for row in rows])
+
+    assert [task.data for task in inline_results] == [task.data for task in file_results]
+
+
+@pytest.mark.parametrize(
+    ("rules", "error", "message"),
+    [
+        ({}, TypeError, "must contain a list"),
+        (["not a rule"], TypeError, "must be a mapping"),
+        ([{"pattern": "foo"}], ValueError, "pattern and repl"),
+        ([{"pattern": "foo", "repl": "bar", "count": True}], TypeError, "count must be an integer"),
+        ([{"pattern": "[", "repl": ""}], re.error, "unterminated character set"),
+    ],
+)
+def test_rejects_invalid_inline_rules(rules: object, error: type[Exception], message: str) -> None:
+    stage = RegexSubstitutionStage(rules=rules)
+
+    with pytest.raises(error, match=message):
+        stage.setup()
+
+
+@pytest.mark.parametrize(
+    ("regex_params_yaml", "rules"), [("", None), ("rules.yaml", []), ("rules.yaml", [{"pattern": "x", "repl": ""}])]
+)
+def test_requires_exactly_one_rules_source(regex_params_yaml: str, rules: list[dict[str, str]] | None) -> None:
+    with pytest.raises(ValueError, match="exactly one of regex_params_yaml or rules"):
+        RegexSubstitutionStage(regex_params_yaml=regex_params_yaml, rules=rules)
+
+
+def _lang_stage(rules: list[dict[str, object]]) -> RegexSubstitutionStage:
+    stage = RegexSubstitutionStage(rules=rules)
+    stage.setup()
+    return stage
+
+
+@pytest.mark.parametrize(
+    ("language", "expected"),
+    [("el", "a; b"), ("el-GR", "a; b"), ("EL", "a; b"), ("en", "a, b"), (None, "a, b"), ("", "a, b")],
+)
+def test_exclude_langs_skips_listed_languages(language: str | None, expected: str) -> None:
+    stage = _lang_stage([{"pattern": ";", "repl": ",", "exclude_langs": ["el"]}])
+    data = {"pred_text": "a; b"}
+    if language is not None:
+        data["source_lang"] = language
+    task = AudioTask(data=data)
+
+    stage.process(task)
+
+    assert task.data["text"] == expected
+
+
+@pytest.mark.parametrize(("language", "expected"), [("el", "a; b"), ("el_GR", "a; b"), ("en", "a? b"), (None, "a? b")])
+def test_langs_applies_only_to_listed_languages(language: str | None, expected: str) -> None:
+    stage = _lang_stage([{"pattern": r"\?", "repl": ";", "langs": ["el"]}])
+    data = {"pred_text": "a? b"}
+    if language is not None:
+        data["source_lang"] = language
+    task = AudioTask(data=data)
+
+    stage.process(task)
+
+    assert task.data["text"] == expected
+
+
+def test_language_key_is_configurable() -> None:
+    stage = RegexSubstitutionStage(rules=[{"pattern": "x", "repl": "y", "langs": ["el"]}], language_key="lang")
+    stage.setup()
+    task = AudioTask(data={"pred_text": "x", "lang": "el", "source_lang": "en"})
+
+    stage.process(task)
+
+    assert task.data["text"] == "y"
+
+
+@pytest.mark.parametrize(
+    ("rule", "error", "message"),
+    [
+        (
+            {"pattern": "x", "repl": "", "langs": ["el"], "exclude_langs": ["en"]},
+            ValueError,
+            "both langs and exclude_langs",
+        ),
+        ({"pattern": "x", "repl": "", "langs": "el"}, TypeError, "langs must be a non-empty list"),
+        ({"pattern": "x", "repl": "", "langs": []}, TypeError, "langs must be a non-empty list"),
+        ({"pattern": "x", "repl": "", "exclude_langs": [""]}, TypeError, "exclude_langs must be a non-empty list"),
+        ({"pattern": "x", "repl": "", "exclude_langs": [1]}, TypeError, "exclude_langs must be a non-empty list"),
+    ],
+)
+def test_rejects_invalid_language_filters(rule: dict[str, object], error: type[Exception], message: str) -> None:
+    stage = RegexSubstitutionStage(rules=[rule])
+    with pytest.raises(error, match=message):
+        stage.setup()
+
+
+_GRANARY_V2_DIR = Path(__file__).resolve().parents[4] / "tutorials" / "audio" / "granary_v2"
+
+
+@pytest.mark.parametrize(
+    ("text", "language", "expected"),
+    [
+        # Greek ';' is the question mark: kept, and Latin '?' / U+037E are unified to it.
+        ("Πού τα βρήκατε;", "el", "Πού τα βρήκατε;"),
+        ("Πού τα βρήκατε?", "el", "Πού τα βρήκατε;"),
+        ("Πού τα βρήκατε\u037e", "el", "Πού τα βρήκατε;"),
+        ("Ήρθε; Όχι ακόμα.", "el", "Ήρθε; Όχι ακόμα."),
+        # Ano teleia (Greek semicolon) becomes a comma.
+        ("Ήρθε· μετά έφυγε.", "el", "Ήρθε, μετά έφυγε."),
+        ("Ήρθε· μετά έφυγε.", "el", "Ήρθε, μετά έφυγε."),
+        # Other languages keep the old behaviour.
+        ("first; second", "en", "first, second"),
+        ("Where is it?", "en", "Where is it?"),
+        ("premier; second", "fr", "premier, second"),
+        ("first; second", None, "first, second"),
+    ],
+)
+def test_production_rules_keep_greek_question_mark(text: str, language: str | None, expected: str) -> None:
+    stage = RegexSubstitutionStage(regex_params_yaml=str(_GRANARY_V2_DIR / "indic_asr" / "regex.yaml"))
+    stage.setup()
+    data = {"pred_text": text}
+    if language is not None:
+        data["source_lang"] = language
+    task = AudioTask(data=data)
+
+    stage.process(task)
+
+    assert task.data["text"] == expected
+
+
+def test_qwen_omni_pipeline_carries_the_same_language_rules() -> None:
+    """The Qwen-Omni pipeline inlines its regex rules; its language-filtered rules must match regex.yaml."""
+
+    def language_rules(rules: list[dict[str, object]]) -> list[dict[str, object]]:
+        return [r for r in rules if "langs" in r or "exclude_langs" in r or r["pattern"] == "\u037e"]
+
+    production = yaml.safe_load((_GRANARY_V2_DIR / "indic_asr" / "regex.yaml").read_text(encoding="utf-8"))
+    pipeline = yaml.safe_load((_GRANARY_V2_DIR / "qwen_omni_asr" / "pipeline.yaml").read_text(encoding="utf-8"))
+    inline = next(
+        s["rules"]
+        for s in pipeline["stages"]
+        if isinstance(s, dict) and str(s.get("_target_", "")).endswith("RegexSubstitutionStage")
+    )
+
+    assert language_rules(production)
+    assert language_rules(inline) == language_rules(production)
+
+
+_GRANARY_REGEX_YAML = (
+    Path(__file__).resolve().parents[4] / "tutorials" / "audio" / "granary_v2" / "indic_asr" / "regex.yaml"
+)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "mình cũng biết mà",  # vi: ũ U+0169
+        "nghĩ về chuyện cũ",  # vi: ĩ U+0129 and ũ
+        "một bác sĩ giỏi",  # vi: ĩ
+        "NOËL",  # fr: Ë U+00CB
+        "AOÛT",  # fr: Û U+00DB
+        "MAÏS",  # fr: Ï U+00CF
+        "όλους τους ανθρώπους",  # el: final sigma ς U+03C2
+        "Ίσως Ύστερα Ώρα",  # el: Ί U+038A, Ύ U+038E, Ώ U+038F
+        "προϋπόθεση ταΐζω",  # el: ϋ U+03CB, ΐ U+0390
+        "ΠΡΟΫΠΟΘΕΣΗ ΤΑΪΖΩ",  # el: Ϋ U+03AB, Ϊ U+03AA
+        "naţiune Ţara",  # ro: legacy cedilla ţ U+0163, Ţ U+0162 (no language set)
+        "\u0391\u0384 Παγκόσμιος Πόλεμος",  # el: numeral sign/keraia U+0384
+        "тя ѝ каза",  # bg: ѝ U+045D
+        "Ѝ и ѐ",  # bg: Ѝ U+040D, ѐ U+0450
+        "ĳsje",  # nl: ĳ U+0133
+        "人々は時々",  # ja: 々 U+3005
+        "二〇二四年",  # zh/ja: ideographic number zero U+3007
+    ],
+)
+def test_production_whitelist_preserves_covered_language_letters(text: str) -> None:
+    """Letters absent from the whitelist are silently replaced by a space.
+
+    Ĩĩ/Ũũ and the uppercase Ë/Ï/Û were missing, so correct predictions lost them
+    mid-word: "cũng" became "c ng" and "NOËL" became "NO L". The same gap hit the
+    Greek final sigma ς ("τους" -> "του "), Romanian cedilla ţ, Bulgarian ѝ and the
+    CJK iteration mark 々 ("人々" -> "人 "). Every one of these languages is in the
+    rule file's declared coverage, so a covered letter must survive intact.
+    """
+    stage = RegexSubstitutionStage(
+        regex_params_yaml=str(_GRANARY_REGEX_YAML),
+        text_key="pred_text",
+        output_text_key="cleaned_text",
+    )
+    stage.setup()
+    task = AudioTask(data={"pred_text": text})
+
+    stage.process(task)
+
+    assert task.data["cleaned_text"] == text
+
+
+def _whitelist_patterns(node: object) -> list[str]:
+    """Collect every character-whitelist pattern (a negated class replaced by a space)."""
+    if isinstance(node, dict):
+        found = [p for v in node.values() for p in _whitelist_patterns(v)]
+        pattern = node.get("pattern")
+        if isinstance(pattern, str) and pattern.startswith("[^") and node.get("repl") == " ":
+            found.append(pattern)
+        return found
+    if isinstance(node, list):
+        return [p for v in node for p in _whitelist_patterns(v)]
+    return []
+
+
+def test_qwen_omni_whitelist_matches_production_rule_file() -> None:
+    """qwen_omni_asr/pipeline.yaml carries an inline copy of the whitelist.
+
+    The copy silently missed the letter fixes made to indic_asr/regex.yaml, so the
+    Qwen-Omni path kept stripping them. Both copies must stay identical.
+    """
+    qwen_yaml = _GRANARY_REGEX_YAML.parents[1] / "qwen_omni_asr" / "pipeline.yaml"
+    production = _whitelist_patterns(yaml.safe_load(_GRANARY_REGEX_YAML.read_text(encoding="utf-8")))
+    inline = _whitelist_patterns(yaml.safe_load(qwen_yaml.read_text(encoding="utf-8")))
+
+    assert len(production) == 1
+    assert inline == production
+
+
+_GRANARY_V2 = Path(__file__).resolve().parents[4] / "tutorials/audio/granary_v2"
+
+
+def _shipped_rules(name: str) -> list[dict[str, object]]:
+    if name == "indic_asr":
+        return yaml.safe_load((_GRANARY_V2 / "indic_asr/regex.yaml").read_text(encoding="utf-8"))
+    stages = yaml.safe_load((_GRANARY_V2 / "qwen_omni_asr/pipeline.yaml").read_text(encoding="utf-8"))["stages"]
+    return next(s["rules"] for s in stages if s.get("output_text_key") == "cleaned_text")
+
+
+@pytest.mark.parametrize("rules", ["indic_asr", "qwen_omni_asr"])
+@pytest.mark.parametrize(
+    ("language", "text", "expected"),
+    [("el", "Πού ήσουν?? Εδώ;; Γιατί;;", "Πού ήσουν; Εδώ; Γιατί;"), ("en", "Where?? Here;;", "Where? Here,")],
+)
+def test_shipped_rules_collapse_repeated_question_marks(rules: str, language: str, text: str, expected: str) -> None:
+    stage = _lang_stage(_shipped_rules(rules))
+    task = AudioTask(data={"pred_text": text, "source_lang": language})
+
+    stage.process(task)
+
+    assert task.data["text"] == expected
+
+
+@pytest.mark.parametrize("rules", ["indic_asr", "qwen_omni_asr"])
+@pytest.mark.parametrize(
+    ("language", "text", "expected"),
+    [
+        # ro: legacy cedilla \u0163/\u0162/\u015f/\u015e -> comma-below \u021b/\u021a/\u0219/\u0218
+        ("ro", "na\u0163iune \u0162ara a\u015fa \u015etefan", "na\u021biune \u021aara a\u0219a \u0218tefan"),
+        ("ro-RO", "na\u0163iune", "na\u021biune"),
+        # tr: the cedilla \u015f/\u015e is the correct Turkish letter and must survive
+        ("tr", "ya\u015f\u0131yor \u015ei\u015fli", "ya\u015f\u0131yor \u015ei\u015fli"),
+    ],
+)
+def test_shipped_rules_romanian_cedilla_to_comma(rules: str, language: str, text: str, expected: str) -> None:
+    """Romanian \u0219/\u021b are often typed as the legacy cedilla forms, so one corpus mixes both spellings.
+
+    Only Romanian is normalized: Turkish needs the cedilla \u015f.
+    """
+    stage = _lang_stage(_shipped_rules(rules))
+    task = AudioTask(data={"pred_text": text, "source_lang": language})
+
+    stage.process(task)
+
+    assert task.data["text"] == expected

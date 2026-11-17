@@ -143,7 +143,7 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
         logger.info(f"WhisperHallucinationStage: loaded {len(phrases)} phrases from {self.common_hall_file}")
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.text_key, self.skip_me_key, self.duration_key]
+        return [], [self.text_key, self.duration_key]
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.skip_me_key, self.notes_key]
@@ -190,7 +190,7 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
         return is_scriptio_continua(task.data.get(self.language_key))
 
     def process(self, task: AudioTask) -> AudioTask:
-        current_flag = str(task.data.get(self.skip_me_key, ""))
+        current_flag = str(task.data.setdefault(self.skip_me_key, ""))
         if not self.overwrite and current_flag:
             self._set_note(task.data, "skipped (flagged)")
             return task

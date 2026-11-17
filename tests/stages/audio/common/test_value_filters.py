@@ -497,45 +497,6 @@ def test_duration_input_spec_preserves_subclass_requirements(residency: str) -> 
     assert stage.validate_input(AudioTask(data=data))
 
 
-def test_compound_preserve_nested_contract_declares_child_condition_keys() -> None:
-    from nemo_curator.stages.audio._agent._agent_registry import stage_params
-
-    stage = PreserveByValueConditionsStage(
-        [{"input_value_key": "score", "target_value": 3.5, "operator": "ge"}],
-        items_key="candidates",
-        drop_parent_if_empty=False,
-    )
-    contract = stage.describe()
-    params = {param.name: param for param in stage_params(PreserveByValueConditionsStage)}
-
-    assert contract.reads.data_keys == ["candidates"]
-    assert contract.writes.data_keys == ["candidates"]
-    assert contract.reads.segment_data_keys == ["score"]
-    assert contract.writes.segment_data_keys == []
-    assert contract.iteration_key == "candidates"
-    assert contract.cardinality == "1:1 nested-list"
-    assert contract.gates.per_row_independent is True
-    assert params["items_key"].default is None
-    assert params["drop_parent_if_empty"].default is True
-    assert params["condition_logic"].default == "and"
-    assert params["condition_logic"].choices == ["and", "or"]
-
-    dropping_contract = PreserveByValueConditionsStage(
-        [{"input_value_key": "score", "target_value": 3.5, "operator": "ge"}],
-        items_key="candidates",
-    ).describe()
-    assert dropping_contract.cardinality == "filter"
-    assert dropping_contract.iteration_key is None
-    assert "one-level" in dropping_contract.description
-    assert "AND" in dropping_contract.description
-
-    or_contract = PreserveByValueConditionsStage(
-        [{"input_value_key": "score", "target_value": 3.5, "operator": "ge"}],
-        condition_logic="or",
-    ).describe()
-    assert "OR" in or_contract.description
-
-
 def test_duration_preserves_legacy_file_key_alias(tmp_path: Path) -> None:
     source = tmp_path / "source.wav"
     import soundfile

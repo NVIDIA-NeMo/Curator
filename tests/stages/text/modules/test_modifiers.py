@@ -413,6 +413,21 @@ class TestMarkdownRemover:
         expected = "This is underlined text."
         assert result == expected
 
+    def test_custom_underline_regex(self) -> None:
+        # The default pattern also matches underscores inside words; a caller can pass a stricter one
+        text = "Set max_new_tokens in generation_config.json and email first_last@example.com about _this_."
+        remover = MarkdownRemover(markdown_underline_regex=r"(?<!\w)_(\S.*?)_(?!\w)")
+        result = remover.modify_document(text)
+        expected = "Set max_new_tokens in generation_config.json and email first_last@example.com about this."
+        assert result == expected
+
+    def test_custom_regexes_replace_the_defaults(self) -> None:
+        text = "~~struck~~ and <https://example.com>"
+        remover = MarkdownRemover(markdown_bold_regex=r"~~(.*?)~~", markdown_link_regex=r"<(.*?)>")
+        result = remover.modify_document(text)
+        expected = "struck and https://example.com"
+        assert result == expected
+
     def test_link_removal(self) -> None:
         text = "Link: [Google](https://google.com)"
         remover = MarkdownRemover()
