@@ -58,7 +58,6 @@ stages:
     adapter_target: nemo_curator.models.asr.qwen_omni.QwenOmniASRAdapter
     model_id: ${model_id}
     supported_language_codes: [de, es, fr, it, pt, ru, nl]
-    unsupported_language_marks_skip: false
     pred_text_key: primary_model_prediction
     batch_size: 64
     max_audio_sec_per_actor: 960.0
@@ -99,11 +98,9 @@ stages:
     sample_rate_key: sample_rate
     keep_waveform: false
     name: QwenASR_recovery
-    skip_if_output_exists: true
     adapter_target: nemo_curator.models.asr.qwen_asr.QwenASRAdapter
     model_id: ${recovery_model_id}
     supported_language_codes: [de, es, fr, it, pt, ru, nl]
-    unsupported_language_marks_skip: false
     # An empty recovery result must not replace the primary hallucination flag.
     preserve_existing_skip: true
     pred_text_key: fallback_model_prediction

@@ -60,8 +60,6 @@ stages:
     adapter_target: nemo_curator.models.asr.faster_whisper.FasterWhisperASR
     model_id: large-v3
     supported_language_codes: [lt, lv, hr, et, bg, sk, sl, mt, uk]
-    unsupported_language_marks_skip: false
-    skip_if_output_exists: true
     max_audio_sec_per_actor: 2400.0
     pred_text_key: primary_model_prediction
     batch_size: 16
@@ -75,10 +73,8 @@ stages:
     sample_rate_key: sample_rate
     keep_waveform: false
     name: ParakeetV3_recovery
-    skip_if_output_exists: true
     adapter_target: nemo_curator.models.asr.nemo_asr.NeMoASRAdapter
     supported_language_codes: [lt, lv, hr, et, bg, sk, sl, mt, uk]
-    unsupported_language_marks_skip: false
     preserve_existing_skip: true
     max_audio_sec_per_actor: 2400.0
     pred_text_key: fallback_model_prediction

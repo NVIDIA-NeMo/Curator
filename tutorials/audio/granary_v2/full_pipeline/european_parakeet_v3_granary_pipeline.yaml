@@ -59,8 +59,6 @@ stages:
     adapter_target: nemo_curator.models.asr.nemo_asr.NeMoASRAdapter
     model_id: nvidia/parakeet-tdt-0.6b-v3
     supported_language_codes: [pl, cs, ro, hu, el, fi, da, sv]
-    unsupported_language_marks_skip: false
-    skip_if_output_exists: true
     max_audio_sec_per_actor: 2400.0
     pred_text_key: primary_model_prediction
     batch_size: 64
@@ -78,10 +76,8 @@ stages:
     sample_rate_key: sample_rate
     keep_waveform: false
     name: Whisper_recovery
-    skip_if_output_exists: true
     adapter_target: nemo_curator.models.asr.faster_whisper.FasterWhisperASR
     supported_language_codes: [pl, cs, ro, hu, el, fi, da, sv]
-    unsupported_language_marks_skip: false
     preserve_existing_skip: true
     max_audio_sec_per_actor: 2400.0
     pred_text_key: fallback_model_prediction
