@@ -266,11 +266,6 @@ shared:
     long_word_rel_threshold: 3.0
     max_char_rate: 40.0
 
-  # Release the clip waveform once the last ASR stage has run; ManifestWriterStage cannot serialize it.
-  drop_clip_waveform:
-    _target_: nemo_curator.stages.audio.common.DropKeysStage
-    keys: [waveform]
-
   select_best_prediction_stage:
     _target_: nemo_curator.stages.audio.text_filtering.SelectBestPredictionStage
     primary_text_key: primary_model_prediction

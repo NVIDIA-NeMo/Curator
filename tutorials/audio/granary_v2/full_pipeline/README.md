@@ -39,7 +39,7 @@ that every row suits training.
 **Audio handling.** Audio is read from memory between stages instead of being re-read from intermediate
 files: the recording is decoded once into a 16 kHz mono waveform, and each Opus clip is decoded once into
 the 16-bit samples every ASR stage hears. Those samples are bit-identical to what the earlier file-based
-flow gave each stage, and `DropKeysStage` releases the clip waveform after the last ASR stage. ffmpeg still
+flow gave each stage, and the last ASR stage (`keep_waveform: false`) releases it. ffmpeg still
 writes a temporary WAV per recording and per clip, which is read back and deleted; no WAVs are kept.
 
 **Language ID.** `SelectAudioLanguageStage` accepts Whisper's answer when it is `en`; otherwise it

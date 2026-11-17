@@ -153,7 +153,7 @@ stages:
   - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
     waveform_key: waveform
     sample_rate_key: sample_rate
-    keep_waveform: true
+    keep_waveform: false
     name: IndicConformer_recovery
     skip_if_output_exists: true
     adapter_target: nemo_curator.models.audio.indic_conformer_hybrid.IndicConformerHybridASR
@@ -181,7 +181,6 @@ stages:
     use_ground_truth_for_short_audio: false
     output_key: best_prediction
     primary_model_type: indic_canary
-  - ${shared.drop_clip_waveform}
   - ${shared.regex_substitution_stage}
   - ${shared.abbreviation_concat_stage}
   - ${shared.pn_c_restoration}

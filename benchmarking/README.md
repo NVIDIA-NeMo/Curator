@@ -796,6 +796,10 @@ python benchmarking/data_prep/prepare_audio_indic_asr_data.py \
   --output-path {datasets_path}/audio_indic_asr_parakeet_hindi_531h_35376a11 \
   --cache-dir {datasets_path}/_hf_cache/audio_indic_asr
 
+python benchmarking/data_prep/prepare_audio_granary_italian_data.py \
+  --output-path {datasets_path}/audio_granary_full_italian_fleurs_test_3p5h_70bb2e84 \
+  --cache-dir {datasets_path}/_hf_cache/audio_granary_full_italian
+
 python benchmarking/data_prep/prepare_readspeech_data.py \
   --output-path {datasets_path}/read_speech \
   --num-parts 3 \
@@ -1155,7 +1159,7 @@ shutdown diagnostics despite complete outputs and normal process exits.
 
 ## Granary Full Pipeline Benchmarks
 
-One script per pipeline runs the whole graph of the tutorial's own YAML on Ray Data, read directly from
+One script per pipeline (for European, only the Qwen3-Omni group) runs the whole graph of the tutorial's own YAML on Ray Data, read directly from
 `tutorials/audio/granary_v2/full_pipeline`: recordings to Opus speech clips and metadata, ASR with recovery,
 then eight text operations on a managed Dynamo server.
 
@@ -1163,13 +1167,16 @@ then eight text operations on a managed Dynamo server.
 | --- | --- | --- | --- |
 | `scripts/audio_granary_full_english_benchmark.py` | [en_granary_pipeline.yaml](../tutorials/audio/granary_v2/full_pipeline/en_granary_pipeline.yaml) | `english.jsonl` | `curator-granary-full` |
 | `scripts/audio_granary_full_european_qwen_omni_benchmark.py` | [european_qwen_omni_granary_pipeline.yaml](../tutorials/audio/granary_v2/full_pipeline/european_qwen_omni_granary_pipeline.yaml) | `european_qwen_omni.jsonl` | `curator-granary-full` |
-| `scripts/audio_granary_full_european_parakeet_v3_benchmark.py` | [european_parakeet_v3_granary_pipeline.yaml](../tutorials/audio/granary_v2/full_pipeline/european_parakeet_v3_granary_pipeline.yaml) | `european_parakeet_v3.jsonl` | `curator-granary-full` |
-| `scripts/audio_granary_full_european_whisper_benchmark.py` | [european_whisper_granary_pipeline.yaml](../tutorials/audio/granary_v2/full_pipeline/european_whisper_granary_pipeline.yaml) | `european_whisper.jsonl` | `curator-granary-full` |
 | `scripts/audio_granary_full_indic_benchmark.py` | [indic_granary_pipeline.yaml](../tutorials/audio/granary_v2/full_pipeline/indic_granary_pipeline.yaml) | `indic.jsonl` | `curator-granary-indic` |
 
 Each starts that server the way the tutorial's `main.py` does and times only the pipeline run; Ray and
 server start-up are reported separately as `inference_server_startup_s`. Like the Indic ASR and audio
 text benchmarks, they have no entries or enablement overlay in the standard nightly matrix.
+
+For the European Qwen3-Omni script, `prepare_audio_granary_italian_data.py` stages the open Italian FLEURS test split
+(Hugging Face `google/fleurs`, `it_it`, CC-BY-4.0, revision `70bb2e84`): 865 recordings, 3.52 hours, about 780 MB, as
+`{datasets_path}/audio_granary_full_italian_fleurs_test_3p5h_70bb2e84/manifest.jsonl` (name = pipeline, source, split,
+hours, revision). It is not part of the nightly data setup.
 
 Build the image from the table and prepare models and a recordings manifest as in the
 [full pipeline README](../tutorials/audio/granary_v2/full_pipeline/README.md), then run from the
@@ -1184,7 +1191,7 @@ python benchmarking/scripts/audio_granary_full_english_benchmark.py \
 # fewer GPUs: --override=ray_client.num_gpus=8 --override=inference_server.models.0.num_replicas=2
 ```
 
-The command above is for English; the three European and the Indic scripts take the same arguments. A benchmark
+The command above is for English; the European and Indic scripts take the same arguments. A benchmark
 fails if no clip is produced, if an output row is missing from `metadata.jsonl` or its `source_lang` is
 outside the languages the YAML keeps, or if an unflagged row has an empty `best_prediction`. Metrics include
 `time_taken_s`, `num_output_rows`, `num_flagged_rows`, `total_audio_duration_hours` and
