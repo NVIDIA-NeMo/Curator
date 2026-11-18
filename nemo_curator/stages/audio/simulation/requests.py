@@ -464,6 +464,9 @@ class _NativeInputs:
                     if speaker is not None:
                         speakers[speaker] += 1
         capacity = sum(count >= cfg.get("min_spk_utt", 5) for count in speakers.values())
+        if time.monotonic() > deadline:
+            msg = "Speech manifest exceeds supported admission budget after validation"
+            raise ValueError(msg)
         if capacity < cfg.get("min_max_spk", [2, 4])[1]:
             msg = "Insufficient eligible aligned speakers for the requested native speaker range"
             raise ValueError(msg)
