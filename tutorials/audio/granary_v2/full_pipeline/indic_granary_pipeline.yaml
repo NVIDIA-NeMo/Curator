@@ -133,9 +133,10 @@ stages:
     sample_rate_key: sample_rate
     pred_text_key: primary_model_prediction
     batch_size: 64
+    # The Canary encoder's TensorRT execution context asks for about 40 GB.
     resources:
       _target_: nemo_curator.stages.resources.Resources
-      gpu_memory_gb: 24
+      gpu_memory_gb: 50
   - ${shared.whisper_hallucination_primary}
 
   - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
