@@ -177,5 +177,8 @@ existing manifest contracts and module capability cards.
 
 The adapter's documented first-version limits still apply: local prepared
 inputs, no noise/RIR generation, and bounded input size and generation batches.
+Compressed speech manifests are also bounded after decompression: 1 GiB across
+the configured splits, 8 MiB per UTF-8 JSONL record including its newline,
+and a 60-second admission deadline. Oversized records fail before generation.
 See the module cards for the exact supported scope. Validate acoustic quality
 and transcript accuracy on your own data before preparing a training corpus.
