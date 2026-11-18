@@ -19,7 +19,8 @@ backend: ray_data
 batch_size: 128
 num_workers: 12
 max_concurrent_requests: 256
-request_timeout_s: 600
+# Text requests wait for a replica, which starts only after audio stages free a GPU.
+request_timeout_s: 21600
 max_retries: 3
 
 model_identifier: RedHatAI/gemma-4-31B-it-FP8-dynamic
@@ -81,7 +82,7 @@ inference_server:
       # these bounds, and a new replica starts only when a GPU is free.
       deployment_config:
         autoscaling_config:
-          min_replicas: 2
+          min_replicas: 0  # no GPU is held at start; replicas start when audio stages free GPUs
           max_replicas: 4
           # Ray's LLM default is 1e9, which never scales up. Half of max_num_seqs keeps a queue short.
           target_ongoing_requests: 128
