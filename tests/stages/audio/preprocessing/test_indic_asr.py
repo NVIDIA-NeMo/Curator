@@ -193,7 +193,12 @@ def test_skips_clip_below_min_duration(tmp_path: Path) -> None:
 
 
 def test_truncates_clip_above_max_duration(tmp_path: Path) -> None:
-    """Clips longer than max_duration_sec are truncated so both backends see the same audio."""
+    """Clips longer than max_duration_sec are truncated so both backends see the same audio.
+
+    The original duration and a human-readable warning are written into notes so the
+    truncation is visible in the output JSONL even though the adapter never sees an
+    over-length waveform and therefore cannot flag it itself.
+    """
     path = tmp_path / "long.wav"
     # 50 s — above the default max_duration_sec of 40 s
     num_samples = 50 * 16000
@@ -218,6 +223,12 @@ def test_truncates_clip_above_max_duration(tmp_path: Path) -> None:
     )
     # Manifest duration is kept unchanged (the stage contract does not update it)
     assert result.data["duration"] == 50.0
+    # Truncation warning and original duration must be recorded in notes
+    notes = result.data["additional_notes"]
+    assert "exceeds" in notes.get("prepare_indic_asr_input", ""), (
+        "truncation warning must be written to notes"
+    )
+    assert notes.get("original_duration_sec") == 50.0
 
 
 def test_configurable_duration_bounds(tmp_path: Path) -> None:
