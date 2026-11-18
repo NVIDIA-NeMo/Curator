@@ -1188,7 +1188,7 @@ python benchmarking/scripts/audio_granary_full_english_benchmark.py \
   --input-manifest=/data/manifest.jsonl \
   --model-dir=/models \
   --cache-root=/cache/compilation
-# other GPU counts: --override=ray_client.num_gpus=16 --override=inference_server.models.0.num_replicas=4
+# more text-model replicas (one GPU each): --override=inference_server.models.0.num_replicas=4
 ```
 
 The command above is for English; the European and Indic scripts take the same arguments. A benchmark

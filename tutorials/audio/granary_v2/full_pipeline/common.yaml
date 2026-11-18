@@ -45,7 +45,7 @@ inference_server:
       _convert_: all
       model_identifier: ${model_identifier}
       model_name: ${model_name}
-      num_replicas: 2
+      num_replicas: 2  # one GPU each: the 31 GB FP8 weights fit one 80 GB GPU, leaving six for audio
       runtime_env:
         uv:
           packages:
@@ -60,7 +60,7 @@ inference_server:
           TORCHINDUCTOR_CACHE_DIR: ${cache_root}/torchinductor
           TRITON_CACHE_DIR: ${cache_root}/triton
       engine_kwargs:
-        tensor_parallel_size: 2
+        tensor_parallel_size: 1
         max_model_len: 8192
         gpu_memory_utilization: 0.95
         kv_cache_dtype: auto
