@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import tarfile
 from io import BytesIO
 from pathlib import Path
 from unittest.mock import patch
@@ -143,6 +144,26 @@ def test_extract_tiff_frame_jpeg_in_tiff_preserves_pixels() -> None:
 
 
 # --- _fill_tar_extract_rows ---
+
+
+def test_fill_tar_extract_rows_streams_compressed_tar(tmp_path: Path) -> None:
+    archive = tmp_path / "images.tar.gz"
+    payloads = {"a.jpg": b"a", "b.jpg": b"b"}
+    with tarfile.open(archive, "w:gz") as tf:
+        for name, payload in payloads.items():
+            info = tarfile.TarInfo(name)
+            info.size = len(payload)
+            tf.addfile(info, BytesIO(payload))
+
+    binary_values: list[object] = [None, None]
+    error_values: list[str | None] = [None, None]
+    with patch.object(tarfile.TarFile, "getmember", side_effect=AssertionError("random tar lookup")):
+        _fill_tar_extract_rows(
+            {str(archive): [(0, "b.jpg", None), (1, "a.jpg", None)]}, {}, binary_values, error_values
+        )
+
+    assert binary_values == [b"b", b"a"]
+    assert error_values == [None, None]
 
 
 @pytest.mark.parametrize(

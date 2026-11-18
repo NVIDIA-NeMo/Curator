@@ -27,16 +27,154 @@ from nemo_curator.stages.interleaved.stages import (
     BaseInterleavedAnnotatorStage,
     BaseInterleavedFilterStage,
     InterleavedAspectRatioFilterStage,
+    MarkdownToInterleavedStage,
 )
 from nemo_curator.stages.interleaved.utils.materialization import (
     _classify_rows,
     _read_direct_file,
     materialize_task_binary_content,
 )
-from nemo_curator.tasks import InterleavedBatch
+from nemo_curator.tasks import DocumentBatch, InterleavedBatch
 from nemo_curator.tasks.interleaved import INTERLEAVED_SCHEMA
 
 from .conftest import build_multi_frame_tiff, make_image_row, make_image_task, write_tar
+
+
+def test_markdown_to_interleaved() -> None:
+    task = DocumentBatch(
+        dataset_name="PIN-14M",
+        data=pd.DataFrame(
+            [
+                {
+                    "id": 94,
+                    "meta": {"language": "en"},
+                    # Image syntax inside code spans and fences must remain literal text.
+                    "md": """## Heading
+
+`![not an image](ignored-inline.png)`
+
+`![]([https://example.com/ignored-malformed-inline.png)`
+
+```markdown
+![not an image](ignored-fence.png)
+![]([https://example.com/ignored-malformed-fence.png)
+```
+
+<img alt="quoted > value" src='content_image/a&amp;b.jpg' />
+
+Body ![chart](content_image/chart_(1).png "Chart") after.
+
+![logo][logo]
+
+[logo]: content_image/logo.svg
+""",
+                }
+            ]
+        ),
+        _metadata={"source_files": ["pin.parquet"]},
+    )
+
+    output = MarkdownToInterleavedStage().process(task)
+    df = output.to_pandas()
+
+    assert df["modality"].tolist() == ["metadata", "text", "image", "text", "image", "text", "image"]
+    assert df["position"].tolist() == [-1, 0, 1, 2, 3, 4, 5]
+    image_paths = [
+        InterleavedBatch.parse_source_ref(ref)["path"] for ref in df.loc[df["modality"] == "image", "source_ref"]
+    ]
+    assert image_paths == ["content_image/a&b.jpg", "content_image/chart_(1).png", "content_image/logo.svg"]
+    text = "\n".join(df.loc[df["modality"] == "text", "text_content"])
+    assert "![not an image](ignored-inline.png)" in text
+    assert "![not an image](ignored-fence.png)" in text
+    assert "![]([https://example.com/ignored-malformed-inline.png)" in text
+    assert "![]([https://example.com/ignored-malformed-fence.png)" in text
+    assert df.loc[0, "sample_id"] == "94"
+    assert json.loads(df.loc[0, "meta"]) == {"language": "en"}
+    assert output._metadata == task._metadata
+
+
+def test_markdown_to_interleaved_aicc_markup() -> None:
+    image_url = (
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/9/9a/Music_template.svg/40px-Music_template.svg.png"
+    )
+    task = DocumentBatch(
+        dataset_name="AICC",
+        data=pd.DataFrame(
+            [
+                {
+                    "track_id": "billy-idol",
+                    "content": rf"""# Billy Idol
+
+\<table>\<tbody>\<tr>\<th>Ffugenw\</th>\<td>Billy Idol\</td>\</tr>\<tr>\<th>Gwefan\</th>\<td>[http://billyidol.net](http://billyidol.net)\</td>\</tr>\</tbody>\</table>
+
+\<img src="ignored-between-tables.png">
+
+\<table>\<tbody>\<tr>\<th>Arddull\</th>\<td>pync-roc\</td>\</tr>\</tbody>\</table>
+
+![]\([{image_url})
+
+Eginyn]({image_url}\)
+
+Eginyn) erthygl sydd uchod am gerddoriaeth.
+""",
+                }
+            ]
+        ),
+    )
+
+    output = MarkdownToInterleavedStage(markdown_field="content", sample_id_field="track_id").process(task)
+    df = output.to_pandas()
+
+    assert df["modality"].tolist() == ["metadata", "text", "image", "text"]
+    image_ref = InterleavedBatch.parse_source_ref(df.loc[2, "source_ref"])
+    assert image_ref["path"] == image_url
+    text = "\n".join(df.loc[df["modality"] == "text", "text_content"])
+    assert "<table>" not in text
+    assert "Ffugenw\nBilly Idol" in text
+    assert "Arddull\npync-roc" in text
+    assert "ignored-between-tables.png" in text
+
+
+def test_markdown_to_interleaved_protocol_relative_image_source() -> None:
+    task = DocumentBatch(
+        dataset_name="test",
+        data=pd.DataFrame([{"id": 1, "md": "![](//cdn.example.com/a.png)"}]),
+    )
+
+    output = MarkdownToInterleavedStage(image_source_uri="https://example.com/base").process(task)
+    source_ref = output.to_pandas().loc[lambda df: df["modality"] == "image", "source_ref"].iloc[0]
+
+    assert InterleavedBatch.parse_source_ref(source_ref)["path"] == "https://cdn.example.com/a.png"
+
+
+def test_markdown_to_interleaved_image_sources(tmp_path: Path) -> None:
+    payload = b"image"
+    image_dir = tmp_path / "content_image"
+    image_dir.mkdir()
+    image_path = image_dir / "a.jpg"
+    image_path.write_bytes(payload)
+    archive = write_tar(tmp_path / "content_image.tar.gz", {"content_image/a.jpg": payload})
+    task = DocumentBatch(
+        dataset_name="test",
+        data=pd.DataFrame([{"id": 1, "md": '<img src="content_image/a.jpg">'}]),
+    )
+
+    def convert(source_uri: str) -> tuple[InterleavedBatch, dict[str, str | int | None]]:
+        output = MarkdownToInterleavedStage(image_source_uri=source_uri).process(task)
+        source_ref = output.to_pandas().loc[lambda df: df["modality"] == "image", "source_ref"].iloc[0]
+        return output, InterleavedBatch.parse_source_ref(source_ref)
+
+    local, local_ref = convert(str(tmp_path))
+    assert local_ref["path"] == str(image_path)
+    assert materialize_task_binary_content(local).to_pandas().loc[1, "binary_content"] == payload
+
+    _, s3_ref = convert("s3://bucket/part00")
+    assert s3_ref["path"] == "s3://bucket/part00/content_image/a.jpg"
+
+    archived, archive_ref = convert(archive)
+    assert archive_ref["path"] == archive
+    assert archive_ref["member"] == "content_image/a.jpg"
+    assert materialize_task_binary_content(archived).to_pandas().loc[1, "binary_content"] == payload
 
 
 def test_with_parsed_source_ref_columns(single_row_task: InterleavedBatch) -> None:
