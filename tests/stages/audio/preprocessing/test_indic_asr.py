@@ -31,15 +31,17 @@ if TYPE_CHECKING:
 
 @pytest.fixture
 def indic_task(tmp_path: Path) -> AudioTask:
+    # 1.0 s at 16 kHz — above the default min_duration_sec (0.5 s) so the
+    # stage's shared duration gate does not skip this clip.
     path = tmp_path / "clip.wav"
-    sf.write(path, np.full(1600, 0.25, dtype=np.float32), 16000, subtype="FLOAT")
+    sf.write(path, np.full(16000, 0.25, dtype=np.float32), 16000, subtype="FLOAT")
     return AudioTask(
         task_id="clip",
         dataset_name="hindi",
         data={
             "audio_filepath": str(path),
             "audio_item_id": "clip",
-            "duration": 0.1,
+            "duration": 1.0,
             "source_lang": "hi",
             "text": "  यह एक परीक्षण है।  ",
         },
@@ -54,7 +56,7 @@ def test_prepares_audio_without_changing_reference_or_metadata(
     reference = indic_task.data["text"]
     path = indic_task.data["audio_filepath"]
     if stereo:
-        sf.write(path, np.tile([0.25, 0.75], (1600, 1)), 16000, subtype="FLOAT")
+        sf.write(path, np.tile([0.25, 0.75], (16000, 1)), 16000, subtype="FLOAT")
     if relative:
         indic_task.data["audio_filepath"] = "clip.wav"
     indic_task.data.update(
@@ -83,7 +85,7 @@ def test_prepares_audio_without_changing_reference_or_metadata(
     assert result.data["_skipme"] == ""
     assert result.data["sampling_rate"] == 16000
     assert result.data["waveform"].dtype == torch.float32
-    torch.testing.assert_close(result.data["waveform"], torch.full((1, 1600), 0.5 if stereo else 0.25))
+    torch.testing.assert_close(result.data["waveform"], torch.full((1, 16000), 0.5 if stereo else 0.25))
 
 
 @pytest.mark.parametrize("notes", [None, "not a mapping"])
@@ -134,9 +136,9 @@ def test_rejects_wrong_sample_rate_without_resampling(indic_task: AudioTask) -> 
 
 
 def test_preserves_manifest_duration_within_tolerance(indic_task: AudioTask) -> None:
-    indic_task.data["duration"] = 0.1005
+    indic_task.data["duration"] = 1.0005
     result = PrepareIndicASRInputStage().process(indic_task)
-    assert result.data["duration"] == 0.1005
+    assert result.data["duration"] == 1.0005
 
 
 @pytest.mark.parametrize("remap", [False, True])
@@ -157,5 +159,92 @@ def test_declared_contract_matches_processing(indic_task: AudioTask, remap: bool
     )
 
     assert indic_task.data[stage.reference_text_key] == reference
-    assert indic_task.data[stage.waveform_key].shape == (1, 1600)
+    assert indic_task.data[stage.waveform_key].shape == (1, 16000)
     assert stage.text_key not in indic_task.data
+
+
+# ---------------------------------------------------------------------------
+# Shared duration policy — both backends receive the same audio
+# ---------------------------------------------------------------------------
+
+
+def test_skips_clip_below_min_duration(tmp_path: Path) -> None:
+    """Clips shorter than min_duration_sec are marked as skipped before inference."""
+    path = tmp_path / "short.wav"
+    # 0.2 s — below the default min_duration_sec of 0.5 s
+    sf.write(path, np.full(3200, 0.1, dtype=np.float32), 16000, subtype="FLOAT")
+    task = AudioTask(
+        task_id="short",
+        dataset_name="hindi",
+        data={
+            "audio_filepath": str(path),
+            "audio_item_id": "short",
+            "duration": 0.2,
+            "source_lang": "hi",
+            "text": "संदर्भ",
+        },
+    )
+    result = PrepareIndicASRInputStage().process(task)
+    assert result.data["_skipme"], "short clip must be skipped"
+    assert "duration_too_short" in result.data["_skipme"]
+    # waveform and reference are still stored so downstream stages can write output
+    assert result.data["waveform"] is not None
+    assert result.data["reference_text"] == "संदर्भ"
+
+
+def test_truncates_clip_above_max_duration(tmp_path: Path) -> None:
+    """Clips longer than max_duration_sec are truncated so both backends see the same audio."""
+    path = tmp_path / "long.wav"
+    # 50 s — above the default max_duration_sec of 40 s
+    num_samples = 50 * 16000
+    sf.write(path, np.full(num_samples, 0.1, dtype=np.float32), 16000, subtype="FLOAT")
+    task = AudioTask(
+        task_id="long",
+        dataset_name="hindi",
+        data={
+            "audio_filepath": str(path),
+            "audio_item_id": "long",
+            "duration": 50.0,
+            "source_lang": "hi",
+            "text": "संदर्भ",
+        },
+    )
+    result = PrepareIndicASRInputStage().process(task)
+    assert result.data["_skipme"] == "", "long clip must not be skipped, only truncated"
+    expected_samples = int(40.0 * 16000)
+    assert result.data["waveform"].shape == (1, expected_samples), (
+        f"waveform must be truncated to {expected_samples} samples (40 s), "
+        f"got {result.data['waveform'].shape}"
+    )
+    # Manifest duration is kept unchanged (the stage contract does not update it)
+    assert result.data["duration"] == 50.0
+
+
+def test_configurable_duration_bounds(tmp_path: Path) -> None:
+    """max_duration_sec and min_duration_sec can be overridden per-stage."""
+    path = tmp_path / "clip.wav"
+    # 3 s clip
+    sf.write(path, np.full(3 * 16000, 0.1, dtype=np.float32), 16000, subtype="FLOAT")
+    task = AudioTask(
+        task_id="clip",
+        dataset_name="hindi",
+        data={
+            "audio_filepath": str(path),
+            "audio_item_id": "clip",
+            "duration": 3.0,
+            "source_lang": "hi",
+            "text": "संदर्भ",
+        },
+    )
+
+    # With a 2 s cap the waveform should be truncated to 2 s
+    stage = PrepareIndicASRInputStage(max_duration_sec=2.0, min_duration_sec=0.5)
+    result = stage.process(task)
+    assert result.data["_skipme"] == ""
+    assert result.data["waveform"].shape == (1, 2 * 16000)
+
+    # With a 5 s minimum this 3 s clip must be skipped
+    task.data["_skipme"] = ""  # reset skip for re-use
+    stage_strict = PrepareIndicASRInputStage(max_duration_sec=40.0, min_duration_sec=5.0)
+    result2 = stage_strict.process(task)
+    assert result2.data["_skipme"], "3 s clip must be skipped when min_duration_sec=5.0"
