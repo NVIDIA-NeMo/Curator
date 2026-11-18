@@ -126,7 +126,12 @@ def _write_sample(
 ) -> None:
     """Write one sample (JSON + image binaries) into *tf*."""
     escaped = _escape_key(sample_id)
-    content_rows = sample_df[sample_df["position"] >= 0].sort_values("position")
+    single_content = (
+        len(sample_df) == 1
+        and sample_df["position"].ge(0).fillna(False).iloc[0]
+        and str(sample_df["modality"].iloc[0]) in ("image", "text")
+    )
+    content_rows = sample_df if single_content else sample_df[sample_df["position"] >= 0].sort_values("position")
     max_pos = int(content_rows["position"].max()) if not content_rows.empty else -1
     texts: list[str | None] = [None] * (max_pos + 1)
     images: list[str | None] = [None] * (max_pos + 1)
@@ -147,19 +152,22 @@ def _write_sample(
                 tf.addfile(info, BytesIO(img_bytes))
 
     passthrough: dict[str, Any] = {}
-    meta_rows = sample_df[sample_df["position"] == -1]
-    if not meta_rows.empty:
-        meta_row = meta_rows.iloc[0]
-        for col in passthrough_cols:
-            val = meta_row[col]
-            if not _is_null(val):
-                passthrough[col] = val
+    if single_content:
+        passthrough = {col: [sample_df[col].iloc[0]] for col in passthrough_cols if not sample_df[col].isna().iloc[0]}
+    else:
+        meta_rows = sample_df[sample_df["position"] == -1]
+        if not meta_rows.empty:
+            meta_row = meta_rows.iloc[0]
+            for col in passthrough_cols:
+                val = meta_row[col]
+                if not _is_null(val):
+                    passthrough[col] = val
 
-    image_rows = content_rows[content_rows["modality"] == "image"]
-    text_rows = content_rows[content_rows["modality"] == "text"]
-    passthrough.update(
-        _per_modality_passthrough(passthrough_cols, set(passthrough), image_rows, text_rows, content_rows)
-    )
+        image_rows = content_rows[content_rows["modality"] == "image"]
+        text_rows = content_rows[content_rows["modality"] == "text"]
+        passthrough.update(
+            _per_modality_passthrough(passthrough_cols, set(passthrough), image_rows, text_rows, content_rows)
+        )
 
     payload = {"sample_id": sample_id, "texts": texts, "images": images, **passthrough}
     json_bytes = json.dumps(payload, ensure_ascii=False).encode("utf-8")
