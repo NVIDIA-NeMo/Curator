@@ -1371,6 +1371,21 @@ class TestCodeFilters:
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
 
     @pytest.mark.parametrize(
+        ("lang", "extension", "code"),
+        [
+            ("c++", ".cpp", "int main() {\n    return 0;\n}\n"),
+            ("C++", "cpp", "int main() {\n    return 0;\n}\n"),
+            ("C#", ".cs", "class Program {\n    static void Main() {}\n}\n"),
+        ],
+    )
+    def test_per_extension_filter_argument_formats(
+        self, per_extension_filter: PerExtensionFilter, lang: str, extension: str, code: str
+    ) -> None:
+        # Dataset-style language names and dotted extensions must resolve to the metadata file's keys
+        filt = PerExtensionFilter(lang, extension, metadata_file=per_extension_filter._metadata_file)
+        assert filt.score_document(code) == 1
+
+    @pytest.mark.parametrize(
         "content,expected",  # noqa: PT006
         [
             ("", (0, 0.0)),
