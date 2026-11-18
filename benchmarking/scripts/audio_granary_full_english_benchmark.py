@@ -38,6 +38,8 @@ from nemo_curator.config.run import (
 
 _CONFIG_DIR = Path(__file__).resolve().parents[2] / "tutorials/audio/granary_v2/full_pipeline"
 _CONFIG_NAME = "en_granary_pipeline"
+# First and last text stage outputs: a row that was enriched has both.
+_TEXT_OUTPUT_KEYS = ("pnc_text", "itn_clean")
 
 
 def _read_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -81,7 +83,15 @@ def _collect_output_metrics(
         elif not isinstance(row.get("best_prediction"), str) or not row["best_prediction"].strip():
             msg = f"Empty best_prediction for {row['audio_item_id']}"
             raise ValueError(msg)
+        else:
+            for key in _TEXT_OUTPUT_KEYS:
+                if not isinstance(row.get(key), str) or not row[key].strip():
+                    msg = f"Text stages left {key} empty for {row['audio_item_id']}"
+                    raise ValueError(msg)
         duration_s += float(row["duration"])
+    if flagged == len(rows):
+        msg = "Every output row is flagged, so the text stages processed nothing"
+        raise ValueError(msg)
     return {
         "num_input_recordings": num_recordings,
         "num_metadata_rows": len(metadata),
