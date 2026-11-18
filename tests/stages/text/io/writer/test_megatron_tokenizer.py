@@ -429,3 +429,40 @@ class TestMegatronTokenizerWriter:
         assert os.path.getsize(result1.data[1]) == os.path.getsize(result2.data[1]), (
             f"File sizes should be equal, got {os.path.getsize(result1.data[1])} and {os.path.getsize(result2.data[1])}"
         )
+
+    @pytest.mark.parametrize(
+        ("sequence_lengths", "token_size"),
+        [
+            ([3, 5, 2], 2),
+            ([3, 5, 2], 4),
+            ([300_000_000, 300_000_000, 300_000_000, 7], 4),
+            ([600_000_000, 600_000_000, 600_000_000, 600_000_000], 2),
+            ([], 4),
+        ],
+    )
+    def test_megatron_tokenizer_writer_sequence_pointers_are_int64_offsets(
+        self, sequence_lengths: list[int], token_size: int, tmpdir: str
+    ):
+        """Sequence pointers are exact byte offsets, also when the .bin is larger than 2 GiB."""
+        writer = MegatronTokenizerWriter(path=os.path.join(tmpdir, "megatron_pointers"), model_identifier="test/model")
+        file_prefix = os.path.join(writer._fs_path, "pointers")
+        writer.write_idx_data(file_prefix, token_size, 4 if token_size == 4 else 8, sequence_lengths)
+
+        with open(file_prefix + ".idx", "rb") as f:
+            f.seek(9 + 8 + 1)
+            sequence_count = struct.unpack("<Q", f.read(8))[0]
+            f.read(8)
+            offset = f.tell()
+
+        assert sequence_count == len(sequence_lengths)
+        idx_buffer = memoryview(np.memmap(file_prefix + ".idx", mode="r", order="C").data)
+        sequence_pointers = np.frombuffer(
+            idx_buffer, dtype=np.int64, count=sequence_count, offset=offset + 4 * sequence_count
+        )
+
+        expected = []
+        curr_ptr = 0
+        for length in sequence_lengths:
+            expected.append(curr_ptr)
+            curr_ptr += length * token_size
+        assert sequence_pointers.tolist() == expected
