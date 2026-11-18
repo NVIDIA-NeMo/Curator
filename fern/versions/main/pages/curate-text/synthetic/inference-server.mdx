@@ -125,6 +125,8 @@ The server waits for every configured model to appear at `/v1/models` before `st
 | `health_check_timeout_s` | `int` | `300` | Maximum time to wait for all models to register. |
 | `verbose` | `bool` | `False` | Preserve detailed backend and request logs when `True`. |
 
+For Ray Serve, the health deadline starts before deployment submission and includes replica initialization. While polling, Curator logs the pending model names and remaining time every 30 seconds. Ray cluster connection and controller startup are synchronous; the deadline does not interrupt those operations. A failed deployment is cleaned up before the timeout is raised.
+
 Only one `InferenceServer` can be active in a Python process at a time. Stop the current server before starting another.
 
 Use a context manager for automatic cleanup:
@@ -375,6 +377,29 @@ backend = DynamoServerConfig(
     subprocess_env={"DYN_TCP_REQUEST_TIMEOUT": "180"},
 )
 ```
+
+### Faster Dynamo Startup with a Prebuilt Environment
+
+Prepare the model's complete Dynamo/vLLM environment in your container or squashfs image, then select its Python executable explicitly. The environment must include Curator, the same Ray version as the cluster, compatible CUDA/PyTorch/vLLM/Dynamo versions, and all model-specific dependencies. The executable and cache directories must be mounted at the same paths on every worker node.
+
+```python
+model = DynamoVLLMModelConfig(
+    model_identifier="nvidia/NVIDIA-Nemotron-Parse-v1.2",
+    runtime_env={
+        "py_executable": "/opt/dynamo-pdf/bin/python",
+        "env_vars": {
+            "HF_HOME": "/cache/huggingface",
+            "CUDA_CACHE_PATH": "/cache/cuda",
+            "VLLM_CACHE_ROOT": "/cache/vllm",
+            "VLLM_USE_FLASHINFER_SAMPLER": "0",
+        },
+    },
+)
+```
+
+With `py_executable`, Curator skips its automatic Dynamo actor package install for both the workers and shared frontend. Do not combine this option with `pip` or `uv` runtime installs. All models in one server must select the same executable; use separate servers for different environments. Without `py_executable`, the default isolated actor environment is unchanged.
+
+Persist the cache directories between jobs. Cold caches still require kernel compilation and model downloads. Warm caches avoid repeating that work on later jobs; measure server readiness, first-request latency, and steady-state throughput separately on your workload. Disabling the FlashInfer sampler leaves FlashInfer attention enabled, but may affect throughput for random-sampling workloads. Keep that flag model-specific and benchmark before applying it to other models.
 
 ### Choosing `runtime_env` vs. `subprocess_env`
 

@@ -65,6 +65,26 @@ class TestToOcrDenseItem:
 class TestOCRNemotronV2Stage:
     """Stage-level: model resolution, batch dispatch, error containment."""
 
+    @pytest.mark.parametrize("missing", ["nemotron_ocr", "nemotron_ocr.inference.pipeline_v2", "shapely"])
+    def test_missing_dependencies_report_installation_path(self, missing: str) -> None:
+        import builtins
+
+        original_import = builtins.__import__
+
+        def import_ocr(name, *args, **kwargs):  # noqa: ANN001, ANN202
+            if name == "nemotron_ocr.inference.pipeline_v2":
+                msg = f"No module named '{missing}'"
+                raise ModuleNotFoundError(msg, name=missing)
+            return original_import(name, *args, **kwargs)
+
+        with patch("builtins.__import__", side_effect=import_ocr):
+            if missing == "shapely":
+                with pytest.raises(ModuleNotFoundError, match="shapely"):
+                    OCRNemotronV2Stage().setup()
+            else:
+                with pytest.raises(ImportError, match=r"PYTHON_VERSION=3\.12"):
+                    OCRNemotronV2Stage().setup()
+
     def _stage_with_preds(self, predictions: list[dict]) -> OCRNemotronV2Stage:
         stage = OCRNemotronV2Stage(model_dir="/fake/model")
         stage._model = MagicMock(return_value=predictions)
