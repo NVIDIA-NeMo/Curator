@@ -189,7 +189,16 @@ class PrepareIndicASRInputStage(AgentReady, ProcessingStage[AudioTask, AudioTask
             )
             return task
 
-        clipped_waveform = waveform[:, :max_samples] if num_samples > max_samples else waveform
-        data[self.waveform_key] = clipped_waveform
+        if num_samples > max_samples:
+            original_duration_s = num_samples / SAMPLE_RATE
+            notes[self.name] = (
+                f"audio {original_duration_s:.2f}s exceeds {self.max_duration_sec:.0f}s encoder window; "
+                "transcription covers only the beginning (split with VAD before inference)"
+            )
+            notes["original_duration_sec"] = original_duration_s
+            data[self.notes_key] = notes
+            data[self.waveform_key] = waveform[:, :max_samples]
+        else:
+            data[self.waveform_key] = waveform
         data[self.skip_me_key] = ""
         return task
