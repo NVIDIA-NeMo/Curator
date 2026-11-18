@@ -6416,7 +6416,7 @@ requires-dist = [
     { name = "cudf-streaming-cu12", marker = "extra == 'deduplication-cuda12'", specifier = "==26.8.*" },
     { name = "cuml-cu12", marker = "extra == 'deduplication-cuda12'", specifier = "==26.8.*" },
     { name = "cvcuda-cu12", marker = "extra == 'video-cuda12'" },
-    { name = "data-designer", marker = "extra == 'sdg-cpu'", specifier = "==1.0.1" },
+    { name = "data-designer", marker = "extra == 'sdg-cpu'", specifier = ">=1.0.1" },
     { name = "datasets", specifier = ">=4.0.0" },
     { name = "easydict", marker = "extra == 'video-cpu'" },
     { name = "einops", marker = "extra == 'video-cpu'" },

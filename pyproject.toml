@@ -302,7 +302,7 @@ interleaved_cuda12 = [
 
 # Synthetic Data Generation (SDG) Dependencies
 sdg_cpu = [
-    "data-designer==1.0.1",
+    "data-designer>=1.0.1",
 ]
 
 sdg_cuda12 = [
