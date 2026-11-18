@@ -171,6 +171,49 @@ def test_decompressed_admission_budget_is_shared_across_native_splits(
     assert not (job.root / "worker-lock.json").exists()
 
 
+@pytest.mark.parametrize("worker", [False, True])
+@pytest.mark.parametrize("trailing_newline", [False, True])
+def test_admission_checks_deadline_after_validating_the_final_cut(
+    native_job: SimpleNamespace, monkeypatch: pytest.MonkeyPatch, worker: bool, trailing_newline: bool
+) -> None:
+    from nemo_curator.stages.audio.simulation import requests as module
+
+    job = native_job
+    manifest = job.inputs / "source_train.jsonl.gz"
+    with gzip.open(manifest, "rb") as stream:
+        payload = stream.read().rstrip(b"\n")
+    with gzip.open(manifest, "wb") as stream:
+        stream.write(payload + (b"\n" if trailing_newline else b""))
+    action = partial(request_recipe, job)
+    if worker:
+        recipe = request_recipe(job)
+        action = partial(build_stages(recipe)[0][1].process, source_rows(recipe)[0])
+    original = module._NativeInputs._admit_cut
+    clock = {"now": 0, "cuts": 0}
+
+    def slow_final_cut(self: object, cut: dict, samplerate: int) -> object:
+        result = original(self, cut, samplerate)
+        clock["cuts"] += 1
+        if clock["cuts"] == 2:
+            clock["now"] = 61
+        return result
+
+    def must_not_generate(*_args: object, **_kwargs: object) -> None:
+        pytest.fail("Expired admission must stop before native generation")
+
+    with monkeypatch.context() as timing:
+        timing.setattr(module.time, "monotonic", lambda: clock["now"])
+        timing.setattr(module._NativeInputs, "_admit_cut", slow_final_cut)
+        timing.setattr(module.FastMSSSimulationStage, "process", must_not_generate)
+        with pytest.raises(ValueError, match="budget"):
+            action()
+    assert clock["cuts"] == 2
+    assert not (job.root / "production").exists()
+    if not worker:
+        assert not (job.root / "requests.jsonl").exists()
+        assert not (job.root / "worker-lock.json").exists()
+
+
 def test_disjoint_batches_cover_the_complete_admitted_seed_range_without_collisions() -> None:
     from nemo_curator.stages.audio.simulation.requests import _batch_seed
 
