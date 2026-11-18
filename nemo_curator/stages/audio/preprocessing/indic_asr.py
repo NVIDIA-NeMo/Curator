@@ -191,9 +191,13 @@ class PrepareIndicASRInputStage(AgentReady, ProcessingStage[AudioTask, AudioTask
 
         if num_samples > max_samples:
             original_duration_s = num_samples / SAMPLE_RATE
+            # Match the message format written by InferenceIndicTranscribeStage so
+            # the output JSONL looks the same regardless of where truncation occurs.
+            # The key uses this stage's name (not the inference stage's) since
+            # truncation now happens here, before either inference backend runs.
             notes[self.name] = (
                 f"audio {original_duration_s:.2f}s exceeds {self.max_duration_sec:.0f}s encoder window; "
-                "transcription covers only the beginning (split with VAD before inference)"
+                "transcription truncated (split with VAD before inference)"
             )
             notes["original_duration_sec"] = original_duration_s
             data[self.notes_key] = notes
