@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import pytest
+
 from nemo_curator.stages.text.download.arxiv.extract import ArxivExtractor
 
 
@@ -56,6 +58,52 @@ class TestArxivExtractor:
 
         expected_columns = ["text"]
         assert columns == expected_columns
+
+    @pytest.mark.parametrize(
+        ("header", "body"),
+        [
+            pytest.param(r"\section{Introduction}", "This is the introduction", id="section"),
+            pytest.param(r"\chapter{One}", "This is the chapter", id="chapter"),
+            pytest.param(r"\paragraph{Notes}", "This is the paragraph", id="paragraph"),
+            pytest.param(r"\subparagraph{Notes}", "This is the subparagraph", id="subparagraph"),
+        ],
+    )
+    def test_every_section_like_header_anchors(self, header: str, body: str) -> None:
+        r"""Each header the pattern lists has to anchor on its own.
+
+        ``\paragraph`` and ``\subparagraph`` shared one alternative, so a paper
+        whose only sectioning commands were those matched nothing and
+        ``_clean_tex_file`` returned "", which drops the record.
+        """
+        extractor = ArxivExtractor()
+        content = f"""
+        % A comment that should be removed.
+        {header}
+        {body}.
+        """
+
+        result = extractor.extract({"content": [content]})
+
+        assert result is not None, f"{header} did not anchor, so the record was dropped"
+        assert body in result["text"]
+
+    def test_leading_paragraph_block_is_kept(self) -> None:
+        r"""The pattern anchors on the *first* section-like header, and
+        ``\paragraph`` is one of them, so a block before the first ``\section``
+        must not be cut away."""
+        extractor = ArxivExtractor()
+        content = r"""
+        \paragraph{Preface}
+        The leading block of the paper.
+        \section{Introduction}
+        The main text.
+        """
+
+        result = extractor.extract({"content": [content]})
+
+        assert result is not None
+        assert "The leading block of the paper" in result["text"]
+        assert "The main text" in result["text"]
 
     def test_arxiv_extractor(self) -> None:
         extractor = ArxivExtractor()
