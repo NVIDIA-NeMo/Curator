@@ -36,6 +36,22 @@ _TWO_NODES_4GPU = [
 ]
 
 
+@pytest.mark.parametrize("version", ["2.11.0+cpu", "2.11.0+cu129", "2.11.0+cu130"])
+def test_actor_replaces_only_inherited_cpu_torch(version: str) -> None:
+    with mock.patch.object(dynamo_vllm.importlib.metadata, "version", return_value=version):
+        options = dynamo_vllm._cpu_torch_reinstall_options()
+    assert options == (
+        ["--reinstall-package", "torch", "--reinstall-package", "torchvision"] if version.endswith("+cpu") else []
+    )
+
+
+def test_actor_without_driver_torch_uses_fresh_resolution() -> None:
+    with mock.patch.object(
+        dynamo_vllm.importlib.metadata, "version", side_effect=dynamo_vllm.importlib.metadata.PackageNotFoundError
+    ):
+        assert dynamo_vllm._cpu_torch_reinstall_options() == []
+
+
 @pytest.mark.parametrize(
     ("router_mode", "router_kv_events", "expected"),
     [
@@ -413,6 +429,16 @@ class TestEnsureActorOverridesOnAllNodes:
             dynamo_vllm.ensure_actor_overrides_on_all_nodes()
 
         assert override_path.read_text() == f"ray=={ray.__version__}\n{dynamo_vllm._ACTOR_VENV_NIXL_CU13_EXCLUSION}\n"
+
+    def test_cu130_keeps_nixl_cu13(self, shared_ray_client: None, tmp_path: Path) -> None:
+        override_path = tmp_path / "override.txt"
+        with (
+            mock.patch.object(dynamo_vllm, "_ACTOR_VENV_OVERRIDES_PATH", override_path),
+            mock.patch.object(dynamo_vllm, "_ACTOR_VENV_CUDA_TAG", "cu130"),
+        ):
+            dynamo_vllm.ensure_actor_overrides_on_all_nodes()
+
+        assert override_path.read_text() == f"ray=={ray.__version__}\n"
 
 
 def test_dynamo_runtime_env_matches_base_environment() -> None:
