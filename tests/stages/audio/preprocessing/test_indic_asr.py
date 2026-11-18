@@ -226,9 +226,8 @@ def test_truncates_clip_above_max_duration(tmp_path: Path) -> None:
     # Truncation warning and original duration must be recorded in notes
     notes = result.data["additional_notes"]
     stage_note = notes.get("prepare_indic_asr_input", "")
-    assert "exceeds" in stage_note and "transcription truncated" in stage_note, (
-        "truncation warning must be written to notes"
-    )
+    assert "exceeds" in stage_note, "truncation warning must be written to notes"
+    assert "transcription truncated" in stage_note, "truncation warning must be written to notes"
     assert notes.get("original_duration_sec") == 50.0
 
 
