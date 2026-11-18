@@ -16,6 +16,14 @@ configuration.
 | `infra.py` | Actor naming, endpoint URLs, CLI-flag translation |
 | `constants.py` | Default ports, namespace, event/request plane names |
 
+## Routing
+
+`DynamoRouterConfig(mode="least-loaded")` selects Dynamo's outstanding-request
+load balancing without enabling KV routing or disaggregated serving. The mode
+uses the hyphenated `least-loaded` spelling accepted by Dynamo 1.3.1.
+Curator's existing `round_robin` spelling is translated to `round-robin`
+for the frontend CLI. Leave `kv_events=False` for non-KV modes.
+
 ## Base venv vs. actor venv
 
 Curator's `pyproject.toml` pins `vllm[flashinfer,runai,otel]==0.22.0+cu129`
@@ -27,7 +35,7 @@ both Dynamo and vLLM installed, but never as `ai-dynamo[vllm]`:
 independently, and `ai-dynamo`'s own `vllm` requirement sits behind its
 `[vllm]` extra marker, which the driver venv never requests.
 
-That still isn't automatic per-model, though. Ray's `pip`/`uv` `runtime_env`
+For the default managed environment, Ray's `pip`/`uv` `runtime_env`
 **clones the driver venv** for the actor, then installs requested packages
 *additively* on top (general Ray/Curator behavior, not Dynamo-specific) —
 already-cloned packages stay importable unless the additive install replaces
@@ -49,8 +57,8 @@ the GPU architecture, independent of CUDA tagging.
 
 ## Two separate environments, two separate mechanisms
 
-Every Dynamo model runs as a Ray actor with its own **isolated Python
-venv**, which launches a **worker subprocess** (`python -m dynamo.vllm ...`).
+Every Dynamo model runs as a Ray actor using either a managed **isolated Python
+venv** or an explicitly supplied interpreter. It launches a **worker subprocess** (`python -m dynamo.vllm ...`).
 A dependency or environment-variable problem belongs to exactly one of
 these, and the fix mechanism differs:
 
@@ -60,7 +68,7 @@ these, and the fix mechanism differs:
 | Set an env var scoped to **one model's worker** (an engine feature flag, a per-model cache path) | `runtime_env["env_vars"]` on that model | That model's worker actor's `os.environ`, inherited by its worker subprocess | Same `runtime_env` field as above; `merge_runtime_envs()` unions `env_vars` too, not just packages |
 | Set an env var that should reach **every model's** worker plus the frontend (a transport timeout, a compatibility shim path) | `subprocess_env` on the server | `base_env` folded into every worker/frontend subprocess's OS environment, not just one actor's | `DynamoServerConfig.subprocess_env`, applied in `backend.py` (`_deploy_and_healthcheck`) |
 
-A package install always needs `runtime_env` — no `subprocess_env`
+A per-actor package install uses `runtime_env` — no `subprocess_env`
 equivalent exists. For a plain env var, the choice is **scope**, not
 whether a package is involved: `runtime_env["env_vars"]` on one model
 doesn't reach other models' workers (right for a model-specific flag);
@@ -72,7 +80,18 @@ reaches Ray itself (not just the worker subprocess) it can make Ray import
 something unexpected and stall startup — scope it to
 `runtime_env`/`subprocess_env` instead.
 
-### Minimal `runtime_env` example
+### Preinstalled interpreter
+
+Set `runtime_env["py_executable"]` to use an existing environment. Both
+`dynamo_runtime_env()` and `merge_model_runtime_envs()` then skip the default
+Dynamo `uv` install, so the shared frontend uses the supplied interpreter too.
+The environment must already contain the matching Ray version, Dynamo/vLLM,
+and model dependencies. The PDF server factory also skips its automatic
+albumentations install in this mode. Do not combine `py_executable` with an
+automatically installed `uv` environment. Shared frontend model environments
+still merge, so use a compatible interpreter/dependency set for all models.
+
+### Package-managed runtime example
 
 A model that needs a newer `transformers` than the base install provides,
 plus a vLLM feature flag, sets both on its own `DynamoVLLMModelConfig`:
