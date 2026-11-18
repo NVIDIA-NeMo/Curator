@@ -25,7 +25,9 @@ lazy transforms, noise, RIR generation, forced-alignment splitting or transition
 costly modes remain available through the separate native YAML API. Inputs are
 bounded to 10,000 files/1 GiB and the native duration target to 300 seconds; native execution
 has the existing 3600-second timeout. These bounds include preparation cost, not
-only the number of emitted meetings. Constructors never generate or write files.
+only the number of emitted meetings. Compressed speech metadata is also bounded
+to 1 GiB after decompression across all splits and 8 MiB per UTF-8 JSONL record,
+including its newline. Constructors never generate or write files.
 
 Every supplied cut must have matching declared sampling rate and exactly one
 full-cut supervision with a nonempty transcript, usable word timings and a
@@ -44,8 +46,10 @@ import stat
 import sys
 import time
 from collections import Counter, defaultdict
+from collections.abc import Iterator
 from dataclasses import dataclass
 from importlib.metadata import distribution, version
+from io import BufferedIOBase
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
 
@@ -62,12 +66,49 @@ from nemo_curator.tasks import AudioTask, EmptyTask, FileGroupTask
 
 _MAX_FILES = 10_000
 _MAX_BYTES = 1024**3
+_MAX_RECORD_BYTES = 8 * 1024**2
+_READ_CHUNK_BYTES = 64 * 1024
 _MAX_REQUESTS = 100_000
 _MAX_DURATION = 300
 _MAX_BATCH = 32
 _MAX_TIMEOUT = 3600
 # Leave room for the UUID, separator and extension in a 255-byte filename component.
 _MAX_EXPORTED_SPEAKER_BYTES = 200
+
+
+def _bounded_speech_records(stream: BufferedIOBase, byte_budget: int, deadline: float) -> Iterator[bytes]:
+    """Bound decompressed bytes, individual records and time before JSON decoding."""
+    remaining = byte_budget
+    record = bytearray()
+    while True:
+        if remaining < 0 or time.monotonic() > deadline:
+            msg = "Speech manifest exceeds decompressed-byte/time admission budget"
+            raise ValueError(msg)
+        size = min(_READ_CHUNK_BYTES, remaining + 1, _MAX_RECORD_BYTES - len(record) + 1)
+        chunk = stream.read1(size)
+        remaining -= len(chunk)
+        if remaining < 0 or time.monotonic() > deadline:
+            msg = "Speech manifest exceeds decompressed-byte/time admission budget"
+            raise ValueError(msg)
+        if not chunk:
+            if record:
+                yield bytes(record)
+            return
+        start = 0
+        while start < len(chunk):
+            if time.monotonic() > deadline:
+                msg = "Speech manifest exceeds decompressed-byte/time admission budget"
+                raise ValueError(msg)
+            newline = chunk.find(b"\n", start)
+            stop = len(chunk) if newline < 0 else newline + 1
+            if len(record) + stop - start > _MAX_RECORD_BYTES:
+                msg = "Speech manifest record exceeds supported decompressed-record budget"
+                raise ValueError(msg)
+            record.extend(chunk[start:stop])
+            if newline >= 0:
+                yield bytes(record)
+                record.clear()
+            start = stop
 
 
 def _digest(value: object) -> str:
@@ -403,14 +444,14 @@ class _NativeInputs:
         deadline = time.monotonic() + 60
         for split in cfg["dset_splits"]:
             manifest = self._input(str(Path(cfg["manifest_dir"]) / f"{prefix}_{split}.jsonl.gz"))
-            with gzip.open(manifest, "rt", encoding="utf-8") as stream:
-                for line in stream:
+            with gzip.open(manifest, "rb") as stream:
+                for line in _bounded_speech_records(stream, _MAX_BYTES - size, deadline):
                     rows += 1
                     size += len(line)
                     if rows > _MAX_REQUESTS or size > _MAX_BYTES or time.monotonic() > deadline:
                         msg = "Speech manifest exceeds supported admission budget"
                         raise ValueError(msg)
-                    cut = json.loads(line)
+                    cut = json.loads(line.decode("utf-8"))
                     admitted = self._admit_cut(cut, samplerate)
                     if admitted.id in seen_cut_ids:
                         msg = (

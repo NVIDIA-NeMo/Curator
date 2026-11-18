@@ -15,10 +15,12 @@
 """One-request/one-meeting integration through unchanged Curator protocols."""
 
 import gzip
+import io
 import json
 import os
 import sys
 import wave
+from functools import partial
 from importlib.metadata import distribution
 from pathlib import Path
 from types import SimpleNamespace
@@ -33,6 +35,140 @@ from nemo_curator.stages.audio.audio_agent.recipe import Recipe, StageRef, build
 from nemo_curator.stages.audio.simulation import FastMSSRequestStage, FastMSSSimulationStage, write_fastmss_requests
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask, EmptyTask, FileGroupTask, Task
+
+
+@pytest.mark.parametrize("worker", [False, True])
+def test_compressed_speech_admission_stops_before_unbounded_record_reads(
+    native_job: SimpleNamespace, monkeypatch: pytest.MonkeyPatch, worker: bool
+) -> None:
+    from nemo_curator.stages.audio.simulation import requests as module
+
+    job = native_job
+    manifest = job.inputs / "source_train.jsonl.gz"
+    with gzip.open(manifest, "wb") as stream:
+        stream.write(b'{"payload":"' + b"x" * 65536 + b'"}\n')
+    budget = 16384
+    monkeypatch.setattr(module, "_MAX_BYTES", budget)
+    action = partial(request_recipe, job)
+    if worker:
+        with monkeypatch.context() as legacy:
+            legacy.setattr(module._NativeInputs, "_admit_speech", lambda _self, _cfg: None)
+            recipe = request_recipe(job)
+        generator = build_stages(recipe)[0][1]
+        task = source_rows(recipe)[0]
+        action = partial(generator.process, task)
+    original_open = gzip.open
+    reads = []
+
+    class BoundedStream:
+        def __init__(self, stream: object) -> None:
+            self.stream = stream
+
+        def __enter__(self) -> "BoundedStream":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            self.stream.close()
+
+        def __iter__(self) -> None:
+            pytest.fail("Compressed input must not allocate an unbounded complete line")
+
+        def read1(self, size: int) -> bytes:
+            assert 0 < size <= budget + 1
+            chunk = self.stream.read1(size)
+            reads.append(len(chunk))
+            return chunk
+
+    def checked_open(path: object, mode: str = "rb", **kwargs: object) -> object:
+        if Path(path) == manifest:
+            return BoundedStream(original_open(path, "rb"))
+        return original_open(path, mode, **kwargs)
+
+    monkeypatch.setattr(module.gzip, "open", checked_open)
+    with pytest.raises(ValueError, match="budget"):
+        action()
+    assert sum(reads) == budget + 1
+    assert not (job.root / "production").exists()
+    if not worker:
+        assert not (job.root / "requests.jsonl").exists()
+        assert not (job.root / "worker-lock.json").exists()
+
+
+@pytest.mark.parametrize("trailing_newline", [False, True])
+def test_bounded_speech_records_preserve_utf8_chunk_boundaries_and_exact_limits(
+    monkeypatch: pytest.MonkeyPatch, trailing_newline: bool
+) -> None:
+    from nemo_curator.stages.audio.simulation import requests as module
+
+    lines = [json.dumps({"text": text}, ensure_ascii=False).encode() for text in ("café", "漢字🔊")]
+    payload = b"\n".join(lines) + (b"\n" if trailing_newline else b"")
+    monkeypatch.setattr(module, "_READ_CHUNK_BYTES", 3)
+    monkeypatch.setattr(module, "_MAX_RECORD_BYTES", max(len(line) + 1 for line in lines))
+    with gzip.open(io.BytesIO(gzip.compress(payload)), "rb") as stream:
+        records = list(module._bounded_speech_records(stream, len(payload), module.time.monotonic() + 60))
+    assert b"".join(records) == payload
+    assert [json.loads(record.decode("utf-8")) for record in records] == [json.loads(line) for line in lines]
+
+
+def test_compressed_single_record_limit_is_enforced_before_assembly(monkeypatch: pytest.MonkeyPatch) -> None:
+    from nemo_curator.stages.audio.simulation import requests as module
+
+    monkeypatch.setattr(module, "_MAX_RECORD_BYTES", 256)
+    payload = b'{"text":"' + b"x" * 4096 + b'"}\n'
+    with gzip.open(io.BytesIO(gzip.compress(payload)), "rb") as stream:
+        with pytest.raises(ValueError, match=r"record.*budget"):
+            list(module._bounded_speech_records(stream, len(payload), module.time.monotonic() + 60))
+        assert stream.tell() == 257
+
+
+@pytest.mark.parametrize("expired_before_read", [False, True])
+def test_compressed_record_deadline_is_checked_between_bounded_reads(
+    monkeypatch: pytest.MonkeyPatch, expired_before_read: bool
+) -> None:
+    from nemo_curator.stages.audio.simulation import requests as module
+
+    clock = {"now": 2 if expired_before_read else 0, "reads": 0}
+
+    class SlowStream(io.BytesIO):
+        def read1(self, size: int) -> bytes:
+            clock["reads"] += 1
+            clock["now"] += 0.6
+            return super().read1(size)
+
+    stream = SlowStream(b"x" * 100)
+    with monkeypatch.context() as timing:
+        timing.setattr(module.time, "monotonic", lambda: clock["now"])
+        timing.setattr(module, "_READ_CHUNK_BYTES", 8)
+        with pytest.raises(ValueError, match="budget"):
+            list(module._bounded_speech_records(stream, 100, deadline=1))
+    assert clock["reads"] == (0 if expired_before_read else 2)
+    assert stream.tell() <= 16
+
+
+def test_decompressed_admission_budget_is_shared_across_native_splits(
+    native_job: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from nemo_curator.stages.audio.simulation import requests as module
+
+    job = native_job
+    train = job.inputs / "source_train.jsonl.gz"
+    with gzip.open(train, "rt", encoding="utf-8") as stream:
+        cuts = [json.loads(line) for line in stream]
+    for cut in cuts:
+        cut["custom"] = {"padding": "x" * 8192}
+    first = b"".join(json.dumps(cut).encode() + b"\n" for cut in cuts)
+    for cut in cuts:
+        cut["id"] += "-dev"
+    second = b"".join(json.dumps(cut).encode() + b"\n" for cut in cuts)
+    for split, content in [("train", first), ("dev", second)]:
+        with gzip.open(job.inputs / f"source_{split}.jsonl.gz", "wb") as stream:
+            stream.write(content)
+    job.config.write_text(job.config.read_text().replace("dset_splits: [train]", "dset_splits: [train, dev]"))
+    monkeypatch.setattr(module, "_MAX_BYTES", len(first) + len(second) - 1)
+    with pytest.raises(ValueError, match="budget"):
+        request_recipe(job)
+    assert not (job.root / "requests.jsonl").exists()
+    assert not (job.root / "worker-lock.json").exists()
 
 
 def test_disjoint_batches_cover_the_complete_admitted_seed_range_without_collisions() -> None:

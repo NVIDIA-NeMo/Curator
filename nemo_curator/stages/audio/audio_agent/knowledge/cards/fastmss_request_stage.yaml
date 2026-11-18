@@ -12,8 +12,8 @@ resource:
   bound: cpu
 provenance:
   model_card_url: null
-  card_version: 5
-  last_validated: '2026-11-17'
+  card_version: 6
+  last_validated: '2026-11-18'
 tags:
 - writes_disk
 params_of_note:
@@ -61,6 +61,9 @@ notes:
   search roots and custom workers remain native-API-only.'
 - 'Admission limits: 10000 native files, 1 GiB input trees, 60 seconds hashing, 100000 planned requests, 300 seconds
   per meeting, 32 meetings per batch. Native generation timeout defaults to 3600 seconds, including preprocessing.'
+- Compressed speech manifests are read in bounded binary chunks before JSON decoding. Across all splits,
+  decompressed UTF-8 metadata is limited to 1 GiB and each record to 8 MiB including its newline; a 60-second
+  admission deadline is checked between reads and records. Oversized records fail before generation.
 - Exact fulfilment is mandatory; missing or excess generated meetings fail rather than becoming downstream filtering.
   Counts distinguish requested/generated meetings from retained meetings and original speech files.
 - Complete speech/config/default, engine and recipe trees are tracked by existing dependency bindings on source
