@@ -3,24 +3,19 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # Image for indic_granary_pipeline.yaml: the Granary base (TensorRT, TensorRT-LLM, NeMo,
-# SpeechBrain, Whisper) plus the Ray Serve LLM driver for the text model. Ray Serve LLM imports vLLM's
-# protocol classes in the driver, and each Ray release expects a matching vLLM layout: Ray 2.57 works with
-# vLLM 0.22 (the English image's pair), while the base's Ray 2.60 needs vLLM 0.24 and Transformers 5, which
-# NeMo here cannot take. So Ray is pinned to 2.57 and vLLM 0.22 is installed with Torch held at 2.9.1.
-# The text model's engine itself runs in the replicas' isolated Ray environments (vLLM 0.22 with Torch 2.11
-# from the YAML's runtime_env), so the TensorRT-LLM stack stays unchanged.
+# SpeechBrain, Whisper) plus the Dynamo driver for the text model. It adds no in-process vLLM:
+# the Indic ASR stages run on TensorRT-LLM / NeMo, and Dynamo resolves its own vLLM in isolated
+# Ray worker environments.
 # Build the base first (see README.md section 1): docker/audio/Dockerfile.trt_llm --target granary.
 # It already holds this checkout at /opt/Curator, so nothing is copied here.
 ARG BASE_IMAGE=curator-granary-base
 FROM ${BASE_IMAGE}
 
-# Freeze every installed package as an override so the TensorRT-LLM stack stays unchanged; only Ray and
-# vLLM are left free to change.
-RUN uv pip freeze --python /opt/venv/bin/python --exclude-editable \
-        | grep -v -i -E '^(ray|vllm|grpcio-reflection)==' > /tmp/granary-overrides.txt \
+# Freeze every installed package as an override so the TensorRT-LLM stack stays unchanged.
+RUN uv pip freeze --python /opt/venv/bin/python --exclude-editable > /tmp/granary-overrides.txt \
     && uv pip install --no-config --no-sources --python /opt/venv/bin/python \
         --overrides /tmp/granary-overrides.txt --only-binary :all: \
-        'ray[serve]==2.57.0' 'vllm==0.22.0' 'uvloop' 'grpcio-reflection==1.85.1' \
+        'ai-dynamo==1.3.1' 'nixl-cu12==1.0.0' \
     && rm /tmp/granary-overrides.txt
 
 RUN bash /opt/Curator/docker/common/install_etcd_nats.sh
