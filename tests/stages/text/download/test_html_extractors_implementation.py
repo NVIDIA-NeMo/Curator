@@ -52,7 +52,7 @@ def html_string() -> str:
                     <a href="#foo" hidden>bar</a>
 
                     <p>
-                    This paragraph doesn't have many stopwords. Remove it.
+                    This paragraph doesn't contain many stopwords. Remove it.
                     <br>Let's keep this paragraph: either came does last new took taken making became from.
                     </p>
 
@@ -88,7 +88,7 @@ class TestHTMLExtractors:
                 "Nav 2",
                 "Nav 3",
                 "This is a sample paragraph. In it we write words.\nThese are stopwords: because did than has near we almost while what still.\nbar",
-                "This paragraph doesn't have many stopwords. Remove it.\nLet's keep this paragraph: either came does last new took taken making became from.",
+                "This paragraph doesn't contain many stopwords. Remove it.\nLet's keep this paragraph: either came does last new took taken making became from.",
                 "Cannot display object\nSorry, your browser doesn't support VB Script!",
                 "Copyright (C) 2021 Foo Bar",
             ]
@@ -330,3 +330,21 @@ class TestHTMLExtractors:
         result = algorithm.extract_text(korean_html, stop_words["KOREAN"], "KOREAN")
 
         assert result == expected
+
+    @pytest.mark.parametrize("extraction_algorithm", ["resiliparse", "trafilatura"])
+    def test_stopword_density_ignores_case(self, extraction_algorithm: Literal["resiliparse", "trafilatura"]) -> None:
+        """Capitalized stopwords count toward the stopword density, as in jusText."""
+        # 5 of 13 words are stopwords ("then", "they", "by", "had", "most"), a density of 0.38,
+        # but "Then" and "By" only match the lowercase stop list when compared case-insensitively.
+        paragraph = "Prices rose sharply. Then they fell. By Friday, markets had recovered most losses."
+        html = f"<html><body><p>{paragraph}</p></body></html>"
+
+        if extraction_algorithm == "resiliparse":
+            algorithm = ResiliparseExtractor()
+        else:
+            algorithm = TrafilaturaExtractor(min_extracted_size=10)
+
+        stop_words = get_stop_list_dict()
+        result = algorithm.extract_text(html, stop_words["ENGLISH"], "ENGLISH")
+
+        assert result == [paragraph]
