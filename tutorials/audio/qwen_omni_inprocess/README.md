@@ -24,7 +24,7 @@ under `resampled_audio_dir` before inference starts on those rows.
 From the Curator repository root, install the optional Qwen stack:
 
 ```bash
-uv sync --extra audio_cuda12 --extra vllm
+uv sync --extra audio_cuda13 --extra vllm
 source .venv/bin/activate
 ```
 

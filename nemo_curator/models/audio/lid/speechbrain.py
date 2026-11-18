@@ -43,7 +43,7 @@ def _encoder_classifier_class() -> type:
     try:
         from speechbrain.inference.classifiers import EncoderClassifier
     except ImportError as exc:
-        msg = "SpeechBrainLIDAdapter requires an audio extra: uv sync --extra audio_cpu or --extra audio_cuda12"
+        msg = "SpeechBrainLIDAdapter requires an audio extra: uv sync --extra audio_cpu or --extra audio_cuda13"
         raise ImportError(msg) from exc
     return EncoderClassifier
 
@@ -52,7 +52,7 @@ def _snapshot_download(**kwargs: object) -> str:
     try:
         from huggingface_hub import snapshot_download
     except ImportError as exc:
-        msg = "SpeechBrainLIDAdapter requires huggingface-hub: uv sync --extra audio_cpu or --extra audio_cuda12"
+        msg = "SpeechBrainLIDAdapter requires huggingface-hub: uv sync --extra audio_cpu or --extra audio_cuda13"
         raise ImportError(msg) from exc
     return str(snapshot_download(**kwargs))
 

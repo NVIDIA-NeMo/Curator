@@ -33,7 +33,7 @@ executor and passes it to `Pipeline.run()`.
 ### 1. Install NeMo Curator with alignment dependencies
 
 ```bash
-uv sync --extra audio_cuda12
+uv sync --extra audio_cuda13
 ```
 
 This installs `praatio` (for TextGrid parsing) and other audio dependencies via `audio_common`.
@@ -295,7 +295,7 @@ You can filter these entries downstream or audit them separately.
 | Issue | Solution |
 |-------|----------|
 | `mfa: command not found` | Provide the full path via `mfa_command=/path/to/mfa` |
-| `praatio` import error | Run `uv sync --extra audio_cuda12` (or `audio_cpu`) from the Curator repo root |
+| `praatio` import error | Run `uv sync --extra audio_cuda13` (or `audio_cpu`) from the Curator repo root |
 | `Kaldi error: cannot lock file` | Enable `copy_models_to_local=true` (default) or use local storage for `mfa_root_dir` |
 | Many files silently skipped | Check for OOV words; provide a G2P model or expand the dictionary |
 | `mfa align` OOM | Reduce `batch_size` to process fewer files per invocation |

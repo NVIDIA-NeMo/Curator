@@ -40,7 +40,7 @@ Stages 1–5 create reusable semantic domains and an initial set of mixtures. St
 
 ### Platform and compute
 
-- Run on Ubuntu 20.04 or 22.04 with CUDA 12.x and an NVIDIA Volta-generation or newer GPU.
+- Run on Ubuntu 20.04 or 22.04 with CUDA 13.x and an NVIDIA Turing-generation or newer GPU.
 - Stages 1 and 2 require at least one GPU. Stages 6 and 7 use all GPUs visible through `CUDA_VISIBLE_DEVICES` (or all GPUs reported by `nvidia-smi`).
 - Stage 3 is CPU and memory intensive because each Ray worker loads FastText models. Reduce `--num-cpus` if the host runs out of memory.
 - Stage 4 tokenizes on Ray workers. Stages 5 and 8 are CPU-only; stage 8 requires enough evaluated mixtures to form nonempty training and validation splits.
@@ -81,7 +81,7 @@ python nemo_curator/utils/split_large_files.py \
 From a NeMo Curator checkout:
 
 ```bash
-uv sync --extra text_cuda12 --all-groups
+uv sync --extra text_cuda13 --all-groups
 source .venv/bin/activate
 uv pip install xformers lightgbm
 

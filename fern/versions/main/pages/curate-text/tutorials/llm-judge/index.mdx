@@ -36,10 +36,10 @@ Before you start the tutorial, confirm the following requirements:
 - One or more NVIDIA GPUs with enough aggregate memory for the selected judge model.
 - A Hugging Face-format instruction model available as local weights or a repository ID supported by the installed vLLM version.
 
-This tutorial requires both CUDA extras: `text_cuda12` for Common Crawl processing and text extraction, and `sdg_cuda12` for NeMo Data Designer and local inference serving. `text_cuda12` also supplies the optional FastText language gate, although the main tutorial command does not enable that gate. From the Curator source checkout, create or update the environment with:
+This tutorial requires both CUDA extras: `text_cuda13` for Common Crawl processing and text extraction, and `sdg_cuda13` for NeMo Data Designer and local inference serving. `text_cuda13` also supplies the optional FastText language gate, although the main tutorial command does not enable that gate. From the Curator source checkout, create or update the environment with:
 
 ```bash
-uv sync --extra text_cuda12 --extra sdg_cuda12 --all-groups
+uv sync --extra text_cuda13 --extra sdg_cuda13 --all-groups
 source .venv/bin/activate
 ```
 

@@ -25,7 +25,7 @@
 
 ```bash
 # GPU (recommended)
-uv sync --extra audio_cuda12
+uv sync --extra audio_cuda13
 
 # CPU only
 uv sync --extra audio_cpu

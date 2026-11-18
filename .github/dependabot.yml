@@ -14,14 +14,14 @@
 
 version: 2
 registries:
-  vllm-cu129:
+  vllm-cu130:
     type: python-index
-    url: https://wheels.vllm.ai/0.22.0/cu129
+    url: https://wheels.vllm.ai/0.22.0/cu130
 updates:
   - package-ecosystem: "uv"
     directory: "/"
     registries:
-      - vllm-cu129
+      - vllm-cu130
     schedule:
       interval: "weekly"
       day: "monday"

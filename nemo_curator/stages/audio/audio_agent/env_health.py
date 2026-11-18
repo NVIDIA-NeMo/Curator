@@ -325,8 +325,8 @@ def _gpu(env: EnvProfile) -> HealthCheck:
                 "sync_gpu_project_environment",
                 "environment_change",
                 "Provide the GPU dependency profile",
-                "Install/sync the GPU audio dependency profile (`audio_cuda12`) for this environment.",
-                steps=_dependency_profile_steps("audio_cuda12"),
+                "Install/sync the GPU audio dependency profile (`audio_cuda13`) for this environment.",
+                steps=_dependency_profile_steps("audio_cuda13"),
                 availability="available" if hardware_visible else "conditional",
                 reason=(
                     ""
@@ -563,7 +563,7 @@ def _audio_extras(env: EnvProfile) -> HealthCheck:
         f"audio packages not discoverable: {missing}",
         impact="selected stages that depend on these may fail to import or initialize",
         fix=[
-            "install an audio dependency profile: `audio_cuda12` (GPU) or `audio_cpu` (CPU)",
+            "install an audio dependency profile: `audio_cuda13` (GPU) or `audio_cpu` (CPU)",
             f"current install commands: {_AUDIO_SETUP_DOC}",
         ],
         confidence="medium",
@@ -573,8 +573,8 @@ def _audio_extras(env: EnvProfile) -> HealthCheck:
                 "sync_audio_cuda_extra",
                 "environment_change",
                 "Install the GPU audio dependencies",
-                "Provide the GPU audio dependency profile (`audio_cuda12`).",
-                steps=_dependency_profile_steps("audio_cuda12"),
+                "Provide the GPU audio dependency profile (`audio_cuda13`).",
+                steps=_dependency_profile_steps("audio_cuda13"),
                 tradeoffs=["changes the environment this agent runs in"],
                 recommended=bool(env.has_gpu),
             ),
@@ -657,7 +657,7 @@ def _worker_env(_env: EnvProfile) -> HealthCheck:
         ),
         fix=[
             "launch the venv interpreter directly: `.venv/bin/python -m nemo_curator.stages.audio.audio_agent ...`",
-            "or carry the extra through: `uv run --extra audio_cuda12 python -m "
+            "or carry the extra through: `uv run --extra audio_cuda13 python -m "
             "nemo_curator.stages.audio.audio_agent ...`",
         ],
         capabilities=["ray"],
@@ -675,14 +675,14 @@ def _worker_env(_env: EnvProfile) -> HealthCheck:
                 "launch_change",
                 "Carry the audio extra through uv run",
                 "Include the selected audio dependency profile in the command Ray reconstructs.",
-                steps=["rerun with `uv run --extra audio_cuda12 python -m nemo_curator.stages.audio.audio_agent ...`"],
+                steps=["rerun with `uv run --extra audio_cuda13 python -m nemo_curator.stages.audio.audio_agent ...`"],
                 tradeoffs=["uv resolves the launch environment again"],
             ),
         ],
     )
 
 
-_AUDIO_EXTRA_NAMES = frozenset({"audio_cpu", "audio_cuda12"})
+_AUDIO_EXTRA_NAMES = frozenset({"audio_cpu", "audio_cuda13"})
 _UV_AMBIGUOUS_DEPENDENCY_FLAGS = frozenset(
     {
         "--group",

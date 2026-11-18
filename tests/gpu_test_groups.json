@@ -1,22 +1,22 @@
 {
   "dedup": {
-    "extras": ["deduplication_cuda12", "text_cpu"],
+    "extras": ["deduplication_cuda13", "text_cpu"],
     "paths": ["tests/stages/deduplication", "tests/core/test_cudf_placeholder.py"]
   },
   "text": {
-    "extras": ["text_cuda12", "lance"],
+    "extras": ["text_cuda13", "lance"],
     "paths": ["tests/stages/text", "tests/pipelines/test_per_stage_runtime_env.py"]
   },
   "image": {
-    "extras": ["image_cuda12"],
+    "extras": ["image_cuda13"],
     "paths": ["tests/stages/image"]
   },
   "math": {
-    "extras": ["math_cuda12"],
+    "extras": ["math_cuda13"],
     "paths": ["tests/stages/math_stages"]
   },
   "audio": {
-    "extras": ["audio_cuda12"],
+    "extras": ["audio_cuda13"],
     "paths": [
       "tests/stages/audio",
       "tests/models/asr/test_nemo_asr.py",
@@ -25,15 +25,15 @@
     ]
   },
   "audio_qwen_asr": {
-    "extras": ["audio_cuda12", "vllm"],
+    "extras": ["audio_cuda13", "vllm"],
     "paths": ["tests/models/asr/test_qwen_asr.py"]
   },
   "audio_qwen_vllm": {
-    "extras": ["audio_cuda12", "vllm"],
+    "extras": ["audio_cuda13", "vllm"],
     "paths": ["tests/models/asr/test_qwen_omni_gpu.py"]
   },
   "sdg": {
-    "extras": ["sdg_cuda12"],
+    "extras": ["sdg_cuda13"],
     "paths": ["tests/stages/synthetic"]
   },
   "serve": {
@@ -46,7 +46,7 @@
     ]
   },
   "video": {
-    "extras": ["video_cuda12", "cv2"],
+    "extras": ["video_cuda13", "cv2"],
     "paths": ["tests/stages/video"]
   }
 }

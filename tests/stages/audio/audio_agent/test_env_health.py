@@ -88,10 +88,10 @@ class TestWorkerEnv:
     @pytest.mark.parametrize(
         "dependency_args",
         [
-            ["--extra", "audio_cuda12"],
+            ["--extra", "audio_cuda13"],
             ["--extra=audio_cpu"],
             ["--all-extras"],
-            ["--with", "nemo_curator[audio_cuda12]"],
+            ["--with", "nemo_curator[audio_cuda13]"],
         ],
     )
     def test_uv_run_carrying_audio_dependencies_is_fine(

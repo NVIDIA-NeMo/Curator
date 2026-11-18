@@ -201,7 +201,7 @@ def test_load_model_without_qwen_asr_names_required_extras() -> None:
     adapter = QwenASRAdapter()
     with (
         patch.dict("sys.modules", {"qwen_asr": None}),
-        pytest.raises(ImportError, match="audio_cuda12 and vllm"),
+        pytest.raises(ImportError, match="audio_cuda13 and vllm"),
     ):
         adapter.load_model(num_gpus=1)
 

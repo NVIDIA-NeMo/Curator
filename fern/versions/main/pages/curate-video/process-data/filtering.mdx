@@ -20,7 +20,7 @@ dependency before enabling it:
 uv pip install "nemo-curator[cv2]"
 ```
 
-The `video_cpu` or `video_cuda12` extra is also required for motion-vector
+The `video_cpu` or `video_cuda13` extra is also required for motion-vector
 decoding; it provides PyAV and its FFmpeg libraries. Stages that invoke the
 `ffmpeg` executable still need the FFmpeg setup required by your video
 pipeline. Installing `cv2` does not provide that executable or its codecs.

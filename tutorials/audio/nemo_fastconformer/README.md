@@ -22,7 +22,7 @@ transcript.
 From the Curator repository root:
 
 ```bash
-uv sync --extra audio_cuda12
+uv sync --extra audio_cuda13
 source .venv/bin/activate
 ```
 
@@ -136,6 +136,6 @@ audio to the configured `target_sample_rate` before calling the adapter.
 |---|---|
 | `ffmpeg` is not found | Install `ffmpeg` and ensure it is on `PATH` |
 | CUDA out of memory | Reduce `max_audio_sec_per_actor`; keep it at least as large as `max_inference_duration_s` |
-| Model import fails | Install `audio_cuda12` or `audio_cpu` for your platform |
+| Model import fails | Install `audio_cuda13` or `audio_cpu` for your platform |
 | First run appears idle | Wait for the NeMo checkpoint download and inspect the Ray logs |
 | Local-attention conversion fails | Disable it or use a FastConformer checkpoint exposing the required conversion APIs |

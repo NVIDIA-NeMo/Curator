@@ -23,7 +23,7 @@ share one stage and run concurrently against the same normalized transcript.
 ## 1. Prepare the environment
 
 Use one Linux x86_64 node with Docker, the NVIDIA Container Toolkit, and a driver
-compatible with CUDA 12.9. The serving configuration uses eight H100 80 GB GPUs:
+compatible with CUDA 13.0. The serving configuration uses eight H100 80 GB GPUs:
 four Gemma FP8 replicas with two GPUs each. Earlier EOS runs exposed 224 logical CPUs;
 the seven processing stages can reserve 84 CPUs in total, with additional CPUs
 needed for Ray, serving, reading and writing. A two-row input reduces processing
@@ -65,13 +65,13 @@ dependencies, `etcd`, and `nats-server`. There are two Python environments:
 | Package | Driver, from `uv.lock` | Dynamo model worker |
 | --- | --- | --- |
 | ai-dynamo | 1.3.1 | 1.3.1 |
-| vLLM | 0.22.0+cu129 | 0.23.0+cu129 |
+| vLLM | 0.22.0+cu130 | 0.23.0+cu130 |
 | Transformers | 4.57.6 | 5.8.0 |
-| Torch | 2.11.0+cu129 | 2.11.0+cu129 |
+| Torch | 2.11.0+cu130 | 2.11.0+cu130 |
 | Ray | 2.57.0 | 2.57.0 |
 
 Curator creates isolated model-worker environments from the driver environment,
-installs the matching Dynamo vLLM extra using CUDA 12.9 wheels, and applies the
+installs the matching Dynamo vLLM extra using CUDA 13.0 wheels, and applies the
 YAML's Transformers override there. Keep the driver's Transformers version;
 audio dependencies require it. Other worker dependencies are resolved at startup.
 The commands below keep one server running for the tutorial and both benchmarks,

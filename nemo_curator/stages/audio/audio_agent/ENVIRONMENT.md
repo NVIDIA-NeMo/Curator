@@ -100,7 +100,7 @@ Needed for resample/convert and compressed formats (mp3/opus/…). Install with
 `apt-get install ffmpeg`, `conda install -c conda-forge ffmpeg`, or `brew install ffmpeg`.
 
 ### `audio_extras` — importable audio dependencies
-Install an audio dependency profile: `audio_cuda12` (GPU) or `audio_cpu` (CPU). In a
+Install an audio dependency profile: `audio_cuda13` (GPU) or `audio_cpu` (CPU). In a
 source checkout that is `uv sync --extra <profile>`; for an installed package the
 command differs (and carries release-specific details), so take the current one from
 the project's audio setup guide rather than from this file:
@@ -125,7 +125,7 @@ That reads like a broken install, but the install is fine — it is a **launch-f
 Fix (either one):
 
 - Launch the interpreter directly: `.venv/bin/python -m nemo_curator.stages.audio.audio_agent …`
-- Or carry the extra through: `uv run --extra audio_cuda12 python -m nemo_curator.stages.audio.audio_agent …`
+- Or carry the extra through: `uv run --extra audio_cuda13 python -m nemo_curator.stages.audio.audio_agent …`
 
 ### `disk` — free space
 Model downloads (hundreds of MB to several GB) and intermediate WAVs need room; point caches at

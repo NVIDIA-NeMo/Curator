@@ -205,7 +205,7 @@ After substitution at CI time:
 
 ```
 Install NeMo Curator 25.09 from https://github.com/NVIDIA-NeMo/Curator.
-Requires Python 3.10+ and CUDA 12.0+.
+Requires Python 3.10+ and CUDA 13.0+.
 ```
 
 To preview substitution locally:

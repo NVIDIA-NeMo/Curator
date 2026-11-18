@@ -25,17 +25,17 @@ The following Python libraries are needed to run this tutorial:
 - `lm-eval`
 - `lightgbm`
 
-NeMo Curator should be installed with the `text_cuda12` extra. See the installation options on the [Text Quickstart](https://docs.nvidia.com/nemo/curator/get-started/text) for more information. Installation commands for the other libraries above are included within their respective sections.
+NeMo Curator should be installed with the `text_cuda13` extra. See the installation options on the [Text Quickstart](https://docs.nvidia.com/nemo/curator/get-started/text) for more information. Installation commands for the other libraries above are included within their respective sections.
 
 As an example, Curator can be installed from source and additional dependencies can be installed with:
 
 ```bash
 git clone https://github.com/NVIDIA-NeMo/Curator.git
 cd Curator
-uv sync --extra text_cuda12 --all-groups
+uv sync --extra text_cuda13 --all-groups
 source .venv/bin/activate
 cd ..
-uv pip install xformers
+uv pip install --reinstall --no-deps --index-url https://download.pytorch.org/whl/cu130 xformers==0.0.35
 git clone --depth 1 https://github.com/EleutherAI/lm-evaluation-harness
 cd lm-evaluation-harness
 uv pip install -e .
@@ -45,12 +45,14 @@ uv pip install lightgbm
 
 The above installation commands were used for testing this tutorial and include all dependencies needed for running steps 1-5 and 7-8 of the tutorial.
 
+Use the CUDA 13.0 xFormers wheel for Curator's locked Torch 2.11.0/CUDA 13.0 environment. The `--no-deps` option preserves Curator's installed Torch and CUDA dependencies. See the [xFormers installation guide](https://github.com/facebookresearch/xformers#installing-xformers) when using a different Torch/CUDA environment.
+
 To run NeMo Curator, the following system requirements are needed:
 
 - Ubuntu 22.04/20.04
 - NVIDIA GPU with:
-  - Volta™ or higher (compute capability 7.0+)
-  - CUDA 12.x
+  - Compute capability 7.5+ for the CUDA 13 PyTorch build; individual models may require newer GPUs
+  - CUDA 13.x
 
 For step 6 (proxy model training with Megatron-LM), refer to the [Megatron Core Installation documentation](https://docs.nvidia.com/megatron-core/developer-guide/latest/get-started/install.html) for information about the system requirements for running Megatron-LM; the [NeMo Framework container](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/nemo) was used for testing this step.
 
@@ -71,7 +73,7 @@ shards every file in the input path and outputs files that are 128 MB each.
 Compute text embeddings on the dataset with:
 
 ```bash
-# run `uv pip install xformers` to use NovaSearch/stella_en_400M_v5 model
+# Install the CUDA 13.0 xFormers wheel from Step 0 for NovaSearch/stella_en_400M_v5.
 
 python 1_embed.py \
     --input-path /path/to/input/data/dir \
@@ -86,7 +88,7 @@ At least 1 GPU is required to run this step. Use the `--num-cpus` and `--num-gpu
 
 To match the [Nemotron-CLIMB paper](https://arxiv.org/pdf/2504.13161), the script uses the [NovaSearch/stella_en_400M_v5](https://huggingface.co/NovaSearch/stella_en_400M_v5) embedding model by default:
 
-- The [xFormers](https://github.com/facebookresearch/xformers) library is required to run the [NovaSearch/stella_en_400M_v5](https://huggingface.co/NovaSearch/stella_en_400M_v5) model and should be installed via `uv pip install xformers` before running the script.
+- The [xFormers](https://github.com/facebookresearch/xformers) library is required to run the [NovaSearch/stella_en_400M_v5](https://huggingface.co/NovaSearch/stella_en_400M_v5) model. Install the CUDA 13.0 wheel using the command in Step 0 before running the script.
 - The [SentenceTransformers](https://huggingface.co/sentence-transformers) library is used via the `use-sentence-transformer` flag to enhance performance. It is already included as a dependency in Curator and does not need to be manually installed.
 
 Some of the default parameters in the script include:

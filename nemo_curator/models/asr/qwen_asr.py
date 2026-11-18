@@ -47,7 +47,7 @@ def _qwen_asr_model_cls() -> Any:  # noqa: ANN401
     try:
         from qwen_asr import Qwen3ASRModel
     except ImportError as exc:
-        msg = "QwenASRAdapter requires the audio_cuda12 and vllm extras: uv sync --extra audio_cuda12 --extra vllm"
+        msg = "QwenASRAdapter requires the audio_cuda13 and vllm extras: uv sync --extra audio_cuda13 --extra vllm"
         raise ImportError(msg) from exc
     return Qwen3ASRModel
 

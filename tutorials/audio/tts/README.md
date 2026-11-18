@@ -36,12 +36,12 @@ executor and passes it to `Pipeline.run()`.
 
 ```bash
 # GPU (required for synthesis)
-uv sync --extra audio_cuda12
+uv sync --extra audio_cuda13
 ```
 
-`chatterbox-tts` is **not** part of the `audio_common`/`audio_cuda12` extras. It
+`chatterbox-tts` is **not** part of the `audio_common`/`audio_cuda13` extras. It
 hard-pins `transformers==5.2.0` and `torch==2.6.0`, which are incompatible with
-Curator's pinned stack (`transformers>=4.56,<5.0`, `torch==2.10.0`) and would
+Curator's pinned stack (`transformers>=4.56,<5.0`, `torch==2.11.0`) and would
 make the audio extras unresolvable. Instead, `ChatterboxTTSStage` declares a Ray
 `runtime_env` that pip-installs `chatterbox-tts` (plus `setuptools<81`, which
 still provides the `pkg_resources` its watermarker needs) into an **isolated

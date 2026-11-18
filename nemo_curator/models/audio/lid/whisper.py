@@ -45,7 +45,7 @@ def _import_whisper() -> ModuleType:
     try:
         import whisper
     except ImportError as exc:
-        msg = "WhisperLIDAdapter requires an audio extra: uv sync --extra audio_cpu or --extra audio_cuda12"
+        msg = "WhisperLIDAdapter requires an audio extra: uv sync --extra audio_cpu or --extra audio_cuda13"
         raise ImportError(msg) from exc
     return whisper
 
