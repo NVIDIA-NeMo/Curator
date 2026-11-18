@@ -1161,7 +1161,7 @@ shutdown diagnostics despite complete outputs and normal process exits.
 
 One script per pipeline (for European, only the Qwen3-Omni group) runs the whole graph of the tutorial's own YAML on Ray Data, read directly from
 `tutorials/audio/granary_v2/full_pipeline`: recordings to Opus speech clips and metadata, ASR with recovery,
-then eight text operations on a managed Dynamo server.
+then eight text operations on a managed inference server (Ray Serve; Dynamo for Indic).
 
 | Script | YAML | Output | Image |
 | --- | --- | --- | --- |
@@ -1188,7 +1188,7 @@ python benchmarking/scripts/audio_granary_full_english_benchmark.py \
   --input-manifest=/data/manifest.jsonl \
   --model-dir=/models \
   --cache-root=/cache/compilation
-# more text-model replicas (one GPU each): --override=inference_server.models.0.num_replicas=4
+# more text-model replicas (one GPU each): --override=inference_server.models.0.deployment_config.num_replicas=4
 ```
 
 The command above is for English; the European and Indic scripts take the same arguments. A benchmark

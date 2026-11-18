@@ -109,7 +109,7 @@ def run_granary_full_benchmark(  # noqa: PLR0913
     cache_root: str,
     overrides: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Time the pipeline run, excluding Ray start-up and the Dynamo server's start-up."""
+    """Time the pipeline run, excluding Ray start-up and the inference server's start-up."""
     output_dir = Path(benchmark_results_path).resolve() / "results"
     if output_dir.exists():
         msg = f"Benchmark output already exists: {output_dir}; choose a fresh results directory"

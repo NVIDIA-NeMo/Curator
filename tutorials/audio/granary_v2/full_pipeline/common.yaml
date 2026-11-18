@@ -34,6 +34,38 @@ ray_client:
   num_cpus: 128
   object_store_memory: 536870912000
 
+# Text model settings shared by the Ray Serve default below and the Dynamo override in indic_granary_pipeline.yaml.
+text_model:
+  runtime_env:
+    uv:
+      packages:
+        - transformers==5.8.0
+    env_vars:
+      VLLM_USE_DEEP_GEMM: "0"
+      # FlashInfer JIT-compiles sampling kernels; the image's CUDA 12.9 toolkit matches the worker's Torch.
+      CUDA_HOME: /usr/local/cuda-12.9
+      CUDA_PATH: /usr/local/cuda-12.9
+      FLASHINFER_NVCC: /usr/local/cuda-12.9/bin/nvcc
+      VLLM_CACHE_ROOT: ${cache_root}/vllm
+      TORCHINDUCTOR_CACHE_DIR: ${cache_root}/torchinductor
+      TRITON_CACHE_DIR: ${cache_root}/triton
+  engine_kwargs:
+    tensor_parallel_size: 1
+    max_model_len: 8192
+    gpu_memory_utilization: 0.95
+    kv_cache_dtype: auto
+    max_num_seqs: 256
+    max_num_batched_tokens: 8192
+    language_model_only: true
+    trust_remote_code: true
+    revision: d4ab4f579dd3516f97d8a6a4c98d0653480bad15  # pragma: allowlist secret - public model revision
+    enable_prefix_caching: true
+    enable_chunked_prefill: true
+    async_scheduling: false
+    enforce_eager: false
+    compilation_config:
+      cache_dir: ${cache_root}/vllm/compile
+
 # The tutorial entrypoint manages this server on the pipeline's Ray cluster.
 inference_server:
   _target_: nemo_curator.core.serve.InferenceServer
@@ -41,42 +73,14 @@ inference_server:
   name: audio_text_processing
   health_check_timeout_s: 1200
   models:
-    - _target_: nemo_curator.core.serve.DynamoVLLMModelConfig
+    - _target_: nemo_curator.core.serve.RayServeModelConfig
       _convert_: all
       model_identifier: ${model_identifier}
       model_name: ${model_name}
-      num_replicas: 2  # one GPU each: the 31 GB FP8 weights fit one 80 GB GPU, leaving six for audio
-      runtime_env:
-        uv:
-          packages:
-            - transformers==5.8.0
-        env_vars:
-          VLLM_USE_DEEP_GEMM: "0"
-          # FlashInfer JIT-compiles sampling kernels; the image's CUDA 12.9 toolkit matches the worker's Torch.
-          CUDA_HOME: /usr/local/cuda-12.9
-          CUDA_PATH: /usr/local/cuda-12.9
-          FLASHINFER_NVCC: /usr/local/cuda-12.9/bin/nvcc
-          VLLM_CACHE_ROOT: ${cache_root}/vllm
-          TORCHINDUCTOR_CACHE_DIR: ${cache_root}/torchinductor
-          TRITON_CACHE_DIR: ${cache_root}/triton
-      engine_kwargs:
-        tensor_parallel_size: 1
-        max_model_len: 8192
-        gpu_memory_utilization: 0.95
-        kv_cache_dtype: auto
-        max_num_seqs: 256
-        max_num_batched_tokens: 8192
-        language_model_only: true
-        trust_remote_code: true
-        revision: d4ab4f579dd3516f97d8a6a4c98d0653480bad15  # pragma: allowlist secret - public model revision
-        enable_prefix_caching: true
-        enable_chunked_prefill: true
-        async_scheduling: false
-        enforce_eager: false
-        compilation_config:
-          cache_dir: ${cache_root}/vllm/compile
-  backend:
-    _target_: nemo_curator.core.serve.DynamoServerConfig
+      deployment_config:
+        num_replicas: 2  # one GPU each: the 31 GB FP8 weights fit one 80 GB GPU, leaving six for audio
+      runtime_env: ${text_model.runtime_env}
+      engine_kwargs: ${text_model.engine_kwargs}
 
 # Shared HTTP-client settings; each stage below supplies its own operation.
 text_stage: &text_stage
