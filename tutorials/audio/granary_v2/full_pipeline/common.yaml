@@ -77,8 +77,14 @@ inference_server:
       _convert_: all
       model_identifier: ${model_identifier}
       model_name: ${model_name}
+      # One GPU per replica (the 31 GB FP8 weights fit one 80 GB GPU). Serve scales on request load within
+      # these bounds, and a new replica starts only when a GPU is free.
       deployment_config:
-        num_replicas: 2  # one GPU each: the 31 GB FP8 weights fit one 80 GB GPU, leaving six for audio
+        autoscaling_config:
+          min_replicas: 2
+          max_replicas: 4
+          # Ray's LLM default is 1e9, which never scales up. Half of max_num_seqs keeps a queue short.
+          target_ongoing_requests: 128
       runtime_env: ${text_model.runtime_env}
       engine_kwargs: ${text_model.engine_kwargs}
 
