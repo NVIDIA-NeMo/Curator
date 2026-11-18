@@ -19,7 +19,10 @@ from __future__ import annotations
 import math
 from dataclasses import KW_ONLY, dataclass, field
 from pathlib import Path
-from typing import ClassVar
+from typing import TYPE_CHECKING, ClassVar
+
+if TYPE_CHECKING:
+    import torch
 
 from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, Role, StageContract
 from nemo_curator.stages.audio.common import load_audio_file
@@ -172,11 +175,22 @@ class PrepareIndicASRInputStage(AgentReady, ProcessingStage[AudioTask, AudioTask
         data[self.granary_v1_prediction_key] = reference_text
         data[self.reference_text_key] = reference_text
         data[self.sample_rate_key] = sample_rate
+        return self._apply_duration_policy(task, waveform, notes, audio_item_id)
 
-        # Apply shared duration policy before inference so both the TensorRT
-        # (IndicTranscribe) and PyTorch (Parakeet) backends receive the same
-        # audio.  Skip clips that are too short; truncate clips that exceed the
-        # TensorRT encoder window.
+    def _apply_duration_policy(
+        self,
+        task: AudioTask,
+        waveform: torch.Tensor,
+        notes: dict[str, object],
+        audio_item_id: str,
+    ) -> AudioTask:
+        """Apply shared duration gate before inference.
+
+        Both the TensorRT (IndicTranscribe) and PyTorch (Parakeet) backends
+        receive the same audio because truncation and minimum-duration skipping
+        happen once here, not independently inside each adapter.
+        """
+        data = task.data
         max_samples = int(self.max_duration_sec * SAMPLE_RATE)
         min_samples = int(self.min_duration_sec * SAMPLE_RATE)
         num_samples = waveform.shape[-1]
@@ -184,23 +198,17 @@ class PrepareIndicASRInputStage(AgentReady, ProcessingStage[AudioTask, AudioTask
         if num_samples < min_samples:
             data[self.waveform_key] = waveform
             data[self.skip_me_key] = (
-                f"duration_too_short:{audio_item_id} "
-                f"({num_samples / SAMPLE_RATE:.3f}s < {self.min_duration_sec}s)"
+                f"duration_too_short:{audio_item_id} ({num_samples / SAMPLE_RATE:.3f}s < {self.min_duration_sec}s)"
             )
             return task
 
         if num_samples > max_samples:
             original_duration_s = num_samples / SAMPLE_RATE
-            # Match the message format written by InferenceIndicTranscribeStage so
-            # the output JSONL looks the same regardless of where truncation occurs.
-            # The key uses this stage's name (not the inference stage's) since
-            # truncation now happens here, before either inference backend runs.
             notes[self.name] = (
                 f"audio {original_duration_s:.2f}s exceeds {self.max_duration_sec:.0f}s encoder window; "
                 "transcription truncated (split with VAD before inference)"
             )
             notes["original_duration_sec"] = original_duration_s
-            data[self.notes_key] = notes
             data[self.waveform_key] = waveform[:, :max_samples]
         else:
             data[self.waveform_key] = waveform
