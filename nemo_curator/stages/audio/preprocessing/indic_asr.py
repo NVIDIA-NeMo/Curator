@@ -29,6 +29,10 @@ from nemo_curator.tasks import AudioTask
 
 SAMPLE_RATE = 16_000
 MAX_DURATION_ERROR_S = 0.001
+# Shared duration policy applied before inference so both the TensorRT and
+# PyTorch backends always receive identical audio segments.
+_DEFAULT_MAX_DURATION_SEC = 40.0
+_DEFAULT_MIN_DURATION_SEC = 0.5
 
 
 @dataclass
@@ -37,11 +41,15 @@ class PrepareIndicASRInputStage(AgentReady, ProcessingStage[AudioTask, AudioTask
 
     The input reference is removed from ``text_key`` and copied unchanged to
     both reference outputs; it is not an ASR prediction. Audio is downmixed to
-    mono float32, retained as a [1, samples] waveform, and checked against the
-    manifest duration within 1 ms without changing that duration. The resolved
-    file path and sample rate in Hz describe that same clip. Existing notes
-    survive while model-selection labels are initialized, and the skip reason
-    is cleared. This stage does not transcribe audio or verify reference accuracy.
+    mono float32 and clipped to ``max_duration_sec`` before being stored as a
+    waveform, so both the TensorRT and PyTorch inference backends receive the
+    same audio segment. Clips shorter than ``min_duration_sec`` are skipped
+    immediately with ``_skipme`` set, rather than being forwarded to inference
+    where each backend would handle them differently. The manifest duration is
+    checked within 1 ms before clipping; it is not updated to reflect the
+    clipped length. Existing notes survive while model-selection labels are
+    initialized, and the skip reason is cleared for valid clips. This stage
+    does not transcribe audio or verify reference accuracy.
 
     Args:
         audio_root: Base directory for relative audio paths.
@@ -54,13 +62,18 @@ class PrepareIndicASRInputStage(AgentReady, ProcessingStage[AudioTask, AudioTask
         granary_v1_prediction_key: Legacy reference copy, not a model prediction.
         reference_text_key: Reference copy used for downstream WER.
         sample_rate_key: Decoded waveform sample rate in Hz.
-        waveform_key: In-memory mono float32 waveform tensor.
+        waveform_key: In-memory mono float32 waveform, clipped to max_duration_sec.
         skip_me_key: Processing skip reason, initialized to an empty string.
+        max_duration_sec: Clips longer than this are truncated before inference.
+            Must match the TensorRT encoder window (default 40 s).
+        min_duration_sec: Clips shorter than this are skipped immediately.
     """
 
     name: str = "prepare_indic_asr_input"
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
     audio_root: str | None = None
+    max_duration_sec: float = _DEFAULT_MAX_DURATION_SEC
+    min_duration_sec: float = _DEFAULT_MIN_DURATION_SEC
 
     _: KW_ONLY
     audio_filepath_key: str = "audio_filepath"
@@ -159,6 +172,24 @@ class PrepareIndicASRInputStage(AgentReady, ProcessingStage[AudioTask, AudioTask
         data[self.granary_v1_prediction_key] = reference_text
         data[self.reference_text_key] = reference_text
         data[self.sample_rate_key] = sample_rate
-        data[self.waveform_key] = waveform
+
+        # Apply shared duration policy before inference so both the TensorRT
+        # (IndicTranscribe) and PyTorch (Parakeet) backends receive the same
+        # audio.  Skip clips that are too short; truncate clips that exceed the
+        # TensorRT encoder window.
+        max_samples = int(self.max_duration_sec * SAMPLE_RATE)
+        min_samples = int(self.min_duration_sec * SAMPLE_RATE)
+        num_samples = waveform.shape[-1]
+
+        if num_samples < min_samples:
+            data[self.waveform_key] = waveform
+            data[self.skip_me_key] = (
+                f"duration_too_short:{audio_item_id} "
+                f"({num_samples / SAMPLE_RATE:.3f}s < {self.min_duration_sec}s)"
+            )
+            return task
+
+        clipped_waveform = waveform[:, :max_samples] if num_samples > max_samples else waveform
+        data[self.waveform_key] = clipped_waveform
         data[self.skip_me_key] = ""
         return task
