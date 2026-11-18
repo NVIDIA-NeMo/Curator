@@ -32,7 +32,6 @@ ray_client:
   _target_: nemo_curator.core.client.RayClient
   include_dashboard: false
   num_cpus: 128
-  num_gpus: 8
   object_store_memory: 536870912000
 
 # The tutorial entrypoint manages this server on the pipeline's Ray cluster.
@@ -131,7 +130,7 @@ shared:
       precision: fp32
       compile_encoder: false
     resources:
-      gpu_memory_gb: 24
+      gpu_memory_gb: 16
 
   v_a_d_segmentation_stage:
     _target_: nemo_curator.stages.audio.segmentation.VADSegmentationStage
@@ -190,7 +189,6 @@ shared:
     min_duration_sec: 1
     max_duration_sec: 10
     batch_size: 16
-    num_workers_override: 2
     fail_on_audio_error: true
     adapter_kwargs:
       source: ${model_dir}/speechbrain
@@ -208,7 +206,6 @@ shared:
     min_duration_sec: 1
     max_duration_sec: 30
     batch_size: 16
-    num_workers_override: 2
     fail_on_audio_error: true
     adapter_kwargs:
       model_size: medium

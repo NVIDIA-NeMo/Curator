@@ -59,7 +59,8 @@ Use `backend=ray_data` (the default here). Curator raises an error for GPU stage
 Run commands from this checkout's root. The default configuration needs **8 H100 80 GB GPUs**,
 128 logical CPUs, 500 GiB shared memory for Ray's object store and more host RAM (2 TiB
 recommended): two Dynamo replicas reserve two GPUs each, and the other four GPUs serve the audio
-stages. Docker and the NVIDIA Container Toolkit are required.
+stages. Audio stages declare only the GPU memory each model needs; Ray Data scales
+their worker pools into whatever the Dynamo replicas leave free. Docker and the NVIDIA Container Toolkit are required.
 
 Build the images from the repository root, from public base images. English and European:
 
@@ -140,8 +141,8 @@ docker run --rm --gpus all --ipc=host \
 
 Use `--config-name european_qwen_omni_granary_pipeline`, `european_parakeet_v3_granary_pipeline` or
 `european_whisper_granary_pipeline` with the same image, or `--config-name
-indic_granary_pipeline` with `curator-granary-indic`. For other GPU counts, override
-`ray_client.num_gpus`, `ray_client.num_cpus` and `inference_server.models.0.num_replicas`.
+indic_granary_pipeline` with `curator-granary-indic`. For other GPU counts, Ray detects the node's GPUs; set
+`inference_server.models.0.num_replicas` (two GPUs each) and, if needed, `ray_client.num_cpus`.
 
 The entrypoint starts one Ray cluster, downloads the pinned text model snapshot and enters the YAML's
 `InferenceServer` context. Dynamo handles placement, readiness and routing; the pipeline starts after

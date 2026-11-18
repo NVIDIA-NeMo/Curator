@@ -106,9 +106,13 @@ stages:
     pred_text_key: fallback_model_prediction
     batch_size: 128
     max_audio_sec_per_actor: 5120.0
+    # 0.6B model (about 2 GB of weights): a 16 GB slice, not a whole GPU.
+    resources:
+      _target_: nemo_curator.stages.resources.Resources
+      gpu_memory_gb: 16
     adapter_kwargs:
       revision: ${recovery_model_revision}
-      gpu_memory_utilization: 0.95
+      gpu_memory_utilization: 0.2
       max_new_tokens: 4096
       max_inference_batch_size: 128
 

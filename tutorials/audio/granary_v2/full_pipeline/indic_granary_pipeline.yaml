@@ -42,7 +42,6 @@ stages:
     min_duration_sec: 1
     max_duration_sec: 40
     batch_size: 16
-    num_workers_override: 1
     fail_on_audio_error: true
     adapter_kwargs:
       engine_dir: ${model_dir}/indic_canary
@@ -65,7 +64,6 @@ stages:
     min_duration_sec: 1
     max_duration_sec: 30
     batch_size: 16
-    num_workers_override: 2
     fail_on_audio_error: true
     adapter_kwargs:
       model_size: medium
@@ -121,10 +119,9 @@ stages:
     sample_rate_key: sample_rate
     pred_text_key: primary_model_prediction
     batch_size: 64
-    num_workers_override: 4
     resources:
       _target_: nemo_curator.stages.resources.Resources
-      gpu_memory_gb: 50
+      gpu_memory_gb: 24
   - ${shared.whisper_hallucination_primary}
 
   - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
@@ -141,14 +138,13 @@ stages:
     pred_text_key: fallback_model_prediction
     model_id: ${model_dir}/indic_parakeet/model.nemo
     batch_size: 64
-    num_workers_override: 4
     adapter_kwargs:
       engine_dir: ${model_dir}/indic_parakeet
       chunking_mode: engine
       empty_audio_marks_skip: false
     resources:
       _target_: nemo_curator.stages.resources.Resources
-      gpu_memory_gb: 24
+      gpu_memory_gb: 16
 
   - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
     waveform_key: waveform
