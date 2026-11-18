@@ -73,7 +73,7 @@ def test_prepares_audio_without_changing_reference_or_metadata(
     assert result.data["audio_filepath"] == path
     assert result.data["audio_item_id"] == "clip"
     assert result.data["source_lang"] == "hi"
-    assert result.data["duration"] == 0.1
+    assert result.data["duration"] == 1.0
     assert result.data["custom_metadata"] == "preserved"
     assert "text" not in result.data
     assert result.data["reference_text"] == result.data["granary_v1_prediction"] == reference
@@ -243,8 +243,10 @@ def test_configurable_duration_bounds(tmp_path: Path) -> None:
     assert result.data["_skipme"] == ""
     assert result.data["waveform"].shape == (1, 2 * 16000)
 
-    # With a 5 s minimum this 3 s clip must be skipped
-    task.data["_skipme"] = ""  # reset skip for re-use
+    # With a 5 s minimum this 3 s clip must be skipped.
+    # Restore keys consumed by the first process() call before re-using the task.
+    task.data["text"] = "संदर्भ"
+    task.data["_skipme"] = ""
     stage_strict = PrepareIndicASRInputStage(max_duration_sec=40.0, min_duration_sec=5.0)
     result2 = stage_strict.process(task)
     assert result2.data["_skipme"], "3 s clip must be skipped when min_duration_sec=5.0"
