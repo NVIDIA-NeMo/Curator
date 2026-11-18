@@ -921,6 +921,24 @@ class TestHeuristicFilters:
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
 
+    @pytest.mark.parametrize(
+        ("text", "expected_score"),
+        [
+            ("Wait. " * 20 + "Done.", 0.880),
+            ("Wait.\n" * 20 + "Done.", 0.880),
+            ("Wait.\r\n" * 20 + "Done.", 0.828),
+            ("Wait.  " * 20 + "Done.", 0.828),
+            ("1\t2\t" * 20, 0.750),
+            ("Wait.\n\tWait. " * 10 + "Done.", 0.889),
+        ],
+    )
+    def test_repeatingtopngrams_any_whitespace_between_words(self, text: str, expected_score: float) -> None:
+        # The top n-gram must be found whatever whitespace separates its words.
+        filt = RepeatingTopNGramsFilter(n=2)
+        score = filt.score_document(text)
+        assert score == pytest.approx(expected_score, abs=1e-3)
+        assert filt.keep_document(score) is False
+
     def test_repeatingduplicatengrams(self) -> None:
         dataset = list_to_dataset(["a a b b a a b b", "totally fine", "a a a a this should be fine as well"])
         filters = ScoreFilter(RepeatingDuplicateNGramsFilter())
