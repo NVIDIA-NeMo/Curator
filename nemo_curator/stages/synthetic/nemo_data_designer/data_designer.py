@@ -163,7 +163,7 @@ class DataDesignerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
 
-    def process(self, batch: DocumentBatch) -> DocumentBatch:
+    def process(self, batch: DocumentBatch) -> DocumentBatch:  # noqa: C901, PLR0912
         import data_designer.config as dd
 
         num_input_records = batch.num_items
