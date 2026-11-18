@@ -215,7 +215,9 @@ transcript accuracy or semantic quality; review generated text and `additional_n
 
 CPU checks cover configuration loading, building each YAML's pipeline and importing every stage and
 adapter class with its third-party dependencies in the matching image. On a local GPU, language ID, Parakeet-v3,
-Whisper and Qwen3-ASR (vLLM 0.22) transcribed real European audio. Multi-GPU execution, Qwen3-Omni, the
-Indic TensorRT-LLM engines and the end-to-end single-cluster runs are **not** verified: GPU scaling,
-transcript quality and the language-group routing on real data remain unproven. The Indic image inherits
+Whisper and Qwen3-ASR (vLLM 0.22) transcribed real European audio. On a Slurm cluster (one 8x H100 node per
+pipeline, 64-recording samples) the English, European Qwen3-Omni-group (Italian FLEURS) and Indic pipelines each
+ran end to end and produced the same clips, ids, durations and languages as the file-based flow. Transcript text
+matched except for a few rows (model nondeterminism). The European Parakeet-v3 and Whisper groups, full-size
+cohorts, multi-node scaling and transcript quality remain unverified. The Indic image inherits
 dependency declaration conflicts from the Granary base, so plain `uv pip check` is not clean there.
