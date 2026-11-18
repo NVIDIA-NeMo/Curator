@@ -208,7 +208,6 @@ class PrepareIndicASRInputStage(AgentReady, ProcessingStage[AudioTask, AudioTask
                 f"audio {original_duration_s:.2f}s exceeds {self.max_duration_sec:.0f}s encoder window; "
                 "transcription truncated (split with VAD before inference)"
             )
-            notes["original_duration_sec"] = original_duration_s
             data[self.waveform_key] = waveform[:, :max_samples]
         else:
             data[self.waveform_key] = waveform
