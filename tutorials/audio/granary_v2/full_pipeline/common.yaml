@@ -303,19 +303,7 @@ shared:
           chat_template_kwargs:
             enable_thinking: false
 
-  # 3. Predict and verify the transcript language.
-  language_i_d:
-    <<: *text_stage
-    name: LanguageID
-    prompt: ${prompts.language_id}
-    text_key: pnc_text
-    output_text_key: llm_language_prediction
-    validation_mode: none
-    min_word_retention_ratio: 0.3
-    generation_config: *text_generation
-    mode: language_id
-
-  # 4. Normalize written text to spoken form.
+  # 3. Normalize written text to spoken form.
   text_normalization:
     <<: *text_stage
     name: TextNormalization
@@ -326,11 +314,19 @@ shared:
     min_word_retention_ratio: 0.3
     generation_config: *text_generation
 
-  # 5. Run captioning, code switching, and speech QA concurrently.
+  # 4. Run language ID, captioning, code switching, and speech QA concurrently.
   fused_text_l_l_m:
     <<: *text_stage
     name: FusedTextLLM
     operations:
+      - name: LanguageID
+        text_key: pnc_text
+        output_text_key: llm_language_prediction
+        validation_mode: none
+        min_word_retention_ratio: 0.3
+        generation_config: *text_generation
+        language_rules: null
+        prompt: ${prompts.language_id}
       - name: Captioning
         text_key: tn_raw
         output_text_key: captioning_text
@@ -355,6 +351,11 @@ shared:
         generation_config: *text_generation
         language_rules: null
         prompt: ${prompts.speech_qa}
+
+  # 5. Flag rows whose predicted language contradicts the source language.
+  language_verification:
+    _target_: nemo_curator.stages.audio.text_filtering.LanguageVerificationStage
+    language_key: ${language_key}
 
   # 6. Restore written-form numbers, dates, and other expressions.
   i_t_n_restoration:

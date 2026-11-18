@@ -92,9 +92,9 @@ stages:
   - ${shared.regex_substitution_stage}
   - ${shared.abbreviation_concat_stage}
   - ${shared.pn_c_restoration}
-  - ${shared.language_i_d}
   - ${shared.text_normalization}
   - ${shared.fused_text_l_l_m}
+  - ${shared.language_verification}
   - ${shared.i_t_n_restoration}
   - ${shared.disfluency_removal}
   - ${shared.manifest_writer_stage}
