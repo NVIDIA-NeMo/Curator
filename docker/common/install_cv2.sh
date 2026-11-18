@@ -81,15 +81,47 @@ if [ "$CHECK_ONLY" -eq 1 ]; then
     exit 1
 fi
 
+if ! command -v uv >/dev/null 2>&1; then
+    echo "ERROR: uv is required to install cv2 dependencies." >&2
+    exit 1
+fi
+
 if [ ! -d "$CURATOR_UNDER_TEST_REPO_DIR" ]; then
     echo "ERROR: Curator-under-test repo directory not found: $CURATOR_UNDER_TEST_REPO_DIR" >&2
     exit 1
 fi
 
-# Preserve the image's locked CUDA dependencies and existing Curator installation.
-UV_PROJECT_ENVIRONMENT=$("$PYTHON" -c 'import sys; print(sys.prefix)') \
-    uv sync --project "$CURATOR_UNDER_TEST_REPO_DIR" --locked --inexact --no-install-project \
-    --extra all --extra cv2 --all-groups
+# Install only the extra's dependencies; preserve Curator and its native stack.
+"$PYTHON" - "$CURATOR_UNDER_TEST_REPO_DIR" <<'PY'
+import subprocess
+import sys
+import tempfile
+import tomllib
+from contextlib import suppress
+from importlib.metadata import PackageNotFoundError, version
+from pathlib import Path
+
+project = tomllib.loads((Path(sys.argv[1]) / "pyproject.toml").read_text())
+uv = project["tool"]["uv"]
+constraints = list(uv["constraint-dependencies"])
+# OpenCV must not upgrade NumPy underneath existing native extensions.
+with suppress(PackageNotFoundError):
+    constraints.append(f"numpy=={version('numpy')}")
+
+with tempfile.TemporaryDirectory() as directory:
+    constraints_path = Path(directory) / "constraints.txt"
+    constraints_path.write_text("\n".join(constraints) + "\n")
+    overrides_path = Path(directory) / "overrides.txt"
+    overrides_path.write_text("\n".join(uv["override-dependencies"]) + "\n")
+    subprocess.run(
+        [
+            "uv", "--no-config", "pip", "install", "--no-sources", "--python", sys.executable,
+            "--constraint", str(constraints_path), "--override", str(overrides_path),
+            *project["project"]["optional-dependencies"]["cv2"],
+        ],
+        check=True,
+    )
+PY
 
 # Installing Curator's cv2 extra currently lets pip choose an fsspec version
 # that breaks semdedup's fsspec.parquet.open_parquet_files import. This is a
