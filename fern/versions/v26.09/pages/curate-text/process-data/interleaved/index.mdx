@@ -1,0 +1,84 @@
+---
+description: "Read, write, and filter MINT-1T-style interleaved image-text datasets across WebDataset and Parquet formats"
+categories: ["workflows"]
+tags: ["interleaved", "mint-1t", "webdataset", "parquet", "image-text"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "workflow"
+modality: "universal"
+---
+
+# Interleaved Datasets
+
+Curate interleaved image-text datasets in the format used by [MINT-1T](https://huggingface.co/datasets/mlfoundations/MINT-1T-PDF-CC-2023-23) and similar large-scale multimodal corpora. Each sample is an ordered sequence of text, image, and metadata items keyed by a stable `sample_id`.
+
+## How it Works
+
+NeMo Curator's interleaved support is organized around three responsibilities:
+
+1. **Storage formats** — `InterleavedBatch` is the in-memory representation. On disk, samples can live as **WebDataset tar shards** (one tar per shard, one file per item) or as **Parquet** rows (one row per item, grouped by `sample_id`).
+2. **IO round-trip** — readers and writers exist for both formats, so any combination of `WDS ↔ InterleavedBatch ↔ Parquet` is supported. Schema utilities ensure reserved columns get canonical types and passthrough columns survive intact.
+3. **Sample-level filters** — drop samples by image sharpness, QR-code area ratio, CLIP image-text alignment, or image-to-text count ratio.
+
+Use the IO stages on their own for format conversion (e.g., curate-once, train-many), or chain them with the filter stages for a full curation pipeline.
+
+## Pages
+
+<Cards>
+
+<Card title="Interleaved IO" href="/curate-text/process-data/interleaved/io">
+Round-trip readers and writers between WebDataset tar shards and Parquet, plus shared schema utilities
+parquet
+webdataset
+schema
+</Card>
+
+<Card title="Interleaved Filters" href="/curate-text/process-data/interleaved/filters">
+Sample-level filter stages for image quality, QR-code detection, CLIP image-text alignment, and image-to-text ratio
+blur
+clip
+qr-detection
+</Card>
+
+</Cards>
+
+## Quick Example
+
+Read interleaved Parquet, drop blurry images and low-CLIP-alignment samples, and write the survivors back to MINT-1T-style WebDataset shards:
+
+```python
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.backends.xenna import XennaExecutor
+from nemo_curator.stages.interleaved.io.reader import InterleavedParquetReader
+from nemo_curator.stages.interleaved.io.writers.webdataset import (
+    InterleavedWebdatasetWriterStage,
+)
+from nemo_curator.stages.interleaved.filter.blur_filter import InterleavedBlurFilterStage
+from nemo_curator.stages.interleaved.filter.clip_score_filter import (
+    InterleavedCLIPScoreFilterStage,
+)
+
+pipeline = Pipeline(name="interleaved_curation")
+
+# 1. Read interleaved Parquet
+pipeline.add_stage(InterleavedParquetReader(file_paths="s3://bucket/interleaved/*.parquet"))
+
+# 2. Drop blurry images
+pipeline.add_stage(InterleavedBlurFilterStage(score_threshold=100.0))
+
+# 3. Drop low image-text alignment
+pipeline.add_stage(
+    InterleavedCLIPScoreFilterStage(model_dir="/models/clip", min_score=0.2)
+)
+
+# 4. Write surviving samples to MINT-1T-style tar shards
+pipeline.add_stage(InterleavedWebdatasetWriterStage(output_dir="./curated"))
+
+executor = XennaExecutor()
+pipeline.run(executor)
+```
+
+## Related Topics
+
+- **[Nemotron-Parse PDF Pipeline](/curate-text/load-data/nemotron-parse-pdf)** — converts PDFs into interleaved Parquet using the Nemotron-Parse VLM.
+- **[Common Crawl](/curate-text/load-data/common-crawl)** — fetch web data; pair with interleaved processing for image-text crawls.

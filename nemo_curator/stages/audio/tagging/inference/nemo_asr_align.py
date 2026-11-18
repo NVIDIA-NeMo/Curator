@@ -24,8 +24,8 @@ and ``segments``.
 """
 
 import time
-from dataclasses import dataclass, field
-from typing import Any
+from dataclasses import KW_ONLY, dataclass, field
+from typing import Any, ClassVar
 
 import nemo.collections.asr as nemo_asr
 import torch
@@ -35,13 +35,21 @@ from nemo.collections.asr.parts.submodules.ctc_decoding import CTCDecodingConfig
 from nemo.collections.asr.parts.submodules.rnnt_decoding import RNNTDecodingConfig
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
+from nemo_curator.stages.audio._agent._agent_ready import (
+    AgentReady,
+    ConditionalWrite,
+    Gates,
+    IOSpec,
+    StageContract,
+    StaticHints,
+)
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
 
 @dataclass
-class BaseASRProcessorStage(ProcessingStage[AudioTask, AudioTask]):
+class BaseASRProcessorStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """Base class for ASR stages with shared config and segment preparation.
 
     Provides common fields and _prepare_segment_batch_with_metadata for
@@ -59,6 +67,7 @@ class BaseASRProcessorStage(ProcessingStage[AudioTask, AudioTask]):
         segments_key: Key for segments list in manifest.
     """
 
+    # Legacy positional slots (pre-agent order preserved).
     # Length constraints
     min_len: float = 1.0
     max_len: float = 40.0
@@ -79,6 +88,15 @@ class BaseASRProcessorStage(ProcessingStage[AudioTask, AudioTask]):
     # Stage metadata (subclasses can override)
     name: str = "BaseASRProcessor"
     resources: Resources = field(default_factory=lambda: Resources(gpus=1))
+
+    # Agent-added knobs are keyword-only (KW_ONLY sentinel) so the legacy positional slots
+    # above keep their historical order and meaning.
+    _: KW_ONLY
+    alignment_key: str = "alignment"
+    audio_filepath_key: str = "audio_filepath"
+    resampled_audio_filepath_key: str = "resampled_audio_filepath"
+    split_filepaths_key: str = "split_filepaths"
+    split_metadata_key: str = "split_metadata"
 
     @property
     def _device(self) -> str:
@@ -110,7 +128,7 @@ class BaseASRProcessorStage(ProcessingStage[AudioTask, AudioTask]):
 
         if cut_audio_segments:
             for metadata_idx, metadata in enumerate(metadata_batch):
-                audio_path = metadata.get("resampled_audio_filepath", metadata.get("audio_filepath"))
+                audio_path = metadata.get(self.resampled_audio_filepath_key, metadata.get(self.audio_filepath_key))
                 if not audio_path:
                     continue
                 audio, sr = torchaudio.load(audio_path)
@@ -131,10 +149,10 @@ class BaseASRProcessorStage(ProcessingStage[AudioTask, AudioTask]):
         else:
             for metadata_idx, metadata in enumerate(metadata_batch):
                 for segment_idx, segment in enumerate(metadata.get(segments_key, [])):
-                    if "resampled_audio_filepath" in segment:
+                    if self.resampled_audio_filepath_key in segment:
                         segment_metadata_list.append(
                             {
-                                "resampled_audio_filepath": segment["resampled_audio_filepath"],
+                                self.resampled_audio_filepath_key: segment[self.resampled_audio_filepath_key],
                                 "metadata_idx": metadata_idx,
                                 "segment_idx": segment_idx,
                             }
@@ -163,6 +181,11 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
         disable_word_confidence (bool): Whether to disable word confidence score computation
     """
 
+    # Conservative instance-free superset: the default checkpoint downloads on first run and
+    # decodes on a GPU, so static discovery must not advertise a network/GPU-free stage.
+    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(gates=Gates(requires_internet_first_run=True, requires_gpu=True))
+
+    # Legacy positional slots (pre-agent order preserved).
     # Model configuration
     model_name: str = "nvidia/parakeet-tdt_ctc-1.1b"
     model_path: str | None = None
@@ -200,6 +223,13 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
     name: str = "NeMoASRAligner"
     _asr_model: Any = field(default=None, repr=False)
     _override_cfg: Any = field(default=None, repr=False)
+
+    # Agent-added knobs are keyword-only (KW_ONLY sentinel) so the legacy positional slots
+    # above keep their historical order and meaning.
+    _: KW_ONLY
+    split_filepaths_key: str = "split_filepaths"
+    split_metadata_key: str = "split_metadata"
+    alignment_key: str = "alignment"
 
     def __post_init__(self) -> None:
         """Validate config."""
@@ -268,13 +298,83 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
 
     def inputs(self) -> tuple[list[str], list[str]]:
         if self.infer_segment_only:
-            return ["data"], ["resampled_audio_filepath", self.segments_key]
-        return ["data"], ["duration", self.segments_key, "split_filepaths", "split_metadata"]
+            return ["data"], [self.resampled_audio_filepath_key, self.segments_key]
+        return ["data"], ["duration", self.segments_key, self.split_filepaths_key, self.split_metadata_key]
 
     def outputs(self) -> tuple[list[str], list[str]]:
         if self.infer_segment_only:
-            return ["data"], ["resampled_audio_filepath", self.segments_key]
-        return ["data"], ["duration", self.segments_key, "split_filepaths", "split_metadata"]
+            return ["data"], [self.resampled_audio_filepath_key, self.segments_key]
+        return ["data"], ["duration", self.segments_key, self.split_filepaths_key, self.split_metadata_key]
+
+    def describe(self) -> StageContract:
+        if self.infer_segment_only:
+            # Segment audio is resolved as resampled_audio_filepath OR an audio_filepath fallback.
+            reads = IOSpec(data_keys=[self.segments_key])
+            reads_one_of = [
+                IOSpec(data_keys=[self.resampled_audio_filepath_key], accepts=["file"]),
+                IOSpec(data_keys=[self.audio_filepath_key], accepts=["file"]),
+            ]
+            # Nothing is written unconditionally: a segment shorter than min_len (or with empty cut
+            # audio) gets no text/word write, and words are only written when timestamps are on.
+            writes = IOSpec()
+            iteration_key = self.segments_key
+            conditional_writes = [
+                ConditionalWrite(
+                    writes=IOSpec(segment_data_keys=[self.text_key]),
+                    condition=(
+                        f"a segment's duration >= min_len and its cut audio is non-empty; "
+                        f"its transcript is written to '{self.text_key}'"
+                    ),
+                )
+            ]
+            if self.compute_timestamps:
+                conditional_writes.append(
+                    ConditionalWrite(
+                        writes=IOSpec(segment_data_keys=[self.words_key]),
+                        condition=(
+                            f"compute_timestamps is True and a segment's duration >= min_len with "
+                            f"non-empty cut audio; word alignments are written to '{self.words_key}'"
+                        ),
+                    )
+                )
+        else:
+            # Full-mode only consumes the split keys (duration/segments are never read here).
+            reads = IOSpec(data_keys=[self.split_filepaths_key, self.split_metadata_key])
+            reads_one_of = []
+            writes = IOSpec()
+            iteration_key = self.split_metadata_key
+            conditional_writes = [
+                ConditionalWrite(
+                    writes=IOSpec(segment_data_keys=[self.text_key, self.alignment_key]),
+                    condition=(
+                        f"a transcribed split has a corresponding item in '{self.split_metadata_key}'; "
+                        f"its text and alignment are written into that split entry"
+                    ),
+                ),
+                ConditionalWrite(
+                    writes=IOSpec(data_keys=[self.text_key, self.alignment_key]),
+                    condition=(
+                        f"'{self.split_filepaths_key}' is an empty list (top-level fallback of empty "
+                        f"text and alignment), or a transcribed split has no corresponding item in "
+                        f"'{self.split_metadata_key}'; a None or missing '{self.split_filepaths_key}' "
+                        f"writes neither"
+                    ),
+                ),
+            ]
+        return StageContract(
+            reads=reads,
+            reads_one_of=reads_one_of,
+            writes=writes,
+            cardinality="1:1 nested-list",
+            iteration_key=iteration_key,
+            gates=Gates(
+                requires_gpu=self.resources.requires_gpu,
+                requires_internet_first_run=self.model_path is None,
+                # Batched for GPU throughput, but each row is transcribed and aligned on its own.
+                per_row_independent=True,
+            ),
+            conditional_writes=conditional_writes,
+        )
 
     def get_alignments_text(self, hypotheses: Any) -> tuple[list, str]:  # noqa: ANN401
         """Extract word alignments and text from model hypotheses."""
@@ -346,7 +446,7 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
         skip_indices = []
         meta_indices = []
         for i, data in enumerate(entries):
-            split_filepaths = data.get("split_filepaths")
+            split_filepaths = data.get(self.split_filepaths_key)
             has_splits = isinstance(split_filepaths, list) and len(split_filepaths) > 0
             if has_splits or split_filepaths is None:
                 meta_indices.append(i)
@@ -355,14 +455,14 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
 
         for i in skip_indices:
             entries[i][self.text_key] = ""
-            entries[i]["alignment"] = []
+            entries[i][self.alignment_key] = []
 
         # collect all split paths of all entries in the batch
         all_paths = []
         path_to_entry_and_split = []
         for entry_idx in meta_indices:
             meta_entry = entries[entry_idx]
-            split_filepaths = meta_entry.get("split_filepaths")
+            split_filepaths = meta_entry.get(self.split_filepaths_key)
             if not split_filepaths:
                 logger.warning(f"[{self.name}] Entry at index {entry_idx} has no split_filepaths, skipping.")
                 continue
@@ -404,13 +504,13 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
             else:
                 alignments, text = [], ""
 
-            split_metadata = meta_entry.get("split_metadata")
+            split_metadata = meta_entry.get(self.split_metadata_key)
             if split_metadata and split_idx < len(split_metadata):
                 split_metadata[split_idx][self.text_key] = text
-                split_metadata[split_idx]["alignment"] = alignments
+                split_metadata[split_idx][self.alignment_key] = alignments
             else:
                 meta_entry[self.text_key] = text
-                meta_entry["alignment"] = alignments
+                meta_entry[self.alignment_key] = alignments
 
         return tasks
 
@@ -434,7 +534,7 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
             with torch.no_grad():
                 hypotheses_list = self._asr_model.transcribe(all_segments, override_config=self._override_cfg)
         except Exception as e:
-            files_list = [x.get("resampled_audio_filepath", x.get("audio_filepath")) for x in entries]
+            files_list = [x.get(self.resampled_audio_filepath_key, x.get(self.audio_filepath_key)) for x in entries]
             msg = f"[{self.name}] Exception for audio list: {files_list}, error: {e}"
             raise ValueError(msg) from e
 

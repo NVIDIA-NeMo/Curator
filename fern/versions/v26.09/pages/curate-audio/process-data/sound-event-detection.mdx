@@ -1,0 +1,50 @@
+---
+description: "Run PANNs sound event detection on audio manifests with NeMo Curator"
+categories: ["audio-processing"]
+tags: ["sound-event-detection", "sed", "panns", "audio-analysis", "gpu"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "how-to"
+modality: "audio-only"
+---
+
+# Sound Event Detection
+
+Run sound event detection (SED) on an audio manifest with NeMo Curator. The maintained [SED pipeline configuration](https://github.com/NVIDIA-NeMo/Curator/blob/main/tutorials/audio/sed/pipeline.yaml) runs the PANNs CNN14 model. It uses the AudioSet class vocabulary.
+
+## Input Manifest
+
+Create a JSONL file with one audio file per line. Each row must include `audio_filepath` with an absolute or resolvable path.
+
+```json
+{"audio_filepath": "/data/audio/example.wav"}
+```
+
+## Run the Pipeline
+
+From the NeMo Curator repository root, install the audio CUDA extra and run the maintained YAML configuration:
+
+```bash
+uv run --extra audio_cuda12 python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/sed \
+  --config-name pipeline \
+  manifest_path=/absolute/path/to/input.jsonl \
+  output_dir=/absolute/path/to/sed_output
+```
+
+The pipeline resamples audio to 32 kHz, converts it to mono, and runs GPU inference. It loads the default `Cnn14_DecisionLevelMax_mAP=0.385.pth` checkpoint from the PyTorch cache when present. When the checkpoint is missing, NeMo Curator downloads it automatically. Set `checkpoint_path` to use a specific file. NeMo Curator loads an existing file or downloads the default checkpoint to that path.
+
+Use the decision-level checkpoint for this framewise SED pipeline. The `Cnn14_mAP=0.431.pth` checkpoint supports clip-level audio tagging and is not trained for framewise SED.
+
+## Outputs
+
+For each successful task, the stage adds the following fields:
+
+- `_sed_framewise`: A `(frames, 527)` AudioSet probability matrix at approximately 100 frames per second.
+- `sed_valid_frames`: The number of frames that correspond to the original audio before batch padding.
+- `sed_fps`: The frame rate of the probability matrix.
+- `npz_filepath`: The path to a compressed NPZ sidecar when `save_npz` is enabled, as it is in the maintained YAML.
+
+The probability matrix contains model scores for each frame and class. The pipeline does not threshold scores or produce labeled event segments.
+
+Each NPZ sidecar contains `framewise`, `fps`, `valid_frames`, `audio_filepath`, and `original_num_samples`. The pipeline writes sidecars below `<output_dir>/framewise`.

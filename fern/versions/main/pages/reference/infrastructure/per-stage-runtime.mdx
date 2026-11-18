@@ -87,9 +87,9 @@ Per-stage runtime environments work with all three execution backends:
 
 ## Container Setup
 
-The NeMo Curator container image creates its virtualenv with `uv venv --seed`, which ensures that `pip` is available inside the venv. This is required because Ray's pip-based `runtime_env` plugin clones the current virtualenv and needs `pip` to install stage-specific packages in the clone.
+Images built by following [Build an Image](/reference/infra/container-environments#build-an-image) create their virtualenv with `uv venv --seed`, which makes `pip` available for Ray's pip-based runtime environments. Ray clones the current virtualenv and uses `pip` to install stage-specific packages in the clone.
 
-If you are running outside the official container, make sure your Python environment has `pip` available:
+For a source install or another image, create a seeded virtual environment before syncing dependencies:
 
 ```bash
 uv venv --seed

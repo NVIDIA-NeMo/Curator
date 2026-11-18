@@ -45,20 +45,31 @@ vad_max_duration_sec: 60.0
 vad_threshold: 0.5
 vad_min_interval_ms: 500
 vad_speech_pad_ms: 300
+# Detection semantics stay above; runtime selection is adapter-owned.
+vad_adapter_target: nemo_curator.models.audio.vad.silero.SileroVADAdapter
+vad_backend: torch
+# Keep 1 because this composite contains fan-out VAD branches.
+vad_batch_size: 1
+vad_num_workers: null
+vad_cpus: 1.0
+vad_gpus: 0.1
 
 enable_band_filter: true
 band_value: full_band
 
 enable_utmos: true
 utmos_mos_threshold: 3.4
+utmos_gpus: 0.1
 
 enable_sigmos: true
 sigmos_noise_threshold: 4.0
 sigmos_ovrl_threshold: 3.5
+sigmos_gpus: 0.1
 
 enable_speaker_separation: true
 speaker_exclude_overlaps: true
 speaker_min_duration: 0.8
+speaker_separation_gpus: 0.3
 
 processors:
   - _target_: nemo_curator.stages.audio.datasets.readspeech.CreateInitialManifestReadSpeechStage
@@ -73,25 +84,35 @@ processors:
         output_sample_rate: ${sample_rate}
       vad:
         enable: ${enable_vad}
+        adapter_target: ${vad_adapter_target}
+        adapter_kwargs:
+          backend: ${vad_backend}
         min_duration_sec: ${vad_min_duration_sec}
         max_duration_sec: ${vad_max_duration_sec}
         threshold: ${vad_threshold}
         min_interval_ms: ${vad_min_interval_ms}
         speech_pad_ms: ${vad_speech_pad_ms}
+        batch_size: ${vad_batch_size}
+        num_workers: ${vad_num_workers}
+        cpus: ${vad_cpus}
+        gpus: ${vad_gpus}
       band_filter:
         enable: ${enable_band_filter}
         band_value: ${band_value}
       utmos:
         enable: ${enable_utmos}
         mos_threshold: ${utmos_mos_threshold}
+        gpus: ${utmos_gpus}
       sigmos:
         enable: ${enable_sigmos}
         noise_threshold: ${sigmos_noise_threshold}
         ovrl_threshold: ${sigmos_ovrl_threshold}
+        gpus: ${sigmos_gpus}
       speaker_separation:
         enable: ${enable_speaker_separation}
         exclude_overlaps: ${speaker_exclude_overlaps}
         min_duration: ${speaker_min_duration}
+        gpus: ${speaker_separation_gpus}
       # Empty config uses _DEFAULT_PASSTHROUGH_KEYS which includes:
       #   speaker_id, num_speakers, speaking_duration, sample_rate,
       #   utmos_mos, sigmos_noise, sigmos_ovrl, sigmos_sig, sigmos_col,

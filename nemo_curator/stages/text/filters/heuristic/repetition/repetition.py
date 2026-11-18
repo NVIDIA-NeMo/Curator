@@ -34,9 +34,13 @@ class RepeatedLinesFilter(DocumentFilter):
         self._name = "repeated_lines"
 
     def score_document(self, text: str) -> float:
+        if not text.strip():
+            return 0.0
         sentences = self._sentences
         if sentences is None:
             sentences = get_sentences(text)
+        if not sentences:
+            return 0.0
         return len(set(sentences)) / len(sentences)
 
     def keep_document(self, score: float) -> bool:
@@ -56,9 +60,13 @@ class RepeatedParagraphsFilter(DocumentFilter):
         self._name = "repeated_paragraphs"
 
     def score_document(self, text: str) -> float:
+        if not text.strip():
+            return 0.0
         paragraphs = self._paragraphs
         if paragraphs is None:
             paragraphs = get_paragraphs(text)
+        if not paragraphs:
+            return 0.0
         return len(set(paragraphs)) / len(paragraphs)
 
     def keep_document(self, score: float) -> bool:
@@ -78,11 +86,16 @@ class RepeatedLinesByCharFilter(DocumentFilter):
         self._name = "repeated_lines_char"
 
     def score_document(self, text: str) -> float:
+        if not text.strip():
+            return 0.0
         sentences = self._sentences
         if sentences is None:
             sentences = get_sentences(text)
+        joined = "".join(sentences)
+        if not joined:
+            return 0.0
 
-        return len("".join(set(sentences))) / len("".join(sentences))
+        return len("".join(set(sentences))) / len(joined)
 
     def keep_document(self, score: float) -> bool:
         return score >= self._cutoff
@@ -101,11 +114,16 @@ class RepeatedParagraphsByCharFilter(DocumentFilter):
         self._name = "repeated_paragraphs_char"
 
     def score_document(self, text: str) -> float:
+        if not text.strip():
+            return 0.0
         paragraphs = self._paragraphs
         if paragraphs is None:
             paragraphs = get_paragraphs(text)
+        joined = "".join(paragraphs)
+        if not joined:
+            return 0.0
 
-        return len("".join(set(paragraphs))) / len("".join(paragraphs))
+        return len("".join(set(paragraphs))) / len(joined)
 
     def keep_document(self, score: float) -> bool:
         return score >= self._cutoff
@@ -137,6 +155,8 @@ class RepeatingTopNGramsFilter(DocumentFilter):
             if len(split_text) < self._n:
                 return self._max_ratio
             ngrams = get_ngrams(split_text, self._n)
+        if not ngrams:
+            return self._max_ratio
         unique_ngrams = set(ngrams)
         # Find the most frequent ngram in the zipped ngram list
         counts = {ngram: {"freq": 0, "num_chars": sum(len(word) for word in ngram)} for ngram in unique_ngrams}
@@ -180,6 +200,8 @@ class RepeatingDuplicateNGramsFilter(DocumentFilter):
             if len(split_text) < self._n:
                 return self._max_ratio
             ngrams = get_ngrams(split_text, self._n)
+        if not ngrams:
+            return self._max_ratio
 
         counts = {}
         duplicated_nchar = 0

@@ -385,7 +385,7 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
 
     pipeline.add_stage(
         ResampleAudioStage(
-            resampled_audio_dir=str(benchmark_results_path / "audio_resampled"),
+            resampled_audio_dir=str(scratch_output_path / "audio_resampled"),
             input_format="wav",
             target_sample_rate=16000,
             target_format="wav",
@@ -565,7 +565,11 @@ def main() -> int:
         help="Xenna execution mode. Defaults to streaming; ignored by other executors.",
     )
 
+    parser.add_argument(
+        "--save-tasks", action=argparse.BooleanOptionalAction, default=True, help="Save completed tasks in tasks.pkl"
+    )
     args = parser.parse_args()
+    save_tasks = vars(args).pop("save_tasks")
     params = vars(args)
     logger.info(f"Audio tagging benchmark arguments: {params}")
     result_dict: dict[str, Any] = {"params": params, "metrics": {"is_success": False}, "tasks": []}
@@ -577,7 +581,7 @@ def main() -> int:
         logger.error(f"Benchmark failed: {e}")
         result_dict["metrics"]["error_message"] = str(e)
     finally:
-        write_benchmark_results(result_dict, args.benchmark_results_path)
+        write_benchmark_results(result_dict, args.benchmark_results_path, save_tasks=save_tasks)
     return success_code
 
 

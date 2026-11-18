@@ -24,13 +24,14 @@ from typing import TYPE_CHECKING
 #       Consider vendoring the pytest code or implementing a custom expression evaluator.
 from _pytest.mark import Expression
 from loguru import logger
+from nemo_curator_benchmarking.config import assert_valid_config_dict
 
 if TYPE_CHECKING:
     from runner.sinks.sink import Sink
 from runner.datasets import DatasetResolver
 from runner.entry import Entry, normalize_environment
 from runner.path_resolver import PathResolver
-from runner.utils import assert_valid_config_dict, get_total_memory_bytes
+from runner.utils import get_total_memory_bytes
 
 _data_setup_script_base_path = Path(__file__).resolve().parent.parent / "data_prep"
 
@@ -80,6 +81,7 @@ class Session:
     object_store_size: int | float | str | None = 0.5
     # Whether to delete the entry's scratch directory after completion by default
     delete_scratch: bool = True
+    save_tasks: bool | None = None
     # Fraction of total GPU memory (0.0-1.0) above which a warning is emitted, both
     # before and after each benchmark run. If None, any usage > 0 triggers a warning.
     # Entries can override this value.
@@ -139,10 +141,15 @@ class Session:
             msg = "viewer_url and viewer_url_template are mutually exclusive; set only one."
             raise ValueError(msg)
 
-        # Update delete_scratch for each entry that has not been set to the session-level delete_scratch setting
+        if self.save_tasks is not None and not isinstance(self.save_tasks, bool):
+            msg = "Invalid save_tasks: expected a boolean"
+            raise TypeError(msg)
+        # Apply session defaults only where an entry has not specified its own retention policy.
         for entry in self.entries:
             if entry.delete_scratch is None:
                 entry.delete_scratch = self.delete_scratch
+            if entry.save_tasks is None:
+                entry.save_tasks = self.save_tasks
 
         # Update timeout_s for each entry that has not been set to the session-level
         # default_timeout_s, then enforce the session-level maximum against effective values.
@@ -260,18 +267,10 @@ class Session:
         sinks = []
         for sink_config in sink_configs:
             sink_name = sink_config["name"]
-            if sink_name == "mlflow":
-                from runner.sinks.mlflow_sink import MlflowSink
-
-                sinks.append(MlflowSink(sink_config=sink_config))
-            elif sink_name == "slack":
+            if sink_name == "slack":
                 from runner.sinks.slack_sink import SlackSink
 
                 sinks.append(SlackSink(sink_config=sink_config))
-            elif sink_name == "gdrive":
-                from runner.sinks.gdrive_sink import GdriveSink
-
-                sinks.append(GdriveSink(sink_config=sink_config))
             else:
                 logger.warning(f"Unknown sink: {sink_name}, skipping")
         return sinks

@@ -45,8 +45,8 @@ jobs:
       - name: Install fixed Fern CLI
         run: |
           set -euo pipefail
-          npm install --prefix "$RUNNER_TEMP/fern-cli" --ignore-scripts --no-audit --no-fund fern-api@5.123.0
-          printf '%s\n' '{"organization":"nvidia","version":"5.123.0"}' > fern/fern.config.json
+          npm install --prefix "$RUNNER_TEMP/fern-cli" --ignore-scripts --no-audit --no-fund fern-api@5.149.0
+          printf '%s\n' '{"organization":"nvidia","version":"5.149.0"}' > fern/fern.config.json
 
       - name: Generate library reference MDX (autodocs)
         env:

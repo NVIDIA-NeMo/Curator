@@ -45,15 +45,19 @@ This page details the comprehensive system, hardware, and software requirements 
 - RAPIDS libraries (cuDF) for GPU-accelerated deduplication operations
 
 ### Container Support (Recommended)
+
 - **Docker** or **Podman** for containerized deployment
-- Access to NVIDIA NGC registry for official containers
+- A registry, shared image file, or other container distribution method accessible to every compute node when running containerized jobs
+- For GPU workloads, a compatible NVIDIA driver on each node; the container supplies the CUDA user-space stack selected by its Dockerfile
 
 ## Network Requirements
+
 - Reliable network connectivity between nodes
 - High-bandwidth network for large dataset transfers
 - InfiniBand recommended for multi-node GPU clusters
 
 ## Storage Requirements
+
 - **Capacity**: Storage capacity should be 3-5x the size of input datasets
   - Input data storage
   - Intermediate processing files

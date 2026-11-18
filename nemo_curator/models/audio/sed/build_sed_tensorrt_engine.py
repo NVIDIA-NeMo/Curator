@@ -56,21 +56,21 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _load_model(checkpoint_path: Path):  # noqa: ANN202
+def _load_model(checkpoint_path: Path, sample_rate: int = _SAMPLE_RATE):  # noqa: ANN202
     from .cnn14 import Cnn14DecisionLevelMax
 
-    model = Cnn14DecisionLevelMax(sample_rate=_SAMPLE_RATE)
+    model = Cnn14DecisionLevelMax(sample_rate=sample_rate)
     checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
     model.load_state_dict(checkpoint["model"])
     return model.eval().to("cuda")
 
 
 @torch.inference_mode()
-def _export_onnx(checkpoint_path: Path, onnx_path: Path):  # noqa: ANN202
-    model = _load_model(checkpoint_path)
+def _export_onnx(checkpoint_path: Path, onnx_path: Path, sample_rate: int = _SAMPLE_RATE):  # noqa: ANN202
+    model = _load_model(checkpoint_path, sample_rate)
     core = SedCore(model).eval()
     generator = torch.Generator(device="cuda").manual_seed(1234)
-    waveforms = torch.randn((2, 5 * _SAMPLE_RATE), generator=generator, device="cuda") * 0.03
+    waveforms = torch.randn((2, 5 * sample_rate), generator=generator, device="cuda") * 0.03
     features, frames_num = extract_features(model, waveforms)
     reference = model(waveforms)["framewise_output"]
     split = postprocess(core(features), frames_num)
@@ -172,6 +172,7 @@ def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True, help="Destination .plan/.engine file")
+    parser.add_argument("--sample-rate", type=int, choices=[16000, 32000], default=_SAMPLE_RATE)
     parser.add_argument(
         "--onnx-output",
         type=Path,
@@ -214,7 +215,7 @@ def main() -> None:
     if onnx_path.resolve() == args.output.resolve():
         msg = "ONNX output and TensorRT engine output must be different files"
         raise ValueError(msg)
-    _, _, split_max_abs = _export_onnx(args.checkpoint, onnx_path)
+    _, _, split_max_abs = _export_onnx(args.checkpoint, onnx_path, args.sample_rate)
     build_seconds, tensorrt_version = _build_engine(args, onnx_path)
     metadata = {
         "schema_version": 1,
@@ -229,7 +230,7 @@ def main() -> None:
         "engine_sha256": _sha256(args.output),
         "gpu": torch.cuda.get_device_name(),
         "model_type": _MODEL_TYPE,
-        "frontend": _FRONTEND,
+        "frontend": {**_FRONTEND, "sample_rate": args.sample_rate},
         "onnx": str(onnx_path.resolve()),
         "onnx_sha256": _sha256(onnx_path),
         "precision": "fp16" if args.fp16 else "fp32",
@@ -240,7 +241,7 @@ def main() -> None:
                 "max": [args.max_batch, 1, args.max_frames, _MEL_BINS],
             }
         },
-        "sample_rate": _SAMPLE_RATE,
+        "sample_rate": args.sample_rate,
         "split_max_abs": split_max_abs,
         "tensorrt_version": tensorrt_version,
         "tf32_enabled": not args.no_tf32,

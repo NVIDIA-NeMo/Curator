@@ -458,7 +458,11 @@ def main() -> int:
     # ========== EXECUTOR OPTIONS ==========
     p.add_argument("--executor", type=str, default="ray_data", choices=["xenna", "ray_data", "ray_actors"])
 
+    p.add_argument(
+        "--save-tasks", action=argparse.BooleanOptionalAction, default=True, help="Save completed tasks in tasks.pkl"
+    )
     args = p.parse_args()
+    save_tasks = vars(args).pop("save_tasks")
 
     # Validate: tar_input_path is required when not downloading from S3
     if not args.download_from_s3 and not args.tar_input_path:
@@ -487,7 +491,7 @@ def main() -> int:
         results = run_benchmark(args)
         success_code = 0 if results["metrics"]["is_success"] else 1
     finally:
-        write_benchmark_results(results, args.benchmark_results_path)
+        write_benchmark_results(results, args.benchmark_results_path, save_tasks=save_tasks)
     return success_code
 
 

@@ -1,0 +1,147 @@
+stage_id: SIGMOSFilterStage
+category: quality
+summary: "SIGMOS (ITU-T P.804) neural MOS across 7 quality dimensions; filter/annotate."
+tags: [produces_score, is_filter, needs_internet_first_run]
+model_id: "microsoft SIGMOS (ONNX, P.804)"
+# The spec the checkpoint implements, not a release: microsoft/SIG-Challenge publishes the ONNX
+# without a versioned tag. Kept because it is the most specific true thing available, and tiered
+# ``best_guess`` in ``verified`` so a reader knows not to treat it as a pin.
+model_version: "P.804-ONNX"
+domain: {language: any, style: speech}
+constraints: {}   # no supported_sample_rates constraint: any input rate is accepted and resampled internally to 48 kHz for inference, so no upstream ResampleAudioStage is required
+resource:
+  cpus: 1.0
+  gpu_mem_gb: 0.5   # measured on RTX 4090 via nvidia-smi delta (~0.46 GB, ONNX Runtime CUDA)
+  gpu_optional: true
+  bound: gpu
+  throughput_hint: "ONNX; uses GPU if available, CPU fallback"
+use_cases:
+  good_for:
+    - "fine-grained quality gating on a SPECIFIC degradation (noise, reverb, discontinuity, loudness, coloration)"
+    - "TTS data curation"
+    - "keeping clips acceptable on one axis while rejecting another (e.g. keep slightly-reverberant but reject noisy)"
+  avoid_for:
+    - "non-speech audio"
+    - "when a single overall 'good enough' bar is sufficient -- use UTMOSFilterStage (cheaper)"
+composition:
+  typical_upstream: [MonoConversionStage, VADSegmentationStage, UTMOSFilterStage]
+  typical_downstream: [AudioToDocumentStage, ManifestWriterStage]
+params_of_note:
+  noise_threshold: "minimum NOISE score (default 4.0); None disables this dimension"
+  ovrl_threshold: "minimum overall score (default 3.5); None disables this dimension"
+  sig_threshold: "optional minimum speech-signal quality score (default None)"
+  col_threshold: "optional minimum coloration quality score (default None)"
+  disc_threshold: "optional minimum discontinuity quality score (default None); not a guaranteed detector of specific faults"
+  loud_threshold: "optional minimum loudness quality score (default None)"
+  reverb_threshold: "optional minimum reverberation quality score (default None)"
+  action: "filter (default) requires all enabled thresholds and drops unscorable items; annotate retains items and writes all seven scores only when scoring succeeds with finite values"
+  mode: "task scores the whole item; segments scores nested items; auto (default) selects segment scope when segments_key is present"
+  input_residency: "waveform requires a complete resident pair; file loads the configured path; auto prefers a complete pair and otherwise loads the file, replacing a partial resident pair. File-only auto rows remain file-only."
+metrics:
+  sigmos_ovrl:
+    scale: {min: 0.0, max: 5.0, direction: higher_better}
+    threshold_param: ovrl_threshold
+    anchors: {"3.5-5.0": studio, "3.0-3.5": general}
+    valid_range: [0.0, 5.0]
+  sigmos_noise:
+    scale: {min: 0.0, max: 5.0, direction: higher_better}
+    threshold_param: noise_threshold
+    anchors: {"4.0-5.0": very_low_noise, "3.0-4.0": slight_noise_ok}
+    valid_range: [0.0, 5.0]
+  sigmos_sig:
+    scale: {min: 0.0, max: 5.0, direction: higher_better}
+    threshold_param: sig_threshold
+    valid_range: [0.0, 5.0]
+  sigmos_col:
+    scale: {min: 0.0, max: 5.0, direction: higher_better}
+    threshold_param: col_threshold
+    valid_range: [0.0, 5.0]
+  sigmos_disc:
+    scale: {min: 0.0, max: 5.0, direction: higher_better}
+    threshold_param: disc_threshold
+    valid_range: [0.0, 5.0]
+  sigmos_loud:
+    scale: {min: 0.0, max: 5.0, direction: higher_better}
+    threshold_param: loud_threshold
+    valid_range: [0.0, 5.0]
+  sigmos_reverb:
+    scale: {min: 0.0, max: 5.0, direction: higher_better}
+    threshold_param: reverb_threshold
+    valid_range: [0.0, 5.0]
+decision:
+  kind: compound
+  separable_from_producer: true
+  value_type: number
+  scope: task
+  producer_constraints: {action: annotate, mode: task}
+  dimensions:
+    - {threshold_param: noise_threshold, score_key_param: noise_key, score_key_default: sigmos_noise}
+    - {threshold_param: ovrl_threshold, score_key_param: ovrl_key, score_key_default: sigmos_ovrl}
+    - {threshold_param: sig_threshold, score_key_param: sig_key, score_key_default: sigmos_sig}
+    - {threshold_param: col_threshold, score_key_param: col_key, score_key_default: sigmos_col}
+    - {threshold_param: disc_threshold, score_key_param: disc_key, score_key_default: sigmos_disc}
+    - {threshold_param: loud_threshold, score_key_param: loud_key, score_key_default: sigmos_loud}
+    - {threshold_param: reverb_threshold, score_key_param: reverb_key, score_key_default: sigmos_reverb}
+  selector:
+    stage_id: PreserveByValueConditionsStage
+    conditions_param: conditions
+    condition_logic_param: condition_logic
+    required_condition_logic: and
+    missing_policy_param: missing_value_policy
+    required_missing_policy: drop
+    required_operator: ge
+  missing_score_policy: selector_drop
+  monotonic_direction: higher_better
+  atomic: true
+  variants:
+    - kind: compound
+      separable_from_producer: true
+      value_type: number
+      scope: segments
+      producer_constraints: {action: annotate, mode: segments}
+      dimensions:
+        - {threshold_param: noise_threshold, score_key_param: noise_key, score_key_default: sigmos_noise}
+        - {threshold_param: ovrl_threshold, score_key_param: ovrl_key, score_key_default: sigmos_ovrl}
+        - {threshold_param: sig_threshold, score_key_param: sig_key, score_key_default: sigmos_sig}
+        - {threshold_param: col_threshold, score_key_param: col_key, score_key_default: sigmos_col}
+        - {threshold_param: disc_threshold, score_key_param: disc_key, score_key_default: sigmos_disc}
+        - {threshold_param: loud_threshold, score_key_param: loud_key, score_key_default: sigmos_loud}
+        - {threshold_param: reverb_threshold, score_key_param: reverb_key, score_key_default: sigmos_reverb}
+      selector:
+        stage_id: PreserveByValueConditionsStage
+        conditions_param: conditions
+        condition_logic_param: condition_logic
+        required_condition_logic: and
+        missing_policy_param: missing_value_policy
+        required_missing_policy: drop
+        required_operator: ge
+        items_key_param: items_key
+        items_key_source_param: segments_key
+        empty_policy_param: drop_parent_if_empty
+        required_empty_policy: true
+      missing_score_policy: selector_drop
+      monotonic_direction: higher_better
+      atomic: true
+presets:
+  # Configuration starting points, not guarantees of perceived quality; calibrate on representative speech.
+  studio_tts: {ovrl_threshold: 3.2, noise_threshold: 4.2, reverb_threshold: 4.3, col_threshold: 3.8, sig_threshold: 3.7, loud_threshold: 3.5}
+  asr_robust: {ovrl_threshold: 2.5, noise_threshold: 3.0, reverb_threshold: 3.0, col_threshold: 3.0}
+  general: {ovrl_threshold: 3.0, noise_threshold: 3.5}
+  telephony_qa: {ovrl_threshold: 2.7, noise_threshold: 3.5, sig_threshold: 3.0}
+  low_noise: {noise_threshold: 4.0, ovrl_threshold: null}
+comparison:
+  language_support: "acoustic quality estimates for speech; validate suitability on the target corpus"
+  accuracy_hint: "seven predicted quality dimensions, rather than UTMOS's single overall score"
+  config_complexity: "up to seven independently enabled minimum thresholds"
+  known_limitations: "predicted scores are not measurements of particular defects or guarantees of transcript accuracy"
+  choose_when: "you need separate quality dimensions. Use UTMOSFilterStage for one overall MOS, or TorchSquimQualityMetricsStage for reference-free PESQ/STOI/SI-SDR estimates."
+notes:
+  - "Input is internally resampled to 48 kHz; an upstream resampler is not required for this stage."
+  - "Default filtering requires BOTH noise>=4.0 AND ovrl>=3.5. To use one dimension, explicitly set the other enabled thresholds to None; omitting a parameter keeps its default. low_noise disables the default overall gate."
+  - "Metric anchors and presets are configuration starting points, not calibrated guarantees of audible quality. Labels set the named threshold and do not disable other defaults. Annotate representative speech before choosing thresholds."
+  - "For scorable items, all seven finite scores are written. If any dimension is NaN/Inf, filter drops the item and annotate retains it without new scores."
+  - "Exact annotate-then-selector equivalence requires explicit task or segments mode, every enabled threshold with ge, AND logic, and missing-score drop. Segment scope additionally binds items_key to segments_key and drops empty parents; auto scope remains native."
+caveats:
+  - "Downloads the ONNX model on first run unless it is already available locally."
+verified: {params: mechanical, tags: mechanical, model_version: best_guess, resource: best_guess, constraints: best_guess, domain: best_guess, use_cases: best_guess, comparison: best_guess, metrics: best_guess, decision: mechanical}
+provenance: {model_card_url: "https://github.com/microsoft/SIG-Challenge", card_version: 10, last_validated: "2026-10-19"}

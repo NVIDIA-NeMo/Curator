@@ -174,7 +174,11 @@ def main() -> int:
         "--dataset-size-gb", type=float, default=None, help="Limit input to approximately this many GB of files"
     )
 
+    parser.add_argument(
+        "--save-tasks", action=argparse.BooleanOptionalAction, default=True, help="Save completed tasks in tasks.pkl"
+    )
     args = parser.parse_args()
+    save_tasks = vars(args).pop("save_tasks")
 
     logger.info("=== FastText Filter Benchmark Starting ===")
     logger.info(f"Arguments: {vars(args)}")
@@ -197,7 +201,7 @@ def main() -> int:
             dataset_size_gb=args.dataset_size_gb,
         )
     finally:
-        write_benchmark_results(results, args.benchmark_results_path)
+        write_benchmark_results(results, args.benchmark_results_path, save_tasks=save_tasks)
 
     return 0 if results["metrics"]["is_success"] else 1
 

@@ -14,9 +14,12 @@ Use this draft checklist to review applications and environments for the planned
 
 ## Migration at a Glance
 
-| Area | Action | Affected users |
+Review the changes that affect your workflows:
+
+| Area | Action | Affected Users |
 | --- | --- | --- |
 | Release status | Confirm the published package version and release tag before upgrading | Everyone |
+| Installation and distribution | Use the Python package for general workflows; build a maintained local image for audio/video or when you need a container | All users |
 | Semantic deduplication | Review the new `float16` Pairwise default, `pairwise_batch_size=1024`, and precision requirements | Semantic deduplication workflows |
 | KMeans memory | Review `fit_data_fraction` and second-pass Parquet assignment behavior | Large semantic deduplication workflows |
 | Worker sizing | Consider `with_(num_workers_per_node=...)` for node-relative sizing | Multi-node pipelines |
@@ -41,7 +44,9 @@ Use `uv` 0.12 or later to satisfy the project requirement. For GB200 vLLM startu
 
 Use the installation command shown on the current [installation page](/get-started/installation).
 
-The `all` extra no longer includes `cv2` directly, though OpenCV may be installed transitively through vLLM. Include the `cv2` extra for workflows that require it explicitly. Install FFmpeg separately when required by audio or video workflows.
+For container deployments, [build a container image](/reference/infra/container-environments#build-an-image) from the source release you adopt. The repository Dockerfile remains maintained. Audio and video workflows should use a derived image with the appropriate FFmpeg package or build; see [Add FFmpeg for Audio or Video](/reference/infra/container-environments#add-ffmpeg-for-audio-or-video). NVIDIA no longer publishes new NGC images starting with 26.09, though previously published images remain downloadable. Refer to the [Distribution Change](/about/release-notes#distribution-change).
+
+The `all` extra no longer includes `cv2` directly, though OpenCV may be installed transitively through vLLM. Include the `cv2` extra for workflows that require it explicitly. Audio and video workflows should use a container image that includes the required FFmpeg system packages; Python package users can install FFmpeg on each executor as described in the [Installation Guide](/get-started/installation#install-ffmpeg-for-audio-and-video-source-installs).
 
 ## Update Nemotron-Parse Examples
 
@@ -49,8 +54,10 @@ Replace unsupported writer imports or constructor arguments with `InterleavedPar
 
 ## Validate Before Adoption
 
-1. Confirm the final release tag, package version, lockfile, and container image.
-2. Reinstall the extras used by your pipeline with the release lockfile.
+Validate the updated environment and pipeline outputs before deployment:
+
+1. Confirm the final release tag, package version, and lockfile before upgrading.
+2. Reinstall the extras used by your pipeline with the release lockfile, or build an image from that release's source.
 3. Run semantic deduplication on a representative sample and compare duplicate IDs at the selected precision.
 4. Run a representative multi-node pipeline and verify worker placement and output manifests.
 5. Validate Nemotron-Parse output on each GPU architecture used in production.

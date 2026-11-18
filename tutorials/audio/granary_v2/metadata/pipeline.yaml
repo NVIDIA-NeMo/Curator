@@ -1,0 +1,184 @@
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+defaults:
+  - _self_
+  - override hydra/job_logging: none
+  - override hydra/hydra_logging: none
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+
+documentation: |
+  Granary Metadata Extraction
+  ###########################
+  Resample recordings, diarize speakers, split speech, label sound events,
+  select a language from three models, and write Opus clips with JSONL metadata.
+  Supply local model bundles and a manifest containing absolute audio paths.
+
+manifest_path: ???
+model_dir: ???
+output_dir: ???
+backend: xenna
+execution_mode: streaming
+
+ray_client:
+  _target_: nemo_curator.core.client.RayClient
+  include_dashboard: false
+  num_cpus: 128
+  num_gpus: 8
+  object_store_memory: 536870912000
+
+stages:
+  - _target_: nemo_curator.stages.audio.common.ManifestReader
+    manifest_path: ${manifest_path}
+    files_per_partition: 1
+
+  - _target_: nemo_curator.stages.audio.tagging.resample_audio.ResampleAudioStage
+    resampled_audio_dir: ${output_dir}/resampled
+    target_sample_rate: 16000
+    target_format: wav
+    target_codec: pcm_f32le
+    target_nchannels: 1
+
+  - _target_: nemo_curator.stages.audio.preprocessing.MonoConversionStage
+    audio_filepath_key: resampled_audio_filepath
+    output_sample_rate: 16000
+    waveform_key: waveform
+    sample_rate_key: sample_rate
+
+  - _target_: nemo_curator.stages.audio.inference.speaker_diarization.stage.InferenceSortformerStage
+    model_id: ${model_dir}/sortformer.nemo
+    model_path: ${model_dir}/sortformer.nemo
+    waveform_key: waveform
+    audio_filepath_key: audio_filepath
+    target_sample_rate: 16000
+    rttm_out_dir: ${output_dir}/rttm
+    chunk_len: 340
+    chunk_left_context: 1
+    chunk_right_context: 40
+    fifo_len: 40
+    spkcache_update_period: 300
+    spkcache_len: 188
+    inference_batch_size: 1
+    batch_size: 1
+    fail_on_audio_error: true
+    adapter_kwargs:
+      precision: fp32
+      compile_encoder: false
+    resources:
+      gpu_memory_gb: 24
+
+  - _target_: nemo_curator.stages.audio.segmentation.VADSegmentationStage
+    adapter_target: nemo_curator.models.audio.vad.silero_tensorrt.TensorRTSileroVADAdapter
+    adapter_kwargs:
+      engine_path: ${model_dir}/silero.plan
+    threshold: 0.5
+    min_interval_ms: 1000
+    speech_pad_ms: 100
+    min_duration_sec: 0.5
+    max_duration_sec: 40
+    waveform_key: waveform
+    sample_rate_key: sample_rate
+    nested: false
+    emit_audit_placeholders: true
+    skip_me_key: _skipme
+    fail_on_audio_error: true
+    # Fan-out task IDs require one parent per stage call.
+    batch_size: 1
+    resources:
+      gpu_memory_gb: 4
+
+  - _target_: nemo_curator.stages.audio.inference.sed.stage.SEDInferenceStage
+    adapter_target: nemo_curator.models.audio.sed.tensorrt.TensorRTPANNsSEDAdapter
+    checkpoint_path: ${model_dir}/sed.pth
+    waveform_key: waveform
+    sample_rate_key: sample_rate
+    sample_rate: 16000
+    batch_size: 1
+    save_npz: false
+    adapter_kwargs:
+      tensorrt_engine_path: ${model_dir}/sed.plan
+      max_duration_sec: 40
+      window_size: 1024
+      hop_size: 320
+      mel_bins: 64
+      fmin: 50
+      fmax: 14000
+      classes_num: 527
+    resources:
+      gpu_memory_gb: 8
+
+  - _target_: nemo_curator.stages.audio.postprocessing.sed_postprocessing.SEDPostprocessingStage
+    threshold: 0.5
+    emit_superclasses: false
+
+  - _target_: nemo_curator.stages.audio.inference.lid.AudioLIDInferenceStage
+    name: SpeechBrainLangID
+    adapter_target: nemo_curator.models.audio.lid.speechbrain.SpeechBrainLIDAdapter
+    model_id: SpeechBrainLangID
+    tag: primary
+    waveform_key: waveform
+    min_duration_sec: 1
+    max_duration_sec: 10
+    batch_size: 16
+    num_workers_override: 2
+    fail_on_audio_error: true
+    adapter_kwargs:
+      source: ${model_dir}/speechbrain
+      savedir: ${output_dir}/speechbrain_cache
+    resources:
+      gpu_memory_gb: 8
+
+  - _target_: nemo_curator.stages.audio.inference.lid.AudioLIDInferenceStage
+    name: IndicCanaryLangID
+    adapter_target: nemo_curator.models.audio.lid.indic_canary.IndicCanaryLIDAdapter
+    model_id: IndicCanaryLangID
+    tag: secondary
+    waveform_key: waveform
+    min_duration_sec: 1
+    max_duration_sec: 40
+    batch_size: 16
+    num_workers_override: 1
+    fail_on_audio_error: true
+    adapter_kwargs:
+      engine_dir: ${model_dir}/indic_canary
+      num_beams: 1
+      max_new_tokens: 1
+      model_batch_size: 16
+      min_duration_sec: 1
+      max_duration_sec: 40
+      kv_cache_free_gpu_memory_fraction: 0.1
+      cross_kv_cache_fraction: 0.1
+    resources:
+      gpu_memory_gb: 8
+
+  - _target_: nemo_curator.stages.audio.inference.lid.AudioLIDInferenceStage
+    name: WhisperLangID
+    adapter_target: nemo_curator.models.audio.lid.whisper.WhisperLIDAdapter
+    model_id: WhisperLangID
+    tag: tertiary
+    waveform_key: waveform
+    min_duration_sec: 1
+    max_duration_sec: 30
+    batch_size: 16
+    num_workers_override: 2
+    fail_on_audio_error: true
+    adapter_kwargs:
+      model_size: medium
+      model_path: ${model_dir}/whisper.pt
+      backend: torch
+      fp16: true
+      model_batch_size: 16
+    resources:
+      gpu_memory_gb: 8
+
+  - _target_: nemo_curator.stages.audio.postprocessing.lid_selection.SelectAudioLanguageStage
+
+  - _target_: nemo_curator.stages.audio.io.write_audio.AudioSegmentWriterStage
+    output_dir: ${output_dir}
+
+  - _target_: nemo_curator.stages.audio.common.ManifestWriterStage
+    output_path: ${output_dir}/metadata.jsonl

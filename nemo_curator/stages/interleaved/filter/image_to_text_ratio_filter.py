@@ -30,7 +30,7 @@ DEFAULT_IMAGE_TO_TEXT_MAX_RATIO: float = float("inf")
 
 def _text_word_count(text: str | None) -> int:
     """Count words in text by splitting on whitespace."""
-    if text is None or (isinstance(text, float) and pd.isna(text)):
+    if text is None or pd.isna(text):
         return 0
     return len(str(text).split())
 

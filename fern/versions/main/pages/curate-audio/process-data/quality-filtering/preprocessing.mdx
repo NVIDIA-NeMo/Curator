@@ -20,6 +20,38 @@ Three lightweight stages handle the common audio plumbing tasks: **collapsing ch
 | `SegmentConcatenationStage` | After filters | Concatenate surviving filtered segments back into one waveform with configurable silence between them. |
 | `TimestampMapperStage` | Last | Resolve final segment positions in the concatenated waveform back to positions in the original source file. |
 
+## `ChannelCountStage`
+
+Use `action="annotate"` (the default) to record `num_channels`, `action="filter"`
+to select existing channel counts, or `action="convert"` to change them.
+Annotation and filtering inspect file headers when reading files; conversion
+requires waveform samples. Sample rate is unchanged.
+
+```python
+from nemo_curator.stages.audio.preprocessing import ChannelCountStage
+
+pipeline.add_stage(ChannelCountStage(action="filter", allowed_channels=[1]))
+# For conversion instead:
+# pipeline.add_stage(ChannelCountStage(action="convert", target_channels=1))
+```
+
+Under annotation and filtering, `num_channels` is the observed input count.
+Under conversion, it is the resulting count. Filtering for mono preserves only
+already-mono rows; converting to mono changes multi-channel rows.
+
+| Input channels | Target channels | Conversion |
+| --- | --- | --- |
+| N | N | Preserve the waveform. |
+| N > 1 | 1 | Average channels into mono. |
+| 1 | T > 1 | Duplicate mono into T channels. |
+| N > 1 | T > 1, T != N | Drop the row: layout-aware conversion is unsupported. |
+
+A waveform tensor does not retain the file's speaker layout or channel mask.
+Multi-channel conversion therefore needs a layout-aware tool such as ffmpeg;
+this stage does not infer a stereo or surround layout from the channel count.
+Set sample-rate policy separately with `SampleRateFilterStage` or
+`ResampleAudioStage`.
+
 ## `MonoConversionStage`
 
 Converts multi-channel audio to mono and verifies that the input sample rate matches `output_sample_rate`. Place it as the **first** stage in any quality-filtering pipeline so downstream stages can assume a consistent waveform shape.
