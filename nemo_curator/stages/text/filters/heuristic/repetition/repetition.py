@@ -157,12 +157,16 @@ class RepeatingTopNGramsFilter(DocumentFilter):
             ngrams = get_ngrams(split_text, self._n)
         if not ngrams:
             return self._max_ratio
-        unique_ngrams = set(ngrams)
-        # Find the most frequent ngram in the zipped ngram list
-        counts = {ngram: {"freq": 0, "num_chars": sum(len(word) for word in ngram)} for ngram in unique_ngrams}
+        # Find the most frequent ngram in the zipped ngram list. The dict keeps the
+        # ngrams in order of first occurrence, so the choice does not depend on
+        # string hashing (PYTHONHASHSEED). Ties on frequency go to the ngram that
+        # covers the most characters, then to the one that appears first.
+        counts = {}
         for ngram in ngrams:
+            if ngram not in counts:
+                counts[ngram] = {"freq": 0, "num_chars": sum(len(word) for word in ngram)}
             counts[ngram]["freq"] += 1
-        most_frqnt_ngram = " ".join(max(counts, key=lambda x: counts[x]["freq"]))
+        most_frqnt_ngram = " ".join(max(counts, key=lambda x: (counts[x]["freq"], counts[x]["num_chars"])))
         # Find the number of characters the most frequent ngram
         # contributes to the document
         nchar = len(text)
