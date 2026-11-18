@@ -44,6 +44,7 @@ class TestQwenLM:
     def test_constants(self) -> None:
         assert _QWEN_LM_VARIANTS_INFO["qwen2.5"][0] == "Qwen/Qwen2.5-14B-Instruct"
         assert _QWEN_LM_VARIANTS_INFO["qwen3"][0] == "Qwen/Qwen3-14B"
+        assert _QWEN_LM_VARIANTS_INFO["qwen3.5"][0] == "Qwen/Qwen3.5-27B"
 
     def test_initialization(self) -> None:
         assert self.qwen_lm.model_dir == self.model_dir
@@ -187,6 +188,95 @@ class TestQwenLM:
 
         # Verify result
         assert result == ["Generated response"]
+
+    @patch("nemo_curator.models.qwen_lm.AutoTokenizer")
+    @patch("nemo_curator.models.qwen_lm.SamplingParams")
+    @patch("nemo_curator.models.qwen_lm.LLM")
+    def test_setup_qwen3_5_loads_text_model_only(
+        self, mock_llm_class: Mock, mock_sampling_params_class: Mock, mock_tokenizer_class: Mock
+    ) -> None:
+        """Test that qwen3.5 asks vLLM for no multimodal slots so the vision tower is skipped."""
+        qwen_lm = QwenLM(model_dir=self.model_dir, model_variant="qwen3.5", caption_batch_size=1)
+        qwen_lm.setup()
+
+        kwargs = mock_llm_class.call_args[1]
+        assert kwargs["limit_mm_per_prompt"] == {"image": 0, "video": 0}
+
+    @patch("nemo_curator.models.qwen_lm.AutoTokenizer")
+    @patch("nemo_curator.models.qwen_lm.SamplingParams")
+    @patch("nemo_curator.models.qwen_lm.LLM")
+    def test_setup_text_only_variants_omit_mm_limits(
+        self, mock_llm_class: Mock, mock_sampling_params_class: Mock, mock_tokenizer_class: Mock
+    ) -> None:
+        """Test that genuinely text-only checkpoints are not passed multimodal limits."""
+        qwen_lm = QwenLM(model_dir=self.model_dir, model_variant="qwen3", caption_batch_size=1)
+        qwen_lm.setup()
+
+        assert "limit_mm_per_prompt" not in mock_llm_class.call_args[1]
+
+    @patch("nemo_curator.models.qwen_lm.AutoTokenizer")
+    @patch("nemo_curator.models.qwen_lm.SamplingParams")
+    @patch("nemo_curator.models.qwen_lm.LLM")
+    def test_setup_qwen3_5_respects_explicit_mm_limits(
+        self, mock_llm_class: Mock, mock_sampling_params_class: Mock, mock_tokenizer_class: Mock
+    ) -> None:
+        """Test that an explicit limit_mm_per_prompt in vllm_kwargs is not overridden."""
+        override = {"image": 1, "video": 1}
+        qwen_lm = QwenLM(
+            model_dir=self.model_dir,
+            model_variant="qwen3.5",
+            caption_batch_size=1,
+            limit_mm_per_prompt=override,
+        )
+        qwen_lm.setup()
+
+        assert mock_llm_class.call_args[1]["limit_mm_per_prompt"] == override
+
+    def test_generate_qwen3_5_disables_thinking(self) -> None:
+        """Test that qwen3.5 disables thinking so reasoning traces stay out of enhanced captions."""
+        mock_llm = Mock()
+        mock_tokenizer = Mock()
+        mock_tokenizer.apply_chat_template.return_value = "formatted_prompt"
+        mock_output = Mock()
+        mock_output.text = "Enhanced caption"
+        mock_result = Mock()
+        mock_result.outputs = [mock_output]
+        mock_llm.generate.return_value = [mock_result]
+
+        qwen_lm = QwenLM(model_dir=self.model_dir, model_variant="qwen3.5", caption_batch_size=1)
+        qwen_lm.llm = mock_llm
+        qwen_lm.tokenizer = mock_tokenizer
+        qwen_lm.sampling_params = Mock()
+
+        test_input = [{"role": "user", "content": "Refine this caption."}]
+        result = qwen_lm.generate([test_input])
+
+        mock_tokenizer.apply_chat_template.assert_called_once_with(
+            [test_input], tokenize=False, add_generation_prompt=True, enable_thinking=False
+        )
+        assert result == ["Enhanced caption"]
+
+    def test_generate_qwen2_5_omits_thinking_kwarg(self) -> None:
+        """Test that non-Qwen3.5 variants are not passed enable_thinking."""
+        mock_llm = Mock()
+        mock_tokenizer = Mock()
+        mock_tokenizer.apply_chat_template.return_value = "formatted_prompt"
+        mock_result = Mock()
+        mock_result.outputs = [Mock(text="Enhanced caption")]
+        mock_llm.generate.return_value = [mock_result]
+
+        self.qwen_lm.llm = mock_llm
+        self.qwen_lm.tokenizer = mock_tokenizer
+        self.qwen_lm.sampling_params = Mock()
+
+        self.qwen_lm.generate([[{"role": "user", "content": "Refine this caption."}]])
+
+        assert "enable_thinking" not in mock_tokenizer.apply_chat_template.call_args[1]
+
+    def test_qwen3_5_weight_file_path(self) -> None:
+        """Test that qwen3.5 resolves its weight path and model id."""
+        qwen_lm = QwenLM(model_dir=self.model_dir, model_variant="qwen3.5", caption_batch_size=1)
+        assert qwen_lm.model_id_names() == ["Qwen/Qwen3.5-27B"]
 
     def test_generate_multiple_inputs(self) -> None:
         # Setup mocks
