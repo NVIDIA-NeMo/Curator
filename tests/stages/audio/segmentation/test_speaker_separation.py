@@ -844,3 +844,17 @@ def test_concurrent_duplicate_publish_failure_never_deletes_successful_outputs(t
     assert "b" not in errors
     assert len(results["b"]) == 3
     assert all(Path(child.data["audio_filepath"]).exists() for child in results["b"])
+
+
+def test_speaker_wavs_publish_to_a_cloud_prefix() -> None:
+    import fsspec
+
+    fs = fsspec.filesystem("memory")
+    stage = _stubbed_speaker_stage(
+        write_to_disk=True, separated_audio_dir="memory://speakers", storage_options={"skip_instance_cache": True}
+    )
+    path = stage.process(_make_task(duration_sec=0.1, sample_rate=16000))[0].data[stage.audio_filepath_key]
+
+    assert path.startswith("memory://speakers/")
+    with fs.open(path, "rb") as f:
+        assert sf.info(f).samplerate == 11025

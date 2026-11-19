@@ -23,12 +23,13 @@ output files, and reconcile manifest rows against the final tar.
 from __future__ import annotations
 
 import json
-import os
 import tarfile
 from collections import defaultdict
 from typing import Any
 
+import fsspec
 import soundfile as sf
+from fsspec.core import url_to_fs
 from loguru import logger
 
 from nemo_curator.stages.audio.alm.pretrain.utils import (
@@ -36,22 +37,31 @@ from nemo_curator.stages.audio.alm.pretrain.utils import (
     _MAX_FILTERED_TEXT_EXAMPLES,
     _METRICS_SHARD_EXT,
     _TAR_SHARD_EXT,
+    _close_tar,
     _delete_shards,
     _glob_shards,
+    _makedirs_parent,
+    _open_tar,
     histogram_30s,
 )
 
 
-def prepare_audio_pretrain_outputs(output_manifest_path: str, metrics_path: str, output_audio_tar_path: str) -> None:
+def prepare_audio_pretrain_outputs(
+    output_manifest_path: str,
+    metrics_path: str,
+    output_audio_tar_path: str,
+    storage_options: dict[str, Any] | None = None,
+) -> None:
     """Delete any pre-existing shards from prior runs.
 
     Call this once on the driver, BEFORE ``pipeline.run()``.  Multi-worker
     backends would race on cleanup if we did it inside a stage's
-    ``setup()``, so we keep cleanup driver-only.
+    ``setup()``, so we keep cleanup driver-only.  Paths may be local or
+    S3/GCS URLs; ``storage_options`` are passed to fsspec.
     """
-    n_man = _delete_shards(output_manifest_path, _MANIFEST_SHARD_EXT)
-    n_met = _delete_shards(metrics_path, _METRICS_SHARD_EXT)
-    n_tar = _delete_shards(output_audio_tar_path, _TAR_SHARD_EXT)
+    n_man = _delete_shards(output_manifest_path, _MANIFEST_SHARD_EXT, storage_options)
+    n_met = _delete_shards(metrics_path, _METRICS_SHARD_EXT, storage_options)
+    n_tar = _delete_shards(output_audio_tar_path, _TAR_SHARD_EXT, storage_options)
     if n_man or n_met or n_tar:
         logger.info(
             f"prepare_audio_pretrain_outputs: removed {n_man} stale manifest "
@@ -68,8 +78,11 @@ def finalize_audio_pretrain_outputs(  # noqa: PLR0913
     id_key: str = "id",
     segments_key: str = "segments",
     duration_key: str = "duration",
+    storage_options: dict[str, Any] | None = None,
 ) -> None:
     """Merge per-worker shards into the final manifest, metrics JSON, and audio tar.
+
+    Paths may be local or S3/GCS URLs; ``storage_options`` are passed to fsspec.
 
     Call once on the driver, AFTER ``pipeline.run()`` returns
     successfully.  Reads all manifest + metrics + tar shards written by
@@ -97,11 +110,11 @@ def finalize_audio_pretrain_outputs(  # noqa: PLR0913
     (check 2), so the user can attribute post-pipeline integrity drops
     separately from worker-side filters (``empty``, ``overlap``, ...).
     """
-    _merge_manifest_shards(output_manifest_path)
-    _merge_metrics_shards(metrics_path)
-    _merge_tar_shards(output_audio_tar_path)
+    _merge_manifest_shards(output_manifest_path, storage_options)
+    _merge_metrics_shards(metrics_path, storage_options)
+    _merge_tar_shards(output_audio_tar_path, storage_options)
     dropped_missing, dropped_unreadable = _reconcile_manifest_with_tar(
-        output_manifest_path, output_audio_tar_path, audio_filepath_key
+        output_manifest_path, output_audio_tar_path, audio_filepath_key, storage_options
     )
     _patch_metrics_post_reconcile(
         metrics_path,
@@ -111,11 +124,13 @@ def finalize_audio_pretrain_outputs(  # noqa: PLR0913
         id_key=id_key,
         segments_key=segments_key,
         duration_key=duration_key,
+        storage_options=storage_options,
     )
 
 
-def _merge_manifest_shards(output_path: str) -> None:
-    shards = _glob_shards(output_path, _MANIFEST_SHARD_EXT)
+def _merge_manifest_shards(output_path: str, storage_options: dict[str, Any] | None = None) -> None:
+    so = storage_options or {}
+    shards = _glob_shards(output_path, _MANIFEST_SHARD_EXT, storage_options)
     # Skip the merge when there are no shards.  This guards against silent
     # data loss on re-runs: with finalize_audio_pretrain_outputs called from
     # a try/finally, an early failure (before any worker writes a shard)
@@ -124,12 +139,10 @@ def _merge_manifest_shards(output_path: str) -> None:
     if not shards:
         logger.info(f"no manifest shards found for {output_path}; skipping merge")
         return
-    parent = os.path.dirname(output_path)
-    if parent:
-        os.makedirs(parent, exist_ok=True)
-    with open(output_path, "w", encoding="utf-8") as out:
+    _makedirs_parent(output_path, storage_options)
+    with fsspec.open(output_path, "w", encoding="utf-8", **so) as out:
         for s in shards:
-            with open(s, encoding="utf-8") as f:
+            with fsspec.open(s, "r", encoding="utf-8", **so) as f:
                 for raw in f:
                     line = raw.strip()
                     if not line:
@@ -143,16 +156,13 @@ def _merge_manifest_shards(output_path: str) -> None:
                         logger.warning(f"skipping malformed manifest shard line in {s}: {e}")
                         continue
                     out.write(line + "\n")
-    for s in shards:
-        try:
-            os.remove(s)
-        except OSError as e:
-            logger.warning(f"failed to remove manifest shard {s}: {e}")
+    _remove_shards(shards, output_path, "manifest", storage_options)
     logger.info(f"merged {len(shards)} manifest shard(s) into {output_path}")
 
 
-def _merge_metrics_shards(metrics_path: str) -> None:  # noqa: C901
-    shards = _glob_shards(metrics_path, _METRICS_SHARD_EXT)
+def _merge_metrics_shards(metrics_path: str, storage_options: dict[str, Any] | None = None) -> None:
+    so = storage_options or {}
+    shards = _glob_shards(metrics_path, _METRICS_SHARD_EXT, storage_options)
     # Same re-run-safety guard as _merge_manifest_shards: skip when no
     # shards exist so an early failure on a re-run can't overwrite a
     # previous successful run's metrics summary with an all-zero JSON.
@@ -163,7 +173,7 @@ def _merge_metrics_shards(metrics_path: str) -> None:  # noqa: C901
     durations: list[float] = []
     filtered_examples: list[str] = []
     for s in shards:
-        with open(s, encoding="utf-8") as f:
+        with fsspec.open(s, "r", encoding="utf-8", **so) as f:
             for raw in f:
                 line = raw.strip()
                 if not line:
@@ -210,20 +220,23 @@ def _merge_metrics_shards(metrics_path: str) -> None:  # noqa: C901
                     filtered_examples.extend(r["filtered_texts"][:remaining])
 
     summary = _build_final_summary(per_original, durations, filtered_examples)
-    parent = os.path.dirname(metrics_path)
-    if parent:
-        os.makedirs(parent, exist_ok=True)
-    with open(metrics_path, "w", encoding="utf-8") as f:
+    _makedirs_parent(metrics_path, storage_options)
+    with fsspec.open(metrics_path, "w", encoding="utf-8", **so) as f:
         json.dump(summary, f, indent=2, ensure_ascii=False)
-    for s in shards:
-        try:
-            os.remove(s)
-        except OSError as e:
-            logger.warning(f"failed to remove metrics shard {s}: {e}")
+    _remove_shards(shards, metrics_path, "metrics", storage_options)
     logger.info(f"merged {len(shards)} metrics shard(s) into {metrics_path}")
 
 
-def _merge_tar_shards(output_path: str) -> None:  # noqa: C901, PLR0912, PLR0915
+def _remove_shards(shards: list[str], output_path: str, kind: str, storage_options: dict[str, Any] | None) -> None:
+    fs, _ = url_to_fs(output_path, **(storage_options or {}))
+    for s in shards:
+        try:
+            fs.rm(s)
+        except OSError as e:
+            logger.warning(f"failed to remove {kind} shard {s}: {e}")
+
+
+def _merge_tar_shards(output_path: str, storage_options: dict[str, Any] | None = None) -> None:  # noqa: C901, PLR0912, PLR0915
     """Merge per-replica audio tar shards into ``output_path``.
 
     Reads every ``<output_path>.shard-*.tar`` written by the extractor
@@ -236,16 +249,14 @@ def _merge_tar_shards(output_path: str) -> None:  # noqa: C901, PLR0912, PLR0915
     zero-blocks by workers that were ``ray.kill``-ed before
     ``teardown()``.
     """
-    shards = _glob_shards(output_path, _TAR_SHARD_EXT)
+    shards = _glob_shards(output_path, _TAR_SHARD_EXT, storage_options)
     # Same re-run-safety guard as _merge_manifest_shards: skip when no
     # shards exist so an early failure on a re-run can't overwrite a
     # previous successful run's tar with an empty archive.
     if not shards:
         logger.info(f"no tar shards found for {output_path}; skipping merge")
         return
-    parent = os.path.dirname(output_path)
-    if parent:
-        os.makedirs(parent, exist_ok=True)
+    _makedirs_parent(output_path, storage_options)
     # Two-pass streaming merge.  Pass 1 builds a small in-memory index of
     # (member_name, shard_path, TarInfo) entries -- metadata only, no
     # payload bytes.  Pass 2 walks the index in sorted name order and
@@ -257,7 +268,7 @@ def _merge_tar_shards(output_path: str) -> None:  # noqa: C901, PLR0912, PLR0915
     index: list[tuple[str, str, tarfile.TarInfo]] = []
     for s in shards:
         try:
-            in_tar = tarfile.open(s, "r")  # noqa: SIM115  -- closed via finally; need try/except above for unreadable shards
+            in_tar = _open_tar(s, "r", storage_options)
         except tarfile.TarError as e:
             # An empty or non-tar file written by a worker killed before
             # the first `addfile()` -- nothing recoverable in this shard.
@@ -285,7 +296,7 @@ def _merge_tar_shards(output_path: str) -> None:  # noqa: C901, PLR0912, PLR0915
                 index.append((ti.name, s, ti))
                 kept_in_shard += 1
         finally:
-            in_tar.close()
+            _close_tar(in_tar)
     index.sort(key=lambda e: e[0])
     if not index:
         logger.info(f"no readable tar members found in {len(shards)} tar shard(s) for {output_path}; skipping merge")
@@ -293,43 +304,50 @@ def _merge_tar_shards(output_path: str) -> None:  # noqa: C901, PLR0912, PLR0915
 
     # Pass 2: keep one open TarFile per source shard so we don't pay
     # reopen cost per member, then stream each member into the merged
-    # tar in sorted order.
+    # tar in sorted order.  A shard is closed after its last member, so
+    # many small shards (one per snippet on object stores) never pile up
+    # open handles.
     open_shards: dict[str, tarfile.TarFile] = {}
+    remaining: dict[str, int] = defaultdict(int)
+    for _name, s, _ti in index:
+        remaining[s] += 1
     written = 0
+    out_tar = _open_tar(output_path, "w", storage_options)
     try:
-        with tarfile.open(output_path, "w") as out_tar:
-            for name, s, ti in index:
-                in_tar = open_shards.get(s)
-                if in_tar is None:
-                    try:
-                        in_tar = tarfile.open(s, "r")  # noqa: SIM115  -- cached in open_shards and closed in finally below
-                    except tarfile.TarError as e:
-                        logger.warning(f"cannot reopen tar shard {s} for streaming: {e}; skipping member {name!r}")
-                        continue
-                    open_shards[s] = in_tar
+        for name, s, ti in index:
+            in_tar = open_shards.get(s)
+            if in_tar is None:
                 try:
-                    f = in_tar.extractfile(ti)
-                    if f is None:
-                        continue
-                    out_tar.addfile(ti, f)
+                    in_tar = _open_tar(s, "r", storage_options)
                 except tarfile.TarError as e:
-                    logger.warning(f"failed to stream member {name!r} from shard {s}: {e}; skipping")
+                    logger.warning(f"cannot reopen tar shard {s} for streaming: {e}; skipping member {name!r}")
                     continue
-                written += 1
+                open_shards[s] = in_tar
+            try:
+                f = in_tar.extractfile(ti)
+                if f is not None:
+                    out_tar.addfile(ti, f)
+                    written += 1
+            except tarfile.TarError as e:
+                logger.warning(f"failed to stream member {name!r} from shard {s}: {e}; skipping")
+            finally:
+                remaining[s] -= 1
+                if not remaining[s]:
+                    _close_tar(open_shards.pop(s))
     finally:
+        _close_tar(out_tar)
         for in_tar in open_shards.values():
-            in_tar.close()
+            _close_tar(in_tar)
 
-    for s in shards:
-        try:
-            os.remove(s)
-        except OSError as e:
-            logger.warning(f"failed to remove tar shard {s}: {e}")
+    _remove_shards(shards, output_path, "tar", storage_options)
     logger.info(f"merged {len(shards)} tar shard(s) into {output_path} ({written} member(s))")
 
 
 def _reconcile_manifest_with_tar(  # noqa: C901, PLR0915
-    manifest_path: str, tar_path: str, audio_filepath_key: str = "audio_filepath"
+    manifest_path: str,
+    tar_path: str,
+    audio_filepath_key: str = "audio_filepath",
+    storage_options: dict[str, Any] | None = None,
 ) -> tuple[int, int]:
     """Drop manifest rows whose audio path field isn't a valid, readable
     tar member with a positive duration.
@@ -351,13 +369,12 @@ def _reconcile_manifest_with_tar(  # noqa: C901, PLR0915
     the manifest and look up by ``audio_filepath_key``, so orphan members
     are harmless.
     """
-    if not os.path.exists(tar_path):
-        return (0, 0)
-    if not os.path.exists(manifest_path):
+    so = storage_options or {}
+    if not all(url_to_fs(path, **so)[0].exists(path) for path in (tar_path, manifest_path)):
         return (0, 0)
 
     try:
-        tar = tarfile.open(tar_path, "r")  # noqa: SIM115  -- closed in finally below; need a try/except here for unreadable archives
+        tar = _open_tar(tar_path, "r", storage_options)
     except tarfile.TarError as e:
         logger.warning(f"cannot read merged tar {tar_path} for manifest reconciliation: {e}")
         return (0, 0)
@@ -393,7 +410,7 @@ def _reconcile_manifest_with_tar(  # noqa: C901, PLR0915
         kept_lines: list[str] = []
         dropped_missing = 0
         dropped_unreadable = 0
-        with open(manifest_path, encoding="utf-8") as f:
+        with fsspec.open(manifest_path, "r", encoding="utf-8", **so) as f:
             for raw in f:
                 line = raw.strip()
                 if not line:
@@ -413,12 +430,12 @@ def _reconcile_manifest_with_tar(  # noqa: C901, PLR0915
                     continue
                 kept_lines.append(line)
     finally:
-        tar.close()
+        _close_tar(tar)
 
     dropped = dropped_missing + dropped_unreadable
     if dropped == 0:
         return (0, 0)
-    with open(manifest_path, "w", encoding="utf-8") as f:
+    with fsspec.open(manifest_path, "w", encoding="utf-8", **so) as f:
         for line in kept_lines:
             f.write(line + "\n")
     logger.warning(
@@ -435,13 +452,15 @@ def _collect_reconciled_output_stats(
     id_key: str,
     segments_key: str,
     duration_key: str,
+    storage_options: dict[str, Any] | None = None,
 ) -> tuple[dict[str, dict[str, Any]], list[float]]:
     out_per_id: dict[str, dict[str, Any]] = {}
     durations: list[float] = []
-    if not os.path.exists(manifest_path):
+    fs, _ = url_to_fs(manifest_path, **(storage_options or {}))
+    if not fs.exists(manifest_path):
         return out_per_id, durations
 
-    with open(manifest_path, encoding="utf-8") as f:
+    with fs.open(manifest_path, "r", encoding="utf-8") as f:
         for raw in f:
             line = raw.strip()
             if not line:
@@ -478,6 +497,7 @@ def _patch_metrics_post_reconcile(  # noqa: PLR0913
     id_key: str,
     segments_key: str,
     duration_key: str,
+    storage_options: dict[str, Any] | None = None,
 ) -> None:
     """Reconcile the merged metrics summary against the post-reconcile manifest.
 
@@ -504,10 +524,11 @@ def _patch_metrics_post_reconcile(  # noqa: PLR0913
     """
     if dropped_missing == 0 and dropped_unreadable == 0:
         return
-    if not os.path.exists(metrics_path):
+    fs, _ = url_to_fs(metrics_path, **(storage_options or {}))
+    if not fs.exists(metrics_path):
         return
     try:
-        with open(metrics_path, encoding="utf-8") as f:
+        with fs.open(metrics_path, "r", encoding="utf-8") as f:
             summary = json.load(f)
     except (OSError, json.JSONDecodeError) as exc:
         logger.warning(f"cannot patch reconcile drops into metrics {metrics_path}: {exc}")
@@ -528,6 +549,7 @@ def _patch_metrics_post_reconcile(  # noqa: PLR0913
         id_key=id_key,
         segments_key=segments_key,
         duration_key=duration_key,
+        storage_options=storage_options,
     )
 
     total_snippets = sum(v["out_snippets"] for v in out_per_id.values())
@@ -550,7 +572,7 @@ def _patch_metrics_post_reconcile(  # noqa: PLR0913
         entry["out_segments"] = int(out["out_segments"])
         entry["out_duration_sec"] = round(float(out["out_duration_sec"]), 3)
 
-    with open(metrics_path, "w", encoding="utf-8") as f:
+    with fs.open(metrics_path, "w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2, ensure_ascii=False)
     logger.info(
         f"patched metrics {metrics_path}: missing_audio+={dropped_missing}, "

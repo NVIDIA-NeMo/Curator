@@ -49,6 +49,7 @@ import hashlib
 import json
 import math
 import os
+import posixpath
 import shlex
 import shutil
 import signal
@@ -60,6 +61,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from fsspec.core import url_to_fs
 from loguru import logger
 from praatio import textgrid as praatio_textgrid
 
@@ -68,6 +70,7 @@ from nemo_curator.stages.audio.common.duration import get_audio_duration
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
+from nemo_curator.utils.client_utils import is_remote_url
 
 _DEFAULT_SILENCE_MARKERS = ("", "sp", "sil", "spn", "<eps>")
 _WORD_TIER_NAMES = ("words", "word")
@@ -102,6 +105,8 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
             to disable G2P.
         output_dir: Root directory for all output files.  Sub-directories
             ``textgrids/``, ``rttms/``, and ``ctms/`` are created beneath it.
+            A cloud prefix (``s3://``, ``gs://``, ...) is supported: each batch is
+            aligned into a local temporary directory and its outputs uploaded.
         audio_filepath_key: Key in ``task.data`` pointing to the WAV file.
         text_key: Key in ``task.data`` containing the transcript text.
         speaker_key: Key in ``task.data`` for the speaker label (used in
@@ -140,6 +145,7 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
             ``Resources(cpus=num_jobs)`` so the executor reserves CPUs
             proportional to the ``-j`` jobs MFA actually forks; pass an
             explicit value to override.
+        storage_options: fsspec options for a cloud ``output_dir`` (credentials, endpoints).
     """
 
     output_dir: str
@@ -169,6 +175,7 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
     create_ctm: bool = True
     batch_size: int = 256
     resources: Resources | None = None
+    storage_options: dict[str, Any] | None = None
 
     # Set during lifecycle hooks -- not user-configurable
     _mfa_root: str = field(default="", init=False, repr=False)
@@ -245,6 +252,8 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
             else:
                 self._mfa_root = self._effective_mfa_root
 
+        if is_remote_url(self.output_dir):
+            return  # each batch writes to a local temporary root and uploads it
         self._textgrid_dir.mkdir(parents=True, exist_ok=True)
         if self.create_rttm:
             self._rttm_dir.mkdir(parents=True, exist_ok=True)
@@ -255,7 +264,32 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
         msg = "MFAAlignmentStage only supports process_batch"
         raise NotImplementedError(msg)
 
-    def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:  # noqa: C901
+    def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
+        """Align all tasks in one ``mfa align`` run (see ``_align_batch``), uploading outputs for a cloud root."""
+        if not is_remote_url(self.output_dir):
+            return self._align_batch(tasks)
+        # MFA and the TextGrid converters need a local filesystem, so align into a temporary
+        # root, upload everything written there, and point the tasks at the uploaded copies.
+        remote_root = self.output_dir.rstrip("/")
+        fs, resolved_root = url_to_fs(remote_root, **(self.storage_options or {}))
+        output_dirs = (self._textgrid_dir, self._rttm_dir, self._ctm_dir)
+        with tempfile.TemporaryDirectory(prefix="mfa_output_") as local_root:
+            self._textgrid_dir, self._rttm_dir, self._ctm_dir = (Path(local_root) / d.name for d in output_dirs)
+            try:
+                results = self._align_batch(tasks)
+            finally:
+                self._textgrid_dir, self._rttm_dir, self._ctm_dir = output_dirs
+            for path in Path(local_root).rglob("*"):
+                if path.is_file():
+                    fs.put_file(str(path), posixpath.join(resolved_root, path.relative_to(local_root).as_posix()))
+            for task in results:
+                for key in ("textgrid_filepath", "rttm_filepath", "ctm_filepath"):
+                    if task.data.get(key):
+                        relative = Path(task.data[key]).relative_to(local_root).as_posix()
+                        task.data[key] = posixpath.join(remote_root, relative)
+        return results
+
+    def _align_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:  # noqa: C901
         """Align all tasks in a single ``mfa align`` invocation.
 
         Per-task pre-flight failures (failed validation, empty text, or a

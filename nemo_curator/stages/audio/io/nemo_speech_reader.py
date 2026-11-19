@@ -25,10 +25,11 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import json
+import posixpath
 import tempfile
 from dataclasses import KW_ONLY, dataclass, field
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import fsspec
 import numpy as np
@@ -44,12 +45,15 @@ from nemo_curator.stages.audio._agent._agent_ready import (
     StageContract,
     StaticHints,
 )
-from nemo_curator.stages.audio.io._nemo_speech_paths import contained_output_path, validate_local_output_dir
+from nemo_curator.stages.audio.io._nemo_speech_paths import contained_output_path, resolve_output_dir
 from nemo_curator.stages.audio.io._nemo_speech_state import register_nemo_speech_shard
 from nemo_curator.stages.audio.io.shard_key import derive_manifest_shard_key
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.tasks import AudioTask, EmptyTask, FileGroupTask
 from nemo_curator.utils.hash_utils import get_deterministic_hash
+
+if TYPE_CHECKING:
+    from fsspec import AbstractFileSystem
 
 _SUPPORTED_TYPES = frozenset({"nemo", "nemo_tarred"})
 _ROW_INDEX_FIELD = "_nemo_curator_row_index"
@@ -68,7 +72,11 @@ def _as_plain_container(value: Any) -> Any:  # noqa: ANN401
     return value
 
 
-def _load_input_cfg(yaml_path: str | None, input_cfg: Any = None) -> list[dict[str, Any]]:  # noqa: ANN401
+def _load_input_cfg(
+    yaml_path: str | None,
+    input_cfg: Any = None,  # noqa: ANN401
+    storage_options: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
     """Load an ``input_cfg`` list; an inline value takes precedence."""
 
     if input_cfg is not None:
@@ -76,7 +84,7 @@ def _load_input_cfg(yaml_path: str | None, input_cfg: Any = None) -> list[dict[s
     elif yaml_path:
         from omegaconf import OmegaConf
 
-        with fsspec.open(yaml_path, mode="rt", encoding="utf-8") as stream:
+        with fsspec.open(yaml_path, mode="rt", encoding="utf-8", **(storage_options or {})) as stream:
             loaded = OmegaConf.to_container(OmegaConf.create(stream.read()), resolve=True)
     else:
         msg = "Either input_cfg or yaml_path must be provided"
@@ -177,14 +185,14 @@ class _NeMoSpeechShardTask(FileGroupTask):
         return get_deterministic_hash(self.data, seed=f"nemo-speech:{shard_key}")
 
 
-def _receipt_dir(output_dir: Path, shard_key: str) -> Path:
-    return contained_output_path(output_dir, f".nemo_curator/nemo_speech_rows/{shard_key}")
+def _receipt_dir(fs: AbstractFileSystem, output_dir: str, shard_key: str) -> str:
+    return contained_output_path(fs, output_dir, f".nemo_curator/nemo_speech_rows/{shard_key}")
 
 
-def _manifest_stats(path: Path) -> tuple[int, str]:
+def _manifest_stats(fs: AbstractFileSystem, path: str) -> tuple[int, str]:
     digest = hashlib.sha256()
     rows = 0
-    with path.open("rb") as stream:
+    with fs.open(path, "rb") as stream:
         for line in stream:
             digest.update(line)
             rows += bool(line.strip())
@@ -204,6 +212,9 @@ class NeMoSpeechDiscoveryStage(AgentReady, ProcessingStage[EmptyTask, FileGroupT
     ``Pipeline.run()``. In that mode, Curator's source checkpoint is the sole
     scheduling authority and output markers are integrity records only. Do not
     combine checkpoint scheduling with ``resume_mode="done_markers"``.
+
+    ``output_dir`` may be an absolute local path or a cloud URL; ``storage_options``
+    are the fsspec options for it and for a cloud ``yaml_path``.
     """
 
     yaml_path: str = ""
@@ -215,6 +226,7 @@ class NeMoSpeechDiscoveryStage(AgentReady, ProcessingStage[EmptyTask, FileGroupT
     resume_mode: str = "done_markers"
     name: str = "nemo_speech_discovery"
     batch_size: int = 1
+    storage_options: dict[str, Any] | None = None
     AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
         gates=Gates(writes_to_disk=True, output_path_params=["output_dir"], per_row_independent=False)
     )
@@ -227,7 +239,7 @@ class NeMoSpeechDiscoveryStage(AgentReady, ProcessingStage[EmptyTask, FileGroupT
             msg = "resume_mode must be 'done_markers' or 'checkpoint'"
             raise ValueError(msg)
         if self.output_dir is not None:
-            validate_local_output_dir(self.output_dir)
+            resolve_output_dir(self.output_dir, self.storage_options)
         elif self.resume_mode == "done_markers":
             msg = "output_dir is required when resume_mode='done_markers'"
             raise ValueError(msg)
@@ -263,22 +275,24 @@ class NeMoSpeechDiscoveryStage(AgentReady, ProcessingStage[EmptyTask, FileGroupT
     def _completed_shards(self) -> set[str]:
         if self.resume_mode != "done_markers" or not self.output_dir:
             return set()
-        root = Path(self.output_dir)
-        if not root.is_dir():
+        fs, root = resolve_output_dir(self.output_dir, self.storage_options)
+        if not fs.isdir(root):
             return set()
         completed: set[str] = set()
-        for discovered_marker in root.rglob("*.jsonl.done"):
-            marker_relative = discovered_marker.relative_to(root).as_posix()
-            marker = contained_output_path(root, marker_relative)
+        for discovered_marker in fs.find(root):
+            if not discovered_marker.endswith(".jsonl.done"):
+                continue
+            marker_relative = posixpath.relpath(discovered_marker, root)
+            marker = contained_output_path(fs, root, marker_relative)
             shard_key = marker_relative[: -len(".jsonl.done")]
-            manifest = contained_output_path(root, f"{shard_key}.jsonl")
-            if not manifest.is_file():
+            manifest = contained_output_path(fs, root, f"{shard_key}.jsonl")
+            if not fs.isfile(manifest):
                 logger.warning(f"Ignoring completion marker without a manifest: {marker}")
                 continue
-            raw = marker.read_text(encoding="utf-8").strip()
+            raw = fs.read_text(marker, encoding="utf-8").strip()
             try:
                 payload = json.loads(raw)
-                manifest_rows, manifest_sha256 = _manifest_stats(manifest)
+                manifest_rows, manifest_sha256 = _manifest_stats(fs, manifest)
                 valid = isinstance(payload, dict) and (
                     payload.get("version") == 1
                     and payload.get("shard_key") == shard_key
@@ -298,26 +312,26 @@ class NeMoSpeechDiscoveryStage(AgentReady, ProcessingStage[EmptyTask, FileGroupT
     def _clean_partial_state(self, shard_key: str) -> None:
         if self.resume_mode != "done_markers" or not self.output_dir or not self.cleanup_partial:
             return
-        root = Path(self.output_dir)
-        partial = contained_output_path(root, f"{shard_key}.jsonl")
-        legacy_progress = contained_output_path(root, f".{shard_key.replace('/', '_')}.shard_progress.json")
+        fs, root = resolve_output_dir(self.output_dir, self.storage_options)
+        partial = contained_output_path(fs, root, f"{shard_key}.jsonl")
+        legacy_progress = contained_output_path(fs, root, f".{shard_key.replace('/', '_')}.shard_progress.json")
         for path in (partial, legacy_progress):
-            if path.is_file():
-                path.unlink()
+            if fs.isfile(path):
+                fs.rm_file(path)
                 logger.info(f"Removed incomplete NeMo speech state: {path}")
-        receipts = _receipt_dir(root, shard_key)
-        if receipts.is_dir():
+        receipts = _receipt_dir(fs, root, shard_key)
+        if fs.isdir(receipts):
             removed = False
-            for receipt in receipts.glob("*.json"):
-                receipt.unlink()
+            for receipt in fs.glob(f"{receipts}/*.json"):
+                fs.rm_file(receipt)
                 removed = True
             with contextlib.suppress(OSError):
-                receipts.rmdir()
+                fs.rmdir(receipts)
             if removed:
                 logger.info(f"Removed incomplete NeMo speech row receipts: {receipts}")
 
     def process(self, _task: EmptyTask) -> list[FileGroupTask]:
-        config = _load_input_cfg(self.yaml_path or None, self.input_cfg)
+        config = _load_input_cfg(self.yaml_path or None, self.input_cfg, self.storage_options)
         descriptors = _parse_input_cfg(config, self.corpus_filter, self.language_filter)
         completed = self._completed_shards()
         keyed_descriptors: list[tuple[str, dict[str, Any]]] = []
@@ -367,9 +381,11 @@ class NeMoSpeechDiscoveryStage(AgentReady, ProcessingStage[EmptyTask, FileGroupT
         return tasks
 
 
-def _read_manifest_rows(manifest_path: str) -> list[dict[str, Any]]:
+def _read_manifest_rows(manifest_path: str, storage_options: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    with fsspec.open(manifest_path, mode="rt", encoding="utf-8", compression="infer") as stream:
+    with fsspec.open(
+        manifest_path, mode="rt", encoding="utf-8", compression="infer", **(storage_options or {})
+    ) as stream:
         for line_number, line in enumerate(stream, start=1):
             if not line.strip():
                 continue
@@ -396,7 +412,8 @@ class NeMoSpeechReaderStage(AgentReady, ProcessingStage[FileGroupTask, AudioTask
     total shard size, including placeholders, for downstream finalization.
 
     Key fields rename task outputs only; NeMo manifest columns and internal
-    shard metadata retain their protocol names.
+    shard metadata retain their protocol names. ``storage_options`` are the
+    fsspec options for cloud manifests and a cloud ``output_dir``.
     """
 
     output_dir: str | None = None
@@ -417,6 +434,7 @@ class NeMoSpeechReaderStage(AgentReady, ProcessingStage[FileGroupTask, AudioTask
     source_lang_key: str = "source_lang"
     read_error_key: str = "read_error"
     audio_too_long_key: str = "audio_too_long"
+    storage_options: dict[str, Any] | None = None
     AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
         gates=Gates(writes_to_disk=True, output_path_params=["output_dir"], per_row_independent=False)
     )
@@ -434,7 +452,7 @@ class NeMoSpeechReaderStage(AgentReady, ProcessingStage[FileGroupTask, AudioTask
             output_keys={key: value for key, value in vars(self).items() if key.endswith("_key")},
         )
         if self.output_dir is not None:
-            validate_local_output_dir(self.output_dir)
+            resolve_output_dir(self.output_dir, self.storage_options)
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data", "reader_config"], []
@@ -783,14 +801,16 @@ class NeMoSpeechReaderStage(AgentReady, ProcessingStage[FileGroupTask, AudioTask
     def process(self, task: FileGroupTask) -> list[AudioTask]:
         manifest_path = task.reader_config["manifest_path"]
         tar_path = task.reader_config.get("tar_path")
-        rows = _read_manifest_rows(manifest_path)
+        rows = _read_manifest_rows(manifest_path, self.storage_options)
         shard_total = len(rows)
         shard_key = task.reader_config["shard_key"]
         if shard_total == 0:
             msg = f"NeMo speech manifest {manifest_path!r} contains no rows; empty shards are unsupported"
             raise ValueError(msg)
         if self.output_dir is not None:
-            register_nemo_speech_shard(Path(self.output_dir), shard_key, shard_total)
+            register_nemo_speech_shard(
+                *resolve_output_dir(self.output_dir, self.storage_options), shard_key, shard_total
+            )
         results = self._process_tarred(task, rows, tar_path) if tar_path else self._process_non_tar(task, rows)
         logger.info(f"Read {len(results)}/{shard_total} entries from NeMo speech shard {shard_key}")
         return results
@@ -839,6 +859,7 @@ class NeMoSpeechAudioReader(AgentReady, CompositeStage[EmptyTask, AudioTask]):
     source_lang_key: str = "source_lang"
     read_error_key: str = "read_error"
     audio_too_long_key: str = "audio_too_long"
+    storage_options: dict[str, Any] | None = None
     AGENT_STATIC: ClassVar[StaticHints] = NeMoSpeechReaderStage.AGENT_STATIC
     KEY_ROLE_OVERRIDES: ClassVar[dict[str, Role]] = NeMoSpeechReaderStage.KEY_ROLE_OVERRIDES
     INTERNAL_KEY_FIELDS: ClassVar[frozenset[str]] = NeMoSpeechReaderStage.INTERNAL_KEY_FIELDS
@@ -854,6 +875,7 @@ class NeMoSpeechAudioReader(AgentReady, CompositeStage[EmptyTask, AudioTask]):
                 output_dir=self.output_dir,
                 cleanup_partial=self.cleanup_partial,
                 resume_mode=self.resume_mode,
+                storage_options=self.storage_options,
             ),
             NeMoSpeechReaderStage(
                 output_dir=self.output_dir,
@@ -871,6 +893,7 @@ class NeMoSpeechAudioReader(AgentReady, CompositeStage[EmptyTask, AudioTask]):
                 source_lang_key=self.source_lang_key,
                 read_error_key=self.read_error_key,
                 audio_too_long_key=self.audio_too_long_key,
+                storage_options=self.storage_options,
             ),
         ]
 

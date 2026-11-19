@@ -25,12 +25,14 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import posixpath
 from dataclasses import KW_ONLY, dataclass, field
 from numbers import Integral
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, cast
 from urllib.parse import quote
 
+import fsspec
 import numpy as np
 from loguru import logger
 
@@ -65,6 +67,7 @@ from nemo_curator.stages.audio.inference.base import (
 )
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
+from nemo_curator.utils.client_utils import is_remote_url
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -99,8 +102,11 @@ def _validated_relative_rttm_path(value: str, *, label: str) -> Path:
     return Path(normalized)
 
 
-def _resolve_under_rttm_root(rttm_out_dir: str, relative_path: Path, *, label: str) -> Path:
+def _resolve_under_rttm_root(rttm_out_dir: str, relative_path: Path, *, label: str) -> str:
     """Resolve a path and prove that it remains below the configured root."""
+    if is_remote_url(rttm_out_dir):
+        # Object stores have no symlinks, and callers validate relative_path free of "..".
+        return posixpath.join(rttm_out_dir.rstrip("/"), relative_path.as_posix()).rstrip("/")
     root = Path(rttm_out_dir).expanduser().resolve()
     path = (root / relative_path).resolve()
     try:
@@ -108,15 +114,7 @@ def _resolve_under_rttm_root(rttm_out_dir: str, relative_path: Path, *, label: s
     except ValueError as exc:
         msg = f"Resolved {label} escapes rttm_out_dir: {path} is not below {root}"
         raise ValueError(msg) from exc
-    return path
-
-
-def _resolve_rttm_dir(rttm_out_dir: str, shard_key: str | None = None) -> str:
-    """Use the configured RTTM root and preserve a safe task shard layout."""
-    relative_path = Path()
-    if shard_key:
-        relative_path = _validated_relative_rttm_path(shard_key, label="RTTM shard key")
-    return str(_resolve_under_rttm_root(rttm_out_dir, relative_path, label="RTTM shard directory"))
+    return str(path)
 
 
 def _write_rttm(
@@ -125,15 +123,13 @@ def _write_rttm(
     rttm_out_dir: str,
     *,
     shard_key: str | None = None,
+    storage_options: dict[str, Any] | None = None,
 ) -> str:
-    """Write one deterministic RTTM file and return its absolute path."""
-    out_dir = Path(_resolve_rttm_dir(rttm_out_dir, shard_key))
+    """Write one deterministic RTTM file (local or cloud) and return its absolute path."""
+    shard = _validated_relative_rttm_path(shard_key, label="RTTM shard key") if shard_key else Path()
     path = _resolve_under_rttm_root(
-        rttm_out_dir,
-        out_dir.relative_to(Path(rttm_out_dir).expanduser().resolve()) / f"{_safe_rttm_basename(session_name)}.rttm",
-        label="RTTM output path",
+        rttm_out_dir, shard / f"{_safe_rttm_basename(session_name)}.rttm", label="RTTM output path"
     )
-    out_dir.mkdir(parents=True, exist_ok=True)
     lines: list[str] = []
     for segment in segments:
         duration = float(segment["end"]) - float(segment["start"])
@@ -144,9 +140,9 @@ def _write_rttm(
             f"SPEAKER {session_name} 1 {float(segment['start']):.3f} {duration:.3f} "
             f"<NA> <NA> {segment['speaker']} <NA> <NA>\n"
         )
-    with path.open("w", encoding="utf-8") as stream:
+    with fsspec.open(path, "w", encoding="utf-8", **(storage_options or {})) as stream:  # creates parent dirs
         stream.writelines(lines)
-    return str(path)
+    return path
 
 
 @dataclass
@@ -178,13 +174,14 @@ class InferenceSortformerStage(AgentReady, AdapterInferenceStage[DiarizationAdap
         fanout: Emit a cloned source-audio task for each speaker turn.
         rttm_naming: task_id (default), legacy session names, or source_hash for reuse.
         pred_text_key: Parent transcript removed from fan-out children.
+        storage_options: fsspec options for a cloud ``rttm_out_dir`` (credentials, endpoints).
         audio_item_id_key: Fallback identity for resident fan-out provenance.
         sample_rate_key: Source sample-rate field for waveform input.
         audio_filepath_key: Audio file field for file input and RTTM naming.
         diar_segments_key: Manifest field for JSON-safe diarization intervals.
         num_speakers_key: Manifest field for the distinct speaker count, or None to disable.
         store_segments: Store intervals in the task in addition to any RTTM.
-        rttm_out_dir: Optional RTTM root; task_id naming uses the existing shard
+        rttm_out_dir: Optional RTTM root (local path or cloud URL); task_id naming uses the existing shard
             and a task-ID digest, while source_hash uses selected source identity.
         skip_if_output_exists: Reuse complete output by key presence. An empty
             interval list is a complete result. When RTTM output is enabled,
@@ -256,6 +253,7 @@ class InferenceSortformerStage(AgentReady, AdapterInferenceStage[DiarizationAdap
     original_file_key: str = "original_file"
     audio_item_id_key: str = "audio_item_id"
     pred_text_key: str = "pred_text"
+    storage_options: dict[str, Any] | None = None
 
     BATCH_ONLY: ClassVar[bool] = True
     AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
@@ -860,7 +858,7 @@ class InferenceSortformerStage(AgentReady, AdapterInferenceStage[DiarizationAdap
         except ValueError as exc:
             logger.warning("Ignoring unsafe RTTM resume path for task {}: {}", task.task_id, exc)
             return False
-        return path.is_file()
+        return fsspec.core.url_to_fs(path, **(self.storage_options or {}))[0].isfile(path)
 
     def _write_empty_error(self, task: AudioTask, reason: str) -> None:
         if self.num_speakers_key is not None:
@@ -897,9 +895,10 @@ class InferenceSortformerStage(AgentReady, AdapterInferenceStage[DiarizationAdap
                 self._export_session_name(task),
                 self.rttm_out_dir,
                 shard_key=self._export_shard_key(task),
+                storage_options=self.storage_options,
             )
-            rttm_root = Path(self.rttm_out_dir).expanduser().resolve()
-            task.data[self.rttm_filepath_key] = Path(path).relative_to(rttm_root).as_posix()
+            rttm_root = _resolve_under_rttm_root(self.rttm_out_dir, Path(), label="RTTM root")
+            task.data[self.rttm_filepath_key] = posixpath.relpath(path, rttm_root)
         notes = task.data.get(self.notes_key)
         if isinstance(notes, dict):
             notes.pop(self.name, None)

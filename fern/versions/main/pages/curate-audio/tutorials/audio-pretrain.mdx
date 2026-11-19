@@ -284,6 +284,8 @@ finally:
 
 `prepare_audio_pretrain_outputs` removes stale `*.shard-*` files next to all three outputs. `finalize_audio_pretrain_outputs` merges manifest and metrics shards, streams readable tar members into lexicographic order, removes merged shards, and reconciles the manifest against the tar.
 
+The three output paths and `output_dir` can also be S3 or GCS URLs (for example `s3://bucket/pretrain/run-001/snippets.tar`). Pass the same fsspec `storage_options` (credentials, endpoint) to `build_audio_pretrain_pipeline`, `prepare_audio_pretrain_outputs`, and `finalize_audio_pretrain_outputs`. Object stores cannot append, so on a cloud path every snippet and every manifest or metrics record is written as its own shard object, and finalization merges them the same way. Expect many small objects during the run; they are removed once merged.
+
 ## Read the output manifest
 
 Each output line represents one snippet. Values below are illustrative:

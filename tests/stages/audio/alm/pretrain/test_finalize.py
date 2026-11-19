@@ -583,3 +583,50 @@ class TestPrepareAndFinalize:
 
         assert list(tmp_path.glob("*.shard-*")) == []
         assert unrelated.exists()
+
+
+def test_cloud_outputs_round_trip_through_shards_and_finalize(tmp_path: Path) -> None:
+    """Extraction, both shard writers and prepare/finalize all work on an object store."""
+    import fsspec
+
+    from nemo_curator.stages.audio.alm.pretrain import (
+        PretrainMetricsAggregatorStage,
+        SnippetExtractionStage,
+        SnippetManifestWriterStage,
+    )
+    from nemo_curator.stages.audio.alm.pretrain.utils import _PLAN_DATA_KEY
+    from nemo_curator.tasks import AudioTask
+
+    root = "memory://pretrain-cloud"
+    fs = fsspec.filesystem("memory")
+    manifest, metrics, tar_path = f"{root}/out.jsonl", f"{root}/metrics.json", f"{root}/snips.tar"
+    fs.pipe(_make_shard_path(manifest, "jsonl"), b"stale\n")
+    prepare_audio_pretrain_outputs(manifest, metrics, tar_path)
+    assert fs.glob("/pretrain-cloud/*.shard-*") == []
+
+    src = tmp_path / "src.wav"
+    sf.write(str(src), np.zeros(32000, dtype=np.float32), 16000, subtype="PCM_16")
+    seg = {"speaker": "A", "start": 0.0, "end": 1.0, "text": "x", "text_ITN": "x", "words": []}
+    plan = [{"start": 0.0, "end": 1.0, "segments": [seg]}, {"start": 1.0, "end": 2.0, "segments": [seg]}]
+    stages = [
+        SnippetExtractionStage(output_dir=f"{root}/snips", output_audio_tar_path=tar_path, output_format="wav"),
+        SnippetManifestWriterStage(output_path=manifest),
+        PretrainMetricsAggregatorStage(output_path=metrics),
+    ]
+    for stage in stages:
+        stage.setup()
+    snippets = stages[0].process(
+        AudioTask(dataset_name="ds", data={"id": "X", "audio_filepath": str(src), _PLAN_DATA_KEY: plan})
+    )
+    for snippet in snippets:
+        stages[2].process(stages[1].process(snippet))
+    stages[0].teardown()
+
+    finalize_audio_pretrain_outputs(manifest, metrics, tar_path)
+
+    rows = [json.loads(line) for line in fs.cat_file(manifest).decode().splitlines()]
+    assert sorted(row["audio_filepath"] for row in rows) == sorted(s.data["audio_filepath"] for s in snippets)
+    with fs.open(tar_path, "rb") as f, tarfile.open(fileobj=f) as tar:
+        assert tar.getnames() == sorted(row["audio_filepath"] for row in rows)
+    assert json.loads(fs.cat_file(metrics))["num_output_snippets"] == 2
+    assert fs.glob("/pretrain-cloud/*.shard-*") == []

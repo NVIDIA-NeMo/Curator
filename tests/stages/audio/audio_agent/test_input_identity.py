@@ -355,12 +355,33 @@ class TestFolderAndGeneratedSources:
             "recursive": True,
             "max_files": -1,
             "exclude_stage_intermediates": False,
+            "storage_options": None,
         }
 
-        remote = resolve_dataset_binding(
-            _recipe("CreateInitialManifestAudioFolderStage", {"data_dir": "s3://bucket/audio"})
+    def test_cloud_audio_folder_resolves_and_profiles_through_fsspec(self) -> None:
+        import fsspec
+
+        from nemo_curator.stages.audio.audio_agent import profiler
+
+        fs = fsspec.filesystem("memory")
+        fs.pipe("/agent-corpus/spk1/a.wav", b"one")
+        fs.pipe("/agent-corpus/notes.txt", b"skip")
+        missing = resolve_dataset_binding(
+            _recipe("CreateInitialManifestAudioFolderStage", {"data_dir": "memory://agent-missing"})
         )
-        assert remote.status == "unsupported"
+        binding = resolve_dataset_binding(
+            _recipe("CreateInitialManifestAudioFolderStage", {"data_dir": "memory://agent-corpus"})
+        )
+
+        assert missing.status == "missing"
+        assert binding.status == "resolved"
+        assert binding.profile_source == "memory://agent-corpus"
+        profile = profiler.profile_data(binding.profile_source, **binding.profile_kwargs)
+        assert (profile.kind, profile.num_files) == ("folder", 1)
+        assert list(profile.inventory) == ["spk1/a.wav"]
+        before = profile.dataset_key()
+        fs.pipe("/agent-corpus/spk1/a.wav", b"changed")
+        assert profiler.profile_data(binding.profile_source, **binding.profile_kwargs).dataset_key() != before
 
     @pytest.mark.parametrize(
         ("ref", "params"),

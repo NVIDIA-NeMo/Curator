@@ -53,6 +53,7 @@ import os
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, cast
 
+import fsspec
 import numpy as np
 from loguru import logger
 
@@ -93,6 +94,7 @@ class SEDInferenceStage(AdapterInferenceStage[SEDAdapter]):
             available. Waveform-only tasks use their Curator task ID instead.
         adapter_kwargs: Model-specific constructor options. For PANNs these
             include ``model_type``, frontend settings, class count, and padding.
+        storage_options: fsspec options for a cloud ``output_dir`` (credentials, endpoints).
     """
 
     adapter_target: str
@@ -119,6 +121,7 @@ class SEDInferenceStage(AdapterInferenceStage[SEDAdapter]):
     adapter_kwargs: dict[str, Any] = field(default_factory=dict)
     batch_size: int = 32
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0, gpu_memory_gb=4.0))
+    storage_options: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
         super().__post_init__()
@@ -285,7 +288,6 @@ class SEDInferenceStage(AdapterInferenceStage[SEDAdapter]):
             raise ValueError(msg)
 
         framewise_dir = os.path.join(self.output_dir, "framewise")
-        os.makedirs(framewise_dir, exist_ok=True)
 
         if audio_path:
             stem = os.path.splitext(os.path.basename(audio_path))[0]
@@ -294,12 +296,14 @@ class SEDInferenceStage(AdapterInferenceStage[SEDAdapter]):
             stem = "task"
             path_hash = get_deterministic_hash([sidecar_identity])
         npz_path = os.path.join(framewise_dir, f"{stem}__{path_hash}.npz")
-        np.savez_compressed(
-            npz_path,
-            framewise=framewise,
-            fps=np.float32(result.fps),
-            audio_filepath=str(audio_path),
-            original_num_samples=np.int32(result.original_num_samples),
-            valid_frames=np.int32(result.valid_frames),
-        )
+        # fsspec creates the parent directory, so a local or cloud ``output_dir`` works the same.
+        with fsspec.open(npz_path, "wb", **(self.storage_options or {})) as f:
+            np.savez_compressed(
+                f,
+                framewise=framewise,
+                fps=np.float32(result.fps),
+                audio_filepath=str(audio_path),
+                original_num_samples=np.int32(result.original_num_samples),
+                valid_frames=np.int32(result.valid_frames),
+            )
         return npz_path

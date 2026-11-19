@@ -13,7 +13,7 @@ resource:
   throughput_hint: "CPU/IO; directory walk only, no audio decode"
 use_cases:
   good_for:
-    - "starting a pipeline from a plain local folder of WAV/FLAC/MP3/etc. with NO JSONL manifest (any dataset)"
+    - "starting a pipeline from a plain local folder or cloud prefix (s3://, gs://) of WAV/FLAC/MP3/etc. with NO JSONL manifest (any dataset)"
     - "a folder of mixed or unrelated audio -- differing rates, channel counts, durations, formats, speakers or provenance. It asserts nothing about the contents, so heterogeneity is not a reason to reach for a dataset-specific source."
     - "the default when the corpus is only known as 'the audio in this folder': prefer this over a dataset-specific CreateInitialManifest*Stage unless the data's PROVENANCE is that dataset"
     - "the generic alternative to CreateInitialManifestReadSpeechStage / CreateInitialManifestFleursStage when the data isn't one of those specific datasets"
@@ -28,7 +28,7 @@ comparison:
   CreateInitialManifestFleursStage: "a corpus-specific source for FLEURS that needs `lang`/`split` and a transcript+audio layout, and raises when it is absent. Use it only for FLEURS; this stage is the source for a folder that merely holds audio."
   ManifestReader: "reads an existing JSONL manifest rather than discovering files. It is the better source whenever a manifest already exists -- it preserves the keys the manifest carries, where this stage derives only a path and an id. This stage is for the case where no manifest exists yet."
 params_of_note:
-  data_dir: "(REQUIRED, no default) local folder to scan for audio files"
+  data_dir: "(REQUIRED, no default) local folder or cloud prefix (s3://, gs://; credentials via storage_options) to scan for audio files"
   extensions: "audio file extensions to include (default: .wav/.flac/.mp3/.ogg/.opus/.m4a; case-insensitive)"
   recursive: "recurse into subfolders (default True)"
   max_samples: "cap the number of files (-1 = all, the default)"

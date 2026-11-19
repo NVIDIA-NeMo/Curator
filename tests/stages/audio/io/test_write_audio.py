@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import io
 import json
 from pathlib import Path
 from unittest.mock import patch
@@ -141,13 +142,13 @@ def test_encoder_failure_is_atomic(tmp_path: Path) -> None:
     stage = AudioSegmentWriterStage(output_dir=str(tmp_path))
     task = _segment()
 
-    def failing_encoder(path: Path, *_args: object, **_kwargs: object) -> None:
-        path.write_bytes(b"partial")
+    def failing_encoder(buffer: io.BytesIO, *_args: object, **_kwargs: object) -> None:
+        buffer.write(b"partial")
         msg = "encoder failed"
         raise RuntimeError(msg)
 
     with (
-        patch("nemo_curator.stages.audio.io.write_audio.sf.write", side_effect=failing_encoder),
+        patch("nemo_curator.stages.audio.io.segment_io.sf.write", side_effect=failing_encoder),
         pytest.raises(RuntimeError, match="encoder failed"),
     ):
         stage.process(task)
@@ -191,3 +192,21 @@ def test_remapped_keys(tmp_path: Path) -> None:
 def test_key_aliases_are_rejected(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="distinct"):
         AudioSegmentWriterStage(output_dir=str(tmp_path), waveform_key="audio_filepath")
+
+
+def test_cloud_output_dir_uploads_whole_clip() -> None:
+    import fsspec
+
+    stage = AudioSegmentWriterStage(output_dir="memory://segments/", storage_options={"skip_instance_cache": True})
+    output = stage.process(_segment())
+
+    path = output.data["audio_filepath"]
+    assert path == f"memory://segments/audio/{output.data['audio_item_id']}.opus"
+    with fsspec.open(path, "rb") as f:
+        waveform, sample_rate = sf.read(f)
+    assert (sample_rate, waveform.shape) == (16000, (16000,))
+
+
+def test_non_cloud_uri_output_dir_is_still_rejected() -> None:
+    with pytest.raises(ValueError, match="local directory or cloud prefix"):
+        AudioSegmentWriterStage(output_dir="file:///tmp/segments")

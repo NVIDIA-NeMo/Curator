@@ -20,14 +20,12 @@ Audio Splitting and Joining Stages.
 import contextlib
 import hashlib
 import math
-import os
 import posixpath
-import shutil
-import tempfile
 import time
 from dataclasses import KW_ONLY, dataclass
 from typing import Any, ClassVar
 
+import numpy as np
 import torchaudio
 from fsspec.core import url_to_fs
 from fsspec.implementations.local import LocalFileSystem
@@ -43,6 +41,7 @@ from nemo_curator.stages.audio._agent._agent_ready import (
     StaticHints,
 )
 from nemo_curator.stages.audio._agent._residency import validate_audio_key_configuration
+from nemo_curator.stages.audio.io.segment_io import encode_audio
 from nemo_curator.stages.audio.tagging.inference.nemo_asr_align import NeMoASRAlignerStage
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.tasks import AudioTask
@@ -60,7 +59,8 @@ class SplitLongAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         suggested_max_len: Target maximum length for audio segments in seconds
         min_len: Minimum length for any split segment
         output_dir: Optional directory for written split audio. When unset,
-            split files remain beside the source audio for backward compatibility.
+            split files remain beside the source audio. Either location may be a cloud URL.
+        storage_options: fsspec options for cloud source and output paths (credentials, endpoints).
     """
 
     AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
@@ -89,6 +89,7 @@ class SplitLongAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
 
     # Additive agent-only routing knob.
     output_dir: str | None = None
+    storage_options: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
         validate_audio_key_configuration(
@@ -159,11 +160,11 @@ class SplitLongAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
 
         return splits
 
-    def _prepare_output_dir(self) -> tuple[AbstractFileSystem | None, str]:
-        """Create and resolve an explicit output directory."""
+    def _prepare_output_dir(self, source_fs: AbstractFileSystem) -> tuple[AbstractFileSystem, str]:
+        """Create and resolve an explicit output directory; without one, splits go beside the source."""
         if self.output_dir is None:
-            return None, ""
-        output_fs, resolved_output_dir = url_to_fs(self.output_dir)
+            return source_fs, ""
+        output_fs, resolved_output_dir = url_to_fs(self.output_dir, **(self.storage_options or {}))
         output_fs.makedirs(resolved_output_dir, exist_ok=True)
         return output_fs, resolved_output_dir
 
@@ -219,22 +220,12 @@ class SplitLongAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         path: str,
         waveform: Any,  # noqa: ANN401 - torchaudio accepts tensor-like waveforms
         sample_rate: int,
-        output_fs: AbstractFileSystem | None,
+        output_fs: AbstractFileSystem,
     ) -> None:
-        """Write directly locally or upload a temporary WAV through fsspec."""
-        if output_fs is None or isinstance(output_fs, LocalFileSystem):
-            torchaudio.save(path, waveform, sample_rate)
-            return
-
-        fd, local_temp = tempfile.mkstemp(suffix=".wav")
-        os.close(fd)
-        try:
-            torchaudio.save(local_temp, waveform, sample_rate)
-            with open(local_temp, "rb") as source, output_fs.open(path, "wb") as target:
-                shutil.copyfileobj(source, target)
-        finally:
-            with contextlib.suppress(OSError):
-                os.remove(local_temp)
+        """Encode one float32 WAV chunk in memory and write it through fsspec."""
+        payload = encode_audio(np.asarray(waveform).T, sample_rate, file_format="WAV", subtype="FLOAT")
+        with output_fs.open(path, "wb") as f:
+            f.write(payload)
 
     def process(self, task: AudioTask) -> AudioTask:
         """Process entry to split long audio files."""
@@ -263,14 +254,14 @@ class SplitLongAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         splits = self.get_split_points(data_entry)
 
         audio_path = data_entry[self.audio_filepath_key]
-        _fs, resolved_path = url_to_fs(audio_path)
+        source_fs, resolved_path = url_to_fs(audio_path, **(self.storage_options or {}))
 
         # parent_url preserves protocol prefix (e.g. "s3://bucket/dir") for stored paths;
         # resolved_parent is the fsspec-resolved counterpart for torchaudio I/O.
         parent_url, filename = audio_path.rsplit("/", 1) if "/" in audio_path else ("", audio_path)
         resolved_parent = resolved_path.rsplit("/", 1)[0] if "/" in resolved_path else ""
         stem = filename.rsplit(".", 1)[0] if "." in filename else filename
-        output_fs, resolved_output_dir = self._prepare_output_dir()
+        output_fs, resolved_output_dir = self._prepare_output_dir(source_fs)
 
         audio, sr = torchaudio.load(resolved_path)
         if self.output_dir is not None:
@@ -282,11 +273,7 @@ class SplitLongAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         # fsspec transactions stage every remote key and publish them together on
         # successful exit. A failed upload or later chunk therefore exposes no
         # partial final key and rolls back earlier chunks from this row.
-        with (
-            output_fs.transaction
-            if output_fs is not None and not isinstance(output_fs, LocalFileSystem)
-            else contextlib.nullcontext()
-        ):
+        with output_fs.transaction if not isinstance(output_fs, LocalFileSystem) else contextlib.nullcontext():
             for k, split in enumerate(splits):
                 split_name = f"{stem}.{k + 1}_of_{1 + len(splits)}.wav"
                 split_filepath, split_resolved = self._split_paths(
@@ -543,6 +530,7 @@ class SplitASRAlignJoinStage(AgentReady, CompositeStage[AudioTask, AudioTask]):
         min_len: Minimum length for any split segment (also used by ASR).
         output_dir: Optional directory for split audio chunks. When unset,
             chunks are written beside their source audio.
+        storage_options: fsspec options for cloud source and output paths.
         max_len: Maximum length of audio segments for ASR processing (seconds).
         model_name: Pretrained NeMo ASR model name.
         model_path: Local model file path (overrides ``model_name`` if set).
@@ -599,6 +587,7 @@ class SplitASRAlignJoinStage(AgentReady, CompositeStage[AudioTask, AudioTask]):
     output_dir: str | None = None
     _: KW_ONLY
     alignment_key: str = "alignment"
+    storage_options: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
         super().__init__()
@@ -616,6 +605,7 @@ class SplitASRAlignJoinStage(AgentReady, CompositeStage[AudioTask, AudioTask]):
                 suggested_max_len=self.suggested_max_len,
                 min_len=self.min_len,
                 output_dir=self.output_dir,
+                storage_options=self.storage_options,
                 # Forwarded, or configuring the composite would silently not reach the splitter:
                 # it would keep reading "segments" while the aligner read the configured key,
                 # which is what blocks feeding diarization segments into ASR.

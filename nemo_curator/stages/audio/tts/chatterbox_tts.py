@@ -27,18 +27,22 @@ import tempfile
 import uuid
 from typing import TYPE_CHECKING, Any, ClassVar
 
+import fsspec
 import numpy as np
 import soundfile as sf
 import torch
 import torchaudio as ta
 from filelock import FileLock
+from fsspec.core import url_to_fs
 from huggingface_hub import snapshot_download
 from loguru import logger
 from omegaconf import ListConfig
 
+from nemo_curator.stages.audio.io.segment_io import write_audio
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
+from nemo_curator.utils.client_utils import is_remote_url
 
 if TYPE_CHECKING:
     from nemo_curator.backends.base import NodeInfo, WorkerMetadata
@@ -174,7 +178,8 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
     pick, which would only stay consistent within a single actor's memory.
 
     Args:
-        output_audio_dir: Directory for generated WAV files.
+        output_audio_dir: Directory for generated WAV files: a local path or a cloud prefix
+            (``s3://``, ``gs://``, ...). A cloud cache has no cross-actor file lock.
         reference_voices_dataset: Root path containing reference audio.
             Supports ``wavs/<dialog>/<speaker>.wav`` layout (with optional
             ``rttms/`` siblings) and MLS layout ``<spk>/<book>/<seg>.flac``.
@@ -193,6 +198,7 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
         top_p: Top-p sampling parameter.
         normalize_audio: Whether to normalise output volume.
         normalize_level: Target loudness in dB.
+        storage_options: fsspec options for a cloud ``output_audio_dir`` (credentials, endpoints).
     """
 
     name = "ChatterboxTTSStage"
@@ -224,10 +230,13 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
         top_p: float = 1.0,
         normalize_audio: bool = True,
         normalize_level: float = -20.0,
+        storage_options: dict[str, Any] | None = None,
     ):
         super().__init__()
 
         self.output_audio_dir = output_audio_dir
+        self.storage_options = storage_options
+        self._remote = is_remote_url(output_audio_dir)
         self.reference_voices_dataset = reference_voices_dataset
         self.language = language
         self.device = device
@@ -318,7 +327,8 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
 
     def setup(self, worker_metadata: object = None) -> None:  # noqa: ARG002
         """Load the TTS model and discover reference audio files."""
-        os.makedirs(self.output_audio_dir, exist_ok=True)
+        fs, _ = url_to_fs(self.output_audio_dir, **(self.storage_options or {}))
+        fs.makedirs(self.output_audio_dir, exist_ok=True)
         self._init_temp_dir()
         self._load_model()
         self._load_reference_audio_files()
@@ -846,12 +856,13 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
         are treated as a cache miss and trigger regeneration, rather than
         risking a hash collision or a stale entry being served silently.
         """
-        if not os.path.exists(audio_path):
+        fs, _ = url_to_fs(audio_path, **(self.storage_options or {}))
+        if not fs.exists(audio_path):
             return None
 
         sidecar_path = self._sidecar_path(audio_path)
         try:
-            with open(sidecar_path, encoding="utf-8") as f:
+            with fsspec.open(sidecar_path, "r", encoding="utf-8", **(self.storage_options or {})) as f:
                 cached_manifest = json.load(f)
         except (OSError, json.JSONDecodeError):
             logger.warning(f"No valid cache sidecar for {audio_path}; regenerating.")
@@ -884,6 +895,21 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
         ``os.path.exists(audio_path)`` becomes true for another
         reader/retry, its sidecar is already there to validate against.
         """
+        if self._remote:
+            # An object becomes visible only once its upload completes, and the sidecar goes first.
+            with fsspec.open(
+                self._sidecar_path(audio_path), "w", encoding="utf-8", **(self.storage_options or {})
+            ) as f:
+                json.dump(manifest, f, sort_keys=True)
+            write_audio(
+                audio_path,
+                audio_data,
+                self.sample_rate,
+                file_format="WAV",
+                subtype="PCM_16",
+                storage_options=self.storage_options,
+            )
+            return
         unique = f"{os.getpid()}_{uuid.uuid4().hex[:8]}"
         tmp_audio = f"{audio_path}.tmp-{unique}"
         sidecar_path = self._sidecar_path(audio_path)
@@ -950,7 +976,8 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
                 audio_path = os.path.join(self.output_audio_dir, filename)
                 # Keep the lock file: unlinking it could let concurrent actors
                 # lock different inodes for the same cache key.
-                with FileLock(f"{audio_path}.lock"):
+                # shortcut: a cloud cache has no cross-actor lock; two actors may both generate one key.
+                with contextlib.nullcontext() if self._remote else FileLock(f"{audio_path}.lock"):
                     cached = self._read_cached_audio_if_valid(audio_path, manifest)
                     if cached is not None:
                         audio_data, audio_sr = cached
@@ -960,11 +987,18 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
                             # Keep failed outputs immutable without caching a transient failure.
                             stem = os.path.splitext(audio_path)[0]
                             audio_path = f"{stem}.failed-{uuid.uuid4().hex}.wav"
-                            sf.write(audio_path, np.zeros(self.sample_rate * 2), self.sample_rate)
+                            audio_data = np.zeros(self.sample_rate * 2)
+                            write_audio(
+                                audio_path,
+                                audio_data,
+                                self.sample_rate,
+                                file_format="WAV",
+                                subtype="PCM_16",
+                                storage_options=self.storage_options,
+                            )
                         else:
                             self._publish_cache_entry(audio_path, audio_data, manifest)
-                        # Report metadata from the published artifact, just as cache hits do.
-                        audio_data, audio_sr = sf.read(audio_path)
+                        audio_sr = self.sample_rate
             except Exception as e:  # noqa: BLE001 -- isolate a bad reference/record to one task
                 logger.error(f"TTS processing failed for task {task.task_id}: {e}")
                 output_tasks.append(task)

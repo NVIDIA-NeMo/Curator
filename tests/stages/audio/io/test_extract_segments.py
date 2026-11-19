@@ -1597,3 +1597,35 @@ def test_mapper_unlabelled_turns_extract_separate_clips_without_filling_gaps(
         audio, actual_sr = sf.read(path)
         assert actual_sr == sr
         np.testing.assert_array_equal(audio, samples)
+
+
+def test_cloud_output_dir_writes_segments_state_and_metadata(wav_dir: Path) -> None:
+    import fsspec
+
+    fs = fsspec.filesystem("memory")
+    output_dir = "memory://extract-cloud"
+    options = {"skip_instance_cache": True}
+    for i in range(2):
+        task = AudioTask(
+            data={"original_file": _wav_path(wav_dir), "original_start_ms": i * 500, "original_end_ms": i * 500 + 400}
+        )
+        task._set_task_id("source", i)
+        SegmentExtractionStage(output_dir=output_dir, storage_options=options).process_batch([task])
+
+    with fs.open(task.data["extracted_path"][0], "rb") as f:
+        assert len(sf.read(f)[0]) == int(0.4 * SAMPLE_RATE)
+    state = fs.cat_file(f"{output_dir}/.segment_extraction_state.json").decode().splitlines()
+    assert len(state) == 2  # the reservation log is rewritten whole, never appended, on object stores
+    with fs.open(f"{output_dir}/metadata.csv", "r") as f:
+        assert [r["filename"] for r in csv.DictReader(f)] == ["file_a_segment_000.wav", "file_a_segment_001.wav"]
+
+
+def test_load_manifests_reads_a_cloud_directory() -> None:
+    import fsspec
+
+    fs = fsspec.filesystem("memory")
+    for i in range(2):
+        fs.pipe(f"/cloud-manifests/part_{i}.jsonl", (json.dumps({"idx": i}) + "\n").encode())
+    entries = load_manifests("memory://cloud-manifests", "memory://cloud-manifests-out")
+    assert [e["idx"] for e in entries] == [0, 1]
+    assert fs.exists("/cloud-manifests-out/manifest.jsonl")

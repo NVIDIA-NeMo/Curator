@@ -40,6 +40,8 @@ the source audio.
 
 from __future__ import annotations
 
+from typing import Any
+
 from nemo_curator.pipeline import Pipeline
 
 from .extraction import SnippetExtractionStage
@@ -100,6 +102,7 @@ def build_audio_pretrain_pipeline(  # noqa: PLR0913
     snippet_plan_key: str = "_snippet_plan",
     snippet_id_key: str = "snippet_id",
     duration_key: str = "duration",
+    storage_options: dict[str, Any] | None = None,
 ) -> Pipeline:
     """Build the long-form-audio cutting pipeline for ALM pretraining.
 
@@ -199,6 +202,8 @@ def build_audio_pretrain_pipeline(  # noqa: PLR0913
             extraction and the output sinks.
         duration_key: Configurable snippet-duration field shared by
             extraction and metrics aggregation.
+        storage_options: fsspec options for S3/GCS output paths; pass the
+            same value to the prepare/finalize helpers.
     """
     return Pipeline(
         name="audio_pretrain_long_form_cut",
@@ -241,14 +246,18 @@ def build_audio_pretrain_pipeline(  # noqa: PLR0913
                 duration_key=duration_key,
                 segments_key=segments_key,
                 snippet_plan_key=snippet_plan_key,
+                storage_options=storage_options,
             ),
-            SnippetManifestWriterStage(output_path=output_manifest_path, snippet_id_key=snippet_id_key),
+            SnippetManifestWriterStage(
+                output_path=output_manifest_path, snippet_id_key=snippet_id_key, storage_options=storage_options
+            ),
             PretrainMetricsAggregatorStage(
                 output_path=metrics_path,
                 id_key=id_key,
                 snippet_id_key=snippet_id_key,
                 segments_key=segments_key,
                 duration_key=duration_key,
+                storage_options=storage_options,
             ),
         ],
     )

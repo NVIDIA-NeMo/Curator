@@ -26,13 +26,14 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
-import io
 import json
 import os
+import posixpath
 import re
 import shutil
 import subprocess
 import tempfile
+import uuid
 from dataclasses import KW_ONLY, dataclass, field, fields
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any, ClassVar
@@ -40,29 +41,30 @@ from urllib.parse import urlsplit
 
 import numpy as np
 import soundfile as sf
+from fsspec.implementations.local import LocalFileSystem
 from loguru import logger
 
 from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract, StaticHints
-from nemo_curator.stages.audio.io._nemo_speech_paths import contained_output_path, validate_local_output_dir
+from nemo_curator.stages.audio.io._nemo_speech_paths import contained_output_path, resolve_output_dir
 from nemo_curator.stages.audio.io._nemo_speech_state import (
     SHARD_REGISTRATION_VERSION,
     register_nemo_speech_shard,
     shard_registration_path,
     shard_registration_root,
+    write_json_if_absent,
 )
+from nemo_curator.stages.audio.io.segment_io import encode_audio
 from nemo_curator.stages.audio.io.shard_key import validate_shard_key
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
-from nemo_curator.utils.atomic_io import (
-    fsync_directory,
-    write_json_atomically,
-    write_json_atomically_if_absent,
-)
+from nemo_curator.utils.atomic_io import fsync_directory, write_json_atomically
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
+
+    from fsspec import AbstractFileSystem
 
     from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 
@@ -74,27 +76,29 @@ _WAVEFORM_2D = 2
 _RANDOM_TASK_ID = re.compile(r"r[0-9a-f]{32}", re.IGNORECASE)
 
 
-def _row_root(output_dir: Path) -> Path:
-    return contained_output_path(output_dir, ".nemo_curator/nemo_speech_rows")
+def _row_root(fs: AbstractFileSystem, output_dir: str) -> str:
+    return contained_output_path(fs, output_dir, ".nemo_curator/nemo_speech_rows")
 
 
 def _has_random_task_ancestry(task_id: str) -> bool:
     return bool(_RANDOM_TASK_ID.fullmatch(task_id.split("_", 1)[0]))
 
 
-def _receipt_dir(output_dir: Path, shard_key: str) -> Path:
+def _receipt_dir(fs: AbstractFileSystem, output_dir: str, shard_key: str) -> str:
     relative = PurePosixPath(".nemo_curator/nemo_speech_rows") / validate_shard_key(shard_key)
-    return contained_output_path(output_dir, relative)
+    return contained_output_path(fs, output_dir, relative)
 
 
 def _owner_path(
-    output_dir: Path,
+    fs: AbstractFileSystem,
+    output_dir: str,
     relative_audio_path: PurePosixPath,
     opus_sha256: str | None = None,
-) -> Path:
+) -> str:
     owner_id = hashlib.sha256(relative_audio_path.as_posix().encode()).hexdigest()
     filename = f"{owner_id}.{opus_sha256}.json" if opus_sha256 else f"{owner_id}.json"
     return contained_output_path(
+        fs,
         output_dir,
         f".nemo_curator/nemo_speech_audio_owners/{owner_id[:2]}/{owner_id[2:4]}/{filename}",
     )
@@ -190,7 +194,12 @@ def _json_safe(value: Any) -> Any:  # noqa: ANN401
     return result
 
 
-def _write_bytes_atomically(path: Path, payload: bytes) -> None:
+def _write_bytes_atomically(fs: AbstractFileSystem, path_str: str, payload: bytes) -> None:
+    if not isinstance(fs, LocalFileSystem):
+        # An object becomes visible only once its single upload completes.
+        fs.pipe_file(path_str, payload)
+        return
+    path = Path(path_str)
     path.parent.mkdir(parents=True, exist_ok=True)
     temp_path: Path | None = None
     try:
@@ -330,9 +339,20 @@ def _soundfile_decoded_samples(path: Path, expected_sample_rate: int, expected_s
     return observed
 
 
-def _valid_opus(path: Path, expected_sample_rate: int, expected_samples: int) -> bool:
-    """Return whether ``path`` is complete mono Opus with the expected extent."""
+def _valid_opus(fs: AbstractFileSystem, path_str: str, expected_sample_rate: int, expected_samples: int) -> bool:
+    """Return whether ``path_str`` is complete mono Opus with the expected extent."""
 
+    if not isinstance(fs, LocalFileSystem):
+        # shortcut: the decoders below need a local file, so a cloud clip is validated from a temporary copy;
+        # fine for clip-sized outputs, revisit if outputs grow to whole recordings.
+        with tempfile.TemporaryDirectory(prefix="nemo-speech-validate-") as temp_dir:
+            local_copy = os.path.join(temp_dir, posixpath.basename(path_str))
+            try:
+                fs.get_file(path_str, local_copy)
+            except OSError:
+                return False
+            return _valid_opus(LocalFileSystem(), local_copy, expected_sample_rate, expected_samples)
+    path = Path(path_str)
     try:
         info = sf.info(path)
         if (
@@ -355,14 +375,15 @@ def _valid_opus(path: Path, expected_sample_rate: int, expected_samples: int) ->
     )
 
 
-def _claim_audio_path(output_dir: Path, claim: dict[str, Any], opus_sha256: str | None = None) -> None:
+def _claim_audio_path(
+    fs: AbstractFileSystem, output_dir: str, claim: dict[str, Any], opus_sha256: str | None = None
+) -> None:
     relative = PurePosixPath(str(claim["audio_filepath"]))
-    claim_path = _owner_path(output_dir, relative, opus_sha256)
-    created = write_json_atomically_if_absent(claim_path, claim, separators=(",", ":"))
-    if created:
+    claim_path = _owner_path(fs, output_dir, relative, opus_sha256)
+    if write_json_if_absent(fs, claim_path, claim):
         return
     try:
-        existing = json.loads(claim_path.read_text(encoding="utf-8"))
+        existing = json.loads(fs.read_text(claim_path, encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
         msg = f"Invalid NeMo speech audio ownership record {claim_path}: {error}"
         raise ValueError(msg) from error
@@ -371,24 +392,23 @@ def _claim_audio_path(output_dir: Path, claim: dict[str, Any], opus_sha256: str 
         raise ValueError(msg)
 
 
-def _opus_matches_claim(output_dir: Path, path: Path, claim: dict[str, Any]) -> bool:
+def _opus_matches_claim(fs: AbstractFileSystem, output_dir: str, path: str, claim: dict[str, Any]) -> bool:
     try:
-        digest = _sha256_file(path)
+        digest = _sha256_file(fs, path)
         relative = PurePosixPath(str(claim["audio_filepath"]))
-        persisted = json.loads(_owner_path(output_dir, relative, digest).read_text(encoding="utf-8"))
+        persisted = json.loads(fs.read_text(_owner_path(fs, output_dir, relative, digest), encoding="utf-8"))
     except (KeyError, OSError, json.JSONDecodeError):
         return False
     return persisted == claim
 
 
-def _write_receipt_candidate(path: Path, receipt: dict[str, Any]) -> None:
+def _write_receipt_candidate(fs: AbstractFileSystem, path: str, receipt: dict[str, Any]) -> None:
     """Create an immutable receipt candidate or verify an exact replay."""
 
-    created = write_json_atomically_if_absent(path, receipt, separators=(",", ":"))
-    if created:
+    if write_json_if_absent(fs, path, receipt):
         return
     try:
-        existing = json.loads(path.read_text(encoding="utf-8"))
+        existing = json.loads(fs.read_text(path, encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
         msg = f"Invalid NeMo speech row receipt {path}: {error}"
         raise ValueError(msg) from error
@@ -403,7 +423,8 @@ class NeMoSpeechWriterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
 
     This is a terminal sink: it persists each task and returns no waveform to
     the driver. The output directory must be an absolute path on a shared
-    POSIX-style filesystem visible at the same path to every worker. Call
+    POSIX-style filesystem visible at the same path to every worker, or a
+    cloud URL (``s3://``, ``gs://``, ...) that every worker can reach. Call
     :func:`finalize_nemo_speech_output` after a successful pipeline run to
     create manifests and completion markers.
 
@@ -423,7 +444,7 @@ class NeMoSpeechWriterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     is converted to JSON-safe values; the waveform itself is omitted.
 
     Args:
-        output_dir: Root for Opus clips, manifests, receipts, and markers.
+        output_dir: Root for Opus clips, manifests, receipts, and markers (absolute local path or cloud URL).
         target_sample_rate: Required sample rate for waveform-bearing rows.
         waveform_key: Task-data key containing the waveform.
         sample_rate_key: Task-data key containing its sample rate.
@@ -446,6 +467,7 @@ class NeMoSpeechWriterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         vad_empty_key: Flag identifying a no-speech placeholder.
         read_error_key: Flag identifying an unreadable-audio placeholder.
         audio_too_long_key: Additional reason flag for an unreadable placeholder.
+        storage_options: fsspec options for a cloud ``output_dir`` (credentials, endpoints).
     """
 
     output_dir: str
@@ -478,6 +500,7 @@ class NeMoSpeechWriterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     vad_empty_key: str = "vad_empty"
     read_error_key: str = "read_error"
     audio_too_long_key: str = "audio_too_long"
+    storage_options: dict[str, Any] | None = None
 
     KEY_ROLE_OVERRIDES: ClassVar = {
         "sampling_rate_key": "sample_rate",
@@ -510,7 +533,7 @@ class NeMoSpeechWriterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         if not self.output_dir:
             msg = "output_dir is required for NeMoSpeechWriterStage"
             raise ValueError(msg)
-        validate_local_output_dir(self.output_dir)
+        resolve_output_dir(self.output_dir, self.storage_options)
         if self.target_sample_rate <= 0:
             msg = "target_sample_rate must be positive"
             raise ValueError(msg)
@@ -592,9 +615,9 @@ class NeMoSpeechWriterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         self._prepare_output()
 
     def _prepare_output(self) -> None:
-        output_root = validate_local_output_dir(self.output_dir)
-        output_root.mkdir(parents=True, exist_ok=True)
-        _row_root(output_root).mkdir(parents=True, exist_ok=True)
+        fs, root = resolve_output_dir(self.output_dir, self.storage_options)
+        fs.makedirs(root, exist_ok=True)
+        fs.makedirs(_row_root(fs, root), exist_ok=True)
         if not self.save_audio:
             self._encoder = "disabled"
         elif sf.check_format("OGG", "OPUS"):
@@ -617,9 +640,7 @@ class NeMoSpeechWriterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
 
     def _encode_opus(self, waveform: np.ndarray, sample_rate: int) -> bytes:
         if self._encoder == "soundfile":
-            stream = io.BytesIO()
-            sf.write(stream, waveform, sample_rate, format="OGG", subtype="OPUS")
-            return stream.getvalue()
+            return encode_audio(waveform, sample_rate, file_format="OGG", subtype="OPUS")
         if self._encoder == "ffmpeg":
             result = subprocess.run(  # noqa: S603
                 [
@@ -807,7 +828,8 @@ class NeMoSpeechWriterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         if shard_total <= 0:
             msg = f"Task for shard {shard_key!r} has invalid _shard_total={shard_total}"
             raise ValueError(msg)
-        register_nemo_speech_shard(Path(self.output_dir), shard_key, shard_total)
+        fs, root = resolve_output_dir(self.output_dir, self.storage_options)
+        register_nemo_speech_shard(fs, root, shard_key, shard_total)
         input_id = self._input_id(task)
         output_slot = self._output_slot(task)
         output_id = hashlib.sha256(f"{_RECEIPT_VERSION}|{shard_key}|{input_id}|{output_slot}".encode()).hexdigest()
@@ -834,7 +856,7 @@ class NeMoSpeechWriterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                     )
                     raise ValueError(msg)
                 relative_audio_path = self._relative_audio_path(task, shard_key, output_id)
-                output_path = contained_output_path(Path(self.output_dir), relative_audio_path)
+                output_path = contained_output_path(fs, root, relative_audio_path)
                 audio_claim = {
                     "version": _OWNER_VERSION,
                     "shard_key": shard_key,
@@ -845,23 +867,19 @@ class NeMoSpeechWriterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                     "num_samples": len(waveform),
                     "waveform_sha256": hashlib.sha256(waveform.tobytes()).hexdigest(),
                 }
-                _claim_audio_path(Path(self.output_dir), audio_claim)
+                _claim_audio_path(fs, root, audio_claim)
                 if not (
-                    _opus_matches_claim(Path(self.output_dir), output_path, audio_claim)
-                    and _valid_opus(output_path, sample_rate, len(waveform))
+                    _opus_matches_claim(fs, root, output_path, audio_claim)
+                    and _valid_opus(fs, output_path, sample_rate, len(waveform))
                 ):
-                    if output_path.exists():
+                    if fs.exists(output_path):
                         logger.warning(f"Replacing unbound or invalid Opus output: {output_path}")
                     encoded = self._encode_opus(waveform, sample_rate)
-                    _claim_audio_path(
-                        Path(self.output_dir),
-                        audio_claim,
-                        hashlib.sha256(encoded).hexdigest(),
-                    )
-                    _write_bytes_atomically(output_path, encoded)
+                    _claim_audio_path(fs, root, audio_claim, hashlib.sha256(encoded).hexdigest())
+                    _write_bytes_atomically(fs, output_path, encoded)
                 if not (
-                    _opus_matches_claim(Path(self.output_dir), output_path, audio_claim)
-                    and _valid_opus(output_path, sample_rate, len(waveform))
+                    _opus_matches_claim(fs, root, output_path, audio_claim)
+                    and _valid_opus(fs, output_path, sample_rate, len(waveform))
                 ):
                     msg = f"Encoded Opus output failed validation: {relative_audio_path.as_posix()}"
                     raise RuntimeError(msg)
@@ -887,78 +905,77 @@ class NeMoSpeechWriterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             "entry": entry,
         }
         receipt_path = contained_output_path(
-            Path(self.output_dir),
+            fs,
+            root,
             f".nemo_curator/nemo_speech_rows/{shard_key}/{output_id}.{status}.json",
         )
-        _write_receipt_candidate(receipt_path, receipt)
+        _write_receipt_candidate(fs, receipt_path, receipt)
 
 
 @dataclass(frozen=True)
 class _ShardFinalizationPlan:
     shard_key: str
-    manifest_path: Path
-    marker_path: Path
-    temp_path: Path
+    manifest_path: str
+    marker_path: str
+    temp_path: str
     marker: dict[str, Any]
 
 
-def _receipt_filename_identity(path: Path) -> tuple[str, str]:
+def _receipt_filename_identity(path: str) -> tuple[str, str]:
+    name = posixpath.basename(path)
     for status in _RECEIPT_STATUSES:
         suffix = f".{status}.json"
-        if path.name.endswith(suffix):
-            output_id = path.name[: -len(suffix)]
+        if name.endswith(suffix):
+            output_id = name[: -len(suffix)]
             if output_id:
                 return output_id, status
     msg = f"Unsupported NeMo speech row receipt filename: {path}"
     raise ValueError(msg)
 
 
-def _receipt_shards(output_dir: Path) -> list[tuple[str, Path]]:
+def _walk_tree(fs: AbstractFileSystem, root: str, label: str) -> Iterable[tuple[str, list[str]]]:
+    """Yield ``(directory, file_names)`` below ``root``, rejecting symlinked directories."""
+
+    for directory, child_names, file_names in fs.walk(root, detail=True):
+        for child_name, info in child_names.items():
+            if info.get("islink"):
+                msg = f"NeMo speech {label} tree contains a symlink: {posixpath.join(directory, child_name)}"
+                raise ValueError(msg)
+        yield directory, sorted(file_names)
+
+
+def _receipt_shards(fs: AbstractFileSystem, output_dir: str) -> list[tuple[str, str]]:
     """Discover receipt directories without loading every receipt into memory."""
 
-    root = _row_root(output_dir)
-    if not root.is_dir():
+    root = _row_root(fs, output_dir)
+    if not fs.isdir(root):
         return []
-    discovered: list[tuple[str, Path]] = []
-    for directory, child_names, file_names in os.walk(root, followlinks=False):
-        child_names.sort()
-        directory_path = Path(directory)
-        for child_name in child_names:
-            child = directory_path / child_name
-            if child.is_symlink():
-                msg = f"NeMo speech receipt tree contains a symlink: {child}"
-                raise ValueError(msg)
+    discovered: list[tuple[str, str]] = []
+    for directory, file_names in _walk_tree(fs, root, "receipt"):
         if not any(name.endswith(".json") for name in file_names):
             continue
-        relative = directory_path.relative_to(root)
-        if not relative.parts:
-            msg = f"NeMo speech receipt found outside a shard directory: {directory_path}"
+        relative = PurePosixPath(posixpath.relpath(directory, root))
+        if relative == PurePosixPath("."):
+            msg = f"NeMo speech receipt found outside a shard directory: {directory}"
             raise ValueError(msg)
-        shard_key = validate_shard_key(PurePosixPath(*relative.parts).as_posix())
-        discovered.append((shard_key, _receipt_dir(output_dir, shard_key)))
+        shard_key = validate_shard_key(relative.as_posix())
+        discovered.append((shard_key, _receipt_dir(fs, output_dir, shard_key)))
     return sorted(discovered)
 
 
-def _registered_shards(output_dir: Path) -> list[tuple[str, int, Path]]:
-    root = shard_registration_root(output_dir)
-    if not root.is_dir():
+def _registered_shards(fs: AbstractFileSystem, output_dir: str) -> list[tuple[str, int, str]]:
+    root = shard_registration_root(fs, output_dir)
+    if not fs.isdir(root):
         return []
-    registered: list[tuple[str, int, Path]] = []
-    for directory, child_names, file_names in os.walk(root, followlinks=False):
-        child_names.sort()
-        directory_path = Path(directory)
-        for child_name in child_names:
-            child = directory_path / child_name
-            if child.is_symlink():
-                msg = f"NeMo speech shard-registration tree contains a symlink: {child}"
-                raise ValueError(msg)
-        for file_name in sorted(name for name in file_names if name.endswith(".json")):
-            relative = (directory_path / file_name).relative_to(root)
+    registered: list[tuple[str, int, str]] = []
+    for directory, file_names in _walk_tree(fs, root, "shard-registration"):
+        for file_name in (name for name in file_names if name.endswith(".json")):
+            relative = PurePosixPath(posixpath.relpath(posixpath.join(directory, file_name), root))
             key_parts = [*relative.parts[:-1], relative.name.removesuffix(".json")]
             shard_key = validate_shard_key(PurePosixPath(*key_parts).as_posix())
-            path = shard_registration_path(output_dir, shard_key)
+            path = shard_registration_path(fs, output_dir, shard_key)
             try:
-                payload = json.loads(path.read_text(encoding="utf-8"))
+                payload = json.loads(fs.read_text(path, encoding="utf-8"))
                 expected_inputs = int(payload.get("expected_inputs") or 0)
             except (OSError, AttributeError, TypeError, ValueError, json.JSONDecodeError) as error:
                 msg = f"Invalid NeMo speech shard registration {path}: {error}"
@@ -970,14 +987,14 @@ def _registered_shards(output_dir: Path) -> list[tuple[str, int, Path]]:
             ):
                 msg = f"Invalid NeMo speech shard registration: {path}"
                 raise ValueError(msg)
-            registered.append((shard_key, expected_inputs, _receipt_dir(output_dir, shard_key)))
+            registered.append((shard_key, expected_inputs, _receipt_dir(fs, output_dir, shard_key)))
     return sorted(registered)
 
 
-def _load_receipt(path: Path, shard_key: str) -> tuple[str, str, dict[str, Any]]:
+def _load_receipt(fs: AbstractFileSystem, path: str, shard_key: str) -> tuple[str, str, dict[str, Any]]:
     output_id, status = _receipt_filename_identity(path)
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload = json.loads(fs.read_text(path, encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
         msg = f"Invalid NeMo speech row receipt {path}: {error}"
         raise ValueError(msg) from error
@@ -996,16 +1013,18 @@ def _load_receipt(path: Path, shard_key: str) -> tuple[str, str, dict[str, Any]]
     return output_id, status, payload
 
 
-def _selected_receipts(output_dir: Path, shard_key: str, directory: Path) -> list[dict[str, Any]]:
-    if not directory.is_dir():
+def _selected_receipts(
+    fs: AbstractFileSystem, output_dir: str, shard_key: str, directory: str
+) -> list[dict[str, Any]]:
+    if not fs.isdir(directory):
         return []
     candidates: dict[str, dict[str, dict[str, Any]]] = {}
-    for discovered_path in sorted(directory.iterdir()):
-        if not discovered_path.name.endswith(".json"):
+    for name in sorted(posixpath.basename(path) for path in fs.ls(directory, detail=False)):
+        if not name.endswith(".json"):
             continue
-        relative = PurePosixPath(".nemo_curator/nemo_speech_rows") / shard_key / discovered_path.name
-        path = contained_output_path(output_dir, relative)
-        output_id, status, payload = _load_receipt(path, shard_key)
+        relative = PurePosixPath(".nemo_curator/nemo_speech_rows") / shard_key / name
+        path = contained_output_path(fs, output_dir, relative)
+        output_id, status, payload = _load_receipt(fs, path, shard_key)
         by_status = candidates.setdefault(output_id, {})
         by_status[status] = payload
 
@@ -1052,7 +1071,8 @@ def _claimed_audio_path_for_manifest(
 
 def _validated_manifest_entry(  # noqa: C901
     *,
-    root: Path,
+    fs: AbstractFileSystem,
+    root: str,
     shard_key: str,
     receipt: dict[str, Any],
     claimed_audio_paths: dict[str, str],
@@ -1087,7 +1107,7 @@ def _validated_manifest_entry(  # noqa: C901
         msg = f"Shard {shard_key!r} has multiple outputs claiming {safe_relative.as_posix()!r}"
         raise ValueError(msg)
     expected_sample_rate = int(entry.get("sample_rate") or 0)
-    output_path = contained_output_path(root, safe_relative)
+    output_path = contained_output_path(fs, root, safe_relative)
     expected_claim_fields = {
         "version": _OWNER_VERSION,
         "shard_key": shard_key,
@@ -1099,9 +1119,9 @@ def _validated_manifest_entry(  # noqa: C901
     if any(claim.get(key) != value for key, value in expected_claim_fields.items()):
         msg = f"Shard {shard_key!r} has inconsistent ownership metadata for {safe_relative.as_posix()!r}"
         raise ValueError(msg)
-    claim_path = _owner_path(root, safe_relative)
+    claim_path = _owner_path(fs, root, safe_relative)
     try:
-        persisted_claim = json.loads(claim_path.read_text(encoding="utf-8"))
+        persisted_claim = json.loads(fs.read_text(claim_path, encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
         msg = f"Invalid NeMo speech audio ownership record {claim_path}: {error}"
         raise ValueError(msg) from error
@@ -1113,8 +1133,8 @@ def _validated_manifest_entry(  # noqa: C901
         msg = f"Shard {shard_key!r} has invalid expected sample count for {safe_relative.as_posix()!r}"
         raise ValueError(msg)
     if not (
-        _opus_matches_claim(root, output_path, claim)
-        and _valid_opus(output_path, expected_sample_rate, expected_samples)
+        _opus_matches_claim(fs, root, output_path, claim)
+        and _valid_opus(fs, output_path, expected_sample_rate, expected_samples)
     ):
         msg = (
             f"Shard {shard_key!r} references missing or invalid Opus file, "
@@ -1125,12 +1145,13 @@ def _validated_manifest_entry(  # noqa: C901
 
 
 def _stage_shard_manifest(
-    root: Path,
+    fs: AbstractFileSystem,
+    root: str,
     shard_key: str,
     registered_expected: int,
-    receipt_directory: Path,
+    receipt_directory: str,
 ) -> _ShardFinalizationPlan:
-    receipts = _selected_receipts(root, shard_key, receipt_directory)
+    receipts = _selected_receipts(fs, root, shard_key, receipt_directory)
     expected_values = {int(receipt.get("expected_inputs") or 0) for receipt in receipts}
     if expected_values and expected_values != {registered_expected}:
         msg = f"Shard {shard_key!r} has conflicting or invalid expected input counts: {sorted(expected_values)}"
@@ -1144,24 +1165,31 @@ def _stage_shard_manifest(
         msg = f"Shard {shard_key!r} mixes invalid audio persistence modes"
         raise ValueError(msg)
 
-    manifest_path = contained_output_path(root, f"{shard_key}.jsonl")
-    marker_path = contained_output_path(root, f"{shard_key}.jsonl.done")
-    manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    temp_path: Path | None = None
+    manifest_path = contained_output_path(fs, root, f"{shard_key}.jsonl")
+    marker_path = contained_output_path(fs, root, f"{shard_key}.jsonl.done")
+    manifest_dir = posixpath.dirname(manifest_path)
+    fs.makedirs(manifest_dir, exist_ok=True)
+    local = isinstance(fs, LocalFileSystem)
+    temp_path: str | None = None
     digest = hashlib.sha256()
     row_count = 0
     claimed_audio_paths: dict[str, str] = {}
     try:
-        with tempfile.NamedTemporaryFile(
-            mode="wb",
-            dir=manifest_path.parent,
-            prefix=f".{manifest_path.name}.",
-            suffix=".tmp",
-            delete=False,
+        with (
+            tempfile.NamedTemporaryFile(
+                mode="wb",
+                dir=manifest_dir,
+                prefix=f".{posixpath.basename(manifest_path)}.",
+                suffix=".tmp",
+                delete=False,
+            )
+            if local
+            else fs.open(f"{manifest_dir}/.{posixpath.basename(manifest_path)}.{uuid.uuid4().hex}.tmp", "wb")
         ) as stream:
-            temp_path = Path(stream.name)
+            temp_path = stream.name if local else stream.path
             for receipt in sorted(receipts, key=_receipt_sort_key):
                 entry = _validated_manifest_entry(
+                    fs=fs,
                     root=root,
                     shard_key=shard_key,
                     receipt=receipt,
@@ -1171,11 +1199,12 @@ def _stage_shard_manifest(
                 stream.write(line)
                 digest.update(line)
                 row_count += 1
-            stream.flush()
-            os.fsync(stream.fileno())
+            if local:
+                stream.flush()
+                os.fsync(stream.fileno())
     except Exception:
-        if temp_path is not None:
-            temp_path.unlink(missing_ok=True)
+        if temp_path is not None and fs.exists(temp_path):
+            fs.rm_file(temp_path)
         raise
 
     marker = {
@@ -1195,15 +1224,15 @@ def _stage_shard_manifest(
     )
 
 
-def _sha256_file(path: Path) -> str:
+def _sha256_file(fs: AbstractFileSystem, path: str) -> str:
     digest = hashlib.sha256()
-    with path.open("rb") as stream:
+    with fs.open(path, "rb") as stream:
         while chunk := stream.read(1024 * 1024):
             digest.update(chunk)
     return digest.hexdigest()
 
 
-def finalize_nemo_speech_output(output_dir: str) -> list[str]:
+def finalize_nemo_speech_output(output_dir: str, storage_options: dict[str, Any] | None = None) -> list[str]:  # noqa: C901
     """Validate row receipts and atomically publish manifests and markers.
 
     The function performs a validation pass for every pending shard before it
@@ -1212,16 +1241,21 @@ def finalize_nemo_speech_output(output_dir: str) -> list[str]:
     on the driver after all writer workers are quiescent; concurrent writers
     or finalizers targeting the same output directory are unsupported.
 
+    Args:
+        output_dir: The writer's ``output_dir`` (absolute local path or cloud URL).
+        storage_options: fsspec options for a cloud ``output_dir``.
+
     Returns:
         Manifest paths finalized during this call.
     """
 
-    root = validate_local_output_dir(output_dir)
+    fs, root = resolve_output_dir(output_dir, storage_options)
+    local = isinstance(fs, LocalFileSystem)
     plans: list[_ShardFinalizationPlan] = []
     try:
-        registered = _registered_shards(root)
+        registered = _registered_shards(fs, root)
         registered_keys = {shard_key for shard_key, _, _ in registered}
-        receipt_keys = {shard_key for shard_key, _ in _receipt_shards(root)}
+        receipt_keys = {shard_key for shard_key, _ in _receipt_shards(fs, root)}
         if orphaned := sorted(receipt_keys - registered_keys):
             msg = f"NeMo speech receipts have no shard registration: {orphaned}"
             raise ValueError(msg)
@@ -1230,6 +1264,7 @@ def finalize_nemo_speech_output(output_dir: str) -> list[str]:
         for shard_key, expected_inputs, receipt_directory in registered:
             plans.append(
                 _stage_shard_manifest(
+                    fs,
                     root,
                     shard_key,
                     expected_inputs,
@@ -1240,11 +1275,11 @@ def finalize_nemo_speech_output(output_dir: str) -> list[str]:
         finalized: list[str] = []
         for plan in plans:
             try:
-                existing_marker = json.loads(plan.marker_path.read_text(encoding="utf-8"))
+                existing_marker = json.loads(fs.read_text(plan.marker_path, encoding="utf-8"))
                 already_finalized = (
                     existing_marker == plan.marker
-                    and plan.manifest_path.is_file()
-                    and _sha256_file(plan.manifest_path) == plan.marker["manifest_sha256"]
+                    and fs.isfile(plan.manifest_path)
+                    and _sha256_file(fs, plan.manifest_path) == plan.marker["manifest_sha256"]
                 )
             except (OSError, json.JSONDecodeError):
                 already_finalized = False
@@ -1254,20 +1289,27 @@ def finalize_nemo_speech_output(output_dir: str) -> list[str]:
             # A marker must never remain visible while its bound manifest is
             # replaced. If publication stops after this unlink, discovery sees
             # an incomplete shard and safely replays/finalizes it.
-            if plan.marker_path.exists():
-                plan.marker_path.unlink()
+            if fs.exists(plan.marker_path):
+                fs.rm_file(plan.marker_path)
+                if local:
+                    with contextlib.suppress(OSError):
+                        fsync_directory(Path(plan.marker_path).parent)
+            if local:
+                os.replace(plan.temp_path, plan.manifest_path)
                 with contextlib.suppress(OSError):
-                    fsync_directory(plan.marker_path.parent)
-            os.replace(plan.temp_path, plan.manifest_path)
-            with contextlib.suppress(OSError):
-                fsync_directory(plan.manifest_path.parent)
-            write_json_atomically(plan.marker_path, plan.marker, separators=(",", ":"))
-            finalized.append(str(plan.manifest_path))
+                    fsync_directory(Path(plan.manifest_path).parent)
+                write_json_atomically(Path(plan.marker_path), plan.marker, separators=(",", ":"))
+            else:
+                # Object stores have no rename; the copy publishes the whole manifest at once.
+                fs.mv(plan.temp_path, plan.manifest_path)
+                fs.pipe_file(plan.marker_path, json.dumps(plan.marker, separators=(",", ":"), sort_keys=True).encode())
+            finalized.append(plan.manifest_path if local else fs.unstrip_protocol(plan.manifest_path))
             logger.info(f"Finalized NeMo speech shard {plan.shard_key}: {plan.marker['manifest_rows']} rows")
         return finalized
     finally:
         for plan in plans:
-            plan.temp_path.unlink(missing_ok=True)
+            if fs.exists(plan.temp_path):
+                fs.rm_file(plan.temp_path)
 
 
 __all__ = ["NeMoSpeechWriterStage", "finalize_nemo_speech_output"]

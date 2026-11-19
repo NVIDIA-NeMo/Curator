@@ -15,14 +15,18 @@
 from pathlib import Path, PurePosixPath
 
 import pytest
+from fsspec.implementations.local import LocalFileSystem
+from fsspec.implementations.memory import MemoryFileSystem
 
-from nemo_curator.stages.audio.io._nemo_speech_paths import contained_output_path, validate_local_output_dir
+from nemo_curator.stages.audio.io._nemo_speech_paths import contained_output_path, resolve_output_dir
+
+_LOCAL = LocalFileSystem()
 
 
 @pytest.mark.parametrize("relative", ["", ".", PurePosixPath("."), "/absolute", "../outside", "nested/../../outside"])
 def test_rejects_root_absolute_and_traversing_outputs(tmp_path: Path, relative: str | PurePosixPath) -> None:
     with pytest.raises(ValueError, match="safe relative path"):
-        contained_output_path(tmp_path, relative)
+        contained_output_path(_LOCAL, str(tmp_path), relative)
 
 
 @pytest.mark.parametrize("leaf", [False, True])
@@ -32,17 +36,25 @@ def test_rejects_symlink_components_even_when_target_is_inside_root(tmp_path: Pa
     link = tmp_path / "alias"
     link.symlink_to(target, target_is_directory=True)
     with pytest.raises(ValueError, match="symlink"):
-        contained_output_path(tmp_path, "alias" if leaf else "alias/audio.opus")
+        contained_output_path(_LOCAL, str(tmp_path), "alias" if leaf else "alias/audio.opus")
 
 
 def test_normalizes_safe_paths_without_creating_outputs(tmp_path: Path) -> None:
-    result = contained_output_path(tmp_path, r"nested\audio.opus")
-    assert result == tmp_path / "nested/audio.opus"
-    assert not result.parent.exists()
-    assert validate_local_output_dir(str(tmp_path)) == tmp_path
+    result = contained_output_path(_LOCAL, str(tmp_path), r"nested\audio.opus")
+    assert result == str(tmp_path / "nested/audio.opus")
+    assert not Path(result).parent.exists()
+    assert resolve_output_dir(str(tmp_path))[1] == str(tmp_path)
 
 
-@pytest.mark.parametrize("path", ["relative", "s3://bucket/output", "file:///tmp/output"])
-def test_output_directory_must_be_absolute_and_local(path: str) -> None:
+def test_cloud_roots_are_accepted_and_joined_without_local_checks() -> None:
+    fs, root = resolve_output_dir("memory://speech/out")
+    assert isinstance(fs, MemoryFileSystem)
+    assert contained_output_path(fs, root, "a/b.opus") == f"{root}/a/b.opus"
+    with pytest.raises(ValueError, match="safe relative path"):
+        contained_output_path(fs, root, "../escape")
+
+
+@pytest.mark.parametrize("path", ["relative", "file:///tmp/output"])
+def test_local_output_directory_must_be_absolute(path: str) -> None:
     with pytest.raises(ValueError, match="absolute local path"):
-        validate_local_output_dir(path)
+        resolve_output_dir(path)

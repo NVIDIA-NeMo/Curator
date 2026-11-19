@@ -871,3 +871,22 @@ class TestMFAAlignmentStage:
         assert all(call.kwargs.get("timeout") is not None for call in process.communicate.call_args_list)
         process.stdout.close.assert_called_once()
         process.stderr.close.assert_called_once()
+
+
+def test_process_batch_uploads_outputs_to_a_cloud_root(tmp_path: Path) -> None:
+    import fsspec
+
+    wav = _make_wav(tmp_path)
+    stage = _make_stage(tmp_path, output_dir="memory://mfa-out", storage_options={"skip_instance_cache": True})
+    _setup_stage(stage, textgrid=_fake_textgrid([_fake_textgrid_entry(0.0, 0.5, "hello")]))
+
+    with _patch_mfa_subprocess(stage, side_effect=_mock_mfa_writes_textgrid(wav)):
+        [result] = stage.process_batch([_make_task(wav)])
+
+    fs = fsspec.filesystem("memory")
+    for key in ("textgrid_filepath", "rttm_filepath", "ctm_filepath"):
+        assert result.data[key].startswith("memory://mfa-out/")
+        assert fs.exists(result.data[key])
+    assert "hello" in fs.cat_file(result.data["ctm_filepath"]).decode()
+    assert stage._textgrid_dir == Path("memory://mfa-out") / "textgrids"  # restored after the batch
+    assert not Path("memory:").exists()  # nothing was created under a mangled local path

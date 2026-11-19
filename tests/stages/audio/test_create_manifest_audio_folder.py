@@ -206,3 +206,21 @@ def test_full_delta_and_restricted_folder_ids_do_not_collide(tmp_path: Path) -> 
     assert initial.data["audio_item_id"] == ids[initial.data["audio_filepath"]]
     assert delta[0].data["audio_item_id"] == ids[delta[0].data["audio_filepath"]]
     assert initial.get_deterministic_id() != delta[0].get_deterministic_id()
+
+
+def test_cloud_prefix_is_scanned_with_fsspec() -> None:
+    import fsspec
+
+    fs = fsspec.filesystem("memory")
+    for rel in ["corpus/spk1/a.WAV", "corpus/spk2/a.wav", "corpus/notes.txt"]:
+        fs.pipe(f"/{rel}", b"")
+    stage = CreateInitialManifestAudioFolderStage(
+        data_dir="memory://corpus",
+        storage_options={"skip_instance_cache": True},
+        include_files=["memory://corpus/spk1/a.WAV", "memory://corpus/spk2/a.wav"],
+    )
+    tasks = stage.process(None)
+
+    assert [t.data["audio_filepath"] for t in tasks] == ["memory:///corpus/spk1/a.WAV", "memory:///corpus/spk2/a.wav"]
+    assert [t.data["audio_item_id"] for t in tasks] == ["spk1__a~eWAV", "spk2__a~ewav"]
+    assert CreateInitialManifestAudioFolderStage(data_dir="memory://missing").process(None) == []

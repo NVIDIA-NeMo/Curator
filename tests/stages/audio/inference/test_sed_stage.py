@@ -545,3 +545,17 @@ def test_module_docstring_contains_the_exact_yaml_command() -> None:
     assert "loaded without network access" in stage.__doc__
     assert "Cnn14_mAP=0.431.pth" in stage.__doc__
     assert "clip-level audio tagging" in stage.__doc__
+
+
+def test_npz_sidecar_is_written_to_a_cloud_output_dir() -> None:
+    import fsspec
+
+    stage, _ = _stage(save_npz=True, output_dir="memory://sed-out", storage_options={"skip_instance_cache": True})
+    task = _task()
+    task._set_task_id("manifest", 0)
+    stage.process_batch([task])
+
+    path = task.data["npz_filepath"]
+    assert path.startswith("memory://sed-out/framewise/")
+    with fsspec.open(path, "rb") as f:
+        assert np.load(f)["framewise"].shape[1] == _CLASSES

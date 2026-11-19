@@ -22,12 +22,12 @@ use_cases:
 composition:
   typical_upstream: [NeMoSpeechAudioReader]
 params_of_note:
-  output_dir: "Required absolute path on a shared POSIX-style filesystem, visible at the same path to every worker; object-store URLs are unsupported."
+  output_dir: "Required absolute path on a shared POSIX-style filesystem visible at the same path to every worker, or a cloud URL (s3://, gs://) every worker can reach; set storage_options for credentials."
   target_sample_rate: "Default 16000 Hz. save_audio=true requires this exact input rate; no resampling is performed. Manifest-only mode does not enforce this rate."
   waveform_key: "Default waveform. Required for non-placeholder audio-writing rows; NumPy/tensor input is normalized to contiguous mono float32."
   sample_rate_key: "Default sample_rate; sampling_rate_key is the fallback alias, then target_sample_rate if neither is supplied."
   save_audio: "Default true encodes Opus. False writes source-reference rows without copying/encoding audio; original_file_key is preferred over audio_filepath_key."
-  writer_concurrency: "Default 1 stateless writer actor; workers still need shared filesystem visibility."
+  writer_concurrency: "Default 1 stateless writer actor; workers still need a shared filesystem or the same cloud root."
   output_audio_filepath_key: "Optional preset/recorded path relative to output_dir; must be a safe .opus path below the current shard directory."
   duration_sec_key: "Default duration_sec. When this key exists it takes precedence over duration_key, including a null value; a resolved null uses waveform samples/rate, or zero without waveform. Supplied duration is not independently recomputed."
   duration_key: "Default duration; reported seconds used for successful fallback and read_error placeholders."

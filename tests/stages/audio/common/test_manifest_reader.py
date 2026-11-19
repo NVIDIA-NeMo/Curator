@@ -15,6 +15,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.alm import ALMDataBuilderStage, ALMDataOverlapStage
@@ -261,3 +263,24 @@ class TestManifestWriterRoundTrip:
             loaded = audio_entry.data
             assert loaded["audio_filepath"] == orig["audio_filepath"]
             assert len(loaded["segments"]) == len(orig["segments"])
+
+
+def test_reader_passes_storage_options_to_fsspec(monkeypatch: pytest.MonkeyPatch) -> None:
+    import fsspec
+
+    from nemo_curator.stages.audio.common import manifest_reader
+
+    fsspec.filesystem("memory").pipe("/manifests/m.jsonl", b'{"audio_filepath": "s3://b/a.wav"}\n')
+    seen: list[dict] = []
+
+    def spy(path: str, **kwargs: object) -> tuple:
+        seen.append(kwargs)
+        return fsspec.core.url_to_fs(path, **kwargs)
+
+    monkeypatch.setattr(manifest_reader, "url_to_fs", spy)
+    opts = {"skip_instance_cache": True}
+    stage = ManifestReader(manifest_path="memory://manifests/m.jsonl", storage_options=opts).decompose()[1]
+    result = stage.process(_make_file_group_task(["memory://manifests/m.jsonl"]))
+
+    assert [r.data["audio_filepath"] for r in result] == ["s3://b/a.wav"]
+    assert seen == [opts]

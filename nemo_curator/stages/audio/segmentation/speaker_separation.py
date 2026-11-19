@@ -33,6 +33,7 @@ Example:
 import filecmp
 import hashlib
 import os
+import posixpath
 import shutil
 import tempfile
 from dataclasses import dataclass, field
@@ -41,6 +42,7 @@ from typing import Any, ClassVar, cast
 import numpy as np
 import soundfile as sf
 import torch
+from fsspec.core import url_to_fs
 from loguru import logger
 from pydub import AudioSegment
 
@@ -64,6 +66,7 @@ from nemo_curator.stages.audio.segmentation.speaker_separation_module.speaker_se
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
+from nemo_curator.utils.client_utils import is_remote_url
 
 
 def _pydub_to_waveform_sr(seg: AudioSegment) -> tuple[torch.Tensor, int]:
@@ -125,6 +128,8 @@ class SpeakerSeparationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             ``audio_filepath_key`` to it, so file-based downstream stages can consume it.
             Defaults to False (in-memory only, unchanged).
         separated_audio_dir: Directory for per-speaker WAVs (required when write_to_disk=True).
+            A cloud prefix (``s3://``, ``gs://``, ...) is supported: WAVs are staged locally and uploaded.
+        storage_options: fsspec options for a cloud ``separated_audio_dir`` (credentials, endpoints).
 
     Note:
         By default (write_to_disk=False) per-speaker child tasks retain the parent's
@@ -160,6 +165,7 @@ class SpeakerSeparationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     keep_waveform_in_task: bool = True
     write_to_disk: bool = False
     separated_audio_dir: str | None = None
+    storage_options: dict[str, Any] | None = None
 
     AGENT_STATIC: ClassVar[StaticHints] = StaticHints(gates=Gates(requires_internet_first_run=True))
 
@@ -364,8 +370,11 @@ class SpeakerSeparationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     ) -> None:
         """Stage every WAV and publish immutable outputs without clobbering existing files."""
         output_dir = str(self.separated_audio_dir)
-        os.makedirs(output_dir, exist_ok=True)
-        staging_dir = tempfile.mkdtemp(prefix=".speaker-separation-", dir=output_dir)
+        fs = url_to_fs(output_dir, **(self.storage_options or {}))[0] if is_remote_url(output_dir) else None
+        if fs is None:
+            os.makedirs(output_dir, exist_ok=True)
+        # A cloud destination has no local directory to stage in, so stage in the system temp dir.
+        staging_dir = tempfile.mkdtemp(prefix=".speaker-separation-", dir=None if fs else output_dir)
         try:
             staged: list[tuple[dict[str, Any], str, str]] = []
             for speaker_data, waveform, sample_rate, speaker_id in pending:
@@ -376,10 +385,15 @@ class SpeakerSeparationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                     speaker_id,
                     output_dir=staging_dir,
                 )
-                final_path = os.path.join(output_dir, os.path.basename(staged_path))
+                name = os.path.basename(staged_path)
+                final_path = posixpath.join(output_dir.rstrip("/"), name) if fs else os.path.join(output_dir, name)
                 staged.append((speaker_data, staged_path, final_path))
 
             for speaker_data, staged_path, final_path in staged:
+                if fs is not None:
+                    fs.put_file(staged_path, final_path)
+                    speaker_data[self.audio_filepath_key] = final_path
+                    continue
                 try:
                     # The staging directory is inside output_dir, so a hard link is an
                     # atomic no-clobber publish. A pre-existing content-addressed output

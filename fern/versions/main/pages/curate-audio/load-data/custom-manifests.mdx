@@ -118,6 +118,10 @@ pipeline.add_stage(
 )
 ```
 
+### Manifests and audio folders in cloud storage
+
+`manifest_path` (and the `data_dir` of `CreateInitialManifestAudioFolderStage`) can be an S3 or GCS URL. Pass fsspec credentials or a custom endpoint through `storage_options`, for example `ManifestReader(manifest_path="s3://bucket/manifests/", storage_options={"key": "...", "secret": "..."})`. The audio-writing stages accept the same `storage_options` alongside their cloud output directory.
+
 ### Validation
 
 `ManifestReader` parses each JSONL row into an `AudioTask`, but it does not set `filepath_key` and therefore does not preflight audio-file existence through `AudioTask.validate()`. Consuming stages enforce their required columns and perform audio I/O. By default, `ASRStage` logs an unreadable-audio error, writes an empty prediction, and marks the task with `_skipme="audio_load_error"`; set `fail_on_audio_error=True` on that stage to raise instead.
