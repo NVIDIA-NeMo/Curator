@@ -61,8 +61,8 @@ source .venv/bin/activate
 Run the maintained entrypoint from the repository root:
 
 ```bash
-python tutorials/audio/fleurs/main.py \
-  --config-path . \
+python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/fleurs \
   --config-name pipeline \
   raw_data_dir="${PWD}/example_audio/fleurs"
 ```
@@ -74,8 +74,8 @@ The defaults process the Armenian (`hy_am`) development split with `nvidia/stt_h
 Set the ASR stage's GPU requirement to zero:
 
 ```bash
-python tutorials/audio/fleurs/main.py \
-  --config-path . \
+python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/fleurs \
   --config-name pipeline \
   raw_data_dir="${PWD}/example_audio/fleurs-cpu" \
   stages.1.resources.gpus=0
@@ -102,8 +102,8 @@ The supplied `pipeline.yaml` keeps the required ASR capacity settings together:
 Use Hydra overrides without editing `pipeline.yaml`:
 
 ```bash
-python tutorials/audio/fleurs/main.py \
-  --config-path . \
+python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/fleurs \
   --config-name pipeline \
   raw_data_dir="${PWD}/example_audio/fleurs-en" \
   lang=en_us \

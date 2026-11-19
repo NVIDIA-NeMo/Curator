@@ -85,8 +85,8 @@ Install Curator, run the maintained FLEURS pipeline, and inspect its output.
 3. Run the maintained FLEURS pipeline from the repository root.
 
    ```bash
-   python tutorials/audio/fleurs/main.py \
-     --config-path . \
+   python nemo_curator/config/run.py \
+     --config-path ../../tutorials/audio/fleurs \
      --config-name pipeline \
      raw_data_dir="${PWD}/example_audio/fleurs"
    ```
@@ -98,8 +98,8 @@ Install Curator, run the maintained FLEURS pipeline, and inspect its output.
    For CPU execution, install the `audio_cpu` extra and set the GPU resource request to zero. Refer to the [Beginner Audio Processing Tutorial](/curate-audio/tutorials/beginner) for supported overrides and details about the checked-in configuration.
 
    ```bash
-   python tutorials/audio/fleurs/main.py \
-     --config-path . \
+   python nemo_curator/config/run.py \
+     --config-path ../../tutorials/audio/fleurs \
      --config-name pipeline \
      raw_data_dir="${PWD}/example_audio/fleurs-cpu" \
      stages.1.resources.gpus=0

@@ -40,8 +40,13 @@ def create_ray_client_from_yaml(cfg: DictConfig) -> RayClient:
 
 
 def create_executor_from_yaml(cfg: DictConfig) -> BaseExecutor | None:
-    """Create the configured pipeline executor, if executor settings are present."""
-    if "backend" not in cfg and "execution_mode" not in cfg:
+    """Create the configured pipeline executor, if executor settings are present.
+
+    ``backend`` picks the executor class, ``executor_kwargs`` is passed to its
+    constructor (for example ``config`` or ``ignore_head_node``), and
+    ``execution_mode`` is merged into the Xenna ``config``.
+    """
+    if not {"backend", "execution_mode", "executor_kwargs"} & set(cfg.keys()):
         return None
 
     backend = str(cfg.get("backend", "xenna"))
@@ -51,17 +56,20 @@ def create_executor_from_yaml(cfg: DictConfig) -> BaseExecutor | None:
         raise ValueError(msg)
 
     executor_cls = hydra.utils.get_class(_EXECUTOR_TARGETS[backend])
+    executor_kwargs = OmegaConf.to_container(cfg.get("executor_kwargs") or OmegaConf.create({}), resolve=True)
     if backend == "xenna":
-        execution_mode = str(cfg.get("execution_mode", "streaming"))
+        executor_config = executor_kwargs.get("config") or {}
+        execution_mode = str(cfg.get("execution_mode", executor_config.get("execution_mode", "streaming")))
         if execution_mode not in _XENNA_EXECUTION_MODES:
             choices = ", ".join(sorted(_XENNA_EXECUTION_MODES))
             msg = f"Unknown Xenna execution mode '{execution_mode}'. Choose from: {choices}."
             raise ValueError(msg)
+        executor_kwargs["config"] = {**executor_config, "execution_mode": execution_mode}
         logger.info(f"Using executor backend '{backend}' in '{execution_mode}' mode.")
-        return executor_cls(config={"execution_mode": execution_mode})
+        return executor_cls(**executor_kwargs)
 
     logger.info(f"Using executor backend '{backend}'.")
-    return executor_cls()
+    return executor_cls(**executor_kwargs)
 
 
 def _instantiate_stage(stage_cfg: DictConfig) -> Any:  # noqa: ANN401
