@@ -17,7 +17,10 @@ regex_yaml: tutorials/audio/granary_v2/full_pipeline/regex.yaml
 
 backend: ray_data
 batch_size: 128
-num_workers: 12
+# Concurrent task workers per fused text operator (two operators: PnC → TN → fused text, and ITN → disfluency).
+# One worker keeps 128-256 requests in flight, so 6 + 6 workers hold about 1.5-3 times the 1,024 sequences four
+# replicas can run, enough to keep the server saturated without a deep queue.
+num_workers: 6
 max_concurrent_requests: 256
 # Text requests wait for a replica, which starts only after audio stages free a GPU.
 request_timeout_s: 21600

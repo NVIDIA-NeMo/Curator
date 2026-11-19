@@ -476,11 +476,11 @@ class AudioTextLLMStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             if task.data.get(self.skip_me_key):
                 pending.append((index, task.data.get(self.output_text_key, ""), "skipped (flagged)"))
                 continue
-            if self.text_key not in task.data:
-                msg = f"Missing input field {self.text_key!r}"
-                raise ValueError(msg)
-            text = task.data[self.text_key]
-            if not isinstance(text, str):
+            # A missing or None transcript is empty text, as in the reference stage; other types are errors.
+            text = task.data.get(self.text_key)
+            if text is None:
+                text = ""
+            elif not isinstance(text, str):
                 msg = f"{self.text_key} must be a string"
                 raise TypeError(msg)
             if not text.strip():

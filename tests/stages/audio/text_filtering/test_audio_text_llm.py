@@ -552,11 +552,21 @@ def test_flagged_rows_preserve_existing_output(
     assert clients == []
 
 
-@pytest.mark.parametrize("data", [{}, {"text": None}, {"text": 12}, {"text": ["hello"]}])
+@pytest.mark.parametrize("data", [{"text": 12}, {"text": ["hello"]}])
 def test_active_rows_require_a_string_transcript(data: dict, endpoint: Callable) -> None:
     clients = endpoint(lambda _request: _completion("unused"))
-    with pytest.raises((TypeError, ValueError, KeyError)):
+    with pytest.raises(TypeError):
         _stage().process_batch([AudioTask(data=data)])
+    assert clients == []
+
+
+@pytest.mark.parametrize("data", [{}, {"text": None}])
+def test_missing_or_none_transcript_is_skipped_as_empty(data: dict, endpoint: Callable) -> None:
+    clients = endpoint(lambda _request: _completion("unused"))
+    stage = _stage()
+    (task,) = stage.process_batch([AudioTask(data=dict(data))])
+    assert task.data[stage.output_text_key] == ""
+    assert task.data["additional_notes"][stage.name] == "skipped (empty)"
     assert clients == []
 
 

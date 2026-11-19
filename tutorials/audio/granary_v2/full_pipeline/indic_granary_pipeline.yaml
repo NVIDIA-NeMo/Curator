@@ -137,10 +137,12 @@ stages:
     name: IndicCanary_primary
     engine_dir: ${model_dir}/indic_canary
     num_beams: 4
-    max_new_tokens: 347
+    # The decoder engine holds 384 tokens including the 10-token prompt, so 374 is its full output capacity (the
+    # reference default); the KV fractions are the reference defaults too.
+    max_new_tokens: 374
     pnc: false
-    kv_cache_free_gpu_memory_fraction: 0.1
-    cross_kv_cache_fraction: 0.1
+    kv_cache_free_gpu_memory_fraction: 0.2
+    cross_kv_cache_fraction: 0.2
     sample_rate_key: sample_rate
     pred_text_key: primary_model_prediction
     batch_size: 64
