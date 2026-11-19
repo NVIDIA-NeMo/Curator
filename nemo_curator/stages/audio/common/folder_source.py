@@ -14,14 +14,29 @@
 
 import hashlib
 import os
+import posixpath
 from dataclasses import dataclass, field
 from typing import Any, ClassVar
 
+from fsspec.core import strip_protocol, url_to_fs
+from fsspec.utils import get_protocol
 from loguru import logger
 
 from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract, StaticHints
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask, EmptyTask
+from nemo_curator.utils.file_utils import get_all_file_paths_under
+
+
+def _is_local(path: str) -> bool:
+    return get_protocol(path) in ("file", "local")
+
+
+def _abspath(path: str) -> str:
+    """Absolute local path, or the canonical ``protocol://path`` form of a cloud URL."""
+    if _is_local(path):
+        return os.path.abspath(os.path.expanduser(path))
+    return f"{get_protocol(path)}://{strip_protocol(path)}"
 
 
 class _AudioFolderTask(AudioTask):
@@ -33,7 +48,7 @@ class _AudioFolderTask(AudioTask):
 
 @dataclass
 class CreateInitialManifestAudioFolderStage(AgentReady, ProcessingStage[EmptyTask, AudioTask]):
-    """Create an initial manifest from any local folder of audio files.
+    """Create an initial manifest from any folder of audio files (local or cloud).
 
     Recursively scans ``data_dir`` for audio files and emits one AudioTask per file with its
     path under ``audio_filepath_key`` (plus a filename-derived ``audio_item_id``). A generic,
@@ -43,7 +58,7 @@ class CreateInitialManifestAudioFolderStage(AgentReady, ProcessingStage[EmptyTas
     ``ManifestReader`` when a manifest already exists).
 
     Args:
-        data_dir: Local folder to scan for audio files.
+        data_dir: Folder to scan for audio files: a local path or a cloud prefix (``s3://``, ``gs://``, ...).
         extensions: Audio file extensions to include (case-insensitive).
         recursive: Recurse into subfolders (default True).
         max_samples: Maximum number of files to include (-1 for all).
@@ -51,6 +66,7 @@ class CreateInitialManifestAudioFolderStage(AgentReady, ProcessingStage[EmptyTas
             folder. ``None`` -- the default -- means the whole folder, exactly as before.
             Restricting the file list rather than swapping in a different source stage is what
             lets a delta run over new files produce rows identical to a full run's.
+        storage_options: fsspec storage options for a cloud ``data_dir`` (credentials, endpoints).
     """
 
     data_dir: str
@@ -60,6 +76,7 @@ class CreateInitialManifestAudioFolderStage(AgentReady, ProcessingStage[EmptyTas
     include_files: list[str] | None = None
     audio_filepath_key: str = "audio_filepath"
     audio_item_id_key: str = "audio_item_id"
+    storage_options: dict[str, Any] | None = None
     name: str = "CreateInitialManifestAudioFolder"
     batch_size: int = 1
     # See ManifestReaderStage: the narrowing claim has to survive being read off the class.
@@ -128,11 +145,17 @@ class CreateInitialManifestAudioFolderStage(AgentReady, ProcessingStage[EmptyTas
 
     def _collect_audio_files(self) -> list[str]:
         exts = tuple((e if e.startswith(".") else f".{e}").lower() for e in self.extensions)
-        if not os.path.isdir(self.data_dir):
+        found: list[str] = []
+        if not _is_local(self.data_dir):
+            fs, root = url_to_fs(self.data_dir, **(self.storage_options or {}))
+            if not fs.isdir(root):
+                logger.error(f"[{self.name}] data_dir not found: {self.data_dir}")
+                return []
+            found = get_all_file_paths_under(self.data_dir, self.recursive, list(exts), fs=fs)
+        elif not os.path.isdir(self.data_dir):
             logger.error(f"[{self.name}] data_dir not found: {self.data_dir}")
             return []
-        found: list[str] = []
-        if self.recursive:
+        elif self.recursive:
             for root, _dirs, files in os.walk(self.data_dir):
                 found.extend(os.path.join(root, f) for f in files if f.lower().endswith(exts))
         else:
@@ -142,9 +165,9 @@ class CreateInitialManifestAudioFolderStage(AgentReady, ProcessingStage[EmptyTas
                 if f.lower().endswith(exts) and os.path.isfile(os.path.join(self.data_dir, f))
             ]
         if self.include_files is not None:
-            wanted = {os.path.abspath(os.path.expanduser(p)) for p in self.include_files}
-            found = [p for p in found if os.path.abspath(p) in wanted]
-            missing = wanted - {os.path.abspath(p) for p in found}
+            wanted = {_abspath(p) for p in self.include_files}
+            found = [p for p in found if _abspath(p) in wanted]
+            missing = wanted - {_abspath(p) for p in found}
             if missing:
                 # Named rather than silently skipped: a caller that asked for specific files and
                 # got fewer would otherwise read the short result as "those files held nothing".
@@ -163,12 +186,15 @@ class CreateInitialManifestAudioFolderStage(AgentReady, ProcessingStage[EmptyTas
             return []
         tasks: list[AudioTask] = []
         for path in paths:
-            abspath = os.path.abspath(path)
+            abspath = os.path.abspath(path) if _is_local(path) else _abspath(path)
             # Relpath, not basename: ``recursive`` defaults True and speaker-per-folder is the
             # standard layout, so a basename id gives spk1/utt1.wav and spk2/utt1.wav the same
             # id -- and downstream that id becomes an output filename. A flat corpus is
             # unaffected unless its name needs escaping to remain distinct from a path separator.
-            rel = os.path.relpath(abspath, os.path.abspath(self.data_dir))
+            if _is_local(self.data_dir):
+                rel = os.path.relpath(abspath, os.path.abspath(self.data_dir))
+            else:
+                rel = posixpath.relpath(strip_protocol(abspath), strip_protocol(self.data_dir))
             item_id = self._item_id(rel)
             tasks.append(
                 _AudioFolderTask(
