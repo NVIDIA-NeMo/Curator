@@ -66,6 +66,10 @@ def _make_stage(tmp_path: Path, **overrides: object) -> MFAAlignmentStage:
     return MFAAlignmentStage(**defaults)  # type: ignore[arg-type]
 
 
+def test_ray_stage_spec_keeps_base_keys(tmp_path: Path) -> None:
+    assert _make_stage(tmp_path).ray_stage_spec() == {"is_fanout_stage": False, "is_actor_stage": True}
+
+
 def _make_wav(tmp_path: Path, name: str = "sample.wav") -> Path:
     wav = tmp_path / name
     wav.write_bytes(b"RIFF" + b"\x00" * 100)

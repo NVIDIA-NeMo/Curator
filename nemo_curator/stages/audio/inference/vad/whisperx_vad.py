@@ -287,9 +287,7 @@ class WhisperXVADStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         )
 
     def ray_stage_spec(self) -> dict[str, Any]:
-        if self.fanout:
-            return {RayStageSpecKeys.IS_FANOUT_STAGE: True}
-        return {}
+        return {**super().ray_stage_spec(), RayStageSpecKeys.IS_FANOUT_STAGE: self.fanout}
 
     def _segment_child_data(  # noqa: PLR0913
         self,

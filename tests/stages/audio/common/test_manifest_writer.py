@@ -178,12 +178,15 @@ class TestManifestWriterStage:
         task = AudioTask(
             data={"x": 1},
             dataset_name="ds",
+            filepath_key="x",
             _metadata=metadata,
             _stage_perf=stage_perf,
         )
         result = writer.process(task)
 
         assert result._metadata == metadata
+        assert result._metadata is not task._metadata
+        assert result.filepath_key == "x"
         assert result._stage_perf == stage_perf
 
     def test_appends_across_multiple_process_calls(self, tmp_path: Path) -> None:

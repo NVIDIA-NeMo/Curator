@@ -139,6 +139,10 @@ class TestPyAnnoteDiarizationStage:
         monkeypatch.setattr(PyAnnoteDiarizationStage, "is_resumable", False)
         assert PyAnnoteDiarizationStage().is_resumable is False
 
+    @pytest.mark.parametrize("fanout", [False, True])
+    def test_ray_stage_spec_keeps_fanout_key(self, fanout: bool) -> None:
+        assert PyAnnoteDiarizationStage(fanout=fanout).ray_stage_spec() == {"is_fanout_stage": fanout}
+
     def test_xenna_num_workers_routes_through_generic_num_workers(self) -> None:
         stage = PyAnnoteDiarizationStage(hf_token=self.__class__.__name__, xenna_num_workers=4)
 
