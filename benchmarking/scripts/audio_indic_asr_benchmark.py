@@ -46,7 +46,7 @@ EXPECTED_MANIFEST_BYTES = 116_382_162
 EXPECTED_MANIFEST_SHA256 = (
     "0a8ccc0f3ff8d4ad35b3e7e104e5e093b0de14a92542d71fa6911c8045373727"  # pragma: allowlist secret
 )
-CANARY_REQUIRED_FILES = (
+INDIC_TRANSCRIBE_REQUIRED_FILES = (
     "encoder/encoder.plan",
     "encoder/config.json",
     "decoder/config.json",
@@ -238,7 +238,7 @@ def _preflight_runtime_and_models(
         "nemo_curator.models.asr.indic_parakeet_rnnt_tensorrt",
     ):
         importlib.import_module(module)
-    _require_files(indic_transcribe_engine_dir, CANARY_REQUIRED_FILES, "Indic Transcribe engine")
+    _require_files(indic_transcribe_engine_dir, INDIC_TRANSCRIBE_REQUIRED_FILES, "Indic Transcribe engine")
     _require_files(parakeet_tensorrt_engine_dir, PARAKEET_ENGINE_REQUIRED_FILES, "Indic Parakeet TensorRT bundle")
     logger.info(f"Indic ASR Python: {sys.executable}")
     for package_name in ("torch", "torchaudio", "tensorrt", "tensorrt-llm", "nemo-toolkit", "transformers"):
@@ -381,7 +381,7 @@ def run_audio_indic_asr_benchmark(  # noqa: PLR0913
     benchmark_path = Path(benchmark_results_path)
     scratch_dir = benchmark_path / "scratch" / "audio_indic_asr_input"
     output_manifest = benchmark_path / "results" / "audio_indic_asr_output.jsonl"
-    canary_path = Path(indic_transcribe_engine_dir)
+    indic_transcribe_path = Path(indic_transcribe_engine_dir)
     parakeet_engine = Path(parakeet_tensorrt_engine_dir)
     regex_path = Path(regex_yaml)
     phrases_path = Path(hall_phrases)
@@ -396,7 +396,7 @@ def run_audio_indic_asr_benchmark(  # noqa: PLR0913
     cfg = OmegaConf.load(_PIPELINE_CONFIG)
     cfg.dataset_dir = str(Path(input_manifest).resolve().parent)
     cfg.output_path = str(output_manifest.resolve())
-    cfg.indic_transcribe_engine_dir = str(canary_path.resolve())
+    cfg.indic_transcribe_engine_dir = str(indic_transcribe_path.resolve())
     cfg.parakeet_tensorrt_engine_dir = str(parakeet_engine.resolve())
     cfg.regex_yaml = str(regex_path.resolve())
     cfg.hall_phrases = str(phrases_path.resolve())
@@ -409,7 +409,7 @@ def run_audio_indic_asr_benchmark(  # noqa: PLR0913
     ):
         if value is not None:
             cfg[key] = value
-    _preflight_runtime_and_models(canary_path, parakeet_engine)
+    _preflight_runtime_and_models(indic_transcribe_path, parakeet_engine)
     inventory = _materialize_input_manifests(Path(input_manifest), scratch_dir, int(cfg.read_concurrency))
     if inventory.num_rows != expected_num_rows:
         msg = f"Expected {expected_num_rows} Hindi rows, found {inventory.num_rows}"

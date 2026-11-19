@@ -83,7 +83,7 @@ def test_complete_engine_bundle_passes_node_prefetch(tmp_path: Path) -> None:
 def test_default_runtime_reuses_the_shared_indic_transcribe_runtime() -> None:
     runtime_class = _resolve_runtime_class(_DEFAULT_RUNTIME_CLASS_PATH)
 
-    assert runtime_class.__name__ == "CanaryTRTLLM"
+    assert runtime_class.__name__ == "IndicTranscribeTRTLLM"
     assert runtime_class.__module__ == "nemo_curator.stages.audio.inference.indic_transcribe_trtllm_runtime"
 
 

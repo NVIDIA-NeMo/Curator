@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # ruff: noqa: INP001
 
-"""Check the dedicated Indic image, including native Canary imports on a GPU."""
+"""Check the dedicated Indic image, including native Indic Transcribe imports on a GPU."""
 
 import argparse
 import importlib
@@ -77,7 +77,9 @@ def main() -> None:
     values = torch.arange(16, dtype=torch.float32, device="cuda").reshape(4, 4)
     torch.testing.assert_close(values @ torch.eye(4, device="cuda"), values)
     torch.cuda.synchronize()
-    print("Native Canary/Parakeet/LID imports and CUDA execution passed; model-engine parity is a separate check.")
+    print(
+        "Native Indic Transcribe/Parakeet/LID imports and CUDA execution passed; model-engine parity is a separate check."
+    )
 
 
 if __name__ == "__main__":

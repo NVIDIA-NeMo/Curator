@@ -15,8 +15,8 @@ flowchart TD
     canary["3. InferenceIndicTranscribeStage<br/>Generate the primary transcript with TensorRT + TensorRT-LLM"]
     primary_check["4. WhisperHallucinationStage — primary<br/>Flag suspicious repetition, phrases, word length, or character rate"]
     parakeet["5. InferenceParakeetStage<br/>Generate a recovery candidate with TensorRT + NeMo/PyTorch RNN-T"]
-    recovery_check["6. WhisperHallucinationStage — recovery<br/>Check Parakeet's text; a passing candidate can clear Canary's flag"]
-    select["7. SelectBestPredictionStage<br/>Prefer Canary, use recovered Parakeet, or check agreement if flagged"]
+    recovery_check["6. WhisperHallucinationStage — recovery<br/>Check Parakeet's text; a passing candidate can clear Indic Transcribe's flag"]
+    select["7. SelectBestPredictionStage<br/>Prefer Indic Transcribe, use recovered Parakeet, or check agreement if flagged"]
     clean["8. RegexSubstitutionStage<br/>Clean punctuation, character sets, and whitespace into cleaned_text"]
     abbreviate["9. AbbreviationConcatStage<br/>Join eligible spaced abbreviations into abbreviated_text"]
     wer["10. GetPairwiseWerStage<br/>Compare final text with the reference to calculate wer_pct"]
@@ -42,7 +42,7 @@ Use that same image for this tutorial and its benchmarks.
 
 The shared configuration requires 128 logical CPUs, eight H100 80 GB GPUs and
 a 500 GiB Ray object store; provide at least that much shared memory and RAM for
-the models and workers. A 1 TiB host is recommended. Each Canary worker reserves
+the models and workers. A 1 TiB host is recommended. Each Indic Transcribe worker reserves
 50 GiB and each Parakeet worker reserves 24 GiB, allowing one of each per H100.
 
 The [audio Dockerfile](../../../../docker/audio/Dockerfile.trt_llm) installs
@@ -226,7 +226,7 @@ Create a `manifest.jsonl` with one row per clip:
 ```
 
 - Use 16 kHz Hindi audio between **0.5 and 40 seconds** long. Split longer
-  recordings first: Canary truncates audio after 40 seconds.
+  recordings first: Indic Transcribe truncates audio after 40 seconds.
 - Set `duration` to your file's decoded duration, accurate within 1 ms.
 - Put a nonempty reference transcript in `text`. It is used for WER, not
   as a prompt to either model.
@@ -300,7 +300,7 @@ docker run --rm --gpus all --ipc=host \
 
 The builder writes `encoder.plan`, `metadata.json`, and `model.nemo` under
 `indic-asr-work/engines/parakeet` on the host. That directory must be absent or
-empty; existing bundles are not overwritten. Once the Canary bundle is also
+empty; existing bundles are not overwritten. Once the Indic Transcribe bundle is also
 under `indic-asr-work/engines/indic_transcribe`, use the absolute path to
 `indic-asr-work/engines` as the model directory in step 1.
 
@@ -399,7 +399,7 @@ The table uses these shorthand labels for the exact recorded text:
 
 ```text
 R (reference): मेजरकेन खाना, भूमध्य सागर में समान क्षेत्रों की तरह, रोटी, सब्जियों और मांस (विशेष रूप से सूअर का मांस) पर आधारित है, और जैतून के तेल का उपयोग करता है।
-P (Canary):    मेजर किनखाना भूमध्य सागर में सामान्य क्षेत्रों की तरह रोटी सब्जियों और मांस विशेष रूप से सुअर का मांस पर आधारित है और जैतून के तेल का उपयोग करता है
+P (Indic Transcribe):    मेजर किनखाना भूमध्य सागर में सामान्य क्षेत्रों की तरह रोटी सब्जियों और मांस विशेष रूप से सुअर का मांस पर आधारित है और जैतून के तेल का उपयोग करता है
 F (Parakeet):  मेजर किनखाना भूमध्यसागर में समान क्षेत्रों की तरह रोटी, सब्जियों और मांस विशेषरूप से सूअर का मांस पर आधारित है, और जैतून के तेल का उपयोग करता है।
 ```
 
@@ -420,7 +420,7 @@ Fields not mentioned stay unchanged; entries in `additional_notes` accumulate.
 | 11. `ManifestWriterStage.process()` | Writes the complete row as UTF-8 JSONL, preserving both predictions and notes, without the waveform. |
 
 The clip contains 195,840 samples at 16 kHz (12.24 seconds). Both models
-ran even though Canary passed the first check. This row selects Canary
+ran even though Indic Transcribe passed the first check. This row selects Indic Transcribe
 without needing recovery, a regex edit, or an abbreviation join.
 
 ### Final output: verbatim
