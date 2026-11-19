@@ -13,29 +13,55 @@
 # limitations under the License.
 
 import os
+import tempfile
+import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import Any
 
+from fsspec.core import url_to_fs
+from fsspec.implementations.local import LocalFileSystem
 from loguru import logger
 
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import FileGroupTask
 
+# Object stores publish an object only once its upload completes; other backends write the target in place.
+_OBJECT_STORE_PROTOCOLS = frozenset({"s3", "s3a", "gs", "gcs", "abfs", "abfss", "az", "adl"})
+
 
 class DocumentDownloader(ABC):
     """Abstract base class for document downloaders."""
 
-    def __init__(self, download_dir: str, verbose: bool = False):
+    supports_remote_download_dir = False
+    # Default for subclasses that override __init__ without calling super(): keep the os-path flow.
+    _is_local = True
+
+    def __init__(self, download_dir: str, verbose: bool = False, storage_options: dict[str, Any] | None = None):
         """Initialize the downloader.
 
         Args:
-            download_dir: Directory to store downloaded files
+            download_dir: Directory to store downloaded files, a local path or an fsspec URL
+                (the latter only for subclasses that set ``supports_remote_download_dir``)
             verbose: If True, logs detailed download information
+            storage_options: Options forwarded to the fsspec filesystem inferred from ``download_dir``
         """
-        self._download_dir = download_dir
+        download_dir = os.fspath(download_dir)
+        # Plain paths stay on the os path as before; only URLs go through fsspec protocol detection.
+        if "://" in download_dir:
+            self._fs, path = url_to_fs(download_dir, **(storage_options or {}))
+        else:
+            self._fs, path = LocalFileSystem(), download_dir
+        self._is_local = isinstance(self._fs, LocalFileSystem)
+        if not self._is_local and not self.supports_remote_download_dir:
+            msg = f"{type(self).__name__} needs a local download_dir, got {download_dir!r}"
+            raise ValueError(msg)
+        self._download_dir = path if self._is_local else download_dir
         self._verbose = verbose
-        os.makedirs(download_dir, exist_ok=True)
+        # Object stores need no directory, and s3fs makedirs would try to create a missing bucket.
+        if self._is_local:
+            os.makedirs(self._download_dir, exist_ok=True)
 
     @abstractmethod
     def _get_output_filename(self, url: str) -> str:
@@ -80,25 +106,60 @@ class DocumentDownloader(ABC):
         temp_file = output_file + ".tmp"
 
         # If final file exists and is non-empty, assume it's complete
-        if os.path.exists(output_file) and os.path.getsize(output_file) > 0:
+        if self._exists(output_file) and self._size(output_file) > 0:
             if self._verbose:
                 logger.info(f"File: {output_file} exists. Not downloading")
             return output_file
 
-        # Download to temporary file
-        success, error_message = self._download_to_path(url, temp_file)
+        if self._is_local:
+            # Download to temporary file, then atomically move it to the final location
+            success, error_message = self._download_to_path(url, temp_file)
+            if success:
+                os.rename(temp_file, output_file)
+        else:
+            # Stage locally, then upload; _upload never leaves a partial file at output_file.
+            with tempfile.TemporaryDirectory() as staging_dir:
+                staged_file = os.path.join(staging_dir, output_name)
+                success, error_message = self._download_to_path(url, staged_file)
+                if success:
+                    # Sink failures raise and fail the task, like os.rename on the local path.
+                    self._upload(staged_file, output_file)
 
         if success:
-            # Download successful, atomically move temp file to final location
-            os.rename(temp_file, output_file)
             if self._verbose:
-                file_size = os.path.getsize(output_file)
+                file_size = self._size(output_file)
                 logger.info(f"Successfully downloaded to {output_file} ({file_size} bytes)")
             return output_file
         else:
             # Download failed
             logger.error(f"Failed to download to {output_file}: {error_message}")
             return None
+
+    def _upload(self, staged_file: str, output_file: str) -> None:
+        protocol = self._fs.protocol
+        protocols = {protocol} if isinstance(protocol, str) else set(protocol)
+        if protocols & _OBJECT_STORE_PROTOCOLS:
+            self._put(staged_file, output_file)
+        else:
+            # Unique per attempt so concurrent uploads of the same URL cannot move each other's temp file.
+            temp_file = f"{output_file}.{uuid.uuid4().hex}.tmp"
+            self._put(staged_file, temp_file)
+            self._fs.mv(temp_file, output_file)
+
+    def _put(self, staged_file: str, target: str) -> None:
+        try:
+            self._fs.put_file(staged_file, target)
+        except FileNotFoundError:
+            # Filesystems with real directories whose put_file does not create parents (e.g. dir:// over file).
+            # Object stores only get here when the bucket itself is missing.
+            self._fs.makedirs(self._fs._parent(target), exist_ok=True)
+            self._fs.put_file(staged_file, target)
+
+    def _exists(self, path: str) -> bool:
+        return os.path.exists(path) if self._is_local else self._fs.exists(path)
+
+    def _size(self, path: str) -> int:
+        return os.path.getsize(path) if self._is_local else self._fs.size(path)
 
     def num_workers_per_node(self) -> int | None:
         """Number of workers per node for Downloading. This is sometimes needed to ensure we are not overloading the network.
@@ -111,9 +172,9 @@ class DocumentDownloader(ABC):
 
 @dataclass
 class DocumentDownloadStage(ProcessingStage[FileGroupTask, FileGroupTask]):
-    """Stage that downloads files from URLs to local storage.
+    """Stage that downloads files from URLs to local or fsspec storage.
 
-    Takes a FileGroupTask with URLs and returns a FileGroupTask with local file paths.
+    Takes a FileGroupTask with URLs and returns a FileGroupTask with local paths or fsspec URLs.
     This allows the download step to scale independently from iteration/extraction.
     """
 
@@ -129,17 +190,17 @@ class DocumentDownloadStage(ProcessingStage[FileGroupTask, FileGroupTask]):
         return (["data"], [])
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        """Define output - produces FileGroupTask with local paths."""
+        """Define output - produces FileGroupTask with local paths or fsspec URLs."""
         return (["data"], [])
 
     def process(self, task: FileGroupTask) -> FileGroupTask:
-        """Download URLs to local files.
+        """Download URLs to local or fsspec files.
 
         Args:
             task (FileGroupTask): Task containing URLs to download
 
         Returns:
-            FileGroupTask: Task containing local file paths
+            FileGroupTask: Task containing local file paths or fsspec URLs
         """
         local_files = []
 

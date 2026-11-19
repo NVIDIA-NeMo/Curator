@@ -90,7 +90,7 @@ For executor options and configuration, refer to [Execution Backends](/reference
 
 | Parameter | Type | Description | Default |
 | --- | --- | --- | --- |
-| `download_dir` | str | Directory to store downloaded `.tar` files | "./arxiv_downloads" |
+| `download_dir` | str | Local directory to store downloaded `.tar` files. A remote URL such as `s3://...` raises `ValueError` | "./arxiv_downloads" |
 | `url_limit` | int \| None | Maximum number of ArXiv tar files to download (useful for testing) | None |
 | `record_limit` | int \| None | Maximum number of papers to extract per tar file | None |
 | `add_filename_column` | bool \| str | Whether to add a source filename column to output; if str, use it as the column name | True (column name defaults to `file_name`) |
