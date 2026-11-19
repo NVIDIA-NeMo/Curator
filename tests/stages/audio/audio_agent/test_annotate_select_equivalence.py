@@ -26,10 +26,11 @@ this owns whether the two routes agree. Relocated from tests/stages/audio/filter
 reason -- they were the bulk of those files' growth and belong to the agent's concern.
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import torch
 
+from nemo_curator.models.audio.utmos import UTMOSAdapter
 from nemo_curator.stages.audio.common import PreserveByValueConditionsStage, PreserveByValueStage
 from nemo_curator.stages.audio.filtering.sigmos import SIGMOSFilterStage
 from nemo_curator.stages.audio.filtering.utmos import UTMOSFilterStage
@@ -73,10 +74,8 @@ def _make_mock_model(scores: dict) -> MagicMock:
 class TestSIGMOSAnnotateThenSelect:
     """Annotating with SIGMOS then selecting matches what native filtering keeps."""
 
-    @patch.object(SIGMOSFilterStage, "_initialize_model")
     def test_task_annotate_then_compound_selector_matches_all_native_thresholds(
         self,
-        mock_init: MagicMock,
     ) -> None:
         keys = {
             "noise_key": "quality_noise",
@@ -154,8 +153,8 @@ class TestSIGMOSAnnotateThenSelect:
                 **keys,
             )
             if scores is not None:
-                native._model = _make_mock_model(scores)
-                annotate._model = _make_mock_model(scores)
+                native._adapter = _make_mock_model(scores)
+                annotate._adapter = _make_mock_model(scores)
 
             native_result = native.process(AudioTask(data=dict(source.data), dataset_name=source.dataset_name))
             annotated = annotate.process(AudioTask(data=dict(source.data), dataset_name=source.dataset_name))
@@ -185,10 +184,8 @@ class TestSIGMOSAnnotateThenSelect:
 
             assert bool(selected) is isinstance(native_result, AudioTask)
 
-    @patch.object(SIGMOSFilterStage, "_initialize_model")
     def test_segment_annotate_then_compound_selector_matches_native_filter(
         self,
-        mock_init: MagicMock,
     ) -> None:
         sample_rate = 48000
         thresholds = {
@@ -265,8 +262,8 @@ class TestSIGMOSAnnotateThenSelect:
             **thresholds,
             **keys,
         )
-        native._model = sequence_model()
-        annotate._model = sequence_model()
+        native._adapter = sequence_model()
+        annotate._adapter = sequence_model()
 
         native_result = native.process(make_parent())
         annotated = annotate.process(make_parent())
@@ -297,6 +294,12 @@ def _utmos_task(duration_s: float = 1.0, sample_rate: int = 16000) -> AudioTask:
     )
 
 
+def _utmos_adapter(model: MagicMock) -> UTMOSAdapter:
+    adapter = UTMOSAdapter()
+    adapter._model = model
+    return adapter
+
+
 def _utmos_mock_model(score: float) -> MagicMock:
     model = MagicMock()
     model.return_value = torch.tensor([score])
@@ -307,10 +310,8 @@ def _utmos_mock_model(score: float) -> MagicMock:
 class TestUTMOSAnnotateThenSelect:
     """Annotating with UTMOS then selecting matches what native filtering keeps."""
 
-    @patch("nemo_curator.stages.audio.filtering.utmos.UTMOSFilterStage._ensure_model")
     def test_task_annotate_then_drop_selector_matches_native_filter(
         self,
-        mock_ensure: MagicMock,
     ) -> None:
         threshold = 3.5
         cases = [
@@ -339,8 +340,8 @@ class TestUTMOSAnnotateThenSelect:
                 score_key="custom_utmos",
             )
             if score is not None:
-                native._model = _utmos_mock_model(score)
-                annotate._model = _utmos_mock_model(score)
+                native._adapter = _utmos_adapter(_utmos_mock_model(score))
+                annotate._adapter = _utmos_adapter(_utmos_mock_model(score))
 
             native_result = native.process(AudioTask(data=dict(source.data), dataset_name=source.dataset_name))
             annotated = annotate.process(AudioTask(data=dict(source.data), dataset_name=source.dataset_name))
@@ -356,10 +357,8 @@ class TestUTMOSAnnotateThenSelect:
 
             assert bool(selected) is isinstance(native_result, AudioTask)
 
-    @patch("nemo_curator.stages.audio.filtering.utmos.UTMOSFilterStage._ensure_model")
     def test_segment_annotate_then_generic_selector_matches_native_filter(
         self,
-        mock_ensure: MagicMock,
     ) -> None:
         threshold = 3.5
         sample_rate = 16000
@@ -417,8 +416,8 @@ class TestUTMOSAnnotateThenSelect:
             score_key="quality",
             mos_threshold=threshold,
         )
-        native._model = sequence_model()
-        annotate._model = sequence_model()
+        native._adapter = _utmos_adapter(sequence_model())
+        annotate._adapter = _utmos_adapter(sequence_model())
 
         native_result = native.process(make_parent())
         annotated = annotate.process(make_parent())
@@ -448,8 +447,8 @@ class TestUTMOSAnnotateThenSelect:
             segments_key="clips",
             mos_threshold=threshold,
         )
-        native_all_fail._model = _utmos_mock_model(2.0)
-        annotate_all_fail._model = _utmos_mock_model(2.0)
+        native_all_fail._adapter = _utmos_adapter(_utmos_mock_model(2.0))
+        annotate_all_fail._adapter = _utmos_adapter(_utmos_mock_model(2.0))
         native_empty = native_all_fail.process(
             AudioTask(data={"clips": [{"waveform": torch.randn(1, sample_rate), "sample_rate": sample_rate}]})
         )

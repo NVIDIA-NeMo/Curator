@@ -216,7 +216,7 @@ def test_stage_defaults_and_static_contracts_are_backward_compatible() -> None:
     )
     actual = hashlib.sha256(blob.encode("utf-8")).hexdigest()
     assert actual == EXPECTED_LEGACY_COMPATIBILITY_SHA256, (
-        "The legacy 44-stage compatibility surface changed. If intentional, inspect "
+        "The legacy 43-stage compatibility surface changed. If intentional, inspect "
         "constructor defaults and static contracts before updating this baseline. "
         f"Expected {EXPECTED_LEGACY_COMPATIBILITY_SHA256}, got {actual}."
     )
