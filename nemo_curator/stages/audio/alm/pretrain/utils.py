@@ -21,12 +21,16 @@ of cross-module dependencies on incidental helpers.
 
 from __future__ import annotations
 
-import glob
 import os
+import tarfile
 import uuid
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
+import fsspec
+from fsspec.core import url_to_fs
 from loguru import logger
+
+from nemo_curator.utils.client_utils import is_remote_url
 
 if TYPE_CHECKING:
     from nemo_curator.tasks import AudioTask
@@ -85,19 +89,62 @@ def _make_shard_path(output_path: str, ext: str) -> str:
     return f"{output_path}.shard-{os.getpid()}-{uuid.uuid4().hex[:8]}.{ext}"
 
 
-def _glob_shards(output_path: str, ext: str) -> list[str]:
-    return sorted(glob.glob(f"{output_path}.shard-*.{ext}"))
+def _glob_shards(output_path: str, ext: str, storage_options: dict[str, Any] | None = None) -> list[str]:
+    """Shard paths next to a local or cloud ``output_path`` (cloud results keep their protocol)."""
+    fs, path = url_to_fs(output_path, **(storage_options or {}))
+    found = fs.glob(f"{path}.shard-*.{ext}")
+    return sorted(fs.unstrip_protocol(p) for p in found) if is_remote_url(output_path) else sorted(found)
 
 
-def _delete_shards(output_path: str, ext: str) -> int:
+def _delete_shards(output_path: str, ext: str, storage_options: dict[str, Any] | None = None) -> int:
+    fs, _ = url_to_fs(output_path, **(storage_options or {}))
     n = 0
-    for s in _glob_shards(output_path, ext):
+    for s in _glob_shards(output_path, ext, storage_options):
         try:
-            os.remove(s)
+            fs.rm(s)
             n += 1
         except OSError as e:
             logger.warning(f"failed to remove shard {s}: {e}")
     return n
+
+
+def _makedirs_parent(path: str, storage_options: dict[str, Any] | None = None) -> None:
+    """Create the parent directory of a local or cloud path (a no-op on object stores)."""
+    fs, resolved = url_to_fs(path, **(storage_options or {}))
+    fs.makedirs(os.path.dirname(resolved), exist_ok=True)
+
+
+def _append_shard_line(
+    output_path: str, shard_path: str, ext: str, line: str, storage_options: dict[str, Any] | None = None
+) -> None:
+    """Append one JSONL record to this worker's shard of ``output_path``.
+
+    shortcut: object stores cannot append, so on S3/GCS each record becomes its own complete
+    shard object; batch records per worker if object counts become a problem.
+    """
+    if is_remote_url(output_path):
+        with fsspec.open(_make_shard_path(output_path, ext), "w", encoding="utf-8", **(storage_options or {})) as f:
+            f.write(line)
+        return
+    with open(shard_path, "a", encoding="utf-8") as f:
+        f.write(line)
+
+
+def _open_tar(path: str, mode: str, storage_options: dict[str, Any] | None = None) -> tarfile.TarFile:
+    """Open a local or cloud tar; ``_close_tar`` also closes the underlying fsspec file."""
+    fileobj = fsspec.open(path, f"{mode}b", **(storage_options or {})).open()
+    try:
+        return tarfile.open(fileobj=fileobj, mode=mode)
+    except BaseException:
+        fileobj.close()
+        raise
+
+
+def _close_tar(tar: tarfile.TarFile) -> None:
+    try:
+        tar.close()
+    finally:
+        tar.fileobj.close()
 
 
 # ----------------------------------------------------------------------

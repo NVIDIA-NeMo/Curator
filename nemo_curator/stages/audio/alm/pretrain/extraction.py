@@ -29,6 +29,7 @@ import numpy as np
 import soundfile as sf
 import torch
 import torchaudio.functional as taf
+from fsspec.core import url_to_fs
 from loguru import logger
 
 from nemo_curator.stages.audio._agent._agent_ready import (
@@ -44,14 +45,19 @@ from nemo_curator.stages.audio.alm.pretrain.utils import (
     _PLAN_DATA_KEY,
     _SOUNDFILE_SUBTYPES,
     _TAR_SHARD_EXT,
+    _close_tar,
     _is_origin_stub,
     _make_shard_path,
+    _makedirs_parent,
+    _open_tar,
     _segment_text,
     make_snippet_id,
 )
+from nemo_curator.stages.audio.io.segment_io import encode_audio
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
+from nemo_curator.utils.client_utils import is_remote_url
 
 if TYPE_CHECKING:
     from nemo_curator.backends.base import NodeInfo, WorkerMetadata
@@ -67,11 +73,14 @@ class SnippetExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     2. Channel-average to mono if the source has > 1 channel.
     3. Resample to ``target_sample_rate`` using torchaudio if the source
        rate differs.
-    4. Encode the mono waveform in-memory (via ``soundfile`` to a
-       ``BytesIO``) and append it as ``<snippet_id>.<output_format>`` to
-       this replica's tar shard (``output_audio_tar_path.shard-...``);
-       all replicas' shards are merged into ``output_audio_tar_path`` by
-       :func:`finalize_audio_pretrain_outputs`.
+    4. Encode the mono waveform in-memory and append it as
+       ``<snippet_id>.<output_format>`` to this replica's tar shard
+       (``output_audio_tar_path.shard-...``); all replicas' shards are
+       merged into ``output_audio_tar_path`` by
+       :func:`finalize_audio_pretrain_outputs`.  When
+       ``output_audio_tar_path`` is an S3/GCS URL (``storage_options`` go
+       to fsspec), object stores cannot append, so each snippet is
+       written as its own complete single-member tar shard instead.
     5. Emit one ``AudioTask`` per snippet with the source row's metadata
        carried over (minus ``alignment``), the new ``snippet_id``,
        ``audio_filepath`` set to the **tar-internal basename**
@@ -120,6 +129,7 @@ class SnippetExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     audio_num_channels_key: str = "audio_num_channels"
     swift_audio_filepath_key: str = "swift_audio_filepath"
     text_key: str = "text"
+    storage_options: dict[str, Any] | None = None
     INTERNAL_KEY_FIELDS: ClassVar[frozenset[str]] = frozenset(
         {
             "id_key",
@@ -294,17 +304,17 @@ class SnippetExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         _node_info: NodeInfo | None = None,
         _worker_metadata: WorkerMetadata | None = None,
     ) -> None:
-        os.makedirs(self.output_dir, exist_ok=True)
-        parent = os.path.dirname(self.output_audio_tar_path)
-        if parent:
-            os.makedirs(parent, exist_ok=True)
+        self._makedirs()
+
+    def _makedirs(self) -> None:
+        fs, output_dir = url_to_fs(self.output_dir, **(self.storage_options or {}))
+        fs.makedirs(output_dir, exist_ok=True)
+        _makedirs_parent(self.output_audio_tar_path, self.storage_options)
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
-        os.makedirs(self.output_dir, exist_ok=True)
-        parent = os.path.dirname(self.output_audio_tar_path)
-        if parent:
-            os.makedirs(parent, exist_ok=True)
-        if self.dry_run:
+        self._makedirs()
+        # A cloud tar path gets one complete shard object per snippet (see _extract_one_snippet).
+        if self.dry_run or is_remote_url(self.output_audio_tar_path):
             return
         self._tar_shard_path = _make_shard_path(self.output_audio_tar_path, _TAR_SHARD_EXT)
         # The TarFile stays open for the worker's lifetime and is closed in
@@ -441,23 +451,29 @@ class SnippetExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         snippet_id = make_snippet_id(original_id, start_sec, end_sec)
         member_name = f"{snippet_id}.{self.output_format}"
         try:
-            buf = io.BytesIO()
-            sf.write(
-                buf,
+            payload = encode_audio(
                 mono,
                 self.target_sample_rate,
-                format=self.output_format.upper(),
+                file_format=self.output_format,
                 subtype=_SOUNDFILE_SUBTYPES[self.output_format],
             )
-            payload = buf.getvalue()
             tarinfo = tarfile.TarInfo(name=member_name)
             tarinfo.size = len(payload)
-            self._tar.addfile(tarinfo, io.BytesIO(payload))
-            # Flush so this member reaches the page cache, which survives process death.
-            # Cosmos-Xenna kills actors with ``ray.kill()``, bypassing Python cleanup, so
-            # anything left in the user-space buffer is lost -- without this, 50%+ of snippets
-            # per shard arrive truncated and are dropped by _merge_tar_shards.
-            self._tar.fileobj.flush()
+            if self._tar is None:  # cloud: object stores cannot append, so this snippet is its own shard
+                tar = _open_tar(
+                    _make_shard_path(self.output_audio_tar_path, _TAR_SHARD_EXT), "w", self.storage_options
+                )
+                try:
+                    tar.addfile(tarinfo, io.BytesIO(payload))
+                finally:
+                    _close_tar(tar)
+            else:
+                self._tar.addfile(tarinfo, io.BytesIO(payload))
+                # Flush so this member reaches the page cache, which survives process death.
+                # Cosmos-Xenna kills actors with ``ray.kill()``, bypassing Python cleanup, so
+                # anything left in the user-space buffer is lost -- without this, 50%+ of snippets
+                # per shard arrive truncated and are dropped by _merge_tar_shards.
+                self._tar.fileobj.flush()
         except Exception as e:  # noqa: BLE001
             logger.error(f"[{self.name}] failed to add {member_name} to tar shard {self._tar_shard_path}: {e}")
             return None
