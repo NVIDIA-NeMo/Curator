@@ -61,9 +61,12 @@ def test_audio_task_validation_uses_fsspec() -> None:
     assert not AudioTask(data={"audio_filepath": "memory://audio/no.wav"}, filepath_key="audio_filepath").validate()
 
 
-@pytest.mark.parametrize("validate_on_init", [False, True])
-def test_audio_task_validate_on_init_flag(monkeypatch: pytest.MonkeyPatch, validate_on_init: bool) -> None:
+def test_audio_task_validates_on_creation(monkeypatch: pytest.MonkeyPatch) -> None:
     calls = []
     monkeypatch.setattr(AudioTask, "validate", lambda self: calls.append(self) or True)
-    AudioTask(data={"audio_filepath": "/missing.wav"}, filepath_key="audio_filepath", validate_on_init=validate_on_init)
-    assert len(calls) == int(validate_on_init)
+    task = AudioTask(data={"audio_filepath": "/missing.wav"}, filepath_key="audio_filepath")
+    assert calls == [task]
+
+
+def test_audio_task_validation_rejects_non_path_value() -> None:
+    assert AudioTask(data={"audio_filepath": None}, filepath_key="audio_filepath").validate() is False
