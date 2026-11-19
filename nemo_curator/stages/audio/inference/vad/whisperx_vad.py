@@ -155,7 +155,7 @@ class WhisperXVADStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     pred_text_key: str = field(default="pred_text", kw_only=True)
 
     name: str = "WhisperXVAD"
-    resources: Resources = field(default_factory=lambda: Resources(gpus=1))
+    resources: Resources = field(default_factory=lambda: Resources(gpus=1.0))
 
     _vad_model: Any = field(default=None, repr=False)
 

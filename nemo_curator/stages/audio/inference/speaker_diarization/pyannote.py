@@ -151,7 +151,7 @@ class PyAnnoteDiarizationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
 
     # Stage metadata
     name: str = "PyAnnoteDiarization"
-    resources: Resources = field(default_factory=lambda: Resources(gpus=1))
+    resources: Resources = field(default_factory=lambda: Resources(gpus=1.0))
 
     # Xenna executor (optional; unset = default autoscaling)
     xenna_num_workers: int | None = None
