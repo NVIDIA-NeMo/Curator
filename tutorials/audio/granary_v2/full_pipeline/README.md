@@ -79,13 +79,14 @@ docker build -f tutorials/audio/granary_v2/full_pipeline/Dockerfile.trt_llm_gran
 ```
 
 - [Dockerfile](Dockerfile) extends the repository's [docker/Dockerfile](../../../../docker/Dockerfile)
-  (CUDA 12.9, Python 3.13, Torch 2.11, vLLM 0.22, Dynamo, etcd/NATS), built with the `audio_tensorrt`
+  (CUDA 12.9, Python 3.13, Torch 2.11, vLLM 0.22), built with the `audio_tensorrt`
   and `inference_server` extras. It adds the NeMo encoder the eight-speaker Sortformer checkpoint needs
   and Ubuntu's `ffmpeg` (libopus included), which torchcodec and the Opus clips need.
 - [Dockerfile.trt_llm_granary](Dockerfile.trt_llm_granary) extends the Granary image from
   [docker/audio/Dockerfile.trt_llm](../../../../docker/audio/Dockerfile.trt_llm) (`--target granary`: Torch 2.9.1,
-  TensorRT-LLM 1.2.1) with `ai-dynamo`, etcd/NATS and the CUDA 12.9 compiler. It adds no in-process vLLM:
-  the Indic ASR stages run on TensorRT-LLM and NeMo.
+  TensorRT-LLM 1.2.1) with Ray 2.57, vLLM's CPU build for the Ray Serve driver (its CUDA extension cannot load
+  against Torch 2.9.1) and the CUDA 12.9 compiler. The Indic ASR stages run on TensorRT-LLM and NeMo; the text
+  model's vLLM 0.22 engine runs in the replicas' isolated environments.
 
 The English and European image needs a host driver that supports CUDA 12.9 (R575 or newer).
 The text-model replicas run in isolated Ray environments (Transformers 5.8.0 from the YAML) and
@@ -145,7 +146,7 @@ indic_granary_pipeline` with `curator-granary-indic`. For other GPU counts, Ray 
 `inference_server.models.0.deployment_config.autoscaling_config.min_replicas` and `.max_replicas` (one GPU each) and, if needed, `ray_client.num_cpus`.
 
 The entrypoint starts one Ray cluster, downloads the pinned text model snapshot and enters the YAML's
-`InferenceServer` context (Ray Serve; the Indic pipeline uses Dynamo because its image has no vLLM). The server handles placement, readiness and routing; the pipeline starts after
+`InferenceServer` context (Ray Serve). The server handles placement, readiness and routing; the pipeline starts after
 the endpoint is ready and reuses it for all eight text operations. On completion or failure the
 entrypoint closes the server before Ray. Model downloads and worker environment setup can take
 several minutes on first use.

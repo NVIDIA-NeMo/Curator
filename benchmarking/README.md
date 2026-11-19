@@ -1161,7 +1161,7 @@ shutdown diagnostics despite complete outputs and normal process exits.
 
 One script per pipeline (for European, only the Qwen3-Omni group) runs the whole graph of the tutorial's own YAML on Ray Data, read directly from
 `tutorials/audio/granary_v2/full_pipeline`: recordings to Opus speech clips and metadata, ASR with recovery,
-then eight text operations on a managed inference server (Ray Serve; Dynamo for Indic).
+then eight text operations on a managed inference server (Ray Serve).
 
 | Script | YAML | Output | Image |
 | --- | --- | --- | --- |

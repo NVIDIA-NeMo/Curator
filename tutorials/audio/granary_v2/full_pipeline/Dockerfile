@@ -4,8 +4,8 @@
 
 # Image for en_granary_pipeline.yaml and the european_*_granary_pipeline.yaml files.
 # Build the base first (see README.md section 1): the repository's docker/Dockerfile with the
-# audio_tensorrt and inference_server extras (public CUDA 12.9 base, Torch 2.11, vLLM 0.22, Dynamo,
-# etcd/NATS). It already holds this checkout at /opt/Curator, so nothing is copied here.
+# audio_tensorrt and inference_server extras (public CUDA 12.9 base, Torch 2.11, vLLM 0.22).
+# It already holds this checkout at /opt/Curator, so nothing is copied here.
 ARG BASE_IMAGE=curator-base
 FROM ${BASE_IMAGE}
 

@@ -35,7 +35,7 @@ ray_client:
   num_cpus: 128
   object_store_memory: 536870912000
 
-# Text model settings shared by the Ray Serve default below and the Dynamo override in indic_granary_pipeline.yaml.
+# Text model settings used by the Ray Serve server below; indic_granary_pipeline.yaml overrides only the runtime_env.
 text_model:
   runtime_env:
     uv:
