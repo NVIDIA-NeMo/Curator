@@ -1,0 +1,35 @@
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# WhisperX VAD and SpeechBrain language identification on one manifest,
+# for the processor families that have no tutorial YAML.
+
+manifest_path: ???
+model_dir: ???
+output_dir: ???
+backend: xenna
+execution_mode: streaming
+
+stages:
+  - _target_: nemo_curator.stages.audio.common.ManifestReader
+    manifest_path: ${manifest_path}
+
+  - _target_: nemo_curator.stages.audio.tagging.resample_audio.ResampleAudioStage
+    resampled_audio_dir: ${output_dir}/resampled
+    target_sample_rate: 16000
+    target_format: wav
+    target_nchannels: 1
+
+  - _target_: nemo_curator.stages.audio.inference.vad.WhisperXVADStage
+
+  - _target_: nemo_curator.stages.audio.inference.lid.AudioLIDInferenceStage
+    adapter_target: nemo_curator.models.audio.lid.speechbrain.SpeechBrainLIDAdapter
+    model_id: SpeechBrainLangID
+    tag: primary
+    audio_filepath_key: resampled_audio_filepath
+    adapter_kwargs:
+      source: ${model_dir}/speechbrain
+      savedir: ${output_dir}/speechbrain_cache
+
+  - _target_: nemo_curator.stages.audio.common.ManifestWriterStage
+    output_path: ${output_dir}/manifest.jsonl

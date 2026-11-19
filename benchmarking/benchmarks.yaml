@@ -1719,6 +1719,8 @@ entries:
         additional_metrics:
           - num_speech_segments
           - throughput_audio_hours_per_hour
+        ping_on_failure:
+          - U03C41SNADV  # Aaftab V
     requirements:
       - metric: num_tasks_processed
         min_value: 1
@@ -1739,6 +1741,8 @@ entries:
         additional_metrics:
           - num_speech_segments
           - throughput_audio_hours_per_hour
+        ping_on_failure:
+          - U03C41SNADV  # Aaftab V
     requirements:
       - metric: num_tasks_processed
         min_value: 1
@@ -1762,6 +1766,8 @@ entries:
         additional_metrics:
           - num_output_rows
           - throughput_audio_hours_per_hour
+        ping_on_failure:
+          - U03C41SNADV  # Aaftab V
     requirements:
       - metric: num_output_rows
         exact_value: 216164
@@ -1785,6 +1791,8 @@ entries:
         additional_metrics:
           - num_output_rows
           - throughput_audio_hours_per_hour
+        ping_on_failure:
+          - U03C41SNADV  # Aaftab V
     requirements:
       - metric: num_output_rows
         exact_value: 216164
@@ -1808,6 +1816,8 @@ entries:
         additional_metrics:
           - num_tasks_processed
           - throughput_audio_hours_per_hour
+        ping_on_failure:
+          - U03C41SNADV  # Aaftab V
     requirements:
       - metric: num_tasks_processed
         min_value: 1
@@ -1830,6 +1840,8 @@ entries:
         additional_metrics:
           - num_tasks_processed
           - throughput_audio_hours_per_hour
+        ping_on_failure:
+          - U03C41SNADV  # Aaftab V
     requirements:
       - metric: num_tasks_processed
         min_value: 1
@@ -1850,6 +1862,8 @@ entries:
         additional_metrics:
           - num_output_rows
           - throughput_rows_per_sec
+        ping_on_failure:
+          - U03C41SNADV  # Aaftab V
     requirements:
       - metric: num_output_rows
         min_value: 1
@@ -1869,6 +1883,199 @@ entries:
         additional_metrics:
           - num_output_rows
           - throughput_rows_per_sec
+        ping_on_failure:
+          - U03C41SNADV  # Aaftab V
+    requirements:
+      - metric: num_output_rows
+        min_value: 1
+      # TODO: add a throughput_rows_per_sec min_value once a baseline is measured.
+
+  # Processor families with no dedicated script run their YAML through config/run.py.
+  # The text filter is CPU-only; it reads LibriSpeech reference text as the transcript.
+  # The entries below it are registered disabled until a first GPU run in an image
+  # with their models staged confirms them.
+  - name: audio_whisper_hallucination_raydata
+    enabled: true
+    script: audio_yaml_pipeline_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --pipeline-yaml={curator_repo_dir}/tutorials/audio/whisper_hallucination/pipeline.yaml
+      --output-manifest={session_entry_dir}/output/manifest.jsonl
+      --set=manifest_path={dataset:qwen_omni_asr_librispeech_5h,jsonl}
+      --set=output_path={session_entry_dir}/output/manifest.jsonl
+      --set=common_hall_file={curator_repo_dir}/tutorials/audio/whisper_hallucination/phrases.txt
+      --set=stages.1.text_key=text
+    timeout_s: 1800
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_output_rows
+          - throughput_rows_per_sec
+        ping_on_failure:
+          - U03C41SNADV  # Aaftab V
+    requirements:
+      - metric: num_output_rows
+        min_value: 1
+      # TODO: add a throughput_rows_per_sec min_value once a baseline is measured.
+
+  # Sortformer, Silero VAD and PANNs SED with PyTorch adapters; compare with the TensorRT entry.
+  - name: audio_model_stages_pytorch_xenna
+    enabled: false
+    script: audio_yaml_pipeline_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --pipeline-yaml={curator_repo_dir}/benchmarking/audio_pipelines/model_stages.yaml
+      --output-manifest={session_entry_dir}/output/manifest.jsonl
+      --set=manifest_path={dataset:qwen_omni_asr_librispeech_5h,jsonl}
+      --set=model_dir={model_weights_path}/granary_metadata
+      --set=output_dir={session_entry_dir}/output
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_output_rows
+          - throughput_rows_per_sec
+        ping_on_failure:
+          - U03C41SNADV  # Aaftab V
+    requirements:
+      - metric: num_output_rows
+        min_value: 1
+      # TODO: add a throughput_rows_per_sec min_value once a baseline is measured.
+
+  - name: audio_model_stages_tensorrt_xenna
+    enabled: false
+    script: audio_yaml_pipeline_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --pipeline-yaml={curator_repo_dir}/benchmarking/audio_pipelines/model_stages.yaml
+      --output-manifest={session_entry_dir}/output/manifest.jsonl
+      --set=manifest_path={dataset:qwen_omni_asr_librispeech_5h,jsonl}
+      --set=model_dir={model_weights_path}/granary_metadata
+      --set=output_dir={session_entry_dir}/output
+      --set=sortformer_adapter=nemo_curator.models.audio.speaker_diarization.sortformer_tensorrt.TensorRTSortformerAdapter
+      --set=sortformer_adapter_kwargs.engine_path={model_weights_path}/granary_metadata/sortformer_trt/sortformer.plan
+      --set=sortformer_adapter_kwargs.config_path={model_weights_path}/granary_metadata/sortformer_trt/config.json
+      --set=vad_adapter=nemo_curator.models.audio.vad.silero_tensorrt.TensorRTSileroVADAdapter
+      --set=vad_adapter_kwargs.engine_path={model_weights_path}/granary_metadata/silero.plan
+      --set=sed_adapter=nemo_curator.models.audio.sed.tensorrt.TensorRTPANNsSEDAdapter
+      --set=sed_adapter_kwargs.tensorrt_engine_path={model_weights_path}/granary_metadata/sed.plan
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_output_rows
+          - throughput_rows_per_sec
+        ping_on_failure:
+          - U03C41SNADV  # Aaftab V
+    requirements:
+      - metric: num_output_rows
+        min_value: 1
+      # TODO: add a throughput_rows_per_sec min_value once a baseline is measured.
+
+  - name: audio_lid_whisperx_vad_xenna
+    enabled: false
+    script: audio_yaml_pipeline_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --pipeline-yaml={curator_repo_dir}/benchmarking/audio_pipelines/lid_whisperx_vad.yaml
+      --output-manifest={session_entry_dir}/output/manifest.jsonl
+      --set=manifest_path={dataset:qwen_omni_asr_librispeech_5h,jsonl}
+      --set=model_dir={model_weights_path}/granary_metadata
+      --set=output_dir={session_entry_dir}/output
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_output_rows
+          - throughput_rows_per_sec
+        ping_on_failure:
+          - U03C41SNADV  # Aaftab V
+    requirements:
+      - metric: num_output_rows
+        min_value: 1
+      # TODO: add a throughput_rows_per_sec min_value once a baseline is measured.
+
+  - name: audio_faster_whisper_raydata
+    enabled: false
+    script: audio_yaml_pipeline_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --pipeline-yaml={curator_repo_dir}/tutorials/audio/faster_whisper/pipeline.yaml
+      --output-manifest={session_entry_dir}/output/manifest.jsonl
+      --set=manifest_path={dataset:qwen_omni_asr_librispeech_5h,jsonl}
+      --set=output_path={session_entry_dir}/output/manifest.jsonl
+      --set=workspace_dir={session_entry_dir}/scratch
+      --set=model_id={model_weights_path}/faster_whisper/large-v3
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_output_rows
+          - throughput_rows_per_sec
+        ping_on_failure:
+          - U03C41SNADV  # Aaftab V
+    requirements:
+      - metric: num_output_rows
+        min_value: 1
+      # TODO: add a throughput_rows_per_sec min_value once a baseline is measured.
+
+  - name: audio_qwen3_asr_raydata
+    enabled: false
+    script: audio_yaml_pipeline_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --pipeline-yaml={curator_repo_dir}/tutorials/audio/qwen_asr/pipeline.yaml
+      --output-manifest={session_entry_dir}/output/manifest.jsonl
+      --set=manifest_path={dataset:qwen_omni_asr_librispeech_5h,jsonl}
+      --set=output_path={session_entry_dir}/output/manifest.jsonl
+      --set=workspace_dir={session_entry_dir}/scratch
+      --set=model_id={model_weights_path}/qwen_asr/Qwen3-ASR-0.6B
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_output_rows
+          - throughput_rows_per_sec
+        ping_on_failure:
+          - U03C41SNADV  # Aaftab V
+    requirements:
+      - metric: num_output_rows
+        min_value: 1
+      # TODO: add a throughput_rows_per_sec min_value once a baseline is measured.
+
+  - name: audio_mfa_alignment_raydata
+    enabled: false
+    script: audio_yaml_pipeline_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --pipeline-yaml={curator_repo_dir}/tutorials/audio/alignment/pipeline.yaml
+      --output-manifest={session_entry_dir}/output/result.jsonl
+      --set=input_manifest={dataset:qwen_omni_asr_librispeech_5h,jsonl}
+      --set=output_dir={session_entry_dir}/output
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_output_rows
+          - throughput_rows_per_sec
+        ping_on_failure:
+          - U03C41SNADV  # Aaftab V
+    requirements:
+      - metric: num_output_rows
+        min_value: 1
+      # TODO: add a throughput_rows_per_sec min_value once a baseline is measured.
+
+  - name: audio_chatterbox_tts_raydata
+    enabled: false
+    script: audio_yaml_pipeline_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --pipeline-yaml={curator_repo_dir}/tutorials/audio/tts/pipeline.yaml
+      --output-manifest={session_entry_dir}/output/result.jsonl
+      --set=input_manifest={datasets_path}/chatterbox_tts/turns.jsonl
+      --set=reference_voices_dataset={datasets_path}/chatterbox_tts/reference_voices
+      --set=output_dir={session_entry_dir}/output
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_output_rows
+          - throughput_rows_per_sec
+        ping_on_failure:
+          - U03C41SNADV  # Aaftab V
     requirements:
       - metric: num_output_rows
         min_value: 1
