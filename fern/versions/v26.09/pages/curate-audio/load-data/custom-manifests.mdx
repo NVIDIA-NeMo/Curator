@@ -43,7 +43,7 @@ Every audio manifest entry must include:
 
 ## Conversation Manifests
 
-`MergeConversationSDPStage` consumes one complete conversation per task. Store all of a conversation's turns in a single JSONL row before loading it with `ManifestReader`:
+`MergeConversationStage` consumes one complete conversation per task. Store all of a conversation's turns in a single JSONL row before loading it with `ManifestReader`:
 
 ```json
 {"conversation_id": "conversation_001", "turns": [{"turn_index": 0, "speaker": "Alice", "audio_filepath": "/data/alice.wav", "rttm_filepath": "/data/alice.rttm", "ctm_filepath": "/data/alice.ctm", "text": "Hello"}, {"turn_index": 1, "speaker": "Bob", "audio_filepath": "/data/bob.wav", "overlap": -0.5, "text": "Hi"}]}
@@ -55,11 +55,11 @@ Group an existing per-turn manifest by `conversation_id` before scheduling this 
 from nemo_curator.backends.ray_data import RayDataExecutor
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.common import ManifestReader
-from nemo_curator.stages.audio.merging import MergeConversationSDPStage
+from nemo_curator.stages.audio.merging import MergeConversationStage
 
 pipeline = Pipeline(name="merge_conversations")
 pipeline.add_stage(ManifestReader(manifest_path="/data/conversations.jsonl"))
-pipeline.add_stage(MergeConversationSDPStage(
+pipeline.add_stage(MergeConversationStage(
     output_conversations_dir="/data/merged_conversations",
 ))
 results = pipeline.run(RayDataExecutor())

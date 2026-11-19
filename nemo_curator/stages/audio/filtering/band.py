@@ -34,31 +34,24 @@ import math
 from dataclasses import KW_ONLY, dataclass, field
 from typing import ClassVar, Literal
 
-import torch
 from loguru import logger
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.models.audio.band.predict import BandAdapter
 from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract, StaticHints
 from nemo_curator.stages.audio._agent._residency import (
-    normalize_audio_waveform,
-    resolve_audio,
     scoped_audio_conditional_writes,
     scoped_audio_io_specs,
     scoped_file_audio_hydration_writes,
-    validate_audio_key_configuration,
-    validate_input_residency,
 )
+from nemo_curator.stages.audio.filtering.base import AudioQualityFilterStage
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
-_VALID_MODES = {"task", "segments", "auto"}
-_VALID_ACTIONS = {"filter", "annotate"}
-
 
 @dataclass
-class BandFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
+class BandFilterStage(AudioQualityFilterStage, AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """
     Band filter stage for bandwidth classification.
 
@@ -115,6 +108,8 @@ class BandFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     input_residency: Literal["file", "waveform", "auto"] = "auto"
 
     _VALID_BAND_VALUES: ClassVar[set[str]] = {"full_band", "narrow_band"}
+    FILE_AUDIO_HYDRATION: ClassVar[str] = "always"
+    INFER_SAMPLE_RATE_FROM_FILE: ClassVar[bool] = True
     AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
         gates=Gates(requires_internet_first_run=True, per_row_independent=True)
     )
@@ -126,23 +121,7 @@ class BandFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         if self.band_value not in self._VALID_BAND_VALUES:
             msg = f"band_value must be one of {self._VALID_BAND_VALUES!r}, got {self.band_value!r}"
             raise ValueError(msg)
-        if self.mode not in _VALID_MODES:
-            msg = f"mode must be one of {_VALID_MODES!r}, got {self.mode!r}"
-            raise ValueError(msg)
-        if self.action not in _VALID_ACTIONS:
-            msg = f"action must be one of {_VALID_ACTIONS!r}, got {self.action!r}"
-            raise ValueError(msg)
-        validate_input_residency(self.input_residency, stage_name=self.name)
-        validate_audio_key_configuration(
-            self.name,
-            input_keys={
-                "audio_filepath_key": self.audio_filepath_key,
-                "waveform_key": self.waveform_key,
-                "sample_rate_key": self.sample_rate_key,
-                "segments_key": self.segments_key,
-            },
-            output_keys={"prediction_key": self.prediction_key},
-        )
+        self._validate_quality_filter_config(output_keys={"prediction_key": self.prediction_key})
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], []
@@ -230,44 +209,6 @@ class BandFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             self._adapter.unload_model()
             self._adapter = None
 
-    def process(self, task: AudioTask) -> AudioTask | list[AudioTask]:
-        """
-        Filter or annotate audio based on bandwidth classification.
-
-        Segment handling follows ``mode``: with ``mode="auto"`` (default), nested
-        mode is used when ``task.data`` contains the ``segments_key``; ``mode="task"``
-        or ``mode="segments"`` overrides that auto-detection. In nested mode each
-        segment is evaluated individually. With ``action="filter"`` only survivors
-        are kept; with ``action="annotate"`` every item is kept — including items
-        that fail the band check or cannot be classified — and only the prediction
-        annotation is written.
-
-        Returns:
-            AudioTask if it passes (or ``action="annotate"``), [] if filtered out.
-        """
-        use_segments = self.mode == "segments" or (self.mode == "auto" and self.segments_key in task.data)
-        if use_segments:
-            segments = task.data.get(self.segments_key)
-            if segments is None:
-                segments = []
-            elif not isinstance(segments, list):
-                logger.error(f"Expected {self.segments_key!r} to be a list, got {type(segments).__name__}")
-                return task if self.action == "annotate" else []
-            survivors = []
-            for seg in segments:
-                if not isinstance(seg, dict):
-                    logger.error(f"Expected each {self.segments_key!r} item to be a mapping")
-                    if self.action == "annotate":
-                        survivors.append(seg)
-                    continue
-                temp = AudioTask(data=seg)
-                result = self._process_single(temp)
-                if result is not None or self.action == "annotate":
-                    survivors.append(temp.data)
-            task.data[self.segments_key] = survivors
-            return task if survivors or self.action == "annotate" else []
-        return self._process_single(task) or (task if self.action == "annotate" else [])
-
     def _process_single(self, task: AudioTask) -> AudioTask | None:
         """Run band classification on a single (non-nested) task."""
         # This stage owns ``prediction_key``. Clear a prior annotation before
@@ -277,27 +218,7 @@ class BandFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             logger.error("Band predictor not available")
             return None
 
-        try:
-            audio = resolve_audio(
-                task.data,
-                residency=self.input_residency,  # type: ignore[arg-type]
-                audio_filepath_key=self.audio_filepath_key,
-                waveform_key=self.waveform_key,
-                sample_rate_key=self.sample_rate_key,
-                infer_sample_rate_from_file=True,
-                file_audio_hydration="always",
-            )
-            if audio is not None:
-                waveform, sample_rate = audio
-                if torch.is_tensor(waveform) and not waveform.is_floating_point():
-                    waveform = waveform.to(dtype=torch.float32)
-                audio = (
-                    normalize_audio_waveform(waveform, stage_name=self.name, mono=True),
-                    sample_rate,
-                )
-        except (OSError, RuntimeError, TypeError, ValueError) as e:
-            logger.error(f"Failed to load audio for {task.data.get(self.audio_filepath_key)!r}: {e}")
-            return None
+        audio = self._resolve_mono_audio(task)
         if audio is None:
             return None
         waveform, sample_rate = audio

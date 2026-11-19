@@ -1070,7 +1070,7 @@ First window (in its entirety):
 ```
 
 Note: `words` arrays are **gone** from the window segments (dropped
-by `drop_fields="words"`).  The window spans 510.97s–627.58s
+by `drop_fields=["words"]`).  The window spans 510.97s–627.58s
 (116.6s duration, within the 108–132s target).  Two speakers
 contributed 24.25s and 8.10s of speech respectively.
 

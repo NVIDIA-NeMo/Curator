@@ -105,7 +105,7 @@ class TestUTMOSFilterStage:
 
     def test_score_key_cannot_overwrite_audio_input(self) -> None:
         with (
-            patch("nemo_curator.stages.audio.filtering.utmos.torch.hub.load") as load_model,
+            patch("nemo_curator.models.audio.utmos.torch.hub.load") as load_model,
             pytest.raises(ValueError, match="must not collide"),
         ):
             UTMOSFilterStage(score_key="waveform")

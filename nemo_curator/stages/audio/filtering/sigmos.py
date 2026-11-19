@@ -44,87 +44,24 @@ from dataclasses import KW_ONLY, dataclass, field
 from typing import Any, ClassVar, Literal
 
 import numpy as np
-import torch
 from loguru import logger
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.models.audio.sigmos import _DEFAULT_MODEL_DIR, SIGMOSAdapter
 from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract, StaticHints
 from nemo_curator.stages.audio._agent._residency import (
-    normalize_audio_waveform,
-    resolve_audio,
     scoped_audio_conditional_writes,
     scoped_audio_io_specs,
     scoped_file_audio_hydration_writes,
-    validate_audio_key_configuration,
-    validate_input_residency,
 )
+from nemo_curator.stages.audio.filtering.base import AudioQualityFilterStage
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
-_VALID_MODES = {"task", "segments", "auto"}
-_VALID_ACTIONS = {"filter", "annotate"}
-
-
-def _get_audio_numpy_sr(  # noqa: PLR0913 (complexity accepted: keyword-only residency/key knobs mirror the stage fields)
-    item: dict[str, Any],
-    task_id: str,
-    *,
-    input_residency: Literal["file", "waveform", "auto"] = "auto",
-    audio_filepath_key: str = "audio_filepath",
-    waveform_key: str = "waveform",
-    sample_rate_key: str = "sample_rate",
-) -> tuple[np.ndarray, int] | None:
-    """
-    Get (audio mono float32 numpy, sample_rate) from item.
-
-    Supports:
-      - waveform (torch.Tensor or np.ndarray) + sample_rate (int)
-      - audio_filepath (str): loaded with soundfile, mono.
-
-    Returns None if unavailable or load fails.
-    """
-    # Thin wrapper over the shared resolver (_residency.resolve_audio): delegate
-    # file/waveform resolution, then return a mono float32 1-D numpy array.
-    # Audio-file load errors are swallowed and reported as None (matches the
-    # original); a waveform without sample_rate falls back to the file path,
-    # exactly like resolve_audio.
-    try:
-        resolved = resolve_audio(
-            item,
-            residency=input_residency,
-            audio_filepath_key=audio_filepath_key,
-            waveform_key=waveform_key,
-            sample_rate_key=sample_rate_key,
-            mono=True,
-            file_audio_hydration="auto_partial",
-        )
-    except Exception as e:  # noqa: BLE001
-        logger.error(f"[{task_id}] Failed to load audio file: {e}")
-        return None
-
-    if resolved is None:
-        if input_residency == "waveform":
-            logger.warning(f"[{task_id}] No {waveform_key}+{sample_rate_key} found")
-        else:
-            logger.warning(f"[{task_id}] No {waveform_key}+{sample_rate_key} or valid {audio_filepath_key} found")
-        return None
-
-    try:
-        waveform, sample_rate = resolved
-        if torch.is_tensor(waveform) and not waveform.is_floating_point():
-            waveform = waveform.to(dtype=torch.float32)
-        mono = normalize_audio_waveform(waveform, stage_name="SIGMOSFilterStage", mono=True)
-        audio = mono.squeeze(0).detach().cpu().numpy().astype(np.float32)
-        return audio, int(sample_rate)
-    except (RuntimeError, TypeError, ValueError) as e:
-        logger.error(f"[{task_id}] Failed to normalize resident audio: {e}")
-        return None
-
 
 @dataclass
-class SIGMOSFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
+class SIGMOSFilterStage(AudioQualityFilterStage, AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """
     SIGMOS quality assessment filter stage.
 
@@ -229,21 +166,7 @@ class SIGMOSFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
 
     def __post_init__(self):
         super().__init__()
-        if self.mode not in _VALID_MODES:
-            msg = f"mode must be one of {_VALID_MODES!r}, got {self.mode!r}"
-            raise ValueError(msg)
-        if self.action not in _VALID_ACTIONS:
-            msg = f"action must be one of {_VALID_ACTIONS!r}, got {self.action!r}"
-            raise ValueError(msg)
-        validate_input_residency(self.input_residency, stage_name=self.name)
-        validate_audio_key_configuration(
-            self.name,
-            input_keys={
-                "audio_filepath_key": self.audio_filepath_key,
-                "waveform_key": self.waveform_key,
-                "sample_rate_key": self.sample_rate_key,
-                "segments_key": self.segments_key,
-            },
+        self._validate_quality_filter_config(
             output_keys={
                 "noise_key": self.noise_key,
                 "ovrl_key": self.ovrl_key,
@@ -252,7 +175,7 @@ class SIGMOSFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                 "disc_key": self.disc_key,
                 "loud_key": self.loud_key,
                 "reverb_key": self.reverb_key,
-            },
+            }
         )
         self._adapter: SIGMOSAdapter | None = None
 
@@ -395,38 +318,6 @@ class SIGMOSFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                 fail_reasons.append(f"{label} {scores[key]:.3f} < {threshold}")
         return passed, fail_reasons
 
-    def process(self, task: AudioTask) -> AudioTask | list[AudioTask]:
-        """Process a single AudioTask and filter or annotate by SIGMOS quality metrics.
-
-        Segment mode applies when ``mode="segments"``, or when ``mode="auto"``
-        (default) and ``task.data`` contains the ``segments_key``; each segment is
-        then evaluated individually. With ``action="filter"`` only survivors are
-        kept; with ``action="annotate"`` every item is kept — including items that
-        fail the thresholds or cannot be scored — and only the scores are written.
-        """
-        use_segments = self.mode == "segments" or (self.mode == "auto" and self.segments_key in task.data)
-        if use_segments:
-            segments = task.data.get(self.segments_key)
-            if segments is None:
-                segments = []
-            elif not isinstance(segments, list):
-                logger.error(f"Expected {self.segments_key!r} to be a list, got {type(segments).__name__}")
-                return task if self.action == "annotate" else []
-            survivors = []
-            for seg in segments:
-                if not isinstance(seg, dict):
-                    logger.error(f"Expected each {self.segments_key!r} item to be a mapping")
-                    if self.action == "annotate":
-                        survivors.append(seg)
-                    continue
-                temp = AudioTask(data=seg)
-                result = self._process_single(temp)
-                if result is not None or self.action == "annotate":
-                    survivors.append(temp.data)
-            task.data[self.segments_key] = survivors
-            return task if survivors or self.action == "annotate" else []
-        return self._process_single(task) or (task if self.action == "annotate" else [])
-
     def _process_single(self, task: AudioTask) -> AudioTask | None:
         """Run SIGMOS scoring on a single (non-nested) task."""
         # The compound annotation is atomic. Remove every prior output before
@@ -442,17 +333,11 @@ class SIGMOSFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             self.reverb_key,
         ):
             task.data.pop(score_key, None)
-        audio_result = _get_audio_numpy_sr(
-            task.data,
-            task.task_id,
-            input_residency=self.input_residency,
-            audio_filepath_key=self.audio_filepath_key,
-            waveform_key=self.waveform_key,
-            sample_rate_key=self.sample_rate_key,
-        )
+        audio_result = self._resolve_mono_audio(task)
         if audio_result is None:
             return None
-        audio_np, sample_rate = audio_result
+        waveform, sample_rate = audio_result
+        audio_np = waveform.squeeze(0).detach().cpu().numpy().astype(np.float32)
 
         if self._adapter is None:
             return None

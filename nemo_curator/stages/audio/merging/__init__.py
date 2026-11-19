@@ -15,7 +15,7 @@
 """Conversation merging stages for audio data curation."""
 
 from nemo_curator.stages.audio.merging.merge_conversation import (
-    MergeConversationSDPStage,
+    MergeConversationStage,
 )
 
-__all__ = ["MergeConversationSDPStage"]
+__all__ = ["MergeConversationStage"]
