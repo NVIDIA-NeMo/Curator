@@ -35,8 +35,7 @@ this checkout on the host:
 python benchmarking/tools/container.py start \
   --image nvcr.io/nvidia/nemo-curator:latest \
   --name curator-benchmark \
-  --config ./benchmarking/benchmarks.yaml \
-  --config ./benchmarking/nightly-data-setup.yaml
+  --config ./benchmarking/benchmarks.yaml
 ```
 
 By default, the container can access all GPUs unless `GPUS` is set in the host
@@ -69,8 +68,7 @@ pre-staged model snapshots or caches, such as audio tagging.
 
 ```bash
 python benchmarking/run.py \
-  --config ./benchmarking/benchmarks.yaml \
-  --config ./benchmarking/nightly-data-setup.yaml
+  --config ./benchmarking/benchmarks.yaml
 ```
 
 **Container:** run from the host, targeting the container started in step 1:
@@ -78,8 +76,7 @@ python benchmarking/run.py \
 ```bash
 python benchmarking/tools/container.py run \
   --container curator-benchmark \
-  --config ./benchmarking/benchmarks.yaml \
-  --config ./benchmarking/nightly-data-setup.yaml
+  --config ./benchmarking/benchmarks.yaml
 ```
 
 The start command runs `benchmarking/tools/setup_benchmark_env.sh` by default.
@@ -93,8 +90,7 @@ config in either run command. For example, on bare metal:
 ```bash
 python benchmarking/run.py \
   --config ./benchmarking/benchmarks.yaml \
-  --config ./benchmarking/4xGB200-64CPU.yaml \
-  --config ./benchmarking/nightly-data-setup.yaml
+  --config ./benchmarking/4xGB200-64CPU.yaml
 ```
 
 The 4xGB200-64CPU override updates resource counts, timeout values, known 4-GPU video
@@ -831,12 +827,16 @@ debugging only. That fallback stages into `{session_entry_dir}/scratch` or a
 local scratch path and uses a stable Hugging Face cache to avoid re-fetching
 blobs across reruns, but it is not the nightly path.
 
-To run the checked-in audio setup before the benchmark session, pass
-`--config benchmarking/nightly-data-setup.yaml` alongside the main benchmark
-config to `benchmarking/run.py`. All supplied config files are merged
-before data setup entries run, so they can reuse existing versioned manifests
-or download and stage data into the configured paths before the nightly
-benchmark entries start.
+The `data_setups` section of `benchmarks.yaml` holds the checked-in audio
+setup, so every `benchmarking/run.py` invocation, including each per-entry
+nightly job, loads it without an extra config. A setup stages the dataset of the
+same name and runs only when a selected entry references that dataset with
+`{dataset:<name>,<format>}`; other setups are skipped. Setups reuse existing
+versioned manifests or download and stage data into the configured paths before
+the benchmark entries start. Jobs that share `datasets_path` take a
+`.<setup name>.setup.lock` file there, so concurrent jobs wait for one staging
+run and then reuse its output. The first staging run can take much longer than
+the entry itself and is not covered by the entry's `timeout_s`.
 
 Current audio setup commands:
 
@@ -903,9 +903,9 @@ the production-compatible model artifacts to be staged at:
 ```
 
 The Parakeet TensorRT directory is a self-contained bundle whose `model.nemo`
-is the epoch-37 checkpoint used to construct the engine. NeMo-CI does not run
-`nightly-data-setup.yaml`; stage the pinned Hindi data and both engine bundles
-under its mounted dataset and model roots before launching this entry.
+is the epoch-37 checkpoint used to construct the engine. The
+`audio_indic_asr_hindi_531h` data setup stages the Hindi data when these entries
+run; stage both engine bundles under the mounted model root before launching them.
 
 Follow the [Indic ASR tutorial environment and model instructions](../tutorials/audio/granary_v2/indic_asr/README.md#1-build-and-check-the-environment)
 first, including its shared Granary image, model bundles and eight-H100 allocation.

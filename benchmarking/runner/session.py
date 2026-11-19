@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -34,6 +35,7 @@ from runner.path_resolver import PathResolver
 from runner.utils import get_total_memory_bytes
 
 _data_setup_script_base_path = Path(__file__).resolve().parent.parent / "data_prep"
+_DATASET_REF = re.compile(r"\{dataset:([^,}]+),")
 
 
 def _create_data_setup_entries(setup_configs: object) -> list[Entry]:
@@ -251,6 +253,10 @@ class Session:
                 if expr.evaluate(matcher):
                     filtered_entries.append(entry)
             entries = filtered_entries
+
+        # A data setup stages the dataset of the same name; run only those the selected entries use.
+        used_datasets = {name.strip() for e in entries for name in _DATASET_REF.findall(e.args or "")}
+        data_setups = [setup for setup in data_setups if setup.name in used_datasets]
 
         sess_data["results_path"] = path_resolver.resolve("results_path")
         sess_data["entries"] = entries

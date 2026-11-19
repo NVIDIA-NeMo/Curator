@@ -14,6 +14,7 @@
 
 
 import argparse
+import fcntl
 import json
 import os
 import pickle
@@ -21,8 +22,8 @@ import shutil
 import sys
 import time
 import traceback
-from collections.abc import Mapping
-from contextlib import nullcontext
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from typing import Any
 
@@ -167,6 +168,20 @@ def build_subprocess_environment(
     return merge_subprocess_environment(entry_environment), set(entry_environment)
 
 
+@contextmanager
+def _data_setup_lock(setup_name: str, path_resolver: PathResolver) -> Iterator[None]:
+    """Serialize one data setup across concurrent benchmark jobs that share datasets_path."""
+    datasets_path = path_resolver.path_map.get("datasets_path")
+    if datasets_path is None:
+        yield
+        return
+    Path(datasets_path).mkdir(parents=True, exist_ok=True)
+    with (Path(datasets_path) / f".{setup_name}.setup.lock").open("a") as lock_file:
+        logger.info(f"\tWaiting for data setup lock {lock_file.name}")
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        yield
+
+
 def run_data_setup_entry(
     setup_entry: Entry,
     path_resolver: PathResolver,
@@ -195,15 +210,16 @@ def run_data_setup_entry(
         subprocess_env, configured_env_names = build_subprocess_environment(
             setup_entry, setup_path, path_resolver, dataset_resolver
         )
-        run_data = run_command_with_timeout(
-            command=cmd,
-            timeout=setup_entry.timeout_s,
-            stdouterr_path=stdouterr_path,
-            env=subprocess_env,
-            env_value_allowlist=configured_env_names,
-            run_id=f"data_setup-{setup_entry.name}-{int(started_exec)}",
-            fancy=os.environ.get("CURATOR_BENCHMARKING_DEBUG", "0") == "0",
-        )
+        with _data_setup_lock(setup_entry.name, path_resolver):
+            run_data = run_command_with_timeout(
+                command=cmd,
+                timeout=setup_entry.timeout_s,
+                stdouterr_path=stdouterr_path,
+                env=subprocess_env,
+                env_value_allowlist=configured_env_names,
+                run_id=f"data_setup-{setup_entry.name}-{int(started_exec)}",
+                fancy=os.environ.get("CURATOR_BENCHMARKING_DEBUG", "0") == "0",
+            )
         duration = time.time() - started_exec
         success = run_data["returncode"] == 0 and not run_data["timed_out"]
         result_data.update(

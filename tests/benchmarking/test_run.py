@@ -63,3 +63,19 @@ def test_run_entry_forwards_only_resolved_configured_environment(
         "HF_HOME": str(entry_path / "scratch" / "hf_cache"),
     }
     assert setup.call_args.kwargs["ray_data_log_level"] == "WARNING"
+
+
+def test_data_setup_lock_uses_a_lock_file_in_datasets_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CURATOR_BENCHMARK_PATH_MODE", "host")
+    session = Session.from_dict(
+        {
+            "paths": [
+                {"name": "results_path", "host_path": str(tmp_path / "results")},
+                {"name": "datasets_path", "host_path": str(tmp_path / "datasets")},
+            ],
+            "entries": [{"name": "test_entry", "script": "benchmark.py"}],
+        }
+    )
+
+    with benchmark_run._data_setup_lock("dataset_a", session.path_resolver):
+        assert (tmp_path / "datasets" / ".dataset_a.setup.lock").is_file()
