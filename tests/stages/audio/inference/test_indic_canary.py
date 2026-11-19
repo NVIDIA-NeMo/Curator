@@ -22,6 +22,7 @@ import pytest
 
 from nemo_curator.models.asr.base import ASRResult
 from nemo_curator.models.asr.indic_canary import IndicCanaryTRTLLMASR
+from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
 from nemo_curator.stages.audio.inference.indic_canary import InferenceIndicCanaryStage
 from nemo_curator.tasks import AudioTask
 
@@ -190,3 +191,20 @@ def test_missing_engine_directory_is_rejected_during_prefetch() -> None:
         stage.setup_on_node()
 
     assert isinstance(exc_info.value.__cause__, ValueError)
+
+
+def test_stage_is_agent_ready() -> None:
+    stage = InferenceIndicCanaryStage(engine_dir="/models/indic-canary")
+    stage._adapter = MagicMock()
+    stage._adapter.transcribe_batch.return_value = [
+        ASRResult(text="namaste", extras={"language_code": "hi", "audio_duration_sec": 0.05})
+    ]
+
+    assert_agent_ready(
+        stage,
+        lambda: _task("hi"),
+        expected_cardinality="1:1",
+        available_keys={"waveform", "sampling_rate", "source_lang"},
+    )
+    assert stage.describe().gates.per_row_independent is False
+    assert stage.describe().gates.requires_internet_first_run is False

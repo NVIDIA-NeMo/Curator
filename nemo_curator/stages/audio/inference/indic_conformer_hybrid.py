@@ -16,13 +16,15 @@
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal
 
 from nemo_curator.models.audio.indic_conformer_hybrid import (
     INDIC_CONFORMER_HYBRID_LANGS,
     IndicConformerHybridASR,
 )
+from nemo_curator.stages.audio._agent._agent_ready import Gates, StageContract, StaticHints
 from nemo_curator.stages.audio.inference.asr.stage import ASRStage
 from nemo_curator.stages.resources import Resources
 
@@ -78,6 +80,11 @@ class InferenceIndicConformerHybridStage(ASRStage):
     prefetch_fail_on_error: bool = field(default=True, init=False, repr=False)
     adapter_kwargs: dict[str, Any] = field(default_factory=dict, init=False, repr=False)
 
+    # Static hints fail closed: only the NeMo backend's batching contract has been reviewed.
+    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
+        gates=Gates(requires_gpu=True, requires_internet_first_run=True, per_row_independent=False)
+    )
+
     def __post_init__(self) -> None:
         if self.backend not in {"nemo", "tensorrt"}:
             msg = f"Unsupported IndicConformer inference backend: {self.backend!r}"
@@ -102,6 +109,18 @@ class InferenceIndicConformerHybridStage(ASRStage):
         if self.backend == "tensorrt":
             self.adapter_kwargs["tensorrt_engine_dir"] = self.tensorrt_engine_dir
         super().__post_init__()
+
+    def describe(self) -> StageContract:
+        # NeMo backend pads with lengths preserved; the TensorRT encoder's batch shape is unreviewed.
+        # Both backends still restore the checkpoint from ``model_id``.
+        return dataclasses.replace(
+            super().describe(),
+            gates=Gates(
+                requires_gpu=self.resources.requires_gpu,
+                requires_internet_first_run=True,
+                per_row_independent=self.backend == "nemo",
+            ),
+        )
 
 
 __all__ = [

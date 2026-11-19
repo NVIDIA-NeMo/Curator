@@ -16,10 +16,12 @@
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal
 
 from nemo_curator.models.asr.nemo_asr import NeMoASRAdapter
+from nemo_curator.stages.audio._agent._agent_ready import Gates, StageContract, StaticHints
 from nemo_curator.stages.audio.inference.asr.stage import ASRStage
 from nemo_curator.stages.resources import Resources
 
@@ -95,6 +97,11 @@ class InferenceParakeetStage(ASRStage):
     prefetch_fail_on_error: bool = field(default=True, init=False, repr=False)
     adapter_kwargs: dict[str, Any] = field(default_factory=dict, init=False, repr=False)
 
+    # Static hints fail closed: only the NeMo backend's batching contract has been reviewed.
+    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
+        gates=Gates(requires_gpu=True, requires_internet_first_run=True, per_row_independent=False)
+    )
+
     def __post_init__(self) -> None:
         if self.backend not in {"nemo", "tensorrt"}:
             msg = f"Unsupported Parakeet inference backend: {self.backend!r}"
@@ -124,6 +131,17 @@ class InferenceParakeetStage(ASRStage):
                 "use_cuda_graph_decoder": False,
             }
         super().__post_init__()
+
+    def describe(self) -> StageContract:
+        # NeMo backend: the reviewed NeMoASRAdapter. TensorRT: a local engine whose batch shape is unreviewed.
+        return dataclasses.replace(
+            super().describe(),
+            gates=Gates(
+                requires_gpu=self.resources.requires_gpu,
+                requires_internet_first_run=self.backend == "nemo",
+                per_row_independent=self.backend == "nemo",
+            ),
+        )
 
 
 __all__ = ["PARAKEET_TDT_0_6B_V3_LANGS", "InferenceParakeetStage", "NeMoASRAdapter"]
