@@ -358,6 +358,7 @@ class IndicConformerHybridASR:
         tensorrt_engine_dir: str | None = None,
         rnnt_precision: Literal["fp32", "fp16", "bf16"] = "fp32",
         empty_audio_marks_skip: bool = True,
+        use_cuda_graph_decoder: bool = True,
     ):
         if not model_id:
             msg = "IndicConformerHybridASR.model_id must be non-empty"
@@ -381,6 +382,7 @@ class IndicConformerHybridASR:
         self.tensorrt_engine_dir = tensorrt_engine_dir
         self.rnnt_precision = rnnt_precision
         self.empty_audio_marks_skip = empty_audio_marks_skip
+        self.use_cuda_graph_decoder = use_cuda_graph_decoder
         self._model: Any = None
         self._device: Any = None
         self._num_langs: int = 0
@@ -829,7 +831,7 @@ class IndicConformerHybridASR:
             preserve_alignments=False,
             preserve_frame_confidence=False,
             loop_labels=True,
-            use_cuda_graph_decoder=self._device.type == "cuda",
+            use_cuda_graph_decoder=self.use_cuda_graph_decoder and self._device.type == "cuda",
         )
         self._rnnt_decoders[lang] = decoder
         return decoder
