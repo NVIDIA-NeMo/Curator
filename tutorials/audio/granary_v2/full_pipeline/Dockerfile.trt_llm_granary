@@ -3,22 +3,26 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # Image for indic_granary_pipeline.yaml: the Granary base (TensorRT, TensorRT-LLM, NeMo,
-# SpeechBrain, Whisper) plus the Dynamo driver for the text model. It adds no in-process vLLM:
-# the Indic ASR stages run on TensorRT-LLM / NeMo, and Dynamo resolves its own vLLM in isolated
-# Ray worker environments.
+# SpeechBrain, Whisper) plus the Ray Serve LLM driver for the text model. Ray Serve LLM imports vLLM's
+# protocol classes in the driver, and Ray 2.57 matches vLLM 0.22 (the English image's pair; the base's
+# Ray 2.60 would need vLLM 0.24 and Transformers 5). The driver gets vLLM's CPU build: it carries the
+# protocol classes, and vLLM never loads its CUDA extension from it, which could not load against this
+# image's Torch 2.9.1. The text model's engine runs in the Ray Serve replicas' isolated environments
+# (vLLM 0.22 with Torch 2.11 from the YAML's runtime_env), so the TensorRT-LLM stack stays unchanged.
 # Build the base first (see README.md section 1): docker/audio/Dockerfile.trt_llm --target granary.
 # It already holds this checkout at /opt/Curator, so nothing is copied here.
 ARG BASE_IMAGE=curator-granary-base
 FROM ${BASE_IMAGE}
 
-# Freeze every installed package as an override so the TensorRT-LLM stack stays unchanged.
-RUN uv pip freeze --python /opt/venv/bin/python --exclude-editable > /tmp/granary-overrides.txt \
+# Freeze every installed package as an override so the TensorRT-LLM stack stays unchanged; only Ray and
+# vLLM are left free to change.
+RUN uv pip freeze --python /opt/venv/bin/python --exclude-editable \
+        | grep -v -i -E '^(ray|vllm|grpcio-reflection)==' > /tmp/granary-overrides.txt \
     && uv pip install --no-config --no-sources --python /opt/venv/bin/python \
         --overrides /tmp/granary-overrides.txt --only-binary :all: \
-        'ai-dynamo==1.3.1' 'nixl-cu12==1.0.0' \
+        --extra-index-url https://wheels.vllm.ai/0.22.0/cpu --index-strategy unsafe-best-match \
+        'ray[serve]==2.57.0' 'vllm==0.22.0+cpu' 'uvloop' 'grpcio-reflection==1.85.1' \
     && rm /tmp/granary-overrides.txt
-
-RUN bash /opt/Curator/docker/common/install_etcd_nats.sh
 
 # The text model's serving workers JIT-compile FlashInfer kernels with CUDA 12.9 (selected through
 # CUDA_HOME in the YAML's runtime_env); the audio runtime keeps its CUDA 12.8 alias.

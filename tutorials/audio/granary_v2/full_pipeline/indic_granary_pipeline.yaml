@@ -24,19 +24,23 @@ documentation: |
 output_path: ${output_dir}/indic.jsonl
 regex_yaml: tutorials/audio/granary_v2/indic_asr/regex.yaml
 
-# The Indic image has TensorRT-LLM and no vLLM or Ray Serve extras, so its text model runs on Dynamo, which
-# resolves its own vLLM environment at start-up.
-inference_server:
-  models:
-    - _target_: nemo_curator.core.serve.DynamoVLLMModelConfig
-      _convert_: all
-      model_identifier: ${model_identifier}
-      model_name: ${model_name}
-      num_replicas: 2
-      runtime_env: ${text_model.runtime_env}
-      engine_kwargs: ${text_model.engine_kwargs}
-  backend:
-    _target_: nemo_curator.core.serve.DynamoServerConfig
+# The Indic image keeps Torch 2.9.1 for TensorRT-LLM and carries only vLLM's CPU build for the Ray Serve
+# driver, so the text model's engine runs in the replicas' isolated environments with vLLM 0.22 (Torch 2.11).
+text_model:
+  runtime_env:
+    uv:
+      packages:
+        - vllm==0.22.0+cu129
+        - transformers==5.8.0
+      uv_pip_install_options:
+        - --torch-backend
+        - cu129
+        - --index-strategy
+        - unsafe-best-match
+        - --extra-index-url
+        - https://wheels.vllm.ai/0.22.0/cu129
+    config:
+      setup_timeout_seconds: 1800
 
 stages:
   - ${shared.manifest_reader}
