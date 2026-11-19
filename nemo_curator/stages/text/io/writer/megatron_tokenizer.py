@@ -132,7 +132,7 @@ class MegatronTokenizerWriter(BaseWriter):
         try:
             with self.fs.open(file_prefix + ".bin", "wb") as bin_file:
                 for batch in batched(df[self.text_field], self.tokenization_batch_size):
-                    tokens_batch = self.tokenizer.batch_encode_plus(
+                    tokens_batch = self.tokenizer(
                         batch,
                         padding=False,
                         truncation=False,

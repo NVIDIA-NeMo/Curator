@@ -44,7 +44,7 @@ def mock_tokenizer() -> Mock:
     tokenizer.vocab_size = 2**12
     tokenizer.eos_token_id = 1
 
-    def mock_batch_encode_plus(texts: list[str], **kwargs: Any) -> MockTokenizerOutput:  # noqa: ANN401 ARG001
+    def mock_tokenize(texts: list[str], **kwargs: Any) -> MockTokenizerOutput:  # noqa: ANN401 ARG001
         input_ids: list[list[int]] = []
         attention_masks: list[list[int]] = []
         for text in texts:
@@ -53,7 +53,7 @@ def mock_tokenizer() -> Mock:
             attention_masks.append([1] * token_count)
         return MockTokenizerOutput(input_ids, attention_masks)
 
-    tokenizer.batch_encode_plus = mock_batch_encode_plus
+    tokenizer.side_effect = mock_tokenize
     return tokenizer
 
 

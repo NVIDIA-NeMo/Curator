@@ -43,7 +43,7 @@ def mock_tokenizer() -> Mock:
     tokenizer.unk_token = "[UNK]"  # noqa: S105
     tokenizer.padding_side = "right"
 
-    def mock_batch_encode_plus(texts: list[str], **kwargs: Any) -> MockTokenizerOutput:  # noqa: ANN401
+    def mock_tokenize(texts: list[str], **kwargs: Any) -> MockTokenizerOutput:  # noqa: ANN401
         input_ids: list[list[int]] = []
         attention_masks: list[list[int]] = []
         max_length = kwargs.get("max_length", 512)
@@ -66,7 +66,7 @@ def mock_tokenizer() -> Mock:
 
         return MockTokenizerOutput(input_ids, attention_masks)
 
-    tokenizer.batch_encode_plus = mock_batch_encode_plus
+    tokenizer.side_effect = mock_tokenize
     return tokenizer
 
 
@@ -119,7 +119,7 @@ def test_mocks_are_working_automatically():
 
     # Verify the tokenizer was mocked correctly
     assert stage.tokenizer is not None
-    assert hasattr(stage.tokenizer, "batch_encode_plus")
+    assert callable(stage.tokenizer)
 
 
 def test_tokenizer_stage_sort_by_length_enabled(sample_document_batch: DocumentBatch):
