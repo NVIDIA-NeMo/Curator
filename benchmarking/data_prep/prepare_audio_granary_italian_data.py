@@ -17,8 +17,10 @@
 from __future__ import annotations
 
 import argparse
+import gc
 import json
 import shutil
+import time
 from pathlib import Path
 
 import soundfile as sf
@@ -56,9 +58,10 @@ def stage_dataset(  # noqa: PLR0913
     temporary_manifest = manifest_path.with_suffix(".jsonl.tmp")
     clips = 0
     seconds = 0.0
+    iterator = iter(dataset)
     try:
         with temporary_manifest.open("w", encoding="utf-8") as manifest_file:
-            for row in dataset:
+            for row in iterator:
                 item_id = str(row["id"]).replace("/", "-")
                 audio_path = audio_dir / f"{item_id}.flac"
                 audio = row["audio"]
@@ -85,6 +88,10 @@ def stage_dataset(  # noqa: PLR0913
     except Exception:
         temporary_manifest.unlink(missing_ok=True)
         raise
+    finally:
+        iterator.close()
+        gc.collect()  # apache/arrow#45214: a half-read streaming dataset can hang the interpreter at exit
+        time.sleep(5)
     logger.success(f"Staged {clips} recordings / {seconds / 3600:.3f} hours at {manifest_path}")
 
 
