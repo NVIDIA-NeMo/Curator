@@ -25,7 +25,7 @@ params_of_note:
   alignment_key: "top-level word list containing {word, start, end}, with times in seconds (default alignment)"
   segments_key: "diarization list containing {speaker, start, end}, with times in seconds (default segments)"
 param_dependencies:
-  alignment_key: "requires top-level word alignment, normally from SplitASRAlignJoinStage or Split -> Align -> Join. NeMoASRAlignerStage fallback output may also be top-level, but its usual split output is nested. Plain ASRStage pred_text is insufficient."
+  alignment_key: "requires top-level word alignment, normally from SplitASRAlignJoinStage or Split -> Align -> Join. An aligning ASRStage (NeMoASRAdapter timestamps, words_key) writes top-level words only when run on unsplit rows; Plain ASRStage pred_text is insufficient."
   segments_key: "requires upstream diarization segments; set to the diarizer's key (e.g. diar_segments from InferenceSortformerStage)"
 notes:
   - "Only the configured segments list is read; a separate overlap_segments list is not merged automatically. Words are assigned once by containment/overlap, with ties favoring the current segment; words falling in gaps are skipped. This does not create separate transcripts for simultaneous speakers."

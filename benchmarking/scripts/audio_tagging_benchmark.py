@@ -29,11 +29,11 @@ from utils import setup_executor, write_benchmark_results
 
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.common import ManifestReader, ManifestWriterStage
+from nemo_curator.stages.audio.inference.asr.stage import ASRStage
 from nemo_curator.stages.audio.inference.speaker_diarization.stage import InferenceSortformerStage
 from nemo_curator.stages.audio.metrics.bandwidth import BandwidthEstimationStage
 from nemo_curator.stages.audio.metrics.squim import TorchSquimQualityMetricsStage
 from nemo_curator.stages.audio.metrics.wer import ComputeWERStage
-from nemo_curator.stages.audio.tagging.inference.nemo_asr_align import NeMoASRAlignerStage
 from nemo_curator.stages.audio.tagging.merge_alignment_diarization import MergeAlignmentDiarizationStage
 from nemo_curator.stages.audio.tagging.prepare_module_segments import PrepareModuleSegmentsStage
 from nemo_curator.stages.audio.tagging.resample_audio import ResampleAudioStage
@@ -64,6 +64,8 @@ _REQUIRED_STAGE_NAMES = (
     "ComputeWER",
     "ManifestWriter",
 )
+
+_NEMO_ADAPTER = "nemo_curator.models.asr.nemo_asr.NeMoASRAdapter"
 
 
 def _load_jsonl_rows(path: Path, label: str) -> list[dict[str, Any]]:
@@ -417,13 +419,23 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
         )
     )
     pipeline.add_stage(
-        NeMoASRAlignerStage(
+        ASRStage(
             name="ASRAlignment",
-            is_fastconformer=True,
-            decoder_type="rnnt",
+            adapter_target=_NEMO_ADAPTER,
+            model_id="nvidia/parakeet-tdt_ctc-1.1b",
+            adapter_kwargs={
+                "enable_local_attention": True,
+                "decoder_type": "rnnt",
+                "timestamps": True,
+                "use_cuda_graph_decoder": use_cuda_graphs,
+            },
+            nested_key="split_metadata",
+            pred_text_key="text",
+            words_key="alignment",
             batch_size=asr_batch_size,
-            transcribe_batch_size=asr_transcribe_batch_size,
-            use_cuda_graphs=use_cuda_graphs,
+            # One adapter call holds up to asr_transcribe_batch_size splits of max_segment_length.
+            max_audio_sec_per_actor=asr_transcribe_batch_size * max_segment_length,
+            max_inference_duration_s=asr_transcribe_batch_size * max_segment_length,
         )
     )
     pipeline.add_stage(JoinSplitAudioMetadataStage(name="JoinSplitMetadata").with_(resources=Resources(cpus=1)))
@@ -444,18 +456,19 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
         ).with_(resources=Resources(cpus=1))
     )
     pipeline.add_stage(
-        NeMoASRAlignerStage(
+        ASRStage(
             name="ASRAlignment2",
-            model_name="nvidia/stt_en_conformer_ctc_large",
-            is_fastconformer=False,
-            decoder_type="ctc",
+            adapter_target=_NEMO_ADAPTER,
+            model_id="nvidia/stt_en_conformer_ctc_large",
+            adapter_kwargs={"decoder_type": "ctc", "use_cuda_graph_decoder": use_cuda_graphs},
+            nested_key="segments",
+            nested_audio="slice",
+            min_nested_duration_s=1.0,
+            pred_text_key="text_2",
             batch_size=64,
-            transcribe_batch_size=asr_transcribe_batch_size,
-            split_batch_size=100,
-            text_key="text_2",
-            infer_segment_only=True,
-            compute_timestamps=False,
-            use_cuda_graphs=use_cuda_graphs,
+            # Prepared segments are at most 20 s long.
+            max_audio_sec_per_actor=asr_transcribe_batch_size * 20,
+            max_inference_duration_s=asr_transcribe_batch_size * 20,
         )
     )
     pipeline.add_stage(

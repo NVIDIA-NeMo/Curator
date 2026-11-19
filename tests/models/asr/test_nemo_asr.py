@@ -167,6 +167,62 @@ def test_load_model_configures_rnnt_cuda_graph_decoder_when_requested(enabled: b
     model.eval.assert_called_once_with()
 
 
+@pytest.mark.parametrize(("decoder_type", "use_cuda_graph_decoder"), [("ctc", None), ("rnnt", False)])
+def test_load_model_applies_alignment_decoding(decoder_type: str, use_cuda_graph_decoder: bool | None) -> None:
+    adapter = NeMoASRAdapter(
+        decoder_type=decoder_type,
+        timestamps=True,
+        timestamp_type="char",
+        use_cuda_graph_decoder=use_cuda_graph_decoder,
+    )
+    model = _mock_model([])
+
+    with patch.object(adapter, "_load_checkpoint", return_value=model):
+        adapter.load_model(num_gpus=0)
+
+    cfg = model.change_decoding_strategy.call_args.kwargs["decoding_cfg"]
+    assert cfg.compute_timestamps is True
+    assert cfg.preserve_alignments is True
+    assert cfg.confidence_cfg.preserve_word_confidence is True
+    if decoder_type == "ctc":
+        assert cfg.strategy == "greedy_batch"
+        assert cfg.greedy.allow_cuda_graphs is True
+    else:
+        assert cfg.rnnt_timestamp_type == "char"
+        assert cfg.greedy.use_cuda_graph_decoder is False
+
+
+def test_timestamps_require_a_decoder_type() -> None:
+    with pytest.raises(ValueError, match="decoder_type"):
+        NeMoASRAdapter(timestamps=True)
+
+
+@pytest.mark.parametrize(
+    ("decoder_type", "subsampling", "expected"), [("rnnt", 8, (0.0, 0.32)), ("ctc", 4, (0.04, 0.2))]
+)
+def test_timestamps_convert_frame_offsets_to_seconds(decoder_type: str, subsampling: int, expected: tuple) -> None:
+    adapter = NeMoASRAdapter(decoder_type=decoder_type, timestamps=True)
+    model = _mock_model(
+        [
+            SimpleNamespace(
+                timestamp={"word": [{"word": "hi", "start_offset": 1, "end_offset": 5}]},
+                word_confidence=[torch.tensor(0.123456)],
+            )
+        ]
+    )
+    model.cfg = OmegaConf.create(
+        {"encoder": {"subsampling_factor": subsampling}, "preprocessor": {"window_stride": 0.01}}
+    )
+    adapter._model = model
+
+    result = adapter.transcribe_batch([_item()])[0]
+
+    assert result.text == "hi"
+    assert result.extras["words"] == [{"word": "hi", "start": expected[0], "end": expected[1], "confidence": 0.1235}]
+    assert model.transcribe.call_args.kwargs["timestamps"] is True
+    assert model.transcribe.call_args.kwargs["return_hypotheses"] is True
+
+
 def test_transcribe_batch_uses_one_exact_nemo_batch() -> None:
     model = _mock_model([SimpleNamespace(text="alpha"), SimpleNamespace(text="beta")])
     adapter = NeMoASRAdapter(num_workers=2)

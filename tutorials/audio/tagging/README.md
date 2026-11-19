@@ -57,7 +57,7 @@ The dashed path shows that `ManifestWriter` can follow directly after `PrepareMo
 | 1 | **ResampleAudioStage** | Resample to 16 kHz mono WAV | No |
 | 2 | **InferenceSortformerStage** with `PyAnnoteDiarizationAdapter` | Speaker diarization and overlap detection | Yes |
 | 3 | **SplitLongAudioStage** | Split segments exceeding max length | No |
-| 4 | **NeMoASRAlignerStage** | Forced alignment via NeMo FastConformer | Yes |
+| 4 | **ASRStage** (`NeMoASRAdapter`, `nested_key: split_metadata`) | Word-aligned ASR via NeMo FastConformer | Yes |
 | 5 | **JoinSplitAudioMetadataStage** | Rejoin split audio metadata | No |
 | 6 | **MergeAlignmentDiarizationStage** | Merge alignment with diarization segments | No |
 | 7 | **BandwidthEstimationStage** | Spectral bandwidth estimation per segment | No |
@@ -72,7 +72,7 @@ These stages can be appended after `PrepareModuleSegments` in any modality confi
 
 | # | Stage | Description | GPU |
 |---|-------|-------------|-----|
-| 10 | **NeMoASRAlignerStage** (2nd pass) | Second-pass ASR transcription (e.g. CTC Conformer) | Yes |
+| 10 | **ASRStage** (2nd pass, `nested_key: segments`, `nested_audio: slice`) | Second-pass ASR transcription (e.g. CTC Conformer) | Yes |
 | 11 | **ComputeWERStage** | Word/character error rate between first and second ASR transcripts | No |
 
 #### Optional Text Normalization Stages
@@ -278,9 +278,9 @@ Set as `stages.2.adapter_kwargs.segmentation_batch_size`. Controls GPU memory vs
 | 128 (default) | ~6 GB | Good balance for A100 |
 | 256+ | ~10+ GB | Maximum throughput, requires ≥40 GB VRAM |
 
-### `transcribe_batch_size` (NeMo ASR Aligner, default: 32)
+### `max_audio_sec_per_actor` (ASR stages, default in configs: 1280 / 640)
 
-Controls how many audio chunks are transcribed in a single forward pass. Reduce to 8–16 if you see CUDA OOM errors during the ASR alignment stage.
+Caps the padded audio seconds sent to the NeMo model in one forward pass (32 chunks × 40 s for stage 4, 32 segments × 20 s for stage 10). Halve it if you see CUDA OOM errors during the ASR alignment stage.
 
 ## GPU Memory Requirements
 
@@ -296,7 +296,7 @@ The pipeline loads two GPU models simultaneously at peak:
 
 | GPU | Fits? | Notes |
 |-----|-------|-------|
-| T4 (16 GB) | Yes | Reduce `segmentation_batch_size` to 32 and `transcribe_batch_size` to 8 |
+| T4 (16 GB) | Yes | Reduce `segmentation_batch_size` to 32 and `max_audio_sec_per_actor` to 320 |
 | A10G (24 GB) | Yes | Default settings work |
 | A100 (40/80 GB) | Yes | Can increase batch sizes for throughput |
 
@@ -354,9 +354,6 @@ tests/stages/audio/tagging/
 ├── test_resample_audio.py
 ├── test_split.py
 ├── test_utils.py
-├── inference/
-│   ├── test_base_asr_processor.py
-│   └── test_nemo_asr_align.py
 ├── metrics/
 │   └── test_metrics.py
 ├── text/

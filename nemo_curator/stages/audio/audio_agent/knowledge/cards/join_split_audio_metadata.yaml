@@ -15,7 +15,7 @@ use_cases:
   good_for: ["recombining chunk-level transcripts/alignments after SplitLongAudioStage + an aligner"]
   avoid_for: ["rows without the expected split metadata"]
 composition:
-  typical_upstream: [NeMoASRAlignerStage]
+  typical_upstream: [ASRStage]
   typical_downstream: [MergeAlignmentDiarizationStage, TimestampMapperStage]
 params_of_note:
   text_key: "transcript text key in the split entries (default text)"
@@ -24,7 +24,7 @@ params_of_note:
   alignment_key: "key holding alignments to concatenate"
 param_dependencies:
   split_filepaths_key: "requires SplitLongAudioStage upstream"
-  alignment_key: "requires an aligner (e.g. NeMoASRAlignerStage) upstream"
+  alignment_key: "requires ASRStage(nested_key=split_metadata, words_key=alignment) with NeMoASRAdapter timestamps upstream"
 notes:
   - "Keep the join for short recordings too: SplitLongAudioStage wraps an unsplit file in a one-element split structure, and its text/alignment still need promotion to top-level output."
   - "Adjusts timestamps and concatenates transcripts to recreate the original audio's metadata. Used inside SplitASRAlignJoinStage."

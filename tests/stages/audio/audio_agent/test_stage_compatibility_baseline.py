@@ -57,7 +57,6 @@ LEGACY_STAGE_NAMES = (
     "ManifestWriterStage",
     "MergeAlignmentDiarizationStage",
     "MonoConversionStage",
-    "NeMoASRAlignerStage",
     "OverlapFilterStage",
     "PrepareModuleSegmentsStage",
     "PreserveByValueStage",

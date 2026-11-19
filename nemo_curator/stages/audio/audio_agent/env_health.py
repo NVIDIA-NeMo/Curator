@@ -494,7 +494,7 @@ def _cuda_driver_toolkit(env: EnvProfile) -> HealthCheck:
                 reason="not valid for arbitrary GPU stages or pure-TDT transcription",
                 preserves_recipe=False,
                 tradeoffs=["changes recipe behavior and requires a new validation/smoke/confirmation cycle"],
-                applies_to=["NeMoASRAlignerStage", "SplitASRAlignJoinStage"],
+                applies_to=["SplitASRAlignJoinStage"],
             ),
             _option(
                 "use_cpu_recipe_variant",

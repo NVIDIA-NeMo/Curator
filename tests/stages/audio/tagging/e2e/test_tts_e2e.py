@@ -51,11 +51,11 @@ def test_tts_e2e(tmp_path: Path, get_input_manifest: str) -> None:
     cfg.hf_token = os.getenv("HF_TOKEN", "")
     cfg.language_short = "en"
 
-    # Override NeMoASRAlignerStage (index 4) to use CTC model for CPU testing
-    cfg.stages[4].model_name = "nvidia/stt_en_fastconformer_ctc_large"
-    cfg.stages[4].is_fastconformer = True
-    cfg.stages[4].decoder_type = "ctc"
-    cfg.stages[4].transcribe_batch_size = 1
+    # Override the aligning ASRStage (index 4) to use a CTC model for CPU testing
+    cfg.stages[4].model_id = "nvidia/stt_en_fastconformer_ctc_large"
+    cfg.stages[4].adapter_kwargs.decoder_type = "ctc"
+    cfg.stages[4].max_audio_sec_per_actor = 40
+    cfg.stages[4].max_inference_duration_s = 40
 
     pipeline = create_pipeline_from_yaml(cfg)
     executor = XennaExecutor()

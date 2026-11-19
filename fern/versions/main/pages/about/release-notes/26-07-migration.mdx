@@ -22,7 +22,7 @@ Use this checklist to update applications and pipeline configuration for NeMo Cu
 | Video preprocessing | Remove `model_does_preprocess` | Video caption pipelines and CLIs |
 | Video caption variants | Replace `qwen` with `qwen2.5` or `qwen3` | Video caption and enhancement pipelines |
 | Inference server | Replace `InferenceModelConfig` with a typed Ray Serve or Dynamo configuration | Pipelines that serve local LLMs |
-| Audio ASR workers | Rename `num_workers` to `dataloader_num_workers` | ASR and alignment stages |
+| Audio ASR workers | Set DataLoader workers with the adapter's `num_workers` (`adapter_kwargs`) | ASR and alignment stages |
 | Audio dependencies | Account for missing `nemo_text_processing` on aarch64 and macOS | Audio pipelines using ITN or WER stages |
 | Video dependencies | Install FlashAttention explicitly only if custom code imports it | Custom video environments |
 | Resumability | Start Ray first and pass a local `checkpoint_path` only to resumability-safe pipelines | Long-running Ray pipelines |
@@ -195,29 +195,21 @@ Do not pass Ray Serve's `deployment_config` to `DynamoVLLMModelConfig`. Use `num
 
 ## 7. Separate ASR DataLoader Workers from Stage Workers
 
-In audio ASR stages, the old `num_workers` constructor argument is now `dataloader_num_workers`. The default remains 10. The `num_workers` name is reserved for backend execution workers and is set with `with_()`.
-
-Before:
+In audio ASR stages, the old `num_workers` constructor argument no longer sets DataLoader workers. The `num_workers` name is reserved for backend execution workers and is set with `with_()`. The word-aligning NeMo ASR stage of this release has since been replaced by `ASRStage` with `NeMoASRAdapter`, where the DataLoader worker count is the adapter's `num_workers` option.
 
 ```python
-aligner = NeMoASRAlignerStage(
-    model_name="nvidia/parakeet-tdt-0.6b-v2",
-    num_workers=4,
-)
-```
-
-After:
-
-```python
-aligner = NeMoASRAlignerStage(
-    model_name="nvidia/parakeet-tdt-0.6b-v2",
-    dataloader_num_workers=4,
+asr = ASRStage(
+    adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+    model_id="nvidia/parakeet-tdt-0.6b-v2",
+    max_audio_sec_per_actor=1280,
+    max_inference_duration_s=1280,
+    adapter_kwargs={"num_workers": 4},
 ).with_(num_workers=2)
 ```
 
-The same rename applies to stages derived from `BaseASRProcessorStage`. The two values control different layers:
+The two values control different layers:
 
-- `dataloader_num_workers` controls loading within each ASR stage worker.
+- the adapter's `num_workers` controls loading within each ASR stage worker.
 - `.with_(num_workers=...)` controls how many stage workers the backend schedules.
 
 See [#2086](https://github.com/NVIDIA-NeMo/Curator/pull/2086) and [Stage worker sizing](/reference/infra/stage-worker-sizing).
@@ -292,7 +284,7 @@ Use a representative subset rather than a synthetic no-op pipeline. Confirm all 
 - Video commands contain no `model_does_preprocess` option.
 - Video caption stages use an explicit, matching model variant rather than `qwen`.
 - Inference servers use `RayServeModelConfig` or an explicit Dynamo model and server configuration.
-- ASR constructors use `dataloader_num_workers`; stage concurrency is configured separately.
+- ASR DataLoader workers are an adapter option (`adapter_kwargs.num_workers`); stage concurrency is configured separately.
 - Ray Data and Xenna schedule the intended number of workers.
 - aarch64 jobs do not import unavailable audio text-processing stages.
 - Custom video code does not assume FlashAttention was installed by `video_cuda12`.

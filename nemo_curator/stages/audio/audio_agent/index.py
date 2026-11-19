@@ -48,7 +48,6 @@ _MODULE_CATEGORY_RULES: tuple[tuple[str, str], ...] = (
     ("speaker_diarization", "diarize"),
     ("speaker_separation", "diarize"),
     ("inference.asr", "transcribe"),
-    ("nemo_asr_align", "transcribe"),
     ("merge_alignment", "transcribe"),
     ("tagging.text", "text_norm"),
     ("metrics", "quality"),

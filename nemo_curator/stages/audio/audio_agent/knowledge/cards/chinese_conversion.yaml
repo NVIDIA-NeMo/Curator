@@ -33,6 +33,6 @@ notes:
   - "OpenCC dictionary conversion (opencc-python-reimplemented), default t2s (Traditional -> Simplified). Other configs: s2t, s2tw, tw2s, s2hk, hk2s, t2tw, tw2sp, t2hk."
   - "Fail-open: on any conversion error the original text is copied to the output key (never drops the row)."
   - "Writes converted text to segments[].{text_key}{output_suffix}; entries without a `segments` list are rejected (top-level `text` is ignored)."
-  - "Plain ASRStage output and standalone NeMoASRAlignerStage output are not direct inputs: shape transcript/alignment data into the required per-segment schema first."
+  - "Top-level ASRStage output (pred_text / words_key) is not a direct input: shape transcript/alignment data into the required per-segment schema first."
 verified: {params: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess, comparison: best_guess}
 provenance: {model_card_url: null, card_version: 4, last_validated: "2026-09-22"}

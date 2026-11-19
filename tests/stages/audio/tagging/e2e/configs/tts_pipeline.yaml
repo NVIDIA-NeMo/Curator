@@ -56,14 +56,21 @@ stages:
     min_len: 1.0
     resources: ${resources}
 
-  # 4. ASR forced alignment (NeMo)
-  - _target_: nemo_curator.stages.audio.tagging.inference.nemo_asr_align.NeMoASRAlignerStage
+  # 4. Word-aligned ASR (NeMo adapter on each split)
+  - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
     name: "ASRAlignment"
-    is_fastconformer: true
-    decoder_type: ctc
+    adapter_target: nemo_curator.models.asr.nemo_asr.NeMoASRAdapter
+    model_id: nvidia/parakeet-tdt_ctc-1.1b
+    adapter_kwargs:
+      enable_local_attention: true
+      decoder_type: ctc
+      timestamps: true
+    nested_key: split_metadata
+    pred_text_key: text
+    words_key: alignment
     batch_size: 1
-    transcribe_batch_size: 4
-    dataloader_num_workers: 1
+    max_audio_sec_per_actor: 160
+    max_inference_duration_s: 160
     resources:
       gpus: 0.45
 

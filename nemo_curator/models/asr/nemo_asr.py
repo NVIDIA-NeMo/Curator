@@ -21,7 +21,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from numbers import Integral
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Literal
 
 import numpy as np
 import torch
@@ -77,6 +77,14 @@ class NeMoASRAdapter:
             CUDA graph implementation.
         refresh_cache: Forward NeMo's checkpoint cache refresh flag.
         strict: Forward NeMo's strict checkpoint loading flag.
+        decoder_type: Apply Curator's greedy decoding config for ``"ctc"`` or
+            ``"rnnt"`` after loading (needed for timestamps). ``None`` keeps the
+            checkpoint's decoding config.
+        timestamps: Return per-word (or per-char) timestamps in
+            ``ASRResult.extras["words"]`` as ``{"word", "start", "end",
+            "confidence"}`` dicts in seconds; the text is then the joined words.
+        timestamp_type: ``"word"`` or ``"char"`` timestamps.
+        word_confidence: Include per-word confidence when ``timestamps`` is on.
     """
 
     _DEFAULT_FASTCONFORMER_CTC_MODEL: ClassVar[str] = "nvidia/stt_en_fastconformer_ctc_large"
@@ -92,6 +100,10 @@ class NeMoASRAdapter:
     use_cuda_graph_decoder: bool | None = None
     refresh_cache: bool = False
     strict: bool = True
+    decoder_type: Literal["ctc", "rnnt"] | None = None
+    timestamps: bool = False
+    timestamp_type: Literal["word", "char"] = "word"
+    word_confidence: bool = True
     _model: Any = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -109,6 +121,15 @@ class NeMoASRAdapter:
             msg = "NeMoASRAdapter.local_attention_context_size must contain two positive integers"
             raise ValueError(msg)
         self.local_attention_context_size = (int(context_size[0]), int(context_size[1]))
+        if self.decoder_type not in {None, "ctc", "rnnt"}:
+            msg = f"NeMoASRAdapter.decoder_type must be 'ctc', 'rnnt' or None, got {self.decoder_type!r}"
+            raise ValueError(msg)
+        if self.timestamp_type not in {"word", "char"}:
+            msg = f"NeMoASRAdapter.timestamp_type must be 'word' or 'char', got {self.timestamp_type!r}"
+            raise ValueError(msg)
+        if self.timestamps and self.decoder_type is None:
+            msg = "NeMoASRAdapter.timestamps requires decoder_type ('ctc' or 'rnnt')"
+            raise ValueError(msg)
 
     def download_weights_on_node(self) -> None:
         """Download a pretrained checkpoint without allocating a GPU model."""
@@ -148,7 +169,9 @@ class NeMoASRAdapter:
         model = self._load_checkpoint(device)
         if self.enable_local_attention:
             self._configure_local_attention(model)
-        if self.use_cuda_graph_decoder is not None:
+        if self.decoder_type is not None:
+            self._configure_decoding(model)
+        elif self.use_cuda_graph_decoder is not None:
             self._configure_rnnt_cuda_graph_decoder(model)
         eval_model = getattr(model, "eval", None)
         if callable(eval_model):
@@ -191,6 +214,50 @@ class NeMoASRAdapter:
             decoding_cfg.greedy.allow_cuda_graphs = self.use_cuda_graph_decoder
         change_decoding_strategy(decoding_cfg=decoding_cfg)
 
+    def _configure_decoding(self, model: Any) -> None:  # noqa: ANN401
+        """Apply greedy CTC/RNNT decoding with optional timestamps and word confidence."""
+        from nemo.collections.asr.parts.submodules.ctc_decoding import CTCDecodingConfig
+        from nemo.collections.asr.parts.submodules.rnnt_decoding import RNNTDecodingConfig
+
+        use_cuda_graphs = self.use_cuda_graph_decoder is not False
+        if self.decoder_type == "ctc":
+            decoding_cfg = CTCDecodingConfig()
+            decoding_cfg.strategy = "greedy_batch"
+            decoding_cfg.greedy.allow_cuda_graphs = use_cuda_graphs
+        else:
+            decoding_cfg = RNNTDecodingConfig()
+            decoding_cfg.rnnt_timestamp_type = self.timestamp_type
+            decoding_cfg.greedy.use_cuda_graph_decoder = use_cuda_graphs
+        decoding_cfg.preserve_alignments = self.timestamps
+        decoding_cfg.compute_timestamps = self.timestamps
+        decoding_cfg.greedy.compute_timestamps = self.timestamps
+        decoding_cfg.confidence_cfg.preserve_word_confidence = self.word_confidence
+        model.change_decoding_strategy(decoding_cfg=decoding_cfg)
+
+    def _words(self, hypothesis: Any) -> list[dict[str, Any]]:  # noqa: ANN401
+        """Convert one NeMo hypothesis' frame-offset timestamps to seconds."""
+        model_cfg = self._model.cfg
+        subsampling_factor = int(model_cfg.encoder.get("subsampling_factor", 4))
+        time_stride = subsampling_factor * model_cfg.preprocessor.window_stride
+        # NeMo RNNT offsets lead the audio by one 80 ms frame; CTC offsets do not.
+        shift = 0.08 if self.decoder_type == "rnnt" else 0.0
+        confidences = hypothesis.word_confidence if self.word_confidence else None
+        words = []
+        for index, stamp in enumerate(hypothesis.timestamp[self.timestamp_type]):
+            confidence = None
+            if confidences is not None and index < len(confidences):
+                value = confidences[index]
+                confidence = round(float(value.item() if isinstance(value, torch.Tensor) else value), 4)
+            words.append(
+                {
+                    "word": stamp.get("word", stamp.get("char", "")),
+                    "start": round(max(0.0, stamp["start_offset"] * time_stride - shift), 3),
+                    "end": round(max(0.0, stamp["end_offset"] * time_stride - shift), 3),
+                    "confidence": confidence,
+                }
+            )
+        return words
+
     def unload_model(self) -> None:
         """Release worker-local model and CUDA cache state."""
         self._model = None
@@ -212,6 +279,28 @@ class NeMoASRAdapter:
             msg = f"NeMo returned {len(texts)} transcriptions for {len(waveforms)} inputs"
             raise RuntimeError(msg)
         return texts
+
+    def _transcribe_with_timestamps(self, waveforms: list[np.ndarray]) -> list[ASRResult]:
+        """Run one NeMo call returning hypotheses; text is the joined timestamped words."""
+        hypotheses = self._model.transcribe(
+            audio=waveforms,
+            batch_size=len(waveforms),
+            return_hypotheses=True,
+            timestamps=True,
+            num_workers=self.num_workers,
+            verbose=self.verbose,
+        )
+        if isinstance(hypotheses, tuple):
+            hypotheses = hypotheses[0]
+        if len(hypotheses) != len(waveforms):
+            msg = f"NeMo returned {len(hypotheses)} transcriptions for {len(waveforms)} inputs"
+            raise RuntimeError(msg)
+        results = []
+        for hypothesis in hypotheses:
+            words = self._words(hypothesis)
+            text = " ".join(word["word"] for word in words).replace("⁇", "")
+            results.append(ASRResult(text=text, extras={"words": words}))
+        return results
 
     def transcribe_batch(self, items: list[dict[str, Any]]) -> list[ASRResult]:
         """Transcribe one adapter call while preserving input order."""
@@ -251,11 +340,10 @@ class NeMoASRAdapter:
         if not waveforms:
             return results
 
-        texts = self._transcribe_waveforms(waveforms)
-        if len(texts) != len(valid_indices):
-            msg = f"NeMo returned {len(texts)} transcriptions for {len(valid_indices)} valid inputs"
-            raise RuntimeError(msg)
-
-        for index, text in zip(valid_indices, texts, strict=True):
-            results[index] = ASRResult(text=text)
+        if self.timestamps:
+            transcribed = self._transcribe_with_timestamps(waveforms)
+        else:
+            transcribed = [ASRResult(text=text) for text in self._transcribe_waveforms(waveforms)]
+        for index, result in zip(valid_indices, transcribed, strict=True):
+            results[index] = result
         return results
