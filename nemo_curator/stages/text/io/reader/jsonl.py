@@ -58,12 +58,13 @@ def _pyarrow_select_columns(table: pa.Table, fields: list[str] | None, file_path
     return None
 
 
-def _read_jsonl_file_with_pyarrow(
+def _read_jsonl_file_with_pyarrow(  # noqa: PLR0913
     file_path: str,
     block_size: int,
     max_block_size: int,
     storage_options: dict[str, Any],
     compression: str | None,
+    parse_options: paj.ParseOptions | None = None,
 ) -> pa.Table:
     """Read one JSONL file, growing the parser block for an oversized record.
 
@@ -77,18 +78,73 @@ def _read_jsonl_file_with_pyarrow(
         try:
             read_options = paj.ReadOptions(block_size=block_size, use_threads=False)
             if not is_remote_url(file_path) and not storage_options and compression == "infer":
-                return paj.read_json(file_path, read_options=read_options)
+                return paj.read_json(file_path, read_options=read_options, parse_options=parse_options)
             with fsspec.open(
                 file_path,
                 mode="rb",
                 compression=compression,
                 **storage_options,
             ) as stream:
-                return paj.read_json(stream, read_options=read_options)
+                return paj.read_json(stream, read_options=read_options, parse_options=parse_options)
         except pa.ArrowInvalid as error:
             if "straddling object" not in str(error) or block_size >= max_block_size:
                 raise
             block_size = min(block_size * 2, max_block_size)
+
+
+def _type_without_timestamps(arrow_type: pa.DataType) -> pa.DataType | None:
+    """Return ``arrow_type`` with every timestamp replaced by a string, or ``None`` if it has no timestamp."""
+    if pa.types.is_timestamp(arrow_type):
+        return pa.string()
+    if pa.types.is_struct(arrow_type):
+        children = [arrow_type.field(i) for i in range(arrow_type.num_fields)]
+        replaced = [_type_without_timestamps(child.type) for child in children]
+        if all(new_type is None for new_type in replaced):
+            return None
+        return pa.struct(
+            [
+                child if new_type is None else child.with_type(new_type)
+                for child, new_type in zip(children, replaced, strict=True)
+            ]
+        )
+    if pa.types.is_list(arrow_type):
+        value_type = _type_without_timestamps(arrow_type.value_type)
+        if value_type is None:
+            return None
+        return pa.list_(arrow_type.value_field.with_type(value_type))
+    return None
+
+
+def _read_jsonl_file_keeping_text(  # noqa: PLR0913
+    file_path: str,
+    block_size: int,
+    max_block_size: int,
+    storage_options: dict[str, Any],
+    compression: str | None,
+    fields: list[str] | None = None,
+) -> pa.Table:
+    """Read one JSONL file without turning date-like strings into timestamps.
+
+    PyArrow infers ``timestamp[s]`` for date-like strings and drops the original text, so a column that
+    infers a timestamp (and is in ``fields``) is read again as a string, keeping the original column order.
+    """
+    table = _read_jsonl_file_with_pyarrow(file_path, block_size, max_block_size, storage_options, compression)
+    text_fields = []
+    for column in table.schema:
+        if fields is not None and column.name not in fields:
+            continue
+        text_type = _type_without_timestamps(column.type)
+        if text_type is not None:
+            text_fields.append(column.with_type(text_type))
+    if not text_fields:
+        return table
+    column_names = table.column_names
+    del table
+    parse_options = paj.ParseOptions(explicit_schema=pa.schema(text_fields), unexpected_field_behavior="infer")
+    reread = _read_jsonl_file_with_pyarrow(
+        file_path, block_size, max_block_size, storage_options, compression, parse_options
+    )
+    return reread.select(column_names)
 
 
 def _read_jsonl_with_pyarrow(
@@ -115,12 +171,13 @@ def _read_jsonl_with_pyarrow(
 
     tables = []
     for file_path in paths:
-        table = _read_jsonl_file_with_pyarrow(
+        table = _read_jsonl_file_keeping_text(
             file_path,
             block_size,
             max_block_size,
             storage_options,
             compression,
+            fields,
         )
         table = _pyarrow_select_columns(table, fields, file_path)
         if table is not None:
