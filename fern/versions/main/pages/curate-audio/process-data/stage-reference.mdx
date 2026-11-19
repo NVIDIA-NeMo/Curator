@@ -186,7 +186,7 @@ stage = InferenceIndicConformerHybridStage(decode_mode="rnnt")
 
 ### InferenceIndicCanaryStage
 
-Transcribes Indic audio with an existing Canary TensorRT-LLM engine. It needs the TensorRT-LLM container built from `docker/audio/Dockerfile.trt_llm`, not the standard audio environment. Unsupported languages are marked with `_skipme`.
+Transcribes Indic audio with an existing Canary TensorRT-LLM engine. It needs the [Indic Canary TensorRT-LLM image](/reference/infra/container-environments#indic-canary-tensorrt-llm-image) built from `docker/audio/Dockerfile.trt_llm`, not the standard audio environment. Unsupported languages are marked with `_skipme`.
 
 ```python
 from nemo_curator.stages.audio.inference.indic_canary import InferenceIndicCanaryStage
