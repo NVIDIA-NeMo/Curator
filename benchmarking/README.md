@@ -641,6 +641,40 @@ When finished, remove the container with Docker:
 docker rm -f curator-benchmark
 ```
 
+### CPU-only audio (`audio_cpu`)
+
+The nightly image installs the CUDA extras. To benchmark the CPU-only audio
+install, build an image with the `audio_cpu` extra:
+
+```bash
+docker build -f docker/Dockerfile --build-arg CURATOR_EXTRA=audio_cpu \
+  -t nemo_curator:audio_cpu .
+```
+
+Start the container without GPUs, then run the CPU-valid audio entries with the
+`benchmarking/audio-cpu.yaml` override and your own paths file:
+
+```bash
+python benchmarking/tools/container.py start \
+  --image nemo_curator:audio_cpu \
+  --name curator-audio-cpu \
+  --gpus none \
+  --config benchmarking/benchmarks.yaml \
+  --config benchmarking/audio-cpu.yaml \
+  --config /path/to/paths.yaml
+
+python benchmarking/tools/container.py run \
+  --container curator-audio-cpu \
+  --config benchmarking/benchmarks.yaml \
+  --config benchmarking/audio-cpu.yaml \
+  --config /path/to/paths.yaml \
+  -- --entries alm_pipeline
+```
+
+The override sets Ray GPUs to zero and disables the GPU stats recorder. Only the
+`alm_pipeline_*` entries are valid on this install; the other audio entries run
+GPU stages, so always pass `--entries alm_pipeline`.
+
 ### Benchmark environment setup
 
 `benchmarking/tools/setup_benchmark_env.sh` is the shared benchmark environment

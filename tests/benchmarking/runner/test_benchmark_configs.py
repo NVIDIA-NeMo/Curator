@@ -100,3 +100,13 @@ def test_4xgb200_64cpu_override_sets_known_video_performance_baselines() -> None
     # Correctness/count requirements remain inherited from benchmarks.yaml.
     assert _requirement(entries["video_embedding_xenna"], "num_clips_generated")["exact_value"] == 7600
     assert _requirement(entries["video_captioning_xenna"], "num_clips_generated")["exact_value"] == 1013
+
+
+def test_audio_cpu_override_runs_alm_entries_without_gpus() -> None:
+    config = merge_config_files([_CONFIG_DIR / "benchmarks.yaml", _CONFIG_DIR / "audio-cpu.yaml"])
+    entries = _entries(config)
+
+    assert config["ray"]["num_gpus"] == 0
+    assert config["gpu_stats_recorder"]["interval_s"] == 0
+    for entry_name in ("alm_pipeline_xenna", "alm_pipeline_ray_data"):
+        assert entries[entry_name]["ray"]["num_gpus"] == 0

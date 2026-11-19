@@ -1,0 +1,16 @@
+# audio_cpu benchmark overrides.
+#
+# Layer this file after benchmarks.yaml in an image built with
+# CURATOR_EXTRA=audio_cpu and started without GPUs, and select the
+# CPU-only entries with --entries alm_pipeline:
+#   --config benchmarking/benchmarks.yaml --config benchmarking/audio-cpu.yaml
+#
+# Only the ALM pipeline entries are valid here: their stages (ManifestReader,
+# ALMDataBuilderStage, ALMDataOverlapStage, ManifestWriterStage) request no
+# GPUs. The other audio entries run GPU stages (Sortformer, NeMo ASR, PyAnnote,
+# UTMOS/SIGMOS, speaker separation) and are not valid on this install.
+
+ray:
+  num_gpus: 0
+gpu_stats_recorder:
+  interval_s: 0
