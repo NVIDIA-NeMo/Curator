@@ -23,18 +23,21 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import io
 import json
 import os
 import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
+from fsspec.core import url_to_fs
 from loguru import logger
 
 from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract, StaticHints
 from nemo_curator.stages.audio.common import ManifestWriterStage
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask
+from nemo_curator.utils.client_utils import is_remote_url
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -143,7 +146,8 @@ class ManifestGroupExportStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
     from the written columns rather than crashing the export.
 
     Args:
-        output_dir: Directory to write the per-group files into.
+        output_dir: Directory to write the per-group files into: a local path or a cloud
+            prefix (``s3://``, ``gs://``, ...).
         group_by: Column whose value names each group (e.g. ``speaker_id``, ``lang``).
         format: ``txt`` (default), ``json`` or ``csv``.
         columns: Columns to write for ``json``/``csv`` (default: every serializable column).
@@ -154,6 +158,7 @@ class ManifestGroupExportStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
         missing_group: Group name used for rows with no ``group_by`` value.
         timeline_flush_rows: Snapshot interval for standalone per-row use. Prepared
             pipelines publish the timeline once at finalization.
+        storage_options: fsspec options for a cloud ``output_dir`` (credentials, endpoints).
     """
 
     output_dir: str
@@ -168,6 +173,7 @@ class ManifestGroupExportStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
     missing_group: str = "unknown"
     timeline_flush_rows: int = 100
     name: str = "manifest_group_export"
+    storage_options: dict[str, Any] | None = None
     # Per-group files aggregate many source rows. Retrying only unfinished
     # sources cannot safely reconstruct or append those shared files.
     is_resumable = False
@@ -206,6 +212,7 @@ class ManifestGroupExportStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
         if self.format not in _EXT:
             msg = f"format must be one of {sorted(_EXT)}, got {self.format!r}"
             raise ValueError(msg)
+        self._fs = url_to_fs(self.output_dir, **(self.storage_options or {}))[0]
 
     # ------------------------------------------------------------------ lifecycle
     def prepare_on_driver(self, *, checkpoint_path: Path | None = None) -> None:
@@ -221,14 +228,14 @@ class ManifestGroupExportStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
         prepared = self._journal is not None and getattr(self._journal, "_run_token", None) is not None
         if prepared:
             self._journal.setup_on_node()
-        elif os.path.exists(os.path.join(self.output_dir, f"{_JOURNAL}._RUN")):
+        elif self._fs.exists(os.path.join(self.output_dir, f"{_JOURNAL}._RUN")):
             msg = "ManifestGroupExportStage cannot replace output owned by an active pipeline run"
             raise RuntimeError(msg)
         return prepared
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         prepared = self._verify_export_ownership()
-        os.makedirs(self.output_dir, exist_ok=True)
+        self._fs.makedirs(self.output_dir, exist_ok=True)
         # Group files are truncated on FIRST touch in this run (not up front), so a re-run
         # replaces its own output instead of appending to the previous run's -- and a group
         # that no longer occurs keeps its old file rather than being silently half-erased.
@@ -247,7 +254,7 @@ class ManifestGroupExportStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
 
     def _restore_exports(self) -> None:
         offsets = {}
-        with open(self._journal.output_path, encoding="utf-8") as source:
+        with self._fs.open(self._journal.output_path, "r", encoding="utf-8") as source:
             for line in source:
                 event = json.loads(line)
                 if event.get("task") is not None:
@@ -264,10 +271,14 @@ class ManifestGroupExportStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
                     self._timeline.append(tuple(event["timeline"]))
                     self._group_labels[event["identity"]] = event["label"]
         for path, offset in offsets.items():
+            if self._fs.size(path) < offset:
+                msg = f"Committed group export is incomplete: {path}"
+                raise RuntimeError(msg)
+            if is_remote_url(path):
+                # Object stores cannot truncate in place; rewrite the committed prefix.
+                self._fs.pipe_file(path, self._fs.cat_file(path, end=offset))
+                continue
             with open(path, "r+b") as output:
-                if output.seek(0, os.SEEK_END) < offset:
-                    msg = f"Committed group export is incomplete: {path}"
-                    raise RuntimeError(msg)
                 output.truncate(offset)
 
     def finalize(self) -> None:
@@ -275,7 +286,7 @@ class ManifestGroupExportStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
             self.setup()
             if self.write_timeline:
                 self._flush_timeline()
-            os.remove(self._journal.output_path)
+            self._fs.rm(self._journal.output_path)
             self.abort_on_driver()
 
     def abort_on_driver(self) -> None:
@@ -391,7 +402,7 @@ class ManifestGroupExportStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
                 "identity": identity,
                 "stem": stem,
                 "filename": filename,
-                "offset": os.path.getsize(path),
+                "offset": self._fs.size(path),
                 "csv_fields": self._csv_fields.get(path),
                 "csv_dropped": path in self._csv_dropped,
                 "label": label,
@@ -407,38 +418,46 @@ class ManifestGroupExportStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
         path = os.path.join(self.output_dir, f"{group}.{_EXT[self.format]}")
         first = path not in self._written
         self._written.add(path)
-        with open(path, "w" if first else "a", encoding="utf-8", newline="") as f:
-            if self.format == "txt":
-                f.write(self._text_line(row) + "\n")
-            elif self.format == "json":
-                json.dump(self._selected(row), f, ensure_ascii=False)
-                f.write("\n")
-            else:
-                selected = self._selected(row)
-                # A csv header is written once, so the column set has to be fixed for the life
-                # of the file. Deriving fieldnames from each row instead lets a later row with
-                # a different shape -- a missing transcript, a column dropped for being
-                # non-serializable, a different insertion order -- be written under a header it
-                # does not match, silently shifting values into the wrong columns.
-                fields = self._csv_fields.setdefault(
-                    path, list(self.columns) if self.columns is not None else list(selected)
+        f = io.StringIO(newline="")
+        if self.format == "txt":
+            f.write(self._text_line(row) + "\n")
+        elif self.format == "json":
+            json.dump(self._selected(row), f, ensure_ascii=False)
+            f.write("\n")
+        else:
+            selected = self._selected(row)
+            # A csv header is written once, so the column set has to be fixed for the life
+            # of the file. Deriving fieldnames from each row instead lets a later row with
+            # a different shape -- a missing transcript, a column dropped for being
+            # non-serializable, a different insertion order -- be written under a header it
+            # does not match, silently shifting values into the wrong columns.
+            fields = self._csv_fields.setdefault(
+                path, list(self.columns) if self.columns is not None else list(selected)
+            )
+            writer = csv.DictWriter(f, fieldnames=fields, restval="", extrasaction="ignore")
+            if first:
+                writer.writeheader()
+            # ``extrasaction="ignore"`` keeps the file well formed when a later row carries
+            # a column the header does not have -- the alternative is rewriting the whole
+            # file -- but dropping a value silently is worse than a slow export, so say so
+            # once per file. Pass ``columns`` to pin the schema and avoid this entirely.
+            unheaded = [k for k in selected if k not in fields]
+            if unheaded and path not in self._csv_dropped:
+                self._csv_dropped.add(path)
+                logger.warning(
+                    f"[{self.name}] {os.path.basename(path)}: dropping column(s) "
+                    f"{sorted(unheaded)} absent from the header written for the first row. "
+                    f"Set columns=[...] to pin the schema."
                 )
-                writer = csv.DictWriter(f, fieldnames=fields, restval="", extrasaction="ignore")
-                if first:
-                    writer.writeheader()
-                # ``extrasaction="ignore"`` keeps the file well formed when a later row carries
-                # a column the header does not have -- the alternative is rewriting the whole
-                # file -- but dropping a value silently is worse than a slow export, so say so
-                # once per file. Pass ``columns`` to pin the schema and avoid this entirely.
-                unheaded = [k for k in selected if k not in fields]
-                if unheaded and path not in self._csv_dropped:
-                    self._csv_dropped.add(path)
-                    logger.warning(
-                        f"[{self.name}] {os.path.basename(path)}: dropping column(s) "
-                        f"{sorted(unheaded)} absent from the header written for the first row. "
-                        f"Set columns=[...] to pin the schema."
-                    )
-                writer.writerow(selected)
+            writer.writerow(selected)
+        if not is_remote_url(path):
+            with open(path, "w" if first else "a", encoding="utf-8", newline="") as out:
+                out.write(f.getvalue())
+            return
+        # shortcut: object stores cannot append, so each row re-uploads its group file;
+        # stage group files locally and upload once if very large cloud exports get slow.
+        previous = b"" if first else self._fs.cat_file(path)
+        self._fs.pipe_file(path, previous + f.getvalue().encode("utf-8"))
 
     def _selected(self, row: dict[str, Any]) -> dict[str, Any]:
         keys = self.columns if self.columns is not None else list(row)
@@ -471,6 +490,6 @@ class ManifestGroupExportStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
             return
         self._verify_export_ownership()
         path = os.path.join(self.output_dir, _TIMELINE)
-        with open(path, "w", encoding="utf-8") as f:
+        with self._fs.open(path, "w", encoding="utf-8") as f:
             f.writelines(f"{line}\n" for _start, line in sorted(self._timeline, key=lambda e: e[0]))
         self._pending = 0

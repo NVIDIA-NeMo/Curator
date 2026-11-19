@@ -595,22 +595,23 @@ def test_group_name_cannot_overwrite_the_run_journal(tmp_path: Path, prepared: b
 
 
 def test_prepared_timeline_is_published_once_after_all_batches(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
-    import builtins
     import pickle
+
+    from fsspec.implementations.local import LocalFileSystem
 
     driver = ManifestGroupExportStage(output_dir=str(tmp_path), write_timeline=True, timeline_flush_rows=3)
     driver.prepare_on_driver()
     worker = pickle.loads(pickle.dumps(driver))  # noqa: S301 - local stage fixture
     worker.setup()
-    real_open = builtins.open
+    real_open = LocalFileSystem.open
     rewrites = []
 
-    def count_timeline_writes(path, mode="r", *args, **kwargs):  # noqa: ANN001, ANN202
+    def count_timeline_writes(fs, path, mode="rb", *args, **kwargs):  # noqa: ANN001, ANN202
         if str(path) == str(tmp_path / "timeline.txt") and mode == "w":
             rewrites.append(path)
-        return real_open(path, mode, *args, **kwargs)
+        return real_open(fs, path, mode, *args, **kwargs)
 
-    monkeypatch.setattr(builtins, "open", count_timeline_writes)
+    monkeypatch.setattr(LocalFileSystem, "open", count_timeline_writes)
     try:
         for i in reversed(range(20)):
             worker.process_batch(
@@ -775,3 +776,21 @@ def test_group_export_can_follow_a_reused_metadata_manifest(tmp_path: Path) -> N
         ]
     )
     assert continuation._resume_breaks_on_disk_boundary(recipe, 2) is None
+
+
+@pytest.mark.parametrize("fmt", ["txt", "csv"])
+def test_cloud_output_dir_appends_by_rewriting_each_group_object(fmt: str) -> None:
+    import fsspec
+
+    fs = fsspec.filesystem("memory")
+    root = f"memory://group-export-{fmt}"
+    stage = ManifestGroupExportStage(
+        output_dir=root, format=fmt, write_timeline=True, storage_options={"skip_instance_cache": True}
+    )
+    _run(stage, _ROWS)
+
+    [group_file] = fs.glob(f"{root}/spk_0*.{fmt}")
+    lines = fs.cat_file(group_file).decode().splitlines()
+    assert len(lines) == (2 if fmt == "txt" else 3)  # csv adds its header once
+    assert "you are a bold one" in lines[-1]
+    assert fs.cat_file(f"{root}/timeline.txt").decode().count("\n") == 3
