@@ -28,8 +28,6 @@ import numpy as np
 import soundfile as sf
 import torch
 from loguru import logger
-from whisperx.audio import SAMPLE_RATE
-from whisperx.vads.pyannote import Pyannote, load_vad_model
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.backends.utils import RayStageSpecKeys
@@ -59,6 +57,10 @@ from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
+# whisperx.audio.SAMPLE_RATE; WhisperX itself is imported only when a model is built,
+# so importing this module (or PyAnnoteDiarizationStage, which uses it) stays light.
+SAMPLE_RATE = 16000
+
 
 class WhisperXVADModel:
     """Shared VAD model and get_vad_segments logic for PyAnnote and standalone VAD.
@@ -84,6 +86,8 @@ class WhisperXVADModel:
             "vad_onset": vad_onset,
             "vad_offset": vad_offset,
         }
+
+        from whisperx.vads.pyannote import load_vad_model
 
         prev = os.environ.get("TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD")
         os.environ["TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD"] = "true"
@@ -115,6 +119,8 @@ class WhisperXVADModel:
         Returns:
             List of VAD segment dicts with "start" and "end" keys.
         """
+        from whisperx.vads.pyannote import Pyannote
+
         vad_segments = self._model(
             {
                 "waveform": torch.from_numpy(audio),
