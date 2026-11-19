@@ -108,6 +108,9 @@ CMD ["bash"]
 
 FROM trt_llm AS granary
 # The eight-speaker checkpoint needs this NeMo encoder and EOS needs CUDA 13 compatibility libraries.
+# The NeMo pin is a commit on a personal fork of NVIDIA-NeMo/Speech because no release has it yet:
+# its Sortformer changes postdate nemo-toolkit 3.0.0 (2026-08-07), the latest release on PyPI.
+# Replace it with the first nemo-toolkit release that loads the eight-speaker checkpoint.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends git-lfs cuda-compat-13-3=610.57.04-1ubuntu1 \
     && git lfs install --system \
