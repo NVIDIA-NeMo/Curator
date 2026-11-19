@@ -20,7 +20,6 @@ import argparse
 import inspect
 import json
 import math
-import re
 import time
 import traceback
 from pathlib import Path
@@ -34,21 +33,18 @@ from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.common import GetAudioDurationStage, ManifestReader, PreserveByValueStage
 from nemo_curator.stages.audio.inference.asr.stage import ASRStage
 from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
-from nemo_curator.stages.audio.metrics.wer import GetPairwiseWerStage
+from nemo_curator.stages.audio.metrics.wer import ComputeWERStage, GetPairwiseWerStage
 from nemo_curator.stages.text.io.writer import JsonlWriter
-
-# LibriSpeech references are upper case without punctuation; ASR output is cased and punctuated.
-_NON_WORD_CHARS = re.compile(r"[^\w\s']")
-
-
-def _normalize_for_wer(text: str) -> str:
-    return " ".join(_NON_WORD_CHARS.sub(" ", text.lower()).split())
 
 
 def normalized_corpus_wer_pct(rows: list[dict[str, Any]]) -> float:
-    """Corpus WER (percent) after lower-casing and stripping punctuation from both sides."""
-    references = [_normalize_for_wer(str(row.get("text", ""))) for row in rows]
-    hypotheses = [_normalize_for_wer(str(row.get("pred_text", ""))) for row in rows]
+    """Corpus WER (percent) after ComputeWERStage's lower-casing and punctuation cleanup on both sides.
+
+    LibriSpeech references are upper case without punctuation; ASR output is cased and punctuated.
+    """
+    cleaner = ComputeWERStage()
+    references = [cleaner.clean_text(str(row.get("text", "")), retain_pncs=False) for row in rows]
+    hypotheses = [cleaner.clean_text(str(row.get("pred_text", "")), retain_pncs=False) for row in rows]
     return 100.0 * word_error_rate(hypotheses=hypotheses, references=references)
 
 

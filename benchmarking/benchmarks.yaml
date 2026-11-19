@@ -1158,7 +1158,7 @@ entries:
   # Shared 750-hour workload; the executor selects workers.
   # --wer-threshold=1000 keeps every row: the filter sees raw WER (cased,
   # punctuated predictions against upper-case references). The script reports
-  # normalized_corpus_wer_pct, computed after lower-casing and removing punctuation.
+  # normalized_corpus_wer_pct, computed after ComputeWERStage.clean_text (lower case, no punctuation).
   - name: audio_librispeech_xenna
     enabled: true
     script: audio_librispeech_benchmark.py
