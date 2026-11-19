@@ -91,9 +91,6 @@ class AudioLIDInferenceStage(AgentReady, AdapterInferenceStage[AudioLIDAdapter])
             re-enter the ensemble without discarding unrelated upstream skips.
         prefetch_fail_on_error: Whether node-level weight prefetch errors fail
             setup immediately.
-        num_workers_override: Optional cluster-wide actor cap. This is useful
-            for heavyweight ensemble models that should not scale to every
-            available fractional-GPU slot.
         adapter_kwargs: Provider-native adapter constructor arguments.
     """
 
@@ -117,7 +114,6 @@ class AudioLIDInferenceStage(AgentReady, AdapterInferenceStage[AudioLIDAdapter])
 
     adapter_kwargs: dict[str, Any] = field(default_factory=dict)
     batch_size: int = 16
-    num_workers_override: int | None = None
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0, gpu_memory_gb=4.0))
     skip_me_key: str = field(default="_skipme", kw_only=True)
 
@@ -157,7 +153,6 @@ class AudioLIDInferenceStage(AgentReady, AdapterInferenceStage[AudioLIDAdapter])
         if not isinstance(self.batch_size, Integral) or isinstance(self.batch_size, bool) or self.batch_size <= 0:
             msg = f"AudioLIDInferenceStage.batch_size must be a positive integer, got {self.batch_size!r}"
             raise ValueError(msg)
-        self.num_workers_override = self._validated_num_workers_override(self.num_workers_override)
         self.min_duration_sec = self._validated_duration("min_duration_sec", self.min_duration_sec)
         self.max_duration_sec = self._validated_duration("max_duration_sec", self.max_duration_sec)
         if 0 < self.max_duration_sec < self.min_duration_sec:
@@ -187,15 +182,6 @@ class AudioLIDInferenceStage(AgentReady, AdapterInferenceStage[AudioLIDAdapter])
             msg = f"AudioLIDInferenceStage.{field_name} must be a finite non-negative number, got {value!r}"
             raise ValueError(msg)
         return duration
-
-    @staticmethod
-    def _validated_num_workers_override(value: object) -> int | None:
-        if value is None:
-            return None
-        if not isinstance(value, Integral) or isinstance(value, bool) or value <= 0:
-            msg = f"AudioLIDInferenceStage.num_workers_override must be a positive integer or None, got {value!r}"
-            raise ValueError(msg)
-        return int(value)
 
     def _create_adapter(self) -> AudioLIDAdapter:
         """Construct the configured adapter without conflating its model name with the result key."""
@@ -240,10 +226,6 @@ class AudioLIDInferenceStage(AgentReady, AdapterInferenceStage[AudioLIDAdapter])
                 per_row_independent=False,
             ),
         )
-
-    def num_workers(self) -> int | None:
-        """Return the configured cluster-wide actor cap, if any."""
-        return self.num_workers_override
 
     def process(self, task: AudioTask) -> AudioTask:
         msg = f"{type(self).__name__} only supports process_batch"

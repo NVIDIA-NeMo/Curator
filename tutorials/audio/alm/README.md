@@ -47,7 +47,6 @@ tests/fixtures/audio/alm/
 └── sample_input.jsonl        # 5 sample audio manifests with diarized segments
 
 tutorials/audio/alm/
-├── main.py                   # Pipeline runner (YAML-driven)
 ├── pipeline.yaml             # Pipeline configuration
 └── README.md                 # This file
 ```
@@ -63,8 +62,8 @@ The sample input contains 5 audio manifest entries with:
 Run the pipeline on the included sample data (from Curator repo root):
 
 ```bash
-python tutorials/audio/alm/main.py \
-  --config-path . \
+python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/alm \
   --config-name pipeline \
   manifest_path=tests/fixtures/audio/alm/sample_input.jsonl
 ```
@@ -96,8 +95,8 @@ PIPELINE COMPLETE
 With a single manifest file:
 
 ```bash
-python tutorials/audio/alm/main.py \
-  --config-path . \
+python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/alm \
   --config-name pipeline \
   manifest_path=/path/to/your/data.jsonl \
   output_dir=./my_output
@@ -106,8 +105,8 @@ python tutorials/audio/alm/main.py \
 With a directory (recursively discovers all `.jsonl` and `.json` files in subdirectories):
 
 ```bash
-python tutorials/audio/alm/main.py \
-  --config-path . \
+python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/alm \
   --config-name pipeline \
   manifest_path=/data/manifests/ \
   output_dir=./my_output
@@ -127,8 +126,8 @@ Both backends run on top of Ray. The scripts use `RayClient` to manage the Ray c
 ### Running with Xenna (default)
 
 ```bash
-python tutorials/audio/alm/main.py \
-  --config-path . \
+python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/alm \
   --config-name pipeline \
   manifest_path=tests/fixtures/audio/alm/sample_input.jsonl
 ```
@@ -136,8 +135,8 @@ python tutorials/audio/alm/main.py \
 ### Running with Ray Data
 
 ```bash
-python tutorials/audio/alm/main.py \
-  --config-path . \
+python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/alm \
   --config-name pipeline \
   manifest_path=tests/fixtures/audio/alm/sample_input.jsonl \
   backend=ray_data
@@ -148,8 +147,8 @@ python tutorials/audio/alm/main.py \
 All parameters are defined in `pipeline.yaml`. Override from command line:
 
 ```bash
-python tutorials/audio/alm/main.py \
-  --config-path . \
+python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/alm \
   --config-name pipeline \
   manifest_path=/data/input.jsonl \
   output_dir=./custom_output \
@@ -326,8 +325,8 @@ Filters windows based on overlap ratio.
 For shorter windows (e.g., 60 seconds):
 
 ```bash
-python tutorials/audio/alm/main.py \
-  --config-path . \
+python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/alm \
   --config-name pipeline \
   manifest_path=tests/fixtures/audio/alm/sample_input.jsonl \
   stages.1.target_window_duration=60 \
@@ -339,8 +338,8 @@ python tutorials/audio/alm/main.py \
 For exactly 2-3 speakers:
 
 ```bash
-python tutorials/audio/alm/main.py \
-  --config-path . \
+python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/alm \
   --config-name pipeline \
   manifest_path=tests/fixtures/audio/alm/sample_input.jsonl \
   stages.1.min_speakers=2 \
@@ -352,8 +351,8 @@ python tutorials/audio/alm/main.py \
 Remove all overlapping windows:
 
 ```bash
-python tutorials/audio/alm/main.py \
-  --config-path . \
+python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/alm \
   --config-name pipeline \
   manifest_path=tests/fixtures/audio/alm/sample_input.jsonl \
   stages.2.overlap_percentage=0
@@ -364,8 +363,8 @@ python tutorials/audio/alm/main.py \
 Process all manifests in a directory tree:
 
 ```bash
-python tutorials/audio/alm/main.py \
-  --config-path . \
+python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/alm \
   --config-name pipeline \
   manifest_path=tests/fixtures/audio/alm/nested_manifests
 ```

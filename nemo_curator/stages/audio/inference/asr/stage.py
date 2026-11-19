@@ -179,7 +179,6 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
     batch_size: int = 32
     max_inference_duration_s: float = 2400.0
     local_bucketing: bool = False
-    num_workers_override: int | None = None
 
     BATCH_ONLY = True
     INTERNAL_KEY_FIELDS = frozenset({"source_lang_key", "language_key", "extras_key", "skip_me_key", "notes_key"})
@@ -259,13 +258,8 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
         if not isinstance(self.local_bucketing, bool):
             msg = f"ASRStage.local_bucketing must be a bool, got {type(self.local_bucketing).__name__}"
             raise TypeError(msg)
-        if self.num_workers_override is not None and int(self.num_workers_override) <= 0:
-            msg = f"ASRStage.num_workers_override must be > 0 or None, got {self.num_workers_override}"
-            raise ValueError(msg)
         self.batch_size = int(self.batch_size)
         self.target_sample_rate = int(self.target_sample_rate)
-        if self.num_workers_override is not None:
-            self.num_workers_override = int(self.num_workers_override)
         self._supported_language_codes = self._normalise_supported_language_codes(self.supported_language_codes)
 
     @staticmethod
@@ -357,10 +351,6 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
                 per_row_independent=True,
             ),
         )
-
-    def num_workers(self) -> int | None:
-        """Return an explicit backend worker count when configured."""
-        return self.num_workers_override
 
     def _resolve_language(self, task: AudioTask) -> str | None:
         code = self._resolve_language_code(task)

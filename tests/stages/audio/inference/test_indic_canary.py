@@ -56,7 +56,7 @@ def _write_engine_files(engine_dir: Path) -> None:
 
 
 def test_stage_exposes_integration_pipeline_contract() -> None:
-    stage = InferenceIndicCanaryStage(engine_dir="/models/indic-canary", num_workers_override=4)
+    stage = InferenceIndicCanaryStage(engine_dir="/models/indic-canary")
 
     assert stage.inputs() == ([], ["waveform", "sampling_rate"])
     assert stage.outputs() == (

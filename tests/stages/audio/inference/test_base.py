@@ -146,13 +146,10 @@ def test_worker_sizing_uses_the_processing_stage_override() -> None:
         adapter_target="package.Adapter",
         model_id="SpeechBrainLangID",
         tag="primary",
-        num_workers_override=2,
-    )
+    ).with_(num_workers=2)
 
-    assert "num_workers_override" not in SEDInferenceStage.__dataclass_fields__
-    assert "num_workers_override" not in InferenceSortformerStage.__dataclass_fields__
-    assert "num_workers_override" not in VADSegmentationStage.__dataclass_fields__
-    assert "num_workers_override" in AudioLIDInferenceStage.__dataclass_fields__
+    for stage_cls in (SEDInferenceStage, ASRStage, InferenceSortformerStage, VADSegmentationStage, AudioLIDInferenceStage):
+        assert "num_workers_override" not in stage_cls.__dataclass_fields__
     assert sed.num_workers() is None
     assert asr.num_workers() is None
     assert sortformer.num_workers() is None

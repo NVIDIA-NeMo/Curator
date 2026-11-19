@@ -22,6 +22,7 @@ from nemo_curator.backends.base import BaseExecutor
 from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.resources import Resources
+from nemo_curator.tasks.utils import TaskPerfUtils
 
 _EXECUTOR_TARGETS = {
     "xenna": "nemo_curator.backends.xenna.XennaExecutor",
@@ -72,27 +73,31 @@ def create_executor_from_yaml(cfg: DictConfig) -> BaseExecutor | None:
     return executor_cls(**executor_kwargs)
 
 
+_WITH_WORKER_KEYS = ("num_workers", "num_workers_per_node")
+
+
 def _instantiate_stage(stage_cfg: DictConfig) -> Any:  # noqa: ANN401
     """Instantiate a single stage from its Hydra config.
 
-    Extracts ``resources`` before calling ``hydra.utils.instantiate``
-    (it is applied via ``.with_()``, not as a constructor argument) and
-    re-applies it after construction. ``batch_size`` is left in the config
-    dict so that stages declaring it as a dataclass field receive it
-    during construction.
+    Extracts ``resources``, ``num_workers`` and ``num_workers_per_node``
+    before calling ``hydra.utils.instantiate`` (they are applied via
+    ``.with_()``, not as constructor arguments) and re-applies them after
+    construction. ``batch_size`` is left in the config dict so that stages
+    declaring it as a dataclass field receive it during construction.
     """
     cfg_dict = OmegaConf.to_container(stage_cfg, resolve=True)
 
     stage_resources = cfg_dict.pop("resources", None)
+    with_kwargs: dict[str, Any] = {key: cfg_dict.pop(key) for key in _WITH_WORKER_KEYS if key in cfg_dict}
 
     stage = hydra.utils.instantiate(cfg_dict)
 
     if stage_resources:
         if isinstance(stage_resources, dict) and "_target_" in stage_resources:
-            resources_obj = hydra.utils.instantiate(stage_resources)
+            with_kwargs["resources"] = hydra.utils.instantiate(stage_resources)
         else:
-            resources_obj = Resources(**stage_resources)
-        with_kwargs: dict[str, Any] = {"resources": resources_obj}
+            with_kwargs["resources"] = Resources(**stage_resources)
+    if with_kwargs:
         stage = stage.with_(**with_kwargs)
         logger.info(f"Applied .with_() to '{stage.name}': {with_kwargs}")
 
@@ -129,6 +134,20 @@ def create_pipeline_from_yaml(cfg: DictConfig, *, log_config: bool = True) -> Pi
         raise RuntimeError(msg)
 
 
+def log_pipeline_summary(results: Any) -> None:  # noqa: ANN401
+    """Log the output task count and per-stage totals (time, items, custom metrics) of a pipeline run."""
+    if not isinstance(results, list):
+        return
+    logger.info(f"Output tasks: {len(results)}")
+    for stage_name, metrics in TaskPerfUtils.collect_stage_metrics(results).items():
+        totals = ", ".join(
+            f"{name}={values.sum():g}"
+            for name, values in metrics.items()
+            if name in ("process_time", "num_items_processed") or name.startswith("custom.")
+        )
+        logger.info(f"  [{stage_name}] {totals}")
+
+
 @hydra.main(version_base=None, config_name="pipeline")
 def main(cfg: DictConfig) -> None:
     ray_client = create_ray_client_from_yaml(cfg)
@@ -139,9 +158,10 @@ def main(cfg: DictConfig) -> None:
 
     # Execute pipeline
     print("Starting pipeline execution...")
-    _results = pipeline.run() if executor is None else pipeline.run(executor=executor)
+    results = pipeline.run() if executor is None else pipeline.run(executor=executor)
 
     print("\nPipeline completed!")
+    log_pipeline_summary(results)
 
     ray_client.stop()
 

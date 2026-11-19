@@ -27,14 +27,21 @@ from unittest.mock import MagicMock, patch
 
 import hydra
 import pytest
+from loguru import logger
 from hydra import compose, initialize, initialize_config_dir
 from omegaconf import ListConfig, OmegaConf
 
-from nemo_curator.config.run import create_executor_from_yaml, create_pipeline_from_yaml, main
+from nemo_curator.config.run import (
+    create_executor_from_yaml,
+    create_pipeline_from_yaml,
+    log_pipeline_summary,
+    main,
+)
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.io.reader import JsonlReader, ParquetReader
 from nemo_curator.stages.text.io.writer import JsonlWriter, ParquetWriter
-from nemo_curator.tasks import FileGroupTask
+from nemo_curator.tasks import AudioTask, FileGroupTask
+from nemo_curator.utils.performance_utils import StagePerfStats
 
 
 def test_pipeline_with_jsonl_reader_stage():
@@ -215,6 +222,26 @@ def test_pipeline_with_hydra_instantiated_resources():
     assert len(pipeline.stages) == 1
     assert isinstance(pipeline.stages[0], GetPairwiseWerStage)
     assert pipeline.stages[0].resources.gpus == 2.0
+
+
+@pytest.mark.parametrize(("key", "value"), [("num_workers", 3), ("num_workers_per_node", 0.5)])
+def test_pipeline_applies_stage_worker_count_via_with(key: str, value: float):
+    cfg = OmegaConf.create(
+        {
+            "stages": [
+                {
+                    "_target_": "nemo_curator.stages.audio.metrics.wer.GetPairwiseWerStage",
+                    "resources": {"cpus": 2.0},
+                    key: value,
+                }
+            ]
+        }
+    )
+
+    stage = create_pipeline_from_yaml(cfg, log_config=False).stages[0]
+
+    assert getattr(stage, key)() == value
+    assert stage.resources.cpus == 2.0
 
 
 def test_pipeline_with_multiple_stages():
@@ -454,6 +481,34 @@ def test_main_passes_configured_executor_to_pipeline(
     mock_create_ray_client.return_value.start.assert_called_once_with()
     mock_create_pipeline.return_value.run.assert_called_once_with(executor=executor)
     mock_create_ray_client.return_value.stop.assert_called_once_with()
+
+
+def test_log_pipeline_summary_reports_task_count_and_stage_totals():
+    tasks = []
+    for windows in (2, 3):
+        task = AudioTask(data={})
+        task.add_stage_perf(
+            StagePerfStats(
+                stage_name="builder",
+                process_time=0.5,
+                actor_idle_time=9.0,
+                num_items_processed=1,
+                custom_metrics={"windows_created": windows},
+            )
+        )
+        tasks.append(task)
+    messages: list[str] = []
+    handler_id = logger.add(lambda message: messages.append(message.record["message"]))
+    try:
+        log_pipeline_summary(tasks)
+        log_pipeline_summary(None)
+    finally:
+        logger.remove(handler_id)
+
+    assert messages == [
+        "Output tasks: 2",
+        "  [builder] process_time=1, num_items_processed=2, custom.windows_created=5",
+    ]
 
 
 def test_qwen_tutorial_yaml_matches_reference_runner_config():
@@ -1046,6 +1101,8 @@ def test_run_cli_defaults_to_pipeline_config_for_fastconformer() -> None:
 
 SHIPPED_TEXT_CONFIG_DIR = Path(__file__).parents[2] / "nemo_curator" / "config" / "text"
 SHIPPED_TEXT_CONFIGS = sorted(p.name for p in SHIPPED_TEXT_CONFIG_DIR.glob("*.yaml"))
+# Stage keys `_instantiate_stage` applies through `.with_()` instead of the constructor.
+WITH_KEYS = {"resources", "num_workers", "num_workers_per_node"}
 
 
 # Packages the CPU test job does not install: the `deduplication_cuda12` extra with
@@ -1140,8 +1197,8 @@ def test_shipped_config_passes_only_arguments_its_targets_accept(config_name: st
                 key: value
                 for key, value in node.items()
                 # `_` keys are Hydra's own, and `_instantiate_stage` applies
-                # `resources` through `.with_()` rather than the constructor.
-                if not key.startswith("_") and key != "resources"
+                # these through `.with_()` rather than the constructor.
+                if not key.startswith("_") and key not in WITH_KEYS
             }
             try:
                 inspect.signature(hydra.utils.get_class(target)).bind_partial(**kwargs)
