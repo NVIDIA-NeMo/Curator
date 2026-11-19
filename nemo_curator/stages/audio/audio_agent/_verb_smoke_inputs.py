@@ -189,7 +189,7 @@ def _bound_recipe(  # noqa: C901, PLR0911, PLR0912
     )
 
 
-def _isolate_smoke_outputs(bound: _SmokeBound, rpt: SmokeReport) -> _SmokeBound:  # noqa: C901
+def _isolate_smoke_outputs(bound: _SmokeBound, rpt: SmokeReport) -> _SmokeBound:
     """Redirect every reviewed output mutation into one disposable local tree."""
     if bound.recipe is None:
         return bound
