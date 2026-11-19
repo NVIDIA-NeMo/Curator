@@ -763,7 +763,13 @@ class TestAPipelineHistoryCannotReproduce:
                         "ref": "CreateInitialManifestAudioFolderStage",
                         "params": {"data_dir": str(folder), "num_workers": 1},
                     },
-                    {"ref": "PyAnnoteDiarizationStage", "params": {"hf_token": "SECRET-TOKEN"}},
+                    {
+                        "ref": "InferenceSortformerStage",
+                        "params": {
+                            "adapter_target": "nemo_curator.models.audio.speaker_diarization.pyannote.PyAnnoteDiarizationAdapter",
+                            "adapter_kwargs": {"hf_token": "SECRET-TOKEN"},
+                        },
+                    },
                     {"ref": "ManifestWriterStage", "params": {"output_path": str(out), "num_workers": 1}},
                 ]
             }

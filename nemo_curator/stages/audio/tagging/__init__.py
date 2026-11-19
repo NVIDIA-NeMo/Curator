@@ -37,8 +37,6 @@ _LAZY_IMPORTS = {
     # --- Inference (tagging/inference/) ---
     "BaseASRProcessorStage": "nemo_curator.stages.audio.tagging.inference.nemo_asr_align",
     "NeMoASRAlignerStage": "nemo_curator.stages.audio.tagging.inference.nemo_asr_align",
-    "PyAnnoteDiarizationStage": "nemo_curator.stages.audio.inference.speaker_diarization.pyannote",
-    "WhisperXVADStage": "nemo_curator.stages.audio.inference.vad.whisperx_vad",
     # --- Text processing (tagging/text/) ---
     "InverseTextNormalizationStage": "nemo_curator.stages.audio.tagging.text.itn",
     "ChineseConversionStage": "nemo_curator.stages.audio.tagging.text.chinese_conversion",

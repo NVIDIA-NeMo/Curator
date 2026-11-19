@@ -17,7 +17,7 @@ use_cases:
     - "when either alignment or diarization is missing (both are required inputs)"
     - "after normal split alignment without the join: alignment remains inside split_metadata rather than at top level"
 composition:
-  typical_upstream: [SplitASRAlignJoinStage, JoinSplitAudioMetadataStage, InferenceSortformerStage, PyAnnoteDiarizationStage]
+  typical_upstream: [SplitASRAlignJoinStage, JoinSplitAudioMetadataStage, InferenceSortformerStage]
   typical_downstream: [TimestampMapperStage, AudioToDocumentStage]
 params_of_note:
   text_key: "key to write merged segment text"

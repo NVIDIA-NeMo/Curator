@@ -36,30 +36,7 @@ def test_asr_and_sed_inherit_one_adapter_stage_base() -> None:
     assert issubclass(SEDInferenceStage, AdapterInferenceStage)
 
 
-@rh.pytest.mark.parametrize("kind", ["pyannote", "whisperx"])
-@rh.pytest.mark.parametrize("residency", ["file", "auto", "waveform"])
-def test_planning_checks_the_selected_resident_role(
-    kind: str, residency: str, monkeypatch: rh.pytest.MonkeyPatch
-) -> None:
-    from nemo_curator.stages.audio.common import GetAudioDurationStage
-    from nemo_curator.stages.audio.preprocessing import MonoConversionStage
-
-    stage, _seen = rh._make_stage(kind, monkeypatch, input_residency=residency)
-    producer = MonoConversionStage(output_sample_rate=16000)
-    overwriter = GetAudioDurationStage(duration_key="waveform")
-    report = rh.validate_pipeline([producer, overwriter, stage], initial_keys={"audio_filepath"})
-    assert report.ok is (residency == "file"), report.summary()
-    assert any(issue.code == "key_role_conflict" for issue in report.issues) is (residency != "file")
-    valid = rh.validate_pipeline([producer, stage], initial_keys={"audio_filepath"})
-    assert valid.ok, valid.summary()
-    if residency != "file":
-        with rh.pytest.raises(ValueError, match="waveform.*shape"):
-            stage.process_batch(
-                [rh.AudioTask(data={"audio_filepath": "/valid/file.wav", "waveform": 0.5, "sample_rate": 16000})]
-            )
-
-
-@rh.pytest.mark.parametrize("kind", ["pyannote", "whisperx", "sortformer"])
+@rh.pytest.mark.parametrize("kind", ["pyannote", "sortformer"])
 @rh.pytest.mark.parametrize("resident_key", ["waveform", "sample_rate"])
 def test_auto_planning_rejects_an_incomplete_resident_pair(
     kind: str, resident_key: str, monkeypatch: rh.pytest.MonkeyPatch
@@ -72,7 +49,7 @@ def test_auto_planning_rejects_an_incomplete_resident_pair(
         stage.process_batch([rh.AudioTask(data=data)])
 
 
-@rh.pytest.mark.parametrize("kind", ["pyannote", "whisperx", "sortformer"])
+@rh.pytest.mark.parametrize("kind", ["pyannote", "sortformer"])
 def test_auto_planning_rejects_a_rate_overwritten_with_an_incompatible_role(
     kind: str, monkeypatch: rh.pytest.MonkeyPatch
 ) -> None:
@@ -88,7 +65,7 @@ def test_auto_planning_rejects_a_rate_overwritten_with_an_incompatible_role(
     assert any(issue.code == "key_role_conflict" for issue in report.issues)
 
 
-@rh.pytest.mark.parametrize("kind", ["pyannote", "whisperx", "sortformer"])
+@rh.pytest.mark.parametrize("kind", ["pyannote", "sortformer"])
 @rh.pytest.mark.parametrize("keep_waveform", [False, True])
 def test_asr_waveform_retention_controls_downstream_auto_residency(
     kind: str, keep_waveform: bool, monkeypatch: rh.pytest.MonkeyPatch
@@ -165,7 +142,7 @@ def test_worker_sizing_uses_the_processing_stage_override() -> None:
     assert lid.with_(num_workers=3).num_workers() == 3
 
 
-@rh.pytest.mark.parametrize("kind", ["pyannote", "whisperx", "sortformer"])
+@rh.pytest.mark.parametrize("kind", ["pyannote", "sortformer"])
 def test_process_batch_accepts_file_waveform_and_auto_residency(
     kind: str, tmp_path: Path, monkeypatch: rh.pytest.MonkeyPatch
 ) -> None:
@@ -199,7 +176,7 @@ def test_process_batch_accepts_file_waveform_and_auto_residency(
     assert auto_file_seen == [len(file_waveform[0])]
 
 
-@rh.pytest.mark.parametrize("kind", ["pyannote", "whisperx", "sortformer"])
+@rh.pytest.mark.parametrize("kind", ["pyannote", "sortformer"])
 @rh.pytest.mark.parametrize("residency", ["waveform", "auto"])
 @rh.pytest.mark.parametrize(
     "partial", [{"waveform": rh.np.ones((1, 10), dtype=rh.np.float32)}, {"sample_rate": rh._SAMPLE_RATE}]
@@ -213,7 +190,7 @@ def test_process_batch_rejects_partial_resident_pairs(
         stage.process_batch([rh.AudioTask(data=partial)])
 
 
-@rh.pytest.mark.parametrize("kind", ["pyannote", "whisperx", "sortformer"])
+@rh.pytest.mark.parametrize("kind", ["pyannote", "sortformer"])
 @rh.pytest.mark.parametrize(
     "partial", [{"waveform": rh.np.ones((1, 10), dtype=rh.np.float32)}, {"sample_rate": rh._SAMPLE_RATE}]
 )
@@ -229,13 +206,12 @@ def test_file_residency_ignores_partial_resident_fragments(
     assert seen == [waveform.shape[-1]]
 
 
-@rh.pytest.mark.parametrize("cls", [rh.PyAnnoteDiarizationStage, rh.WhisperXVADStage, rh.InferenceSortformerStage])
-def test_inference_stages_validate_input_residency_at_construction(cls: type) -> None:
+def test_inference_stages_validate_input_residency_at_construction() -> None:
     with rh.pytest.raises(ValueError, match="input_residency must be one of"):
-        cls(input_residency="wavefrom")
+        rh.InferenceSortformerStage(input_residency="wavefrom")
 
 
-@rh.pytest.mark.parametrize("kind", ["pyannote", "whisperx", "sortformer"])
+@rh.pytest.mark.parametrize("kind", ["pyannote", "sortformer"])
 def test_fanout_contract_is_waveform_only_and_blocks_file_consumers(
     kind: str, monkeypatch: rh.pytest.MonkeyPatch
 ) -> None:
@@ -246,7 +222,6 @@ def test_fanout_contract_is_waveform_only_and_blocks_file_consumers(
     assert {"audio_filepath", "resampled_audio_filepath"}.issubset(contract.removes_keys)
     removed_containers = {
         "pyannote": {"segments", "overlap_segments"},
-        "whisperx": {"vad_segments"},
         "sortformer": {"diar_segments"},
     }
     assert removed_containers[kind].issubset(contract.removes_keys)
@@ -292,8 +267,6 @@ def test_fanout_contract_is_waveform_only_and_blocks_file_consumers(
 @rh.pytest.mark.parametrize(
     ("cls", "path_key", "container_key"),
     [
-        (rh.PyAnnoteDiarizationStage, "audio_filepath_key", "segments_key"),
-        (rh.WhisperXVADStage, "audio_filepath_key", "segments_key"),
         (rh.InferenceSortformerStage, "filepath_key", "diar_segments_key"),
     ],
 )
@@ -316,7 +289,7 @@ def test_fanout_rejects_output_and_path_key_collisions(cls: type, path_key: str,
     assert "recording_path" not in contract.writes.data_keys
 
 
-@rh.pytest.mark.parametrize("kind", ["pyannote", "whisperx", "sortformer"])
+@rh.pytest.mark.parametrize("kind", ["pyannote", "sortformer"])
 def test_assert_agent_ready_for_fanout_inference_stages(
     kind: str, tmp_path: Path, monkeypatch: rh.pytest.MonkeyPatch
 ) -> None:
@@ -332,7 +305,7 @@ def test_assert_agent_ready_for_fanout_inference_stages(
     )
 
 
-@rh.pytest.mark.parametrize("kind", ["pyannote", "whisperx", "sortformer"])
+@rh.pytest.mark.parametrize("kind", ["pyannote", "sortformer"])
 @rh.pytest.mark.parametrize("resident_type", ["numpy", "torch"])
 def test_pcm16_resident_fanout_matches_file_amplitude(
     kind: str, resident_type: str, tmp_path: Path, monkeypatch: rh.pytest.MonkeyPatch
@@ -421,84 +394,7 @@ def test_waveform_identity_hash_streams_a_memoryview(monkeypatch: rh.pytest.Monk
     assert isinstance(payloads[1], bytes)
 
 
-@rh.pytest.mark.parametrize("kind", ["pyannote", "whisperx"])
-def test_unsigned_resident_waveforms_are_rejected_by_fanout_stages(
-    kind: str, monkeypatch: rh.pytest.MonkeyPatch
-) -> None:
-    stage, _seen = rh._make_stage(kind, monkeypatch, input_residency="waveform", fanout=True)
-    with rh.pytest.raises(ValueError, match="unsupported resident waveform integer dtype"):
-        stage.process_batch(
-            [
-                rh.AudioTask(
-                    data={"waveform": rh.np.array([[0, 32768]], dtype=rh.np.uint16), "sample_rate": rh._SAMPLE_RATE}
-                )
-            ]
-        )
-
-
-def test_legacy_positional_signatures_are_exact() -> None:
-    expected = {
-        rh.PyAnnoteDiarizationStage: [
-            "hf_token",
-            "model_name",
-            "segmentation_batch_size",
-            "embedding_batch_size",
-            "min_length",
-            "max_length",
-            "audio_filepath_key",
-            "segments_key",
-            "overlap_segments_key",
-            "name",
-            "resources",
-            "xenna_num_workers",
-            "_pipeline",
-            "_vad_model",
-            "_rng",
-        ],
-        rh.WhisperXVADStage: [
-            "min_length",
-            "max_length",
-            "vad_onset",
-            "vad_offset",
-            "segments_key",
-            "audio_filepath_key",
-            "name",
-            "resources",
-            "_vad_model",
-        ],
-    }
-    for cls, expected_names in expected.items():
-        signature = rh.inspect.signature(cls.__init__)
-        parameters = list(signature.parameters.values())[1:]
-        positional = [
-            parameter.name for parameter in parameters if parameter.kind is rh.inspect.Parameter.POSITIONAL_OR_KEYWORD
-        ]
-        assert positional == expected_names
-        keyword_only = {
-            parameter.name for parameter in parameters if parameter.kind is rh.inspect.Parameter.KEYWORD_ONLY
-        }
-        assert {"waveform_key", "sample_rate_key", "input_residency", "fanout"}.issubset(keyword_only)
-        bound = signature.bind(None, *range(len(expected_names)))
-        assert list(bound.arguments)[1:] == expected_names
-
-
-def test_static_and_configured_inference_hints_are_truthful(tmp_path: Path) -> None:
-    pyannote_static = rh.static_contract(rh.PyAnnoteDiarizationStage)
-    assert pyannote_static.gates.requires_internet_first_run
-    assert pyannote_static.gates.runtime_secrets == ["HF_TOKEN"]
-    assert pyannote_static.gates.writes_to_disk
-    assert pyannote_static.gates.output_path_params == []
-    assert pyannote_static.gates.per_row_independent is False
-    assert {"1:1", "1:N fan-out"}.issubset(pyannote_static.cardinality_options)
-    local_pipeline = tmp_path / "pyannote-pipeline"
-    local_pipeline.mkdir()
-    local_pyannote = rh.build_contract(rh.PyAnnoteDiarizationStage(model_name=str(local_pipeline), write_rttm=False))
-    assert local_pyannote.gates.requires_internet_first_run
-    assert local_pyannote.gates.runtime_secrets == []
-    assert not local_pyannote.gates.writes_to_disk
-    whisperx = rh.build_contract(rh.WhisperXVADStage(resources=rh.Resources(gpus=0)))
-    assert whisperx.gates.requires_internet_first_run
-    assert rh.static_contract(rh.WhisperXVADStage).gates.requires_internet_first_run
+def test_static_and_configured_inference_hints_are_truthful() -> None:
     asr_static = rh.static_contract(rh.ASRStage)
     asr_configured = rh.build_contract(
         rh.ASRStage(
@@ -536,7 +432,9 @@ def test_waveform_only_identities_are_stable_and_explicit_ids_win(monkeypatch: r
     pyannote, _seen = rh._make_stage("pyannote", monkeypatch, input_residency="waveform", fanout=True)
 
     def pyannote_identity(audio: rh.np.ndarray, **extra: object) -> tuple[str, str]:
-        child = pyannote.process(rh.AudioTask(data={"waveform": audio, "sample_rate": rh._SAMPLE_RATE, **extra}))[0]
+        child = pyannote.process_batch(
+            [rh.AudioTask(data={"waveform": audio, "sample_rate": rh._SAMPLE_RATE, **extra})]
+        )[0]
         return (child.data["original_file"], child.data["speaker"])
 
     first_pyannote = pyannote_identity(waveform)
@@ -545,16 +443,6 @@ def test_waveform_only_identities_are_stable_and_explicit_ids_win(monkeypatch: r
     explicit_original, explicit_speaker = pyannote_identity(waveform, audio_item_id="explicit-id")
     assert explicit_original == "explicit-id"
     assert explicit_speaker.startswith("explicit-id_")
-    whisperx, _seen = rh._make_stage("whisperx", monkeypatch, input_residency="waveform", fanout=True)
-
-    def whisperx_identity(audio: rh.np.ndarray, **extra: object) -> str:
-        child = whisperx.process(rh.AudioTask(data={"waveform": audio, "sample_rate": rh._SAMPLE_RATE, **extra}))[0]
-        return child.data["original_file"]
-
-    first_whisperx = whisperx_identity(waveform)
-    assert whisperx_identity(waveform) == first_whisperx
-    assert whisperx_identity(changed) != first_whisperx
-    assert whisperx_identity(waveform, audio_item_id="explicit-id") == "explicit-id"
 
 
 def test_file_identity_precedence_preserves_existing_provenance(
@@ -564,97 +452,39 @@ def test_file_identity_precedence_preserves_existing_provenance(
     audio_path = tmp_path / "real-source.wav"
     rh._write_audio(audio_path, waveform)
     pyannote, _seen = rh._make_stage("pyannote", monkeypatch, fanout=True)
-    pyannote_child = pyannote.process(
-        rh.AudioTask(data={"audio_filepath": str(audio_path), "original_file": "/stale/provenance.wav"})
+    pyannote_child = pyannote.process_batch(
+        [rh.AudioTask(data={"audio_filepath": str(audio_path), "original_file": "/stale/provenance.wav"})]
     )[0]
     assert pyannote_child.data["speaker"].startswith("real-source_")
     assert pyannote_child.data["original_file"] == "/stale/provenance.wav"
-    pyannote_with_id = pyannote.process(
-        rh.AudioTask(
-            data={
-                "audio_filepath": str(audio_path),
-                "audio_item_id": "legacy-item",
-                "original_file": "/stale/provenance.wav",
-            }
-        )
+    pyannote_with_id = pyannote.process_batch(
+        [
+            rh.AudioTask(
+                data={
+                    "audio_filepath": str(audio_path),
+                    "audio_item_id": "legacy-item",
+                    "original_file": "/stale/provenance.wav",
+                }
+            )
+        ]
     )[0]
     assert pyannote_with_id.data["speaker"].startswith("legacy-item_")
     assert pyannote_with_id.data["original_file"] == "/stale/provenance.wav"
-    pyannote_with_speaker = pyannote.process(
-        rh.AudioTask(
-            data={
-                "audio_filepath": str(audio_path),
-                "speaker_id": "legacy-speaker",
-                "original_file": "/stale/provenance.wav",
-            }
-        )
+    pyannote_with_speaker = pyannote.process_batch(
+        [
+            rh.AudioTask(
+                data={
+                    "audio_filepath": str(audio_path),
+                    "speaker_id": "legacy-speaker",
+                    "original_file": "/stale/provenance.wav",
+                }
+            )
+        ]
     )[0]
     assert pyannote_with_speaker.data["speaker"].startswith("legacy-speaker_")
-    whisperx, _seen = rh._make_stage("whisperx", monkeypatch, fanout=True)
-    whisperx_child = whisperx.process(
-        rh.AudioTask(data={"audio_filepath": str(audio_path), "original_file": "/stale/provenance.wav"})
-    )[0]
-    assert whisperx_child.data["original_file"] == "/stale/provenance.wav"
 
 
-@rh.pytest.mark.parametrize("kind", ["pyannote", "whisperx"])
-def test_configured_file_key_is_strict_unless_fallback_is_enabled(
-    kind: str, tmp_path: Path, monkeypatch: rh.pytest.MonkeyPatch
-) -> None:
-    audio_path = tmp_path / "raw.wav"
-    rh._write_audio(audio_path, rh.np.ones((1, 12), dtype=rh.np.float32))
-    stage, _seen = rh._make_stage(kind, monkeypatch)
-    stage.audio_filepath_key = "clean_audio"
-    task = rh.AudioTask(data={"audio_filepath": str(audio_path)})
-    with rh.pytest.raises(ValueError, match="failed validation"):
-        stage.process_batch([task])
-    stage.allow_audio_filepath_fallback = True
-    result = stage.process_batch([task])
-    assert len(result) == 1
-
-
-@rh.pytest.mark.parametrize(
-    ("stage", "segments_key"),
-    [
-        (rh.PyAnnoteDiarizationStage(resources=rh.Resources(gpus=0), write_rttm=False), "segments"),
-    ],
-)
-def test_num_speakers_is_disabled_by_default_and_preserves_legacy_aliases(stage: object, segments_key: str) -> None:
-    assert stage.num_speakers_key is None
-    assert "num_speakers" not in rh.build_contract(stage).writes.data_keys
-    assert "num_speakers" not in stage.outputs()[1]
-    stage_with_alias = type(stage)(**{segments_key.replace("segments", "segments_key"): "num_speakers"})
-    assert stage_with_alias.num_speakers_key is None
-
-
-@rh.pytest.mark.parametrize("kind", ["pyannote", "whisperx"])
-def test_waveform_materialization_preserves_model_observed_samples(
-    kind: str, monkeypatch: rh.pytest.MonkeyPatch
-) -> None:
-    waveform = rh.np.array([[1e-05, -1e-05, 1.25, -1.25]], dtype=rh.np.float32)
-    stage, _seen = rh._make_stage(kind, monkeypatch, input_residency="waveform")
-    observed: list[rh.np.ndarray] = []
-    if kind == "pyannote":
-        stage._pipeline = lambda payload, hook=None: (
-            hook,
-            observed.append(payload["waveform"].numpy().copy()) or rh._FakeAnnotation([]),
-        )[1]
-    elif kind == "whisperx":
-        stage._vad_model.get_vad_segments.side_effect = lambda audio, _max_length, *, sample_rate: (
-            sample_rate,
-            observed.append(audio.copy()) or [],
-        )[1]
-    else:
-        stage.diar_model.diarize.side_effect = lambda *, audio, batch_size: (
-            batch_size,
-            observed.append(rh.sf.read(audio[0], dtype="float32", always_2d=True)[0].T.copy()) or [[]],
-        )[1]
-    stage.process(rh.AudioTask(data={"waveform": waveform, "sample_rate": rh._SAMPLE_RATE}))
-    rh.np.testing.assert_array_equal(observed[0], waveform)
-    assert rh.build_contract(stage).gates.writes_to_disk
-
-
-@rh.pytest.mark.parametrize("kind", ["pyannote", "whisperx", "sortformer"])
+@rh.pytest.mark.parametrize("kind", ["pyannote", "sortformer"])
 def test_fanout_is_non_resumable_until_zero_child_accounting_is_supported(
     kind: str, monkeypatch: rh.pytest.MonkeyPatch
 ) -> None:
@@ -662,19 +492,3 @@ def test_fanout_is_non_resumable_until_zero_child_accounting_is_supported(
     fanout, _seen = rh._make_stage(kind, monkeypatch, fanout=True)
     assert regular.is_resumable is True
     assert fanout.is_resumable is False
-
-
-@rh.pytest.mark.parametrize("kind", ["pyannote", "whisperx"])
-def test_fanout_metadata_uses_normalized_sample_boundaries(kind: str, monkeypatch: rh.pytest.MonkeyPatch) -> None:
-    stage, _seen = rh._make_stage(kind, monkeypatch, fanout=True)
-    waveform = rh.np.arange(10, dtype=rh.np.float32)[None, :]
-    item = {"num_speakers": 1} if kind == "pyannote" else {}
-    negative = stage._segment_child_data(item, {"start": -0.2, "end": 0.4}, 0, waveform, 10, "source")
-    overrun = stage._segment_child_data(item, {"start": 0.8, "end": 1.5}, 1, waveform, 10, "source")
-    assert (negative[stage.start_key], negative[stage.end_key], negative[stage.duration_key]) == (0.0, 0.4, 0.4)
-    assert negative[stage.waveform_key].shape[-1] == 4
-    assert (overrun[stage.start_key], overrun[stage.end_key]) == (0.8, 1.0)
-    assert overrun[stage.duration_key] == rh.pytest.approx(0.2)
-    assert overrun[stage.waveform_key].shape[-1] == 2
-    with rh.pytest.raises(ValueError, match="end must be >= start"):
-        stage._segment_child_data(item, {"start": 0.8, "end": 0.2}, 2, waveform, 10, "source")

@@ -30,6 +30,7 @@ import soundfile as sf
 import torch
 
 from nemo_curator.models.asr.base import ASRResult
+from nemo_curator.models.audio.speaker_diarization.pyannote import PyAnnoteDiarizationAdapter
 from nemo_curator.stages.audio._agent._agent_registry import build_contract, static_contract
 from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
 from nemo_curator.stages.audio._agent._planning import validate_pipeline
@@ -37,11 +38,7 @@ from nemo_curator.stages.audio._agent._residency import resolve_audio_path
 from nemo_curator.stages.audio.inference import base as inference_base
 from nemo_curator.stages.audio.inference.asr.stage import ASRStage
 from nemo_curator.stages.audio.inference.base import _channel_first_waveform
-from nemo_curator.stages.audio.inference.speaker_diarization import pyannote as pyannote_module
-from nemo_curator.stages.audio.inference.speaker_diarization.pyannote import PyAnnoteDiarizationStage
 from nemo_curator.stages.audio.inference.speaker_diarization.sortformer import InferenceSortformerStage
-from nemo_curator.stages.audio.inference.vad.whisperx_vad import WhisperXVADStage
-from nemo_curator.stages.audio.tagging.utils import add_non_speaker_segments
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
@@ -99,7 +96,6 @@ def _make_stage(  # noqa: PLR0913
     *,
     input_residency: str = "file",
     fanout: bool = False,
-    write_rttm: bool = False,
     rttm_out_dir: str | None = None,
     fail_after_rttm: bool = False,
 ) -> tuple[Any, list[int]]:
@@ -112,37 +108,21 @@ def _make_stage(  # noqa: PLR0913
             seen_lengths.append(int(payload["waveform"].shape[-1]))
             return annotation
 
-        monkeypatch.setattr(pyannote_module, "ProgressHook", _ProgressHook)
-        monkeypatch.setattr(pyannote_module, "add_non_speaker_segments", lambda *_args: None)
-        stage = PyAnnoteDiarizationStage(
-            audio_filepath_key="audio_filepath",
+        monkeypatch.setattr("pyannote.audio.pipelines.utils.hook.ProgressHook", _ProgressHook)
+        stage = InferenceSortformerStage(
+            adapter_target="nemo_curator.models.audio.speaker_diarization.pyannote.PyAnnoteDiarizationAdapter",
             input_residency=input_residency,
             fanout=fanout,
-            write_rttm=write_rttm,
-            min_length=0.0,
-            resources=Resources(gpus=0),
-            num_speakers_key="num_speakers",
-        )
-        stage._pipeline = infer
-        return stage, seen_lengths
-
-    if kind == "whisperx":
-        model = MagicMock()
-
-        def vad(audio: np.ndarray, _max_length: float, *, sample_rate: int) -> list[dict[str, Any]]:
-            assert sample_rate == _SAMPLE_RATE
-            seen_lengths.append(int(audio.shape[-1]))
-            return [dict(segment) for segment in _SEGMENTS]
-
-        model.get_vad_segments.side_effect = vad
-        stage = WhisperXVADStage(
-            audio_filepath_key="audio_filepath",
-            input_residency=input_residency,
-            fanout=fanout,
-            min_length=0.0,
+            rttm_out_dir=rttm_out_dir,
+            target_sample_rate=_SAMPLE_RATE,
+            diar_segments_key="segments",
+            overlap_segments_key="overlap_segments",
+            global_speaker_ids=True,
             resources=Resources(gpus=0),
         )
-        stage._vad_model = model
+        adapter = PyAnnoteDiarizationAdapter(sample_rate=_SAMPLE_RATE, min_length=0.0)
+        adapter._pipeline = infer
+        stage._adapter = adapter
         return stage, seen_lengths
 
     if kind == "sortformer":

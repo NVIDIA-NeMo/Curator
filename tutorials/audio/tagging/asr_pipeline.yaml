@@ -108,10 +108,22 @@ stages:
     target_format: "wav"
     target_nchannels: 1
 
-  - _target_: nemo_curator.stages.audio.inference.speaker_diarization.pyannote.PyAnnoteDiarizationStage
+  - _target_: nemo_curator.stages.audio.inference.speaker_diarization.stage.InferenceSortformerStage
     name: "PyAnnoteDiarization"
-    hf_token: ${hf_token}
-    max_length: ${max_segment_length}
+    adapter_target: nemo_curator.models.audio.speaker_diarization.pyannote.PyAnnoteDiarizationAdapter
+    model_id: pyannote/speaker-diarization-3.1
+    audio_filepath_key: resampled_audio_filepath
+    diar_segments_key: segments
+    overlap_segments_key: overlap_segments
+    num_speakers_key: null
+    global_speaker_ids: true
+    non_speaker_segment_max_length: ${max_segment_length}
+    resources:
+      _target_: nemo_curator.stages.resources.Resources
+      gpus: 1.0
+    adapter_kwargs:
+      hf_token: ${hf_token}
+      max_length: ${max_segment_length}
 
   - _target_: nemo_curator.stages.audio.tagging.SplitLongAudioStage
     name: "SplitLongAudio"

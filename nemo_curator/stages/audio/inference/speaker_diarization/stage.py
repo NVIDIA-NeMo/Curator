@@ -35,7 +35,11 @@ import numpy as np
 from loguru import logger
 
 from nemo_curator.backends.utils import RayStageSpecKeys
-from nemo_curator.models.audio.speaker_diarization.base import DiarizationAdapter, DiarizationInputError
+from nemo_curator.models.audio.speaker_diarization.base import (
+    DiarizationAdapter,
+    DiarizationInputError,
+    add_non_speaker_segments,
+)
 from nemo_curator.stages.audio._agent._agent_ready import (
     AgentReady,
     ConditionalWrite,
@@ -60,6 +64,7 @@ from nemo_curator.stages.audio.inference.base import (
     _inference_audio_conditional_reads,
     _inference_audio_read_specs,
     _stable_audio_identity,
+    _stable_source_path,
     _validate_fanout_key_contract,
     _validate_inference_audio_input,
 )
@@ -73,6 +78,8 @@ if TYPE_CHECKING:
 
 
 _DEFAULT_ADAPTER_TARGET = "nemo_curator.models.audio.speaker_diarization.sortformer.NeMoSortformerAdapter"
+_PYANNOTE_ADAPTER_TARGET = "nemo_curator.models.audio.speaker_diarization.pyannote.PyAnnoteDiarizationAdapter"
+_NO_SPEAKER = "no-speaker"
 
 
 def _safe_rttm_basename(session_name: str) -> str:
@@ -198,6 +205,17 @@ class InferenceSortformerStage(AgentReady, AdapterInferenceStage[DiarizationAdap
         start_key: Start-time field inside each stored diarization interval.
         end_key: End-time field inside each stored diarization interval.
         speaker_key: Recording-local speaker-label field inside each interval.
+        overlap_segments_key: Field for intervals the adapter marked as overlapped
+            speech (for example PyAnnote); None leaves them out. Overlap labels
+            count toward ``num_speakers_key``; with fan-out they become children
+            flagged by ``overlap_key``.
+        overlap_key: Boolean fan-out child field set when ``overlap_segments_key`` is enabled.
+        global_speaker_ids: Prefix every label with the recording identity
+            (``audio_item_id_key``, ``speaker_id``, source path stem, session name,
+            or a content hash) so labels are unique across recordings.
+        non_speaker_segment_max_length: When set, fill time not covered by
+            ``diar_segments_key`` with ``speaker="no-speaker"`` intervals of at
+            most this many seconds. Fan-out never emits these intervals.
     """
 
     # Keep every current-main constructor field in its original positional
@@ -256,6 +274,10 @@ class InferenceSortformerStage(AgentReady, AdapterInferenceStage[DiarizationAdap
     original_file_key: str = "original_file"
     audio_item_id_key: str = "audio_item_id"
     pred_text_key: str = "pred_text"
+    overlap_segments_key: str | None = None
+    overlap_key: str = "is_overlap"
+    global_speaker_ids: bool = False
+    non_speaker_segment_max_length: float | None = None
 
     BATCH_ONLY: ClassVar[bool] = True
     AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
@@ -271,9 +293,9 @@ class InferenceSortformerStage(AgentReady, AdapterInferenceStage[DiarizationAdap
         "session_name_key": "item_id",
         "rttm_filepath_key": "output_path",
     }
-    INTERNAL_KEY_FIELDS: ClassVar[frozenset[str]] = frozenset({"notes_key", "read_error_key"})
+    INTERNAL_KEY_FIELDS: ClassVar[frozenset[str]] = frozenset({"notes_key", "read_error_key", "overlap_key"})
 
-    def __post_init__(self) -> None:
+    def __post_init__(self) -> None:  # noqa: C901
         super().__post_init__()
         self._apply_legacy_aliases()
         self._configure_agent_options()
@@ -306,6 +328,10 @@ class InferenceSortformerStage(AgentReady, AdapterInferenceStage[DiarizationAdap
             output_keys["num_speakers_key"] = self.num_speakers_key
         if self.store_segments or self.fanout:
             output_keys["diar_segments_key"] = self.diar_segments_key
+        if self.overlap_segments_key is not None:
+            output_keys["overlap_segments_key"] = self.overlap_segments_key
+            if self.fanout:
+                output_keys["overlap_key"] = self.overlap_key
         if self.fanout:
             input_keys["audio_item_id_key"] = self.audio_item_id_key
             output_keys.update(
@@ -347,7 +373,11 @@ class InferenceSortformerStage(AgentReady, AdapterInferenceStage[DiarizationAdap
                 stage_name=self.name,
                 audio_filepath_key=self.audio_filepath_key,
                 output_keys=self._fanout_output_keys(),
-                removed_container_keys=(self.diar_segments_key, self.pred_text_key),
+                removed_container_keys=(
+                    self.diar_segments_key,
+                    *([self.overlap_segments_key] if self.overlap_segments_key is not None else []),
+                    self.pred_text_key,
+                ),
             )
             self.is_resumable = False
 
@@ -435,7 +465,7 @@ class InferenceSortformerStage(AgentReady, AdapterInferenceStage[DiarizationAdap
     def outputs(self) -> tuple[list[str], list[str]]:
         if self.fanout:
             return ["data"], self._fanout_output_keys()
-        keys = [key for key in (self.num_speakers_key, self.notes_key) if key is not None]
+        keys = [key for key in (self.num_speakers_key, self.notes_key, self.overlap_segments_key) if key is not None]
         if self.store_segments:
             keys.append(self.diar_segments_key)
         if self.rttm_out_dir is not None:
@@ -453,8 +483,11 @@ class InferenceSortformerStage(AgentReady, AdapterInferenceStage[DiarizationAdap
         result_keys = [self.num_speakers_key] if self.num_speakers_key is not None else []
         if self.store_segments and not self.fanout:
             result_keys.append(self.diar_segments_key)
+        result_keys.extend([self.overlap_segments_key] if self.overlap_segments_key and not self.fanout else [])
 
         optional_reads = [self.notes_key]
+        if self.global_speaker_ids:
+            optional_reads.extend([self.audio_item_id_key, "speaker_id", self.original_file_key])
         if self.fanout:
             optional_reads.extend([self.session_name_key, self.audio_item_id_key, self.original_file_key])
         if self.rttm_out_dir is not None:
@@ -481,7 +514,12 @@ class InferenceSortformerStage(AgentReady, AdapterInferenceStage[DiarizationAdap
             ),
             writes=IOSpec(data_keys=self._fanout_output_keys(), produces=["tensor"]) if self.fanout else IOSpec(),
             removes_keys=(
-                [*_fanout_path_keys(self.audio_filepath_key), self.diar_segments_key, self.pred_text_key]
+                [
+                    *_fanout_path_keys(self.audio_filepath_key),
+                    self.diar_segments_key,
+                    *([self.overlap_segments_key] if self.overlap_segments_key is not None else []),
+                    self.pred_text_key,
+                ]
                 if self.fanout
                 else []
             ),
@@ -538,6 +576,14 @@ class InferenceSortformerStage(AgentReady, AdapterInferenceStage[DiarizationAdap
                 output_path_params=["rttm_out_dir"],
                 requires_gpu=self.resources.requires_gpu,
                 requires_internet_first_run=self.model_path is None and self.diar_model is None,
+                # Gated pyannote pipelines need a token unless one is configured or the pipeline is local.
+                runtime_secrets=(
+                    ["HF_TOKEN"]
+                    if self.adapter_target == _PYANNOTE_ADAPTER_TARGET
+                    and not self.adapter_kwargs.get("hf_token")
+                    and not os.path.exists(os.path.expanduser(self.model_id))
+                    else []
+                ),
                 lifecycle_side_effects=True,
                 requires_stable_task_id=self.rttm_out_dir is not None and self.rttm_naming == "task_id",
                 per_row_independent=(
@@ -584,6 +630,8 @@ class InferenceSortformerStage(AgentReady, AdapterInferenceStage[DiarizationAdap
             keys.append(self.num_speakers_key)
         if self.rttm_out_dir is not None:
             keys.append(self.rttm_filepath_key)
+        if self.overlap_segments_key is not None:
+            keys.append(self.overlap_key)
         return keys
 
     def _source_audio(self, task: AudioTask) -> tuple[np.ndarray, int]:
@@ -624,7 +672,15 @@ class InferenceSortformerStage(AgentReady, AdapterInferenceStage[DiarizationAdap
         notes = task.data.get(self.notes_key)
         if task.data.get(self.read_error_key) or (isinstance(notes, dict) and self.name in notes):
             return []
-        segments = task.data.get(self.diar_segments_key, [])
+        segments = [
+            segment
+            for segment in task.data.get(self.diar_segments_key, [])
+            if segment[self.speaker_key] != _NO_SPEAKER
+        ]
+        if self.overlap_segments_key is not None:
+            segments = [{**segment, self.overlap_key: False} for segment in segments]
+            segments.extend({**segment, self.overlap_key: True} for segment in task.data[self.overlap_segments_key])
+            segments.sort(key=lambda segment: (segment[self.start_key], segment[self.end_key]))
         if not segments:
             return []
         waveform, rate = self._source_audio(task)
@@ -645,6 +701,7 @@ class InferenceSortformerStage(AgentReady, AdapterInferenceStage[DiarizationAdap
         removed = {
             *_fanout_path_keys(self.audio_filepath_key),
             self.diar_segments_key,
+            self.overlap_segments_key,
             self.pred_text_key,
             self.waveform_key,
             self.sample_rate_key,
@@ -671,6 +728,8 @@ class InferenceSortformerStage(AgentReady, AdapterInferenceStage[DiarizationAdap
                     self.original_file_key: original_file,
                 }
             )
+            if self.overlap_segments_key is not None:
+                data[self.overlap_key] = segment[self.overlap_key]
             children.append(
                 AudioTask(
                     dataset_name=task.dataset_name,
@@ -828,11 +887,11 @@ class InferenceSortformerStage(AgentReady, AdapterInferenceStage[DiarizationAdap
         items = [value[2] for value in pending]
         if items:
             results = self._diarize_items(items)
-            for (_, task, _), result in zip(pending, results, strict=True):
+            for (_, task, item), result in zip(pending, results, strict=True):
                 if result is None:
                     self._write_empty_error(task, "audio_load_error")
                 else:
-                    self._write_result(task, result)
+                    self._write_result(task, result, item["audio_seconds"])
 
         if self.fanout:
             return [child for task in tasks for child in self._fanout_tasks(task)]
@@ -867,39 +926,72 @@ class InferenceSortformerStage(AgentReady, AdapterInferenceStage[DiarizationAdap
             task.data[self.num_speakers_key] = 0
         if self.store_segments or self.fanout:
             task.data[self.diar_segments_key] = []
+        if self.overlap_segments_key is not None:
+            task.data[self.overlap_segments_key] = []
         notes = task.data.get(self.notes_key)
         if not isinstance(notes, dict):
             notes = {}
             task.data[self.notes_key] = notes
         notes[self.name] = reason
 
-    def _write_result(self, task: AudioTask, result: DiarizationResult) -> None:
-        segments: list[DiarizationSegment] = []
-        for segment in result.segments:
+    def _recording_identity(self, task: AudioTask) -> str:
+        """Identity used to make speaker labels unique across recordings."""
+        explicit_keys = (self.audio_item_id_key, "speaker_id")
+        path = (
+            None if self._uses_resident(task) else _stable_source_path(task.data, self.audio_filepath_key)
+        ) or _stable_source_path(task.data, self.original_file_key)
+        if path or any(task.data.get(key) is not None and str(task.data.get(key)) for key in explicit_keys):
+            waveform, rate = None, 0
+        else:
+            waveform, rate = self._source_audio(task)
+        return _stable_audio_identity(
+            task.data,
+            waveform,
+            rate,
+            source_path=path,
+            explicit_keys=explicit_keys,
+            fallback_keys=(self.session_name_key,),
+        )
+
+    def _retained(self, segments: list[DiarizationSegment], prefix: str) -> list[DiarizationSegment]:
+        retained = []
+        for segment in segments:
             if float(segment["end"]) <= float(segment["start"]):
                 logger.warning("Skipping degenerate diarization segment: {}", segment)
                 continue
-            segments.append(dict(segment))
+            retained.append({**segment, "speaker": f"{prefix}{segment['speaker']}"})
+        return retained
+
+    def _keyed(self, segments: list[DiarizationSegment]) -> list[dict[str, Any]]:
+        return [
+            {self.start_key: segment["start"], self.end_key: segment["end"], self.speaker_key: segment["speaker"]}
+            for segment in segments
+        ]
+
+    def _write_result(self, task: AudioTask, result: DiarizationResult, audio_seconds: float) -> None:
+        prefix = f"{self._recording_identity(task)}_" if self.global_speaker_ids else ""
+        segments = self._retained(result.segments, prefix)
+        overlaps = self._retained(result.overlap_segments, prefix) if self.overlap_segments_key is not None else []
         if self.num_speakers_key is not None:
-            task.data[self.num_speakers_key] = len({str(segment["speaker"]) for segment in segments})
-        if self.store_segments or self.fanout:
-            task.data[self.diar_segments_key] = [
-                {
-                    self.start_key: segment["start"],
-                    self.end_key: segment["end"],
-                    self.speaker_key: segment["speaker"],
-                }
-                for segment in segments
-            ]
+            task.data[self.num_speakers_key] = len({str(segment["speaker"]) for segment in (*segments, *overlaps)})
         if self.rttm_out_dir is not None:
             path = _write_rttm(
-                segments,
+                sorted([*segments, *overlaps], key=lambda segment: float(segment["start"])) if overlaps else segments,
                 self._export_session_name(task),
                 self.rttm_out_dir,
                 shard_key=self._export_shard_key(task),
             )
             rttm_root = Path(self.rttm_out_dir).expanduser().resolve()
             task.data[self.rttm_filepath_key] = Path(path).relative_to(rttm_root).as_posix()
+        if self.non_speaker_segment_max_length is not None:
+            duration = float(task.data.get(self.duration_key, audio_seconds))
+            if not np.isfinite(duration):
+                duration = max((float(segment["end"]) for segment in segments), default=0.0)
+            add_non_speaker_segments(segments, duration, self.non_speaker_segment_max_length)
+        if self.store_segments or self.fanout:
+            task.data[self.diar_segments_key] = self._keyed(segments)
+        if self.overlap_segments_key is not None:
+            task.data[self.overlap_segments_key] = self._keyed(overlaps)
         notes = task.data.get(self.notes_key)
         if isinstance(notes, dict):
             notes.pop(self.name, None)

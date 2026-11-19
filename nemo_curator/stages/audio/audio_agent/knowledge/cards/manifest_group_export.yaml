@@ -32,7 +32,7 @@ params_of_note:
   include_timestamps: "prefix txt lines with [start - end] when both are present (default true)"
   write_timeline: "also write a single time-ordered timeline.txt across all groups (default false)"
 param_dependencies:
-  group_by: "must be a top-level field actually written upstream. Sortformer/PyAnnote fan-out writes speaker; ASRStage defaults to pred_text for text. Nested segment lists are not expanded; if the grouping field is absent, rows go to unknown."
+  group_by: "must be a top-level field actually written upstream. InferenceSortformerStage fan-out writes speaker; ASRStage defaults to pred_text for text. Nested segment lists are not expanded; if the grouping field is absent, rows go to unknown."
   text_key: "required for format: txt and for write_timeline: true; pair it with an ASR/alignment stage upstream."
   write_timeline: "ordering uses start/end; without those columns rows fall back to arrival order."
 notes:

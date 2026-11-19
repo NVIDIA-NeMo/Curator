@@ -55,7 +55,7 @@ The dashed path shows that `ManifestWriter` can follow directly after `PrepareMo
 |---|-------|-------------|-----|
 | 0 | **ManifestReader** | Reads input JSONL manifest | No |
 | 1 | **ResampleAudioStage** | Resample to 16 kHz mono WAV | No |
-| 2 | **PyAnnoteDiarizationStage** | Speaker diarization and overlap detection | Yes |
+| 2 | **InferenceSortformerStage** with `PyAnnoteDiarizationAdapter` | Speaker diarization and overlap detection | Yes |
 | 3 | **SplitLongAudioStage** | Split segments exceeding max length | No |
 | 4 | **NeMoASRAlignerStage** | Forced alignment via NeMo FastConformer | Yes |
 | 5 | **JoinSplitAudioMetadataStage** | Rejoin split audio metadata | No |
@@ -244,7 +244,7 @@ Override individual stage parameters using their index in the `stages` list:
 
 ```bash
 # Change diarization model (stage 2)
-stages.2.diarization_model=pyannote/speaker-diarization-3.1
+stages.2.model_id=pyannote/speaker-diarization-3.1
 
 # Adjust first-pass ASR batch size (stage 4)
 stages.4.batch_size=16
@@ -270,7 +270,7 @@ Controls the maximum duration of audio segments fed to the first pass ASR. This 
 
 ### `segmentation_batch_size` (PyAnnote diarization)
 
-Controls GPU memory vs throughput for the diarization model:
+Set as `stages.2.adapter_kwargs.segmentation_batch_size`. Controls GPU memory vs throughput for the diarization model:
 
 | Value | GPU Memory | Throughput |
 |-------|-----------|------------|
@@ -434,7 +434,7 @@ export HF_TOKEN=your_hf_token
 ### GPU Out of Memory
 
 - Reduce `stages.4.batch_size` (first-pass ASR alignment)
-- Reduce `stages.2.segmentation_batch_size` (diarization)
+- Reduce `stages.2.adapter_kwargs.segmentation_batch_size` (diarization)
 - Reduce `stages.10.batch_size` (second-pass ASR, when present)
 - Process fewer files per manifest
 - See [GPU Memory Requirements](#gpu-memory-requirements) for per-model VRAM usage

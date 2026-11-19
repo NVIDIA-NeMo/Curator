@@ -2659,7 +2659,7 @@ class TestFreshnessWindowsApplyWhereDataIsFetched:
 
     def test_a_model_download_does_not(self) -> None:
         # These all carry needs_internet_first_run, but for a checkpoint, not for the corpus.
-        for stage in ("ASRStage", "UTMOSFilterStage", "InferenceSortformerStage", "PyAnnoteDiarizationStage"):
+        for stage in ("ASRStage", "UTMOSFilterStage", "InferenceSortformerStage"):
             _deterministic, ttl = artifacts.stage_trust(stage)
             assert ttl == 0, f"{stage} downloads a model; expiring its output would recompute for nothing"
 
@@ -2798,11 +2798,6 @@ class TestNonDeterminismAsksRatherThanHides:
         assert result["prompt_user"] is True
         assert result["recommended"] == "fresh"
         assert _verb_continuation._chosen_by_default(result) == "fresh"
-
-    def test_the_one_stage_that_documents_its_randomness_declares_it(self) -> None:
-        # pyannote's own card note: the internal long-turn VAD re-segments with randomized chunk
-        # sizes and no seed is exposed. That is evidence; the field now records it.
-        assert artifacts.stage_trust("PyAnnoteDiarizationStage")[0] is False
 
     def test_silence_is_still_read_as_reproducible(self) -> None:
         # Deliberate: flipping the default would block reuse of every model stage on a suspicion
@@ -3090,8 +3085,8 @@ class TestGeneratedOutputIntegrity:
             [
                 _READER,
                 {
-                    "ref": "PyAnnoteDiarizationStage",
-                    "params": {"write_rttm": False, "audio_filepath_key": "audio_filepath"},
+                    "ref": "InferenceSortformerStage",
+                    "params": {"audio_filepath_key": "audio_filepath"},
                 },
                 {"ref": "ManifestWriterStage", "params": {"output_path": str(manifest)}},
             ]

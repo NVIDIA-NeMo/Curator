@@ -62,7 +62,6 @@ LEGACY_STAGE_NAMES = (
     "PrepareModuleSegmentsStage",
     "PreserveByValueStage",
     "PretrainMetricsAggregatorStage",
-    "PyAnnoteDiarizationStage",
     "ReadLongFormManifestStage",
     "ResampleAudioStage",
     "SIGMOSFilterStage",
@@ -79,7 +78,6 @@ LEGACY_STAGE_NAMES = (
     "TorchSquimQualityMetricsStage",
     "UTMOSFilterStage",
     "VADSegmentationStage",
-    "WhisperXVADStage",
 )
 
 ADDITIVE_STAGE_NAMES = (
@@ -372,6 +370,6 @@ def test_a_cardinality_this_cannot_read_is_left_alone() -> None:
     """Computed some other way means unknown, and unknown must not become a guess."""
     from nemo_curator.stages.audio._agent._agent_registry import _describe_cardinalities
 
-    # WhisperXVADStage builds its cardinality through a non-literal expression.
-    assert _describe_cardinalities(get_agent_ready_stage_class("WhisperXVADStage")) is None
-    assert static_contract(get_agent_ready_stage_class("WhisperXVADStage")).cardinality == "1:1"
+    # InferenceSortformerStage builds its cardinality through a nested conditional expression.
+    assert _describe_cardinalities(get_agent_ready_stage_class("InferenceSortformerStage")) is None
+    assert static_contract(get_agent_ready_stage_class("InferenceSortformerStage")).cardinality == "1:1"

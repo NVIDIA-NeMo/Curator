@@ -286,8 +286,12 @@ def test_external_ray_does_not_treat_other_driver_facts_as_worker_facts(
     stages = _build(
         ("ResampleAudioStage", {"resampled_audio_dir": str(tmp_path / "rs")}),
         (
-            "PyAnnoteDiarizationStage",
-            {"hf_token": "", "resources": {"cpus": 1, "gpus": 1}},
+            "InferenceSortformerStage",
+            {
+                "adapter_target": "nemo_curator.models.audio.speaker_diarization.pyannote.PyAnnoteDiarizationAdapter",
+                "adapter_kwargs": {"hf_token": ""},
+                "resources": {"cpus": 1, "gpus": 1},
+            },
         ),
     )
     env = _cuda_mismatch()
@@ -327,12 +331,12 @@ import sys
 from importlib.abc import MetaPathFinder
 class Block(MetaPathFinder):
     def find_spec(self, name, path=None, target=None):
-        if name.split(".")[0] == "whisperx":
-            raise ImportError("No module named 'whisperx'")
+        if name.split(".")[0] == "onnxruntime":
+            raise ImportError("No module named 'onnxruntime'")
         return None
 sys.meta_path.insert(0, Block())
 from nemo_curator.stages.audio import audio_agent as aa
-out = aa.validate({"stages": [{"ref": "WhisperXVADStage", "params": {}}]})
+out = aa.validate({"stages": [{"ref": "SIGMOSFilterStage", "params": {}}]})
 print("RESULT" + json.dumps({
     "codes": [i["code"] for i in out["issues"]],
     "unavailable": bool(aa.discover().get("unavailable")),
@@ -410,11 +414,15 @@ def test_ffmpeg_and_secret_block_only_relevant_selected_stages(tmp_path: Path) -
     )
     pyannote_stages = _build(
         (
-            "PyAnnoteDiarizationStage",
-            {"hf_token": "unused-test-value", "resources": {"cpus": 1, "gpus": 1}},
+            "InferenceSortformerStage",
+            {
+                "adapter_target": "nemo_curator.models.audio.speaker_diarization.pyannote.PyAnnoteDiarizationAdapter",
+                "adapter_kwargs": {"hf_token": "unused-test-value"},
+                "resources": {"cpus": 1, "gpus": 1},
+            },
         )
     )
-    pyannote_stages[0].hf_token = ""
+    pyannote_stages[0].adapter_kwargs["hf_token"] = ""
     pyannote = environment_preflight(pyannote_stages, env)
 
     assert duration["can_execute"] is True
@@ -429,8 +437,12 @@ def test_explicit_stage_credential_satisfies_gate_without_exposing_value() -> No
     env = _healthy_env(available_secrets=[])
     stages = _build(
         (
-            "PyAnnoteDiarizationStage",
-            {"hf_token": "configured-but-never-returned", "resources": {"cpus": 1, "gpus": 1}},
+            "InferenceSortformerStage",
+            {
+                "adapter_target": "nemo_curator.models.audio.speaker_diarization.pyannote.PyAnnoteDiarizationAdapter",
+                "adapter_kwargs": {"hf_token": "configured-but-never-returned"},
+                "resources": {"cpus": 1, "gpus": 1},
+            },
         )
     )
 
@@ -454,11 +466,15 @@ def test_multiple_blockers_do_not_claim_one_choice_fixes_everything() -> None:
             },
         ),
         (
-            "PyAnnoteDiarizationStage",
-            {"hf_token": "unused-test-value", "resources": {"cpus": 1, "gpus": 1}},
+            "InferenceSortformerStage",
+            {
+                "adapter_target": "nemo_curator.models.audio.speaker_diarization.pyannote.PyAnnoteDiarizationAdapter",
+                "adapter_kwargs": {"hf_token": "unused-test-value"},
+                "resources": {"cpus": 1, "gpus": 1},
+            },
         ),
     )
-    stages[1].hf_token = ""
+    stages[1].adapter_kwargs["hf_token"] = ""
 
     decision = environment_preflight(stages, env)
 
@@ -483,11 +499,15 @@ def test_runtime_diagnosis_never_recommends_a_partial_multi_blocker_fix() -> Non
             },
         ),
         (
-            "PyAnnoteDiarizationStage",
-            {"hf_token": "placeholder", "resources": {"cpus": 1, "gpus": 1}},
+            "InferenceSortformerStage",
+            {
+                "adapter_target": "nemo_curator.models.audio.speaker_diarization.pyannote.PyAnnoteDiarizationAdapter",
+                "adapter_kwargs": {"hf_token": "placeholder"},
+                "resources": {"cpus": 1, "gpus": 1},
+            },
         ),
     )
-    stages[1].hf_token = ""
+    stages[1].adapter_kwargs["hf_token"] = ""
 
     diagnosis = diagnose_failure(
         "OSError: [Errno 28] No space left on device",
@@ -792,8 +812,11 @@ def test_continuation_never_reintroduces_recipe_secrets_after_run_redaction(
         {
             "stages": [
                 {
-                    "ref": "PyAnnoteDiarizationStage",
-                    "params": {"hf_token": secret_value},
+                    "ref": "InferenceSortformerStage",
+                    "params": {
+                        "adapter_target": "nemo_curator.models.audio.speaker_diarization.pyannote.PyAnnoteDiarizationAdapter",
+                        "adapter_kwargs": {"hf_token": secret_value},
+                    },
                 }
             ]
         }
@@ -825,7 +848,7 @@ def test_continuation_never_reintroduces_recipe_secrets_after_run_redaction(
     )
 
     assert secret_value not in str(result)
-    assert result["recipe"]["stages"][0]["params"]["hf_token"] == "<redacted-secret>"  # noqa: S105
+    assert result["recipe"]["stages"][0]["params"]["adapter_kwargs"]["hf_token"] == "<redacted-secret>"  # noqa: S105
 
 
 @pytest.mark.parametrize(

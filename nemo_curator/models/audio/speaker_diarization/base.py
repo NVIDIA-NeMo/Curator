@@ -24,7 +24,7 @@ task schema.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Protocol, TypedDict, runtime_checkable
 
 
@@ -46,9 +46,12 @@ class DiarizationResult:
 
     ``segments`` is deliberately manifest-ready: it contains only dictionaries
     of built-in scalar values, not provider segment objects or tensors.
+    ``overlap_segments`` holds turns an adapter detected as overlapped speech
+    and kept out of ``segments``; adapters without overlap detection leave it empty.
     """
 
     segments: list[DiarizationSegment]
+    overlap_segments: list[DiarizationSegment] = field(default_factory=list)
 
 
 @runtime_checkable
@@ -86,3 +89,34 @@ class DiarizationAdapter(Protocol):
     def diarize_batch(self, items: list[dict[str, Any]]) -> list[DiarizationResult]:
         """Return one canonical diarization result per prepared item, in order."""
         ...
+
+
+def add_non_speaker_segments(
+    segments: list[dict[str, Any]],
+    audio_duration: float,
+    max_length: float | None = None,
+) -> None:
+    """Fill uncovered time with ``speaker="no-speaker"`` intervals, in place, then sort by start.
+
+    With ``max_length``, each gap is split into intervals of at most that many
+    seconds; otherwise one interval covers each gap.
+    """
+    gaps = []
+    last_end_time = 0
+    for segment in sorted(segments, key=lambda s: s["start"]):
+        if segment["start"] > last_end_time:
+            gaps.append((last_end_time, segment["start"]))
+        last_end_time = segment["end"]
+    if last_end_time < audio_duration:
+        gaps.append((last_end_time, audio_duration))
+
+    for start, end in gaps:
+        if max_length is None:
+            segments.append({"speaker": "no-speaker", "start": start, "end": end})
+            continue
+        current_start = start
+        while current_start < end:
+            current_end = min(current_start + max_length, end)
+            segments.append({"speaker": "no-speaker", "start": current_start, "end": current_end})
+            current_start = current_end
+    segments.sort(key=lambda x: x["start"])

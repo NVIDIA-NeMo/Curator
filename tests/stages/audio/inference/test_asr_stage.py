@@ -1233,7 +1233,7 @@ def test_real_nemo_batch_preserves_language_and_serializable_output(resident: bo
     assert rh.build_contract(stage).writes.data_keys == ["pred_text", "language"]
 
 
-@rh.pytest.mark.parametrize("kind", ["pyannote", "whisperx", "sortformer"])
+@rh.pytest.mark.parametrize("kind", ["pyannote", "sortformer"])
 @rh.pytest.mark.parametrize("resident", [False, True], ids=["file", "waveform"])
 @rh.pytest.mark.parametrize("transcript_key", ["pred_text", "parent_transcript"])
 def test_fanout_children_feed_asr_exact_slices(
@@ -1262,7 +1262,6 @@ def test_fanout_children_feed_asr_exact_slices(
     expected = [waveform[:, 2:6], waveform[:, 7:10]]
     dropped_containers = {
         "pyannote": {"segments", "overlap_segments"},
-        "whisperx": {"vad_segments"},
         "sortformer": {"diar_segments"},
     }
     for child, expected_slice in zip(children, expected, strict=True):

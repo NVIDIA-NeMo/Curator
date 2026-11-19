@@ -28,10 +28,10 @@ use_cases:
     - "local diarization when no HF token is available (unlike PyAnnote)"
     - "speech-turn-only segment lists for consumers that reject silence placeholders (e.g. ALMDataBuilderStage windowing)"
   avoid_for:
-    - ">4 speakers (accuracy degrades; use PyAnnoteDiarizationStage)"
+    - ">4 speakers with the default Sortformer adapter (accuracy degrades; use adapter_target=PyAnnoteDiarizationAdapter)"
     - "music / non-speech"
     - "non-English audio (trained primarily on English; accuracy drops)"
-    - "when you need explicit overlap_segments or timeline gap coverage as no-speaker rows (PyAnnoteDiarizationStage)"
+    - "overlap_segments or no-speaker gap rows with the default Sortformer adapter (use adapter_target=PyAnnoteDiarizationAdapter with overlap_segments_key / non_speaker_segment_max_length)"
 composition:
   typical_upstream: [MonoConversionStage, ResampleAudioStage]
   typical_downstream: [MergeAlignmentDiarizationStage, TimestampMapperStage, AudioToDocumentStage, ASRStage]
@@ -40,6 +40,9 @@ params_of_note:
   audio_item_id_key: "Fallback source identity for resident fan-out when no session identity is supplied."
   adapter_target: Diarization adapter import path; the default is NeMoSortformerAdapter. TensorRTSortformerAdapter requires its configured local engine bundle.
   adapter_kwargs: Provider-specific options; consult the selected adapter's constructor.
+  overlap_segments_key: "Field for overlapped-speech turns from an overlap-detecting adapter (PyAnnoteDiarizationAdapter); None (default) omits them. With fanout they become children flagged by overlap_key."
+  global_speaker_ids: "Prefix labels with the recording identity (audio_item_id, speaker_id, source path stem, session name, or content hash) so they are unique across recordings."
+  non_speaker_segment_max_length: "When set, fill uncovered time in diar_segments with speaker='no-speaker' rows of at most this many seconds (fan-out skips them)."
   model_id: Canonical model identifier; model_name remains a compatibility alias.
   audio_filepath_key: File input key; filepath_key remains a compatibility alias.
   waveform_key: Resident waveform key. With input_residency omitted, a non-null key selects waveform input, preserving the adapter stage API.
@@ -62,12 +65,12 @@ semantic_facts:
   diar_segments:
     meaning: "Who-spoke-when as SPEECH TURNS ONLY: a list of {start, end, speaker} for ONE recording. Silence between turns is omitted (not written as placeholder rows)."
     unit: "list of {start: s, end: s, speaker: label} dicts (times in seconds)"
-    provenance: "Sortformer neural-diarization output over the whole clip; labels are the model's clustered turn assignments. Unlike PyAnnoteDiarizationStage, this stage does NOT call add_non_speaker_segments / does NOT insert speaker='no-speaker' gap rows."
+    provenance: "Sortformer neural-diarization output over the whole clip; labels are the model's clustered turn assignments. No speaker='no-speaker' gap rows are inserted unless non_speaker_segment_max_length is set."
     scope: "the whole recording in passthrough mode; with fanout=True each turn becomes one task whose waveform is sliced to that turn's start/end bounds"
     propagation: "Passthrough writes diar_segments (NOT 'segments'). Fan-out removes the parent list and full-recording paths, then emits waveform + sample_rate + timing/provenance fields. For ASRStage set waveform_key='waveform' and sample_rate_key='sample_rate' (adjust both for custom output keys)."
     counterexamples:
       - "Passthrough mode only annotates. Fan-out cuts individual turn waveform slices, but it does NOT build one consolidated track per speaker; use SpeakerSeparationStage for that."
-      - "Do NOT expect timeline gap coverage or overlap_segments here -- for those use PyAnnoteDiarizationStage (which also injects no-speaker silence rows into segments)."
+      - "Do NOT expect timeline gap coverage or overlap_segments by default -- they need non_speaker_segment_max_length and an overlap-detecting adapter (adapter_target=PyAnnoteDiarizationAdapter) with overlap_segments_key."
   num_speakers:
     meaning: Distinct labels across all retained turns in the whole recording.
     unit: integer count; includes an unknown label when the selected adapter returns one
@@ -109,9 +112,9 @@ comparison:
   accuracy_hint: "up to 4 speakers; offline v1 reports DER 14.76 on DIHARD3-eval (external); degrades on >4 speakers or non-English"
   latency_hint: "streaming; chunk_len=340 -> ~30 s look-ahead latency per the model card"
   config_complexity: "medium (streaming chunk / context params)"
-  choose_when: "<=4 speakers, English, speech-turn-only lists (no silence placeholders), or a local diarizer. Use PyAnnoteDiarizationStage for >4 speakers / overlap_segments / non-English / explicit gap rows (needs an HF token; its segments mix speech with no-speaker)."
+  choose_when: "<=4 speakers, English, speech-turn-only lists (no silence placeholders), or a local diarizer. Use adapter_target=PyAnnoteDiarizationAdapter for >4 speakers / overlap_segments / non-English (needs an HF token)."
   known_limitations: "Default model has a 4-speaker cap and English-conversational training; no overlap_segments list. Resident model input is downmixed and resampled independently of source-audio fan-out."
-conflicts_with: [PyAnnoteDiarizationStage]   # alternative diarizer
+conflicts_with: []
 notes:
   - The stage is batch-only and preserves parent ordering when scattering model results and emitting turns.
   - File annotation delegates decoding to the adapter. File fan-out also needs the stage's audio loader to decode source slices.

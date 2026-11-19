@@ -52,9 +52,9 @@ comparison:
   language_support: "English (Sortformer training domain). (external: NVIDIA model card)"
   accuracy_hint: "up to 4 speakers; produces separated per-speaker audio (vs labels-only diarizers)"
   config_complexity: "medium"
-  choose_when: "you need per-speaker AUDIO (e.g. to build single-speaker TTS data). For who-spoke-when labels only use InferenceSortformerStage; for >4 speakers or overlap detection use PyAnnoteDiarizationStage."
+  choose_when: "you need per-speaker AUDIO (e.g. to build single-speaker TTS data). For who-spoke-when labels only use InferenceSortformerStage; for >4 speakers or overlap detection use it with adapter_target=PyAnnoteDiarizationAdapter."
   known_limitations: "4-speaker cap; 16 kHz mono; English-conversational; CPU execution is supported but slower"
-conflicts_with: [InferenceSortformerStage, PyAnnoteDiarizationStage]   # related diarizers
+conflicts_with: [InferenceSortformerStage]   # related diarizer
 notes:
   - "Each child carries waveform + original_file by default. A retained parent audio_filepath is provenance, not the child's audio carrier. With write_to_disk=True, audio_filepath points to the child WAV; keep_waveform_in_task=False makes it disk-only."
   - "A speaker track preserves the source timeline: selected regions are overlaid at original positions on a full-length silent track, not concatenated. duration is the sum of selected speaker-region lengths, not waveform playback length. This selects diarized regions; it does not disentangle simultaneous voices."

@@ -44,7 +44,6 @@ _MODULE_CATEGORY_RULES: tuple[tuple[str, str], ...] = (
     ("mono_conversion", "preprocess"),
     ("concatenation", "segment"),
     ("segmentation.vad", "segment"),
-    ("inference.vad", "segment"),
     ("tagging.split", "segment"),
     ("speaker_diarization", "diarize"),
     ("speaker_separation", "diarize"),

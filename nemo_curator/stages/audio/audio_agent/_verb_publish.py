@@ -184,7 +184,7 @@ def _publish_artifacts(  # noqa: PLR0913, C901, PLR0912, PLR0915 - publishing ga
         prefix_deterministic = prefix_deterministic and plan.deterministic
         if plan.ttl_sec:
             prefix_ttl_sec = min(prefix_ttl_sec, plan.ttl_sec) if prefix_ttl_sec else plan.ttl_sec
-        writes_assets = getattr(st, "write_to_disk", True) and getattr(st, "write_rttm", True)
+        writes_assets = getattr(st, "write_to_disk", True)
         if writes_assets:
             for name in GENERATED_ASSET_PARAMS:
                 uri = getattr(st, name, None) or rec.stages[i].params.get(name)

@@ -29,7 +29,7 @@ from utils import setup_executor, write_benchmark_results
 
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.common import ManifestReader, ManifestWriterStage
-from nemo_curator.stages.audio.inference.speaker_diarization.pyannote import PyAnnoteDiarizationStage
+from nemo_curator.stages.audio.inference.speaker_diarization.stage import InferenceSortformerStage
 from nemo_curator.stages.audio.metrics.bandwidth import BandwidthEstimationStage
 from nemo_curator.stages.audio.metrics.squim import TorchSquimQualityMetricsStage
 from nemo_curator.stages.audio.metrics.wer import ComputeWERStage
@@ -393,12 +393,22 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
         ).with_(resources=Resources(cpus=1))
     )
     pipeline.add_stage(
-        PyAnnoteDiarizationStage(
+        InferenceSortformerStage(
             name="PyAnnoteDiarization",
-            model_name=str(diarization_model),
-            segmentation_batch_size=diarization_segmentation_batch_size,
-            embedding_batch_size=diarization_embedding_batch_size,
-            max_length=max_segment_length,
+            adapter_target="nemo_curator.models.audio.speaker_diarization.pyannote.PyAnnoteDiarizationAdapter",
+            model_id=str(diarization_model),
+            audio_filepath_key="resampled_audio_filepath",
+            diar_segments_key="segments",
+            overlap_segments_key="overlap_segments",
+            num_speakers_key=None,
+            global_speaker_ids=True,
+            non_speaker_segment_max_length=max_segment_length,
+            resources=Resources(gpus=1),
+            adapter_kwargs={
+                "segmentation_batch_size": diarization_segmentation_batch_size,
+                "embedding_batch_size": diarization_embedding_batch_size,
+                "max_length": max_segment_length,
+            },
         )
     )
     pipeline.add_stage(

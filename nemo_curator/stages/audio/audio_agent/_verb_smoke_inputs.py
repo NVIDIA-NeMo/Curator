@@ -238,13 +238,6 @@ def _isolate_smoke_outputs(bound: _SmokeBound, rpt: SmokeReport) -> _SmokeBound:
                     aliases,
                 )
 
-            if stage.ref == "PyAnnoteDiarizationStage" and stage.params.get(
-                "write_rttm",
-                True,
-            ):
-                stage.params["write_rttm"] = False
-                rpt.notes.append("disabled source-adjacent PyAnnote RTTM side output for smoke")
-
             if stage.ref in {"SplitLongAudioStage", "SplitASRAlignJoinStage"}:
                 stage.params["output_dir"] = _smoke_output_path(
                     root,

@@ -71,7 +71,7 @@ TUTORIAL_PIPELINES = (
         (
             "ManifestReader",
             "ResampleAudioStage",
-            "PyAnnoteDiarizationStage",
+            "InferenceSortformerStage",
             "SplitLongAudioStage",
             "NeMoASRAlignerStage",
             "JoinSplitAudioMetadataStage",
@@ -91,7 +91,7 @@ TUTORIAL_PIPELINES = (
         (
             "ManifestReader",
             "ResampleAudioStage",
-            "PyAnnoteDiarizationStage",
+            "InferenceSortformerStage",
             "SplitLongAudioStage",
             "NeMoASRAlignerStage",
             "JoinSplitAudioMetadataStage",
