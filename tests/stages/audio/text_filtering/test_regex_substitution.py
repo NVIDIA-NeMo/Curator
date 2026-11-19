@@ -485,6 +485,8 @@ _GRANARY_REGEX_YAML = (
         "ĳsje",  # nl: ĳ U+0133
         "人々は時々",  # ja: 々 U+3005
         "二〇二四年",  # zh/ja: ideographic number zero U+3007
+        "ᱥᱟᱱᱛᱟᱲᱤ ᱯᱟᱹᱨᱥᱤ",  # sat: Ol Chiki U+1C50-1C7F
+        "ꯃꯤꯇꯩꯂꯣꯟ ꯑꯁꯤ",  # mni: Meetei Mayek U+ABC0-ABFF
     ],
 )
 def test_production_whitelist_preserves_covered_language_letters(text: str) -> None:
