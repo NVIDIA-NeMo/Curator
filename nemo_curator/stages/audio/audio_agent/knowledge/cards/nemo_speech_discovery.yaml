@@ -24,7 +24,7 @@ params_of_note:
   input_cfg: "Nonempty list of entries/groups, or mapping with input_cfg list; resolved OmegaConf values are accepted. Entries support only nemo/nemo_tarred."
   corpus_filter: "Exact corpus selection before expansion. Corpus defaults to unknown when absent; an empty filter means no restriction."
   language_filter: "Exact entry language-label selection before expansion; empty means no restriction. It does not inspect row language predictions."
-  output_dir: "Absolute local shared root for manifests/markers/replay state; required for done_markers mode, optional for checkpoint mode."
+  output_dir: "Absolute local shared root or cloud URL (with storage_options) for manifests/markers/replay state; required for done_markers mode, optional for checkpoint mode."
   resume_mode: "done_markers (default) skips output-validated completed shards. checkpoint emits source work for Pipeline.run(checkpoint_path=...) to schedule."
   cleanup_partial: "Default true; remove incomplete shard JSONL, legacy progress and row receipts only in done_markers mode. Opus files and ownership records remain."
 param_dependencies:

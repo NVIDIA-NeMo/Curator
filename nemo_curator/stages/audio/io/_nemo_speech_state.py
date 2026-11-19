@@ -18,25 +18,47 @@ from __future__ import annotations
 
 import json
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+from fsspec.implementations.local import LocalFileSystem
 
 from nemo_curator.stages.audio.io._nemo_speech_paths import contained_output_path
 from nemo_curator.stages.audio.io.shard_key import validate_shard_key
 from nemo_curator.utils.atomic_io import write_json_atomically_if_absent
 
+if TYPE_CHECKING:
+    from fsspec import AbstractFileSystem
+
 SHARD_REGISTRATION_VERSION = 1
 
 
-def shard_registration_root(output_dir: Path) -> Path:
-    return contained_output_path(output_dir, ".nemo_curator/nemo_speech_shards")
+def write_json_if_absent(fs: AbstractFileSystem, path: str, payload: Any) -> bool:  # noqa: ANN401
+    """Create ``path`` holding ``payload`` unless it exists; return whether it was created.
+
+    Locally this keeps the atomic link-based create. Object stores publish an
+    object only when its upload completes, and ``xb`` makes the create exclusive.
+    """
+
+    if isinstance(fs, LocalFileSystem):
+        return write_json_atomically_if_absent(Path(path), payload, separators=(",", ":"))
+    try:
+        with fs.open(path, "xb") as stream:
+            stream.write((json.dumps(payload, separators=(",", ":"), sort_keys=True) + "\n").encode("utf-8"))
+    except FileExistsError:
+        return False
+    return True
 
 
-def shard_registration_path(output_dir: Path, shard_key: str) -> Path:
+def shard_registration_root(fs: AbstractFileSystem, output_dir: str) -> str:
+    return contained_output_path(fs, output_dir, ".nemo_curator/nemo_speech_shards")
+
+
+def shard_registration_path(fs: AbstractFileSystem, output_dir: str, shard_key: str) -> str:
     relative = PurePosixPath(".nemo_curator/nemo_speech_shards") / f"{validate_shard_key(shard_key)}.json"
-    return contained_output_path(output_dir, relative)
+    return contained_output_path(fs, output_dir, relative)
 
 
-def register_nemo_speech_shard(output_dir: Path, shard_key: str, expected_inputs: int) -> Path:
+def register_nemo_speech_shard(fs: AbstractFileSystem, output_dir: str, shard_key: str, expected_inputs: int) -> str:
     """Atomically register a source shard before any downstream row can vanish."""
 
     normalized_key = validate_shard_key(shard_key)
@@ -48,12 +70,11 @@ def register_nemo_speech_shard(output_dir: Path, shard_key: str, expected_inputs
         "shard_key": normalized_key,
         "expected_inputs": expected_inputs,
     }
-    path = shard_registration_path(output_dir, normalized_key)
-    created = write_json_atomically_if_absent(path, payload, separators=(",", ":"))
-    if created:
+    path = shard_registration_path(fs, output_dir, normalized_key)
+    if write_json_if_absent(fs, path, payload):
         return path
     try:
-        existing: Any = json.loads(path.read_text(encoding="utf-8"))
+        existing: Any = json.loads(fs.read_text(path, encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
         msg = f"Invalid NeMo speech shard registration {path}: {error}"
         raise ValueError(msg) from error
@@ -68,4 +89,5 @@ __all__ = [
     "register_nemo_speech_shard",
     "shard_registration_path",
     "shard_registration_root",
+    "write_json_if_absent",
 ]

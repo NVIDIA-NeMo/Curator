@@ -24,7 +24,7 @@ params_of_note:
   input_cfg: "Inline resolved configuration takes precedence over yaml_path. Entries support only type=nemo or nemo_tarred, manifest_filepath, optional tarred_audio_filepaths, corpus, language and shard_key_prefix."
   corpus_filter: "Optional exact corpus-label selection before shard expansion; an empty list applies no restriction."
   language_filter: "Optional exact input_cfg language-label selection before expansion. This does not inspect spoken language or row-level source_lang."
-  output_dir: "Absolute shared local output root; required in default done_markers mode. Use the same root as NeMoSpeechWriterStage to retain source registrations and restart state together."
+  output_dir: "Absolute shared local output root or cloud URL (with storage_options); required in default done_markers mode. Use the same root as NeMoSpeechWriterStage to retain source registrations and restart state together."
   resume_mode: "done_markers by default; checkpoint delegates scheduling to Pipeline.run(checkpoint_path=...). The two source scheduling authorities cannot be combined."
   cleanup_partial: "Default true. For incomplete done-marker shards, remove partial JSONL, row receipts and legacy progress before replay; retain Opus and ownership records."
   max_audio_duration_sec: "Default 43200 seconds (12 hours), not a safe memory budget. A row/cut above the limit becomes read_error plus audio_too_long; None or nonpositive disables the check."
@@ -66,7 +66,7 @@ caveats:
 notes:
   - "Entry example: {type: nemo, manifest_filepath: /data/demo/train.jsonl, corpus: demo, language: hi}. Corpus must occur exactly once as a manifest path component unless the entry sets shard_key_prefix."
   - "This composite expands to NeMoSpeechDiscoveryStage and NeMoSpeechReaderStage; prefer it as the user-facing source instead of separately adding both inner stages."
-  - "Requires the installed NeMo/Lhotse reader stack and suitable source access. Manifests use fsspec; audio/tar credentials and protocol support remain backend-dependent. Outputs require shared POSIX-style paths, not object-store URLs."
+  - "Requires the installed NeMo/Lhotse reader stack and suitable source access. Manifests use fsspec; audio/tar credentials and protocol support remain backend-dependent. Outputs go to a shared POSIX-style path or a cloud URL through fsspec."
   - "Underlying input-format reference: https://docs.nvidia.com/nemo-framework/user-guide/latest/nemotoolkit/asr/datasets.html#lhotse-dataloading . Curator-specific limits are defined by nemo_curator/stages/audio/io/nemo_speech_reader.py."
   - "Behavioral evidence: tests/stages/audio/io/test_nemo_speech_reader.py, including real offset and tarred reads; writer/finalization examples are in tests/stages/audio/io/test_nemo_speech_writer.py."
 comparison:

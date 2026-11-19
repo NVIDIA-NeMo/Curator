@@ -18,30 +18,33 @@ import json
 from pathlib import Path
 
 import pytest
+from fsspec.implementations.local import LocalFileSystem
 
 from nemo_curator.stages.audio.io._nemo_speech_state import register_nemo_speech_shard
 
+_LOCAL = LocalFileSystem()
+
 
 def test_registration_replay_preserves_original_count(tmp_path: Path) -> None:
-    path = register_nemo_speech_shard(tmp_path, "corpus/shard", 2)
+    path = Path(register_nemo_speech_shard(_LOCAL, str(tmp_path), "corpus/shard", 2))
     original = path.read_bytes()
-    assert register_nemo_speech_shard(tmp_path, "corpus/shard", 2) == path
+    assert register_nemo_speech_shard(_LOCAL, str(tmp_path), "corpus/shard", 2) == str(path)
     with pytest.raises(ValueError, match=r"Conflicting.*registration"):
-        register_nemo_speech_shard(tmp_path, "corpus/shard", 3)
+        register_nemo_speech_shard(_LOCAL, str(tmp_path), "corpus/shard", 3)
     assert path.read_bytes() == original
     assert json.loads(original)["expected_inputs"] == 2
 
 
 def test_corrupt_registration_is_not_overwritten(tmp_path: Path) -> None:
-    path = register_nemo_speech_shard(tmp_path, "corpus/shard", 2)
+    path = Path(register_nemo_speech_shard(_LOCAL, str(tmp_path), "corpus/shard", 2))
     path.write_text("{interrupted", encoding="utf-8")
     with pytest.raises(ValueError, match=r"Invalid.*registration"):
-        register_nemo_speech_shard(tmp_path, "corpus/shard", 2)
+        register_nemo_speech_shard(_LOCAL, str(tmp_path), "corpus/shard", 2)
     assert path.read_text(encoding="utf-8") == "{interrupted"
 
 
 @pytest.mark.parametrize("count", [0, -1])
 def test_registration_rejects_empty_shards_without_writing(tmp_path: Path, count: int) -> None:
     with pytest.raises(ValueError, match="at least one input"):
-        register_nemo_speech_shard(tmp_path, "corpus/shard", count)
+        register_nemo_speech_shard(_LOCAL, str(tmp_path), "corpus/shard", count)
     assert not list(tmp_path.iterdir())
