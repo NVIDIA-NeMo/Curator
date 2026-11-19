@@ -1196,18 +1196,18 @@ None is part of the nightly data setup.
 ### Benchmark sizes and measured results
 
 Each benchmark takes the whole manifest staged by its data-prep script above, on one node with eight H100 80 GB GPUs
-(Qwen3-Omni and Qwen3-ASR for English and European, Ray Serve text server). Measured on EOS at commit `59d11041`:
+(Qwen3-Omni and Qwen3-ASR for English and European, Ray Serve text server). Measured on EOS:
 
 | Script | Staged | Pipeline time | Throughput (audio hours per hour) | Output rows (flagged) |
 | --- | --- | --- | --- | --- |
 | English | 95 h, 28,248 recordings (LibriSpeech `train.other.500`) | 1 h 40 min | 53.8 | 36,017 (14) |
 | European (Qwen3-Omni group) | 130 h, 31,414 recordings (MLS Italian) | 1 h 51 min | 67.0 | 35,469 (22) |
-| Indic | 35 h, 10,358 recordings (FLEURS, 9 languages) | 16 min (+ 6 min server start-up) | 97.6 | 8,761 (7,913) |
+| Indic | 35 h, 10,358 recordings (FLEURS, 9 languages) | 27 min (+ 11 min server start-up) | 58.7 | 8,766 (13) |
 
-English and European are sized for about 2 hours. The Indic run took 16 minutes for 35 hours, so a 2-hour Indic run needs
-about 260 hours, more than the nine FLEURS languages provide. The Indic flagged rows are all non-Hindi: IndicConformer
-recovery uses the Hindi checkpoint for the other languages and produces unusable text there (the primary Canary text is
-kept), which the pipeline's hallucination check flags; Hindi rows are not flagged.
+English and European are sized for about 2 hours. At this speed a 2-hour Indic run needs about 150 hours, more than the nine
+FLEURS languages provide, so the Indic benchmark stays at 35 hours. The Indic recovery loads one IndicConformer checkpoint per
+language (`prepare_audio_indic_conformer_models.py`); on this run its text agrees with the primary Canary text at 0.97 to 0.99
+character similarity in every language, and the 13 flagged rows are hallucination or wrong-language checks.
 
 `time_taken_s` covers the whole pipeline run and includes model warm-up: the Qwen3-Omni engine takes about
 11 minutes to start (compilation, profiling and warm-up), and the text-model replicas start only when audio stages free a GPU. The
