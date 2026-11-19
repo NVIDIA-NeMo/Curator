@@ -432,7 +432,7 @@ def _assert_cli_data(
     return replace(binding, status="mismatch", issues=(reason,), reason=reason)
 
 
-def _resolve_manifest_reader(recipe: Recipe, stage: StageRef, data: str | None) -> DatasetBinding:  # noqa: C901
+def _resolve_manifest_reader(recipe: Recipe, stage: StageRef, data: str | None) -> DatasetBinding:
     configured_manifest_path = stage.params.get("manifest_path")
     paths, issue = _canonical_many(configured_manifest_path, "ManifestReader.manifest_path")
     if issue:
@@ -518,10 +518,14 @@ def _resolve_manifest_reader(recipe: Recipe, stage: StageRef, data: str | None) 
 
 
 def _resolve_audio_folder(recipe: Recipe, stage: StageRef, data: str | None) -> DatasetBinding:
-    path, issue, is_uri = _canonical_os_scalar(
-        stage.params.get("data_dir"),
-        f"{stage.ref}.data_dir",
-    )
+    data_dir = stage.params.get("data_dir")
+    storage_options = stage.params.get("storage_options")
+    if isinstance(data_dir, str) and _is_remote(data_dir):
+        # A cloud prefix is listed through fsspec exactly as the stage lists it.
+        path, issue = _canonical_scalar(data_dir, f"{stage.ref}.data_dir")
+        is_uri = False
+    else:
+        path, issue, is_uri = _canonical_os_scalar(data_dir, f"{stage.ref}.data_dir")
     if issue or path is None:
         reason = issue or f"{stage.ref}.data_dir did not resolve to a path"
         return _binding(
@@ -545,13 +549,24 @@ def _resolve_audio_folder(recipe: Recipe, stage: StageRef, data: str | None) -> 
             # split-stage intermediates. Identity must cover those executable
             # bytes even though generic profiling excludes them by default.
             "exclude_stage_intermediates": False,
+            "storage_options": storage_options,
         },
     )
     binding = _assert_recipe_inputs(binding, recipe, {"data_dir": ((path,),)})
     binding = _assert_cli_data(binding, data, (path,))
     if binding.status == "mismatch":
         return binding
-    if not os.path.isdir(path):
+    if _is_remote(path):
+        from fsspec.core import url_to_fs
+
+        try:
+            folder_exists = url_to_fs(path, **(storage_options or {}))[0].isdir(path)
+        except (OSError, ValueError) as exc:
+            reason = f"configured audio folder could not be inspected: {path}: {exc}"
+            return replace(binding, status="missing", profile_source=None, issues=(reason,), reason=reason)
+    else:
+        folder_exists = os.path.isdir(path)
+    if not folder_exists:
         reason = f"configured audio folder does not exist: {path}"
         return replace(binding, status="missing", profile_source=None, issues=(reason,), reason=reason)
     if stage.params.get("include_files") is not None:
@@ -562,6 +577,7 @@ def _resolve_audio_folder(recipe: Recipe, stage: StageRef, data: str | None) -> 
             extensions=binding.profile_kwargs["folder_extensions"],
             recursive=binding.profile_kwargs["recursive"],
             include_files=stage.params["include_files"],
+            storage_options=storage_options,
         )
         binding = replace(
             binding,
