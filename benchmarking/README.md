@@ -796,14 +796,17 @@ python benchmarking/data_prep/prepare_audio_indic_asr_data.py \
   --output-path {datasets_path}/audio_indic_asr_parakeet_hindi_531h_35376a11 \
   --cache-dir {datasets_path}/_hf_cache/audio_indic_asr
 
-python benchmarking/data_prep/prepare_audio_granary_italian_data.py \
-  --output-path {datasets_path}/audio_granary_full_italian_fleurs_test_3p5h_70bb2e84 \
-  --cache-dir {datasets_path}/_hf_cache/audio_granary_full_italian
+python benchmarking/data_prep/prepare_audio_granary_english_data.py \
+  --output-path {datasets_path}/audio_granary_full_english_librispeech_other_45h_71cacbfb \
+  --cache-dir {datasets_path}/_hf_cache/librispeech --target-audio-hours 45
 
 python benchmarking/data_prep/prepare_audio_granary_italian_data.py \
-  --output-path {datasets_path}/audio_granary_full_italian_fleurs_train_9h_70bb2e84 \
-  --cache-dir {datasets_path}/_hf_cache/audio_granary_full_italian \
-  --hf-split train
+  --output-path {datasets_path}/audio_granary_full_italian_mls_train_55h_2e83e618 \
+  --cache-dir {datasets_path}/_hf_cache/mls --target-audio-hours 55
+
+python benchmarking/data_prep/prepare_audio_granary_indic_data.py \
+  --output-path {datasets_path}/audio_granary_full_indic_fleurs_9lang_35h_70bb2e84 \
+  --cache-dir {datasets_path}/_hf_cache/fleurs --target-audio-hours 35
 
 python benchmarking/data_prep/prepare_readspeech_data.py \
   --output-path {datasets_path}/read_speech \
@@ -1178,24 +1181,24 @@ Each starts that server the way the tutorial's `main.py` does and times only the
 server start-up are reported separately as `inference_server_startup_s`. Like the Indic ASR and audio
 text benchmarks, they have no entries or enablement overlay in the standard nightly matrix.
 
-For the European Qwen3-Omni script, `prepare_audio_granary_italian_data.py` stages the open Italian FLEURS test split
-(Hugging Face `google/fleurs`, `it_it`, CC-BY-4.0, revision `70bb2e84`): 865 recordings, 3.52 hours, about 810 MB, as
-`{datasets_path}/audio_granary_full_italian_fleurs_test_3p5h_70bb2e84/manifest.jsonl` (name = pipeline, source, split,
-hours, revision). The train split (`--hf-split train`: 3,030 recordings, 9.0 hours, about 1.9 GB) is the larger benchmark
-input, as `{datasets_path}/audio_granary_full_italian_fleurs_train_9h_70bb2e84/manifest.jsonl`. Neither is part of the
-nightly data setup.
+The three Granary scripts each stage open, ungated Hugging Face data (CC-BY-4.0) of a chosen duration
+(`--target-audio-hours`) with a manifest of `audio_item_id`, `audio_filepath`, `duration` and `text`, as
+`{datasets_path}/<pipeline>_<source>_<split>_<hours>h_<revision8>/manifest.jsonl`:
+
+| Script | Source | Staged by default |
+| --- | --- | --- |
+| `prepare_audio_granary_english_data.py` | LibriSpeech `train.other.500` (`openslr/librispeech_asr`) | the first N hours |
+| `prepare_audio_granary_italian_data.py` | Multilingual LibriSpeech Italian `train` (`facebook/multilingual_librispeech`) | the first N hours |
+| `prepare_audio_granary_indic_data.py` | FLEURS train split of nine Indic languages (`google/fleurs`, `--languages`) | an equal share of N hours per language |
+
+None is part of the nightly data setup.
 
 ### Benchmark sizes
 
-The benchmark inputs are stride samples of datasets from the data setup above, sized for about 15 minutes of
-steady-state work on one node with eight H100 80 GB GPUs. The sizes are estimates from the 64-recording tutorial runs and the
-component benchmarks in this README, not measurements; measured results replace them as they are recorded.
-
-| Script | Source manifest | Sample | Source hours |
-| --- | --- | --- | --- |
-| English | `{datasets_path}/pr2506_granary_20261015T133532Z/final/manifest.jsonl` (30,631 LibriSpeech recordings) | every 11th row, 2,700 recordings | about 9.5 |
-| European (Qwen3-Omni group) | `{datasets_path}/audio_granary_full_italian_fleurs_train_9h_70bb2e84/manifest.jsonl` | all 3,030 recordings | 9.0 |
-| Indic | `{datasets_path}/audio_indic_asr_parakeet_hindi_531h_35376a11/manifest.jsonl` (216,164 clips) | every 66th row, 3,250 clips | about 8 |
+Each benchmark takes the whole manifest staged by its data-prep script above. The 45, 55 and 35 hour sizes aim at about
+2 hours of wall time per pipeline on one node with eight H100 80 GB GPUs. They come from measured first runs of 9.5, 9.0
+and 8 hours that took 35 to 40 minutes, including about 12 minutes of model warm-up; they are estimates until the
+2-hour runs are recorded.
 
 `time_taken_s` covers the whole pipeline run and includes model warm-up: the Qwen3-Omni engine takes about
 11 minutes to start (compilation, profiling and warm-up), and the text-model replicas start only when audio stages free a GPU. The
