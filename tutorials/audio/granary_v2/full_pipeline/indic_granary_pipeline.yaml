@@ -78,7 +78,7 @@ stages:
       kv_cache_free_gpu_memory_fraction: 0.1
       cross_kv_cache_fraction: 0.1
     resources:
-      gpu_memory_gb: 8
+      gpu_memory_gb: 40  # the encoder's TensorRT context needs about 40 GB whatever the batch; 8 let it share a GPU with the 50 GB primary Canary and fail to create its context
 
   - _target_: nemo_curator.stages.audio.inference.lid.AudioLIDInferenceStage
     name: WhisperLangID
