@@ -54,6 +54,7 @@ class _PreparedTurn:
     start: int = 0
 
 
+@dataclass
 class MergeConversationSDPStage(ProcessingStage[AudioTask, AudioTask]):
     """Merge nested conversation turns into audio and matching annotations.
 
@@ -100,30 +101,20 @@ class MergeConversationSDPStage(ProcessingStage[AudioTask, AudioTask]):
         seglst_offset: Nonnegative padding around turn bounds in the segment list.
     """
 
-    name = "MergeConversationSDPStage"
+    output_conversations_dir: str
+    max_pause_duration: float = 2.0
+    max_intra_turn_pause: float = 1.0
+    randomize_pauses: bool = False
+    seglst_offset: float = 0.1
+    name: str = "MergeConversationSDPStage"
 
-    def __init__(
-        self,
-        output_conversations_dir: str,
-        max_pause_duration: float = 2.0,
-        max_intra_turn_pause: float = 1.0,
-        randomize_pauses: bool = False,
-        seglst_offset: float = 0.1,
-    ):
-        super().__init__()
-        for key, value in (
-            ("max_pause_duration", max_pause_duration),
-            ("max_intra_turn_pause", max_intra_turn_pause),
-            ("seglst_offset", seglst_offset),
-        ):
+    def __post_init__(self) -> None:
+        for key in ("max_pause_duration", "max_intra_turn_pause", "seglst_offset"):
+            value = getattr(self, key)
             if not math.isfinite(value) or value < 0:
                 msg = f"{key} must be finite and nonnegative"
                 raise ValueError(msg)
-        self.output_conversations_dir = Path(output_conversations_dir).expanduser().resolve()
-        self.max_pause_duration = max_pause_duration
-        self.max_intra_turn_pause = max_intra_turn_pause
-        self.randomize_pauses = randomize_pauses
-        self.seglst_offset = seglst_offset
+        self.output_conversations_dir = Path(self.output_conversations_dir).expanduser().resolve()
         self._rng = random.Random()  # noqa: S311
 
     def inputs(self) -> tuple[list[str], list[str]]:

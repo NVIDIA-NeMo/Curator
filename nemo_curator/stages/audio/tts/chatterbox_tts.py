@@ -25,6 +25,7 @@ import os
 import shutil
 import tempfile
 import uuid
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import numpy as np
@@ -144,6 +145,7 @@ _CACHE_SCHEMA_VERSION = 2
 _REFERENCE_PREPROCESSING_SCHEMA_VERSION = 2
 
 
+@dataclass
 class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
     """Generate audio for conversation turns using ChatterboxTTS.
 
@@ -195,11 +197,27 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
         normalize_level: Target loudness in dB.
     """
 
-    name = "ChatterboxTTSStage"
-    resources = Resources(gpus=1)
+    output_audio_dir: str
+    reference_voices_dataset: str
+    language: str | None = None
+    device: str = "cuda"
+    cache_dir: str | None = None
+    max_reference_duration: float = 60.0
+    sample_rate: int = 24000
+    cfg_weight: float = 0.5
+    exaggeration: float | list[float] | tuple[float, float] | ListConfig = 0.5
+    temperature: float = 0.8
+    repetition_penalty: float | None = None
+    min_p: float = 0.05
+    top_p: float = 1.0
+    normalize_audio: bool = True
+    normalize_level: float = -20.0
+
+    name: str = "ChatterboxTTSStage"
+    resources: Resources = field(default_factory=lambda: Resources(gpus=1))
     # Turns are synthesised serially in process_batch (Chatterbox generate()
     # is single-text and per-voice-conditioned), so one task per batch.
-    batch_size = 1
+    batch_size: int = 1
     # Run in an isolated Ray virtualenv that pip-installs chatterbox-tts, so its
     # transformers==5.2.0 / torch==2.6.0 pins never collide with Curator's main
     # environment or uv.lock. To reuse a pre-provisioned environment (e.g. one
@@ -207,56 +225,22 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
     # ``ChatterboxTTSStage(...).with_(runtime_env={})``.
     runtime_env: ClassVar[dict[str, Any] | None] = _CHATTERBOX_RUNTIME_ENV
 
-    def __init__(  # noqa: PLR0913
-        self,
-        output_audio_dir: str,
-        reference_voices_dataset: str,
-        language: str | None = None,
-        device: str = "cuda",
-        cache_dir: str | None = None,
-        max_reference_duration: float = 60.0,
-        sample_rate: int = 24000,
-        cfg_weight: float = 0.5,
-        exaggeration: float | list[float] | tuple[float, float] | ListConfig = 0.5,
-        temperature: float = 0.8,
-        repetition_penalty: float | None = None,
-        min_p: float = 0.05,
-        top_p: float = 1.0,
-        normalize_audio: bool = True,
-        normalize_level: float = -20.0,
-    ):
-        super().__init__()
-
-        self.output_audio_dir = output_audio_dir
-        self.reference_voices_dataset = reference_voices_dataset
-        self.language = language
-        self.device = device
-        self.cache_dir = cache_dir
-        self.max_reference_duration = max_reference_duration
-        self.sample_rate = sample_rate
-        self.cfg_weight = cfg_weight
-        self.temperature = temperature
-        self.min_p = min_p
-        self.top_p = top_p
-        self.normalize_audio = normalize_audio
-        self.normalize_level = normalize_level
-
-        if language is not None and language.lower() not in SUPPORTED_LANGUAGES:
-            msg = f"Unsupported language '{language}'. Supported: {', '.join(sorted(SUPPORTED_LANGUAGES))}"
+    def __post_init__(self) -> None:
+        if self.language is not None and self.language.lower() not in SUPPORTED_LANGUAGES:
+            msg = f"Unsupported language '{self.language}'. Supported: {', '.join(sorted(SUPPORTED_LANGUAGES))}"
             raise ValueError(msg)
-        if language is not None:
-            self.language = language.lower()
+        if self.language is not None:
+            self.language = self.language.lower()
 
         _multilingual_default_penalty = 2.0
-        if repetition_penalty is not None:
-            self.repetition_penalty = repetition_penalty
-        else:
-            self.repetition_penalty = _multilingual_default_penalty if language else 1.2
+        if self.repetition_penalty is None:
+            self.repetition_penalty = _multilingual_default_penalty if self.language else 1.2
 
         _exag_range_len = 2
+        exaggeration = self.exaggeration
         if isinstance(exaggeration, (list, tuple, ListConfig)) and len(exaggeration) == _exag_range_len:
             self.exaggeration_range: tuple[float, float] | None = (float(exaggeration[0]), float(exaggeration[1]))
-            self.exaggeration: float = self.exaggeration_range[0]
+            self.exaggeration = self.exaggeration_range[0]
         else:
             self.exaggeration_range = None
             self.exaggeration = float(exaggeration)
