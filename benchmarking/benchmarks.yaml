@@ -1108,7 +1108,7 @@ entries:
         max_value: 750.02
       - metric: wer_output_coverage_ratio
         exact_value: 1.0
-      # TODO(7.7): add normalized_corpus_wer_pct max_value once a baseline is measured.
+      # TODO: add normalized_corpus_wer_pct max_value once a baseline is measured.
 
   # Same real input as Xenna. Disabled in #2389 without a recorded reason;
   # re-enable only after a GPU run confirms it finishes within the 13740s timeout.
@@ -1138,7 +1138,7 @@ entries:
         max_value: 750.02
       - metric: wer_output_coverage_ratio
         exact_value: 1.0
-      # TODO(7.7): add normalized_corpus_wer_pct max_value once a baseline is measured.
+      # TODO: add normalized_corpus_wer_pct max_value once a baseline is measured.
 
   - name: audio_readspeech_xenna
     enabled: true
@@ -1171,6 +1171,7 @@ entries:
     requirements:
       - metric: num_output_segments
         min_value: 1
+      # TODO: add a throughput_segments_per_sec min_value once a baseline is measured.
 
   - name: audio_readspeech_raydata
     enabled: true
@@ -1202,6 +1203,7 @@ entries:
     requirements:
       - metric: num_output_segments
         min_value: 1
+      # TODO: add a throughput_segments_per_sec min_value once a baseline is measured.
 
   - name: arxiv_e2e_pipeline_raydata
     enabled: true
@@ -1622,7 +1624,8 @@ entries:
   # tutorial's dedicated image, an 8xH100 node and model artifacts the default
   # nightly environment does not provide (see the matching README sections).
   # Enable them from a site override that supplies that image and those paths.
-  # Timeouts are about 2x the 2026-10-20 EOS wall times; text_llm has none yet.
+  # Timeouts are about 2x, and throughput floors about half, of the 2026-10-20
+  # EOS 8xH100 results in the README; text_llm has no baseline yet.
   - name: audio_granary_metadata_xenna
     enabled: false
     script: audio_granary_metadata_benchmark.py
@@ -1641,6 +1644,8 @@ entries:
     requirements:
       - metric: num_tasks_processed
         min_value: 1
+      - metric: throughput_audio_hours_per_hour
+        min_value: 230
 
   - name: audio_granary_metadata_raydata
     enabled: false
@@ -1659,6 +1664,8 @@ entries:
     requirements:
       - metric: num_tasks_processed
         min_value: 1
+      - metric: throughput_audio_hours_per_hour
+        min_value: 80
 
   - name: audio_indic_asr_xenna
     enabled: false
@@ -1680,6 +1687,8 @@ entries:
     requirements:
       - metric: num_output_rows
         exact_value: 216164
+      - metric: throughput_audio_hours_per_hour
+        min_value: 1800
 
   - name: audio_indic_asr_raydata
     enabled: false
@@ -1701,6 +1710,8 @@ entries:
     requirements:
       - metric: num_output_rows
         exact_value: 216164
+      - metric: throughput_audio_hours_per_hour
+        min_value: 190
 
   - name: audio_qwen_omni_asr_xenna
     enabled: false
@@ -1722,6 +1733,8 @@ entries:
     requirements:
       - metric: num_tasks_processed
         min_value: 1
+      - metric: throughput_audio_hours_per_hour
+        min_value: 200
 
   - name: audio_qwen_omni_asr_raydata
     enabled: false
@@ -1742,6 +1755,8 @@ entries:
     requirements:
       - metric: num_tasks_processed
         min_value: 1
+      - metric: throughput_audio_hours_per_hour
+        min_value: 110
 
   - name: audio_text_llm_xenna
     enabled: false
@@ -1760,6 +1775,7 @@ entries:
     requirements:
       - metric: num_output_rows
         min_value: 1
+      # TODO: add a throughput_rows_per_sec min_value once a baseline is measured.
 
   - name: audio_text_llm_raydata
     enabled: false
@@ -1778,6 +1794,7 @@ entries:
     requirements:
       - metric: num_output_rows
         min_value: 1
+      # TODO: add a throughput_rows_per_sec min_value once a baseline is measured.
 
   - name: interleaved_filter_raydata_materialize
     enabled: true
@@ -2048,6 +2065,7 @@ entries:
         min_value: 1
       - metric: total_filtered_windows
         min_value: 1
+      # TODO: add a throughput_entries_per_sec min_value once a baseline is measured.
 
   - name: alm_pipeline_ray_data
     enabled: true
@@ -2082,6 +2100,7 @@ entries:
         min_value: 1
       - metric: total_filtered_windows
         min_value: 1
+      # TODO: add a throughput_entries_per_sec min_value once a baseline is measured.
 
   # Keep this executor comparison focused on the streaming-only pipeline:
   # ParquetReader -> MathExtractStage -> JsonlWriter.

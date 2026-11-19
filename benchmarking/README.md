@@ -9,6 +9,7 @@ A comprehensive benchmarking framework for measuring and tracking the performanc
 - [Concepts](#concepts)
 - [Configuration](#configuration)
 - [Running benchmarks and using the container](#running-benchmarks-and-using-the-container)
+- [Audio Benchmark Matrix](#audio-benchmark-matrix)
 - [Audio Benchmark Data Setup](#audio-benchmark-data-setup)
 - [Writing Benchmark Scripts](#writing-benchmark-scripts)
 - [Sinks: Custom Reporting & Actions](#sinks-custom-reporting--actions)
@@ -777,6 +778,41 @@ Resource options apply to `start`, not `run`. To change them through this helper
 recreate the container with the new settings.
 
 ---
+
+## Audio Benchmark Matrix
+
+Each audio processor family, the install it needs, the executors it is
+benchmarked on, and who owns the entries. "Nightly" is the state in
+`benchmarks.yaml`; disabled entries are registered so a site override can
+enable them with `enabled: true`. Owners are the `ping_on_failure` contacts of
+the entries.
+
+| Entries | Processor family | Install | Executors | GPUs | aarch64 (GB200) | Nightly | Owner |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `alm_pipeline_*` | ALM window builder and overlap | `audio_cpu` or `audio_cuda12` | Xenna, Ray Data | 0 | Yes (pure Python) | Enabled; CPU run via `audio-cpu.yaml` | Aaftab V |
+| `audio_sortformer_*` | Sortformer diarization (NeMo) | `audio_cuda12` | Xenna, Ray Data | 1 per worker | No: `nemo_toolkit` is x86_64-only | Enabled | Aaftab V |
+| `audio_librispeech_*` | NeMo ASR, WER, duration filter | `audio_cuda12` | Xenna (Ray Data disabled) | 1 per worker | No: `nemo_toolkit` | Xenna enabled | Aaftab V |
+| `audio_readspeech_*` | VAD, band filter, UTMOS, SIGMOS, speaker separation | `audio_cuda12` | Xenna, Ray Data | 0.5-1 per filter | No: speaker separation uses NeMo Sortformer | Enabled | Shubham Bhawsar |
+| `audio_tagging_tts_*` | PyAnnote diarization, NeMo ASR alignment, SQUIM, bandwidth | `audio_cuda12` | Xenna, Ray Data | 1 per model | No: `pyannote-audio`, `nemo_toolkit` | Enabled | Sushmitha Deva |
+| `audio_granary_metadata_*` | Resampling, diarization, VAD, SED, three-model LID | Granary tutorial image | Xenna, Ray Data | 8 | No: x86_64-only native stack | Disabled | Unassigned |
+| `audio_indic_asr_*` | Indic Canary TensorRT-LLM, Parakeet TensorRT | Granary tutorial image (`audio_tensorrt`) | Xenna, Ray Data | 8 | No: `tensorrt`, `nemo_text_processing` | Disabled | Unassigned |
+| `audio_qwen_omni_asr_*` | Qwen3-Omni ASR (vLLM) | Qwen Omni tutorial environment | Xenna, Ray Data | 8 | No: `qwen-asr` is x86_64-only | Disabled | Unassigned |
+| `audio_text_llm_*` | Audio text LLM stages (Dynamo server) | Text pipeline tutorial image | Xenna, Ray Data | 8 | Not checked | Disabled | Unassigned |
+
+The aarch64 column follows the `platform_machine == 'x86_64'` markers in
+`pyproject.toml`; it has not been confirmed with a GB200 run. Entries marked
+"No" are expected to fail at import on aarch64 even though
+`4xGB200-64CPU.yaml` sets their timeouts.
+
+Processor families with no benchmark yet: standalone language identification,
+sound-event detection, WhisperX VAD, Faster-Whisper, Qwen3-ASR, MFA alignment,
+Chatterbox TTS, audio text filters, and the TensorRT Silero VAD, Sortformer and
+SED paths.
+
+Throughput limits are ordinary `requirements` with a `min_value` on a
+`throughput_*` metric. Set them at about half of a measured baseline, override
+them per SKU in an override file, and leave a `TODO` comment where no
+baseline exists yet.
 
 ## Audio Benchmark Data Setup
 
