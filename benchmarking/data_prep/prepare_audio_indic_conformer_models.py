@@ -25,6 +25,8 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -35,6 +37,7 @@ FILE_TEMPLATE = "indicconformer_stt_{lang}_hybrid_rnnt_large.nemo"
 MIRROR_TEMPLATE = "https://objectstore.e2enetworks.net/indicconformer/models/" + FILE_TEMPLATE
 LANGUAGES = "as,bn,brx,doi,gu,hi,kn,kok,ks,mai,ml,mni,mr,ne,or,pa,sa,sat,sd,ta,te,ur"
 CHUNK_BYTES = 8 * 1024 * 1024
+ATTEMPTS = 30
 
 
 def _recorded(repo: str, file_name: str) -> tuple[str, int, str]:
@@ -53,6 +56,27 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _download(url: str, partial: Path, size: int) -> None:
+    """Fetch ``url`` into ``partial``, resuming with a Range request each time the mirror drops the connection."""
+    for attempt in range(1, ATTEMPTS + 1):
+        have = partial.stat().st_size if partial.exists() else 0
+        if have >= size:
+            return
+        request = urllib.request.Request(url, headers={"Range": f"bytes={have}-"})  # noqa: S310
+        try:
+            with urllib.request.urlopen(request, timeout=60) as response, partial.open("ab" if have else "wb") as f:  # noqa: S310
+                if have and response.status != 206:  # noqa: PLR2004
+                    f.truncate(0)  # the server ignored the Range header; start over
+                while chunk := response.read(CHUNK_BYTES):
+                    f.write(chunk)
+        except (urllib.error.URLError, OSError) as error:
+            logger.warning(f"{url}: attempt {attempt} stopped at {partial.stat().st_size} of {size} bytes ({error})")
+            time.sleep(min(attempt * 5, 60))
+    if partial.stat().st_size < size:
+        msg = f"{url}: incomplete after {ATTEMPTS} attempts"
+        raise RuntimeError(msg)
+
+
 def stage_language(hf_home: Path, lang: str) -> None:
     repo, file_name = REPO_TEMPLATE.format(lang=lang), FILE_TEMPLATE.format(lang=lang)
     revision, size, sha256 = _recorded(repo, file_name)
@@ -64,7 +88,7 @@ def stage_language(hf_home: Path, lang: str) -> None:
     for directory in (blob.parent, snapshot.parent, root / "refs"):
         directory.mkdir(parents=True, exist_ok=True)
     partial = blob.with_suffix(".partial")
-    urllib.request.urlretrieve(MIRROR_TEMPLATE.format(lang=lang), partial)  # noqa: S310
+    _download(MIRROR_TEMPLATE.format(lang=lang), partial, size)
     if partial.stat().st_size != size or _sha256(partial) != sha256:
         partial.unlink()
         msg = f"{repo}: the mirror file differs from the size or SHA-256 Hugging Face records at revision {revision}"
