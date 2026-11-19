@@ -56,7 +56,7 @@ def _write_engine_files(engine_dir: Path) -> None:
 
 
 def test_stage_exposes_integration_pipeline_contract() -> None:
-    stage = InferenceIndicCanaryStage(engine_dir="/models/indic-canary")
+    stage = InferenceIndicCanaryStage(engine_dir="/models/indic-canary").with_(num_workers=4)
 
     assert stage.inputs() == ([], ["waveform", "sampling_rate"])
     assert stage.outputs() == (
@@ -95,7 +95,7 @@ def test_stage_builds_adapter_with_engine_options() -> None:
 
 
 def test_stage_writes_canary_unsupported_language_contract() -> None:
-    stage = InferenceIndicCanaryStage(engine_dir="/models/indic-canary")
+    stage = InferenceIndicCanaryStage(engine_dir="/models/indic-canary").with_(num_workers=4)
     adapter = MagicMock()
     adapter.transcribe_batch.return_value = [
         ASRResult(text="namaste", extras={"language_code": "hi", "audio_duration_sec": 0.05}),

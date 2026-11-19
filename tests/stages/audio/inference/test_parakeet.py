@@ -45,7 +45,7 @@ def _task(language: str) -> AudioTask:
 
 
 def test_stage_exposes_parakeet_v3_defaults() -> None:
-    stage = InferenceParakeetStage()
+    stage = InferenceParakeetStage().with_(num_workers=2)
 
     assert stage.inputs() == ([], ["waveform", "sampling_rate"])
     assert stage.outputs() == (
