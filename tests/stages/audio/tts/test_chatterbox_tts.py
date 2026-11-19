@@ -1078,3 +1078,22 @@ class TestChatterboxTTSStage:
             actor_c.setup()
         assert actor_c._assign_reference("Alice", "conv001")[1] == next(iter(alice_voices))
         assert actor_c._assign_reference("Bob", "conv001")[1] == next(iter(bob_voices))
+
+
+def test_generated_audio_and_sidecar_publish_to_a_cloud_prefix(ref_dataset: str) -> None:
+    import fsspec
+
+    fs = fsspec.filesystem("memory")
+    with patch.object(ChatterboxTTSStage, "_load_model", _inject_model):
+        stage = _build_stage("memory://tts-out", ref_dataset, storage_options={"skip_instance_cache": True})
+        stage.setup()
+        result = stage.process_batch([_make_task("Hello cloud")])[0]
+
+    path = result.data["audio_filepath"]
+    assert path.startswith("memory://tts-out/")
+    with fs.open(path, "rb") as f:
+        audio, sample_rate = sf.read(f)
+    assert result.data["duration"] == pytest.approx(len(audio) / sample_rate)
+    sidecar = json.loads(fs.cat_file(f"{os.path.splitext(path)[0]}.json"))
+    assert sidecar["text"] == "Hello cloud"
+    assert not os.path.exists("memory:")  # no lock file or directory under a mangled local path

@@ -18,17 +18,21 @@ from __future__ import annotations
 
 import json
 import math
+import posixpath
 import random
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import fsspec
 import numpy as np
 import soundfile as sf
+from fsspec.core import url_to_fs
 from loguru import logger
 
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask
+from nemo_curator.utils.client_utils import is_remote_url
 from nemo_curator.utils.operation_utils import make_temporary_dir
 
 _MIN_FIELDS = 5
@@ -93,22 +97,26 @@ class MergeConversationSDPStage(ProcessingStage[AudioTask, AudioTask]):
     directory and published together. Use a fresh output root for reruns.
 
     Args:
-        output_conversations_dir: Root for complete conversation directories.
+        output_conversations_dir: Root for complete conversation directories: a local path or a
+            cloud prefix (``s3://``, ``gs://``, ...). A cloud conversation is built in a local
+            temporary directory and then uploaded file by file.
         max_pause_duration: Maximum inserted inter-turn silence, in seconds.
         max_intra_turn_pause: Maximum source pause retained between speech segments.
         randomize_pauses: Randomize capped inter-turn pauses longer than 0.5 seconds.
         seglst_offset: Nonnegative padding around turn bounds in the segment list.
+        storage_options: fsspec options for cloud output and RTTM/CTM inputs (credentials, endpoints).
     """
 
     name = "MergeConversationSDPStage"
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         output_conversations_dir: str,
         max_pause_duration: float = 2.0,
         max_intra_turn_pause: float = 1.0,
         randomize_pauses: bool = False,
         seglst_offset: float = 0.1,
+        storage_options: dict[str, Any] | None = None,
     ):
         super().__init__()
         for key, value in (
@@ -119,7 +127,13 @@ class MergeConversationSDPStage(ProcessingStage[AudioTask, AudioTask]):
             if not math.isfinite(value) or value < 0:
                 msg = f"{key} must be finite and nonnegative"
                 raise ValueError(msg)
-        self.output_conversations_dir = Path(output_conversations_dir).expanduser().resolve()
+        self.storage_options = storage_options
+        remote = is_remote_url(output_conversations_dir)
+        self._fs = url_to_fs(output_conversations_dir, **(storage_options or {}))[0] if remote else None
+        # A cloud root stays a URL string; a local root is resolved exactly as before.
+        self.output_conversations_dir = (
+            output_conversations_dir.rstrip("/") if remote else Path(output_conversations_dir).expanduser().resolve()
+        )
         self.max_pause_duration = max_pause_duration
         self.max_intra_turn_pause = max_intra_turn_pause
         self.randomize_pauses = randomize_pauses
@@ -148,7 +162,11 @@ class MergeConversationSDPStage(ProcessingStage[AudioTask, AudioTask]):
         conversation_id, entries = self._validate_conversation(task.data)
         if not entries:
             return []
-        destination = self.output_conversations_dir / conversation_id
+        destination = (
+            posixpath.join(self.output_conversations_dir, conversation_id)
+            if self._fs
+            else self.output_conversations_dir / conversation_id
+        )
         try:
             self._require_fresh_destination(destination)
             turns = [self._prepare_turn(entry) for entry in entries]
@@ -156,8 +174,10 @@ class MergeConversationSDPStage(ProcessingStage[AudioTask, AudioTask]):
             speakers = list(dict.fromkeys(turn.entry["speaker"] for turn in turns))
             # Original labels never become path components, including reserved aggregate names.
             stems = {speaker: f"speaker_{i:04d}" for i, speaker in enumerate(speakers)}
-            self.output_conversations_dir.mkdir(parents=True, exist_ok=True)
-            with make_temporary_dir(target_dir=self.output_conversations_dir, prefix=".merge-") as temporary:
+            if self._fs is None:
+                self.output_conversations_dir.mkdir(parents=True, exist_ok=True)
+            staging_root = None if self._fs else self.output_conversations_dir
+            with make_temporary_dir(target_dir=staging_root, prefix=".merge-") as temporary:
                 staging = temporary / "conversation"
                 staging.mkdir()
                 (staging / "speakers").mkdir()
@@ -165,10 +185,16 @@ class MergeConversationSDPStage(ProcessingStage[AudioTask, AudioTask]):
                 with_ctm = self._write_annotations(staging, conversation_id, turns, stems)
                 self._generate_seglst(staging / "segments.seglst.json", conversation_id, turns, total_samples)
                 result = self._result(
-                    destination, conversation_id, turns, stems, with_ctm, total_samples=total_samples
+                    str(destination), conversation_id, turns, stems, with_ctm, total_samples=total_samples
                 )
                 self._require_fresh_destination(destination)
-                staging.rename(destination)
+                if self._fs is None:
+                    staging.rename(destination)
+                else:
+                    for path in staging.rglob("*"):
+                        if path.is_file():
+                            remote_path = posixpath.join(destination, path.relative_to(staging).as_posix())
+                            self._fs.put_file(str(path), remote_path)
         except (OSError, RuntimeError, ValueError):
             logger.exception(f"Failed to merge conversation {conversation_id}")
             return []
@@ -176,9 +202,8 @@ class MergeConversationSDPStage(ProcessingStage[AudioTask, AudioTask]):
         task.data.update(result)
         return task
 
-    @staticmethod
-    def _require_fresh_destination(destination: Path) -> None:
-        if destination.exists() or destination.is_symlink():
+    def _require_fresh_destination(self, destination: Path | str) -> None:
+        if self._fs.exists(destination) if self._fs else destination.exists() or destination.is_symlink():
             msg = f"Conversation destination already exists: {destination}"
             raise FileExistsError(msg)
 
@@ -233,13 +258,12 @@ class MergeConversationSDPStage(ProcessingStage[AudioTask, AudioTask]):
                 msg = f"{key} must be a string"
                 raise ValueError(msg)
 
-    @staticmethod
-    def _read_timestamps(path: str, *, ctm: bool = False) -> list[tuple[float, float, str]]:
+    def _read_timestamps(self, path: str, *, ctm: bool = False) -> list[tuple[float, float, str]]:
         rows = []
         if not path:
             return rows
         try:
-            with open(path, encoding="utf-8") as handle:
+            with fsspec.open(path, "rt", encoding="utf-8", **(self.storage_options or {})) as handle:
                 for line in handle:
                     fields = line.split()
                     if len(fields) < _MIN_FIELDS or (not ctm and fields[0] != "SPEAKER"):
@@ -430,7 +454,7 @@ class MergeConversationSDPStage(ProcessingStage[AudioTask, AudioTask]):
 
     @staticmethod
     def _result(  # noqa: PLR0913
-        directory: Path,
+        directory: str,
         conversation_id: str,
         turns: list[_PreparedTurn],
         stems: dict[str, str],
@@ -450,18 +474,18 @@ class MergeConversationSDPStage(ProcessingStage[AudioTask, AudioTask]):
         artifacts = {
             speaker: {
                 "channel": i,
-                "audio_filepath": str(directory / "speakers" / f"{stem}.wav"),
-                "rttm_filepath": str(directory / "speakers" / f"{stem}.rttm"),
-                "ctm_filepath": str(directory / "speakers" / f"{stem}.ctm") if speaker in with_ctm else "",
+                "audio_filepath": posixpath.join(directory, "speakers", f"{stem}.wav"),
+                "rttm_filepath": posixpath.join(directory, "speakers", f"{stem}.rttm"),
+                "ctm_filepath": posixpath.join(directory, "speakers", f"{stem}.ctm") if speaker in with_ctm else "",
             }
             for i, (speaker, stem) in enumerate(stems.items())
         }
         return {
             "conversation_id": conversation_id,
-            "audio_filepath": str(directory / "mixed.wav"),
-            "rttm_filepath": str(directory / "all.rttm"),
-            "ctm_filepath": str(directory / "all.ctm") if with_ctm else "",
-            "seglst_filepath": str(directory / "segments.seglst.json"),
+            "audio_filepath": posixpath.join(directory, "mixed.wav"),
+            "rttm_filepath": posixpath.join(directory, "all.rttm"),
+            "ctm_filepath": posixpath.join(directory, "all.ctm") if with_ctm else "",
+            "seglst_filepath": posixpath.join(directory, "segments.seglst.json"),
             "duration": total_samples / turns[0].sample_rate,
             "num_speakers": len(stems),
             "offset": 0,

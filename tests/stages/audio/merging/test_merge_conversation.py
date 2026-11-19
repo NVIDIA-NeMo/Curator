@@ -446,3 +446,23 @@ def test_large_finite_annotation_times_are_clipped_before_sample_conversion(tmp_
     result = _merge(tmp_path, [turn])
     assert result["mfa_fallback"] is True
     assert _rows(result["ctm_filepath"]) == [["conversation", "1", "0.250000", "0.750000", "clipped"]]
+
+
+def test_conversation_publishes_to_a_cloud_prefix_and_reads_cloud_annotations(tmp_path: Path) -> None:
+    import fsspec
+
+    fs = fsspec.filesystem("memory")
+    turn = _turn(tmp_path, segments=[(0.0, 0.5)], words=[(0.1, 0.2, "hi")])
+    for key in ("rttm_filepath", "ctm_filepath"):
+        cloud = f"memory://merge-in/{Path(turn[key]).name}"
+        fs.pipe(cloud, Path(turn[key]).read_bytes())
+        turn[key] = cloud
+    stage = MergeConversationSDPStage("memory://merge-out/", storage_options={"skip_instance_cache": True})
+
+    data = stage.process(_parent([turn])).data
+
+    assert data["audio_filepath"] == "memory://merge-out/conversation/mixed.wav"
+    for key in ("audio_filepath", "rttm_filepath", "ctm_filepath", "seglst_filepath"):
+        assert fs.exists(data[key])
+    assert "hi" in fs.cat_file(data["ctm_filepath"]).decode()
+    assert stage.process(_parent([turn])) == []  # an existing cloud destination is never overwritten
