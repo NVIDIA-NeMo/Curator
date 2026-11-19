@@ -76,6 +76,21 @@ metrics_stage = ComputeWERStage(
 For a complete example of using speech rate metrics in a pipeline, refer to the **[Duration Filtering](/curate-audio/process-data/quality-assessment/duration-filtering)** guide.
 </Note>
 
+### Diarization Error Rate (DER)
+
+`DiarizationErrorRateStage` scores predicted speaker turns (for example from `InferenceSortformerStage`) against CHAT `.cha` reference transcripts, such as the CallHome annotations:
+
+```python
+from nemo_curator.stages.audio.metrics import DiarizationErrorRateStage
+
+der_stage = DiarizationErrorRateStage(
+    cha_dir="/data/callhome_eng0/eng",  # one <audio stem>.cha per recording
+    collar=0.25,                        # seconds ignored around reference boundaries
+)
+```
+
+It writes `der_metrics` with `der`, `miss`, `fa`, `conf`, and `correct` as percentages of reference speech, plus `gt_speech_s`, `pred_speech_s`, `gt_speakers`, and `pred_speakers`. Scoring uses 10 ms frames inside the reference span after a greedy speaker mapping. `der_metrics` is `null` when the recording has no reference or no prediction inside that span. The [CallHome tutorial](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials/audio/callhome_diar) runs it end to end.
+
 ## Filtering Strategies
 
 ### WER-based Filtering

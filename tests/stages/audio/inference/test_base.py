@@ -148,7 +148,13 @@ def test_worker_sizing_uses_the_processing_stage_override() -> None:
         tag="primary",
     ).with_(num_workers=2)
 
-    for stage_cls in (SEDInferenceStage, ASRStage, InferenceSortformerStage, VADSegmentationStage, AudioLIDInferenceStage):
+    for stage_cls in (
+        SEDInferenceStage,
+        ASRStage,
+        InferenceSortformerStage,
+        VADSegmentationStage,
+        AudioLIDInferenceStage,
+    ):
         assert "num_workers_override" not in stage_cls.__dataclass_fields__
     assert sed.num_workers() is None
     assert asr.num_workers() is None

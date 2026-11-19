@@ -1,0 +1,57 @@
+# Streaming Sortformer diarization on CallHome English, scored by DER.
+#
+# Usage (from the Curator repository root):
+#   python nemo_curator/config/run.py \
+#     --config-path ../../tutorials/audio/callhome_diar \
+#     --config-name pipeline \
+#     data_dir=/path/to/callhome_eng0
+
+defaults:
+  - _self_
+  - override hydra/job_logging: none
+  - override hydra/hydra_logging: none
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+
+data_dir: ???
+output_dir: ./callhome_output
+model_id: nvidia/diar_streaming_sortformer_4spk-v2.1
+collar: 0.25
+# Streaming settings, in 80 ms frames.
+chunk_len: 340
+chunk_right_context: 40
+fifo_len: 40
+spkcache_update_period: 300
+spkcache_len: 188
+backend: xenna
+execution_mode: streaming
+
+stages:
+  - _target_: nemo_curator.stages.audio.common.CreateInitialManifestAudioFolderStage
+    data_dir: ${data_dir}
+    extensions: [.wav]
+    recursive: false
+
+  - _target_: nemo_curator.stages.audio.inference.speaker_diarization.stage.InferenceSortformerStage
+    model_id: ${model_id}
+    rttm_out_dir: ${output_dir}/rttm
+    batch_size: 1
+    resources:
+      gpus: 1
+    adapter_kwargs:
+      chunk_len: ${chunk_len}
+      chunk_right_context: ${chunk_right_context}
+      fifo_len: ${fifo_len}
+      spkcache_update_period: ${spkcache_update_period}
+      spkcache_len: ${spkcache_len}
+      inference_batch_size: 1
+
+  - _target_: nemo_curator.stages.audio.metrics.der.DiarizationErrorRateStage
+    cha_dir: ${data_dir}/eng
+    collar: ${collar}
+
+  - _target_: nemo_curator.stages.audio.common.ManifestWriterStage
+    output_path: ${output_dir}/results.jsonl

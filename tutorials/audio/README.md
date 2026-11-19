@@ -82,7 +82,7 @@ python nemo_curator/config/run.py \
 | `sortformer/` | Model only | Two bundled audio files | Downloads the configured Sortformer v2.1 checkpoint on first use |
 | `granary_v2/indic_asr/` | Yes, with the download command | Two clips, 22.50 seconds | Downloads pinned `google/fleurs` Hindi validation clips and transcripts; model engine bundles supplied separately |
 | `granary_v2/text_pipeline/` | Model only | Two bundled transcript records | Public LibriSpeech text; audio waveforms are not read |
-| `granary_v2/metadata/` | Audio only | Two FLEURS clips / 22.50 seconds | Reuses the Indic sample downloader; supply Sortformer, Silero, CNN14, and language-ID model bundles |
+| `granary_v2/metadata/` | Audio only | Two FLEURS clips / 22.50 seconds | Reuses the Indic ASR sample download; supply Sortformer, Silero, CNN14, and language-ID model bundles |
 | `alm/` | N/A | Bundled | Uses `tests/fixtures/audio/alm/sample_input.jsonl` (5 entries) |
 | `tagging/` | No | Varies | Bring your own NeMo-style JSONL manifest with audio paths |
 | `callhome_diar/` | No | ~1 GB | Requires LDC membership and license ([LDC97S42](https://catalog.ldc.upenn.edu/LDC97S42)) |
@@ -126,7 +126,7 @@ For multi-node Ray or Xenna runs, make FFmpeg available on every executor node a
 | `granary_v2/metadata/` | CUDA 13-capable driver or supported forward-compat stack; FFmpeg; libsndfile with Opus; TensorRT engine bundles | Dedicated `docker/audio/Dockerfile.trt_llm` image (Python 3.12, Linux x86_64) |
 | `alm/` | `ffmpeg` | `audio_cpu` |
 | `tagging/` | `ffmpeg` | `audio_cuda12` |
-| `callhome_diar/` | `ffmpeg`, `sox` | `audio_cuda12` |
+| `callhome_diar/` | None | `audio_cuda12` |
 | `single_speaker_filter/` | `ffmpeg` | `audio_cuda12` |
 | `readspeech/` | `ffmpeg` | `audio_cuda12` (recommended) or `audio_cpu` |
 | `tts/` | `ffmpeg` | `audio_cuda12` |

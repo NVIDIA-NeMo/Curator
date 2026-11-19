@@ -2,13 +2,12 @@
 
 This tutorial runs [Streaming Sortformer](https://huggingface.co/nvidia/diar_streaming_sortformer_4spk-v2.1) speaker diarization on the [CallHome English](https://catalog.ldc.upenn.edu/LDC97S42) dataset using NeMo Curator's adapter-backed `InferenceSortformerStage`, then evaluates Diarization Error Rate (DER).
 
-Inference runs in parallel via `Pipeline` + `XennaExecutor` for high throughput.
+The tutorial is one YAML file, `pipeline.yaml`, run by `nemo_curator/config/run.py` on the Xenna executor.
 
 ## Prerequisites
 
 - Python 3.11+
 - NeMo Curator installed (see the [Installation Guide](https://docs.nvidia.com/nemo/curator/latest/admin/installation.html))
-- [`ffmpeg`](https://ffmpeg.org/) command-line tool (for stereo-to-mono conversion; pre-installed in the NeMo Curator container)
 - Licensed CallHome English audio and CHAT annotations, staged as shown below
 
 ### Stage the Dataset
@@ -31,39 +30,31 @@ tutorial:
 
 ## Usage
 
-### Quickstart
+From the repository root:
 
 ```bash
-python tutorials/audio/callhome_diar/run.py \
-  --data-dir /path/to/callhome_eng0
+python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/callhome_diar \
+  --config-name pipeline \
+  data_dir=/path/to/callhome_eng0
 ```
 
-### Full Options
+`--config-path` is relative to `nemo_curator/config/run.py`. Key settings:
 
-```bash
-python tutorials/audio/callhome_diar/run.py \
-  --data-dir /path/to/callhome_eng0 \
-  --output-dir ./output \
-  --collar 0.25 \
-  --clean
-```
-
-Key arguments:
-
-| Argument | Default | Description |
-|----------|---------|-------------|
-| `--data-dir` | *(required)* | Path to CallHome dataset root |
-| `--output-dir` | `output` | Root for RTTM files, results JSON, and checkpoints |
-| `--collar` | `0.25` | Collar tolerance (seconds) for DER scoring |
-| `--clean` | off | Remove entire output directory before re-running |
-| `--model` | `nvidia/diar_streaming_sortformer_4spk-v2.1` | Hugging Face model id |
+| Key | Default | Description |
+|-----|---------|-------------|
+| `data_dir` | *(required)* | CallHome dataset root (WAVs, with `.cha` files under `eng/`) |
+| `output_dir` | `./callhome_output` | Root for RTTM files and `results.jsonl` |
+| `collar` | `0.25` | Collar tolerance (seconds) for DER scoring |
+| `model_id` | `nvidia/diar_streaming_sortformer_4spk-v2.1` | Hugging Face model id |
 
 ### Streaming Configuration
 
-All values are in **80 ms frames**. Override using `--chunk-len`,
-`--chunk-right-context`, etc. The tutorial places these model-specific values
-in the NeMo adapter's `adapter_kwargs`; the stage continues to own task I/O,
-whole-recording preparation, result fields, RTTM files, and resume behavior.
+All values are in **80 ms frames**. Override them with `chunk_len=...`,
+`chunk_right_context=...`, `fifo_len=...`, `spkcache_update_period=...`, and
+`spkcache_len=...`. The YAML places these model-specific values in the NeMo
+adapter's `adapter_kwargs`; the stage continues to own task I/O,
+whole-recording preparation, result fields, and RTTM files.
 
 | Configuration | Latency | chunk_len | chunk_right_context | fifo_len | spkcache_update_period | spkcache_len |
 |---------------|---------|-----------|---------------------|----------|------------------------|--------------|
@@ -72,21 +63,36 @@ whole-recording preparation, result fields, RTTM files, and resume behavior.
 | Low | 1.04 s | 6 | 7 | 188 | 144 | 188 |
 | Ultra low | 0.32 s | 3 | 1 | 188 | 144 | 188 |
 
-## What the Script Does
+## What the Pipeline Does
 
-1. **File discovery (`CallHomeReaderStage`)** — Scans the dataset directory for WAV files with matching `.cha` annotations. Emits one `AudioTask` per file; checkpoint state, not an existing RTTM alone, controls resume.
-2. **Mono conversion (`EnsureMonoStage`)** — CallHome WAVs are stereo (one channel per speaker). This stage downmixes to mono 16 kHz under `<output-dir>/mono/`, so `--clean` removes derived audio before rebuilding it.
-3. **Diarization inference (`InferenceSortformerStage`)** — Loads each whole recording and sends it to `NeMoSortformerAdapter`. It adds `diar_segments` and `num_speakers`, and writes RTTM files to `<output-dir>/rttm/`.
-4. **DER evaluation (`DERComputationStage`)** — Compares predicted segments against CHA ground truth. Scoring is restricted to the UEM region (min/max annotated timestamps from CHA) with a configurable collar tolerance (default 0.25 s).
+1. **File discovery (`CreateInitialManifestAudioFolderStage`)** — Emits one `AudioTask` per WAV file in `data_dir`.
+2. **Diarization inference (`InferenceSortformerStage`)** — Loads each whole recording, downmixes the stereo CallHome audio to mono 16 kHz in memory, and sends it to `NeMoSortformerAdapter`. It adds `diar_segments` and `num_speakers`, and writes RTTM files to `<output_dir>/rttm/`.
+3. **DER evaluation (`DiarizationErrorRateStage`)** — Compares predicted segments against the matching `eng/<stem>.cha` reference and writes `der_metrics`. Scoring is restricted to the UEM region (min/max annotated timestamps from the CHA file) with a configurable collar tolerance (default 0.25 s). Recordings without a `.cha` file get `der_metrics: null`.
+4. **`ManifestWriterStage`** — Writes one row per recording to `<output_dir>/results.jsonl`.
 
-Checkpoints are bound to the matched file inventory (path, size, and
-modification time) and all inference/scoring options. Use `--clean` after any
-dataset or option change, or after changing the tutorial or Curator code; the
-script rejects detected mismatches rather than reusing stale results.
-Completed stages are skipped on a matching rerun. A stage interrupted inside
-the executor runs again from its preceding completed stage boundary.
+An interrupted run starts again from the beginning.
 
-`XennaExecutor` distributes tasks across workers for parallel processing. After the pipeline completes, the script prints macro-average, weighted-average, speaker count accuracy, and best/worst files.
+### Summarize the results
+
+Each `der_metrics` entry holds `der`, `miss`, `fa`, `conf`, and `correct` (percent of
+reference speech), `gt_speech_s`, `pred_speech_s`, `gt_speakers`, and `pred_speakers`.
+Macro- and speech-weighted averages:
+
+```bash
+python - <<'PY'
+import json
+
+rows = [json.loads(line) for line in open("callhome_output/results.jsonl")]
+scored = [r["der_metrics"] for r in rows if r["der_metrics"]]
+total = sum(m["gt_speech_s"] for m in scored)
+for key in ("der", "miss", "fa", "conf"):
+    macro = sum(m[key] for m in scored) / len(scored)
+    weighted = sum(m[key] * m["gt_speech_s"] for m in scored) / total
+    print(f"{key}: macro={macro:.1f}% weighted={weighted:.1f}%")
+match = sum(m["gt_speakers"] == m["pred_speakers"] for m in scored)
+print(f"speaker count match: {match}/{len(scored)}")
+PY
+```
 
 ## Pipeline Integration
 
@@ -146,6 +152,4 @@ source.
 - Maximum 4 speakers per recording
 - Trained primarily on English speech
 - Performance may degrade on noisy or very long recordings
-- The stage downmixes and resamples inputs to mono 16 kHz. This tutorial also
-  materializes normalized files in `EnsureMonoStage` so the benchmark inputs
-  are explicit and reusable.
+- The stage downmixes and resamples inputs to mono 16 kHz in memory.

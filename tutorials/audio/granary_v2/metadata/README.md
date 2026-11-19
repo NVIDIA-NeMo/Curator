@@ -320,16 +320,27 @@ and sample-download steps have completed.
 
 ## 2. Download two sample recordings
 
-Reuse the public Hindi sample downloader from the Indic ASR tutorial:
+Reuse the public Hindi samples from the Indic ASR tutorial:
 
 <!-- granary-eos: samples -->
 ```bash
-python tutorials/audio/granary_v2/indic_asr/download_samples.py --output-dir /work/data/fleurs
+FLEURS=https://huggingface.co/datasets/google/fleurs/resolve/70bb2e84b976b7e960aa89f1c648e09c59f894dd/data/hi_in
+mkdir -p /work/data/fleurs/audio
+cp tutorials/audio/granary_v2/indic_asr/sample_manifest.jsonl /work/data/fleurs/manifest.jsonl
+# Both clips are in the first 2 MiB of the archive; never download all of it.
+curl -sfL -r 0-2097151 "$FLEURS/audio/dev.tar.gz" \
+  | tar -xz --occurrence=1 --strip-components=1 -C /work/data/fleurs/audio \
+      dev/10003386135529782184.wav dev/10028896103651079035.wav
+(cd /work/data/fleurs && sha256sum -c - <<'SHA'
+eaf505bbf7f4ce5543af9242678b0a992f11d933a4878685b7bbfd817c4e422d  audio/10003386135529782184.wav
+f9910565cad24bb9a7a3129d1e6a171393fd041d339f961c8233ba0bd1276fef  audio/10028896103651079035.wav
+SHA
+)
 ```
 
 This downloads two Google FLEURS recordings, 12.24 and 10.26 seconds long,
-under the dataset's CC BY 4.0 license. It pins the dataset revision, verifies
-file hashes, and refuses to overwrite different files.
+under the dataset's CC BY 4.0 license, from a pinned dataset revision, and
+verifies their hashes.
 
 Create a recording manifest with absolute audio paths. Keep the dataset
 provenance; the parent recording's transcript is not a transcript of each

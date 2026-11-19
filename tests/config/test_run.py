@@ -27,8 +27,8 @@ from unittest.mock import MagicMock, patch
 
 import hydra
 import pytest
-from loguru import logger
 from hydra import compose, initialize, initialize_config_dir
+from loguru import logger
 from omegaconf import ListConfig, OmegaConf
 
 from nemo_curator.config.run import (
@@ -1099,8 +1099,30 @@ def test_run_cli_defaults_to_pipeline_config_for_fastconformer() -> None:
     assert "adapter_target: nemo_curator.models.asr.nemo_asr.NeMoASRAdapter" in result.stdout
 
 
-SHIPPED_TEXT_CONFIG_DIR = Path(__file__).parents[2] / "nemo_curator" / "config" / "text"
-SHIPPED_TEXT_CONFIGS = sorted(p.name for p in SHIPPED_TEXT_CONFIG_DIR.glob("*.yaml"))
+REPO_ROOT = Path(__file__).parents[2]
+AUDIO_TUTORIALS_DIR = REPO_ROOT / "tutorials" / "audio"
+# Every config/run.py pipeline file: the shipped text configs and every audio tutorial YAML
+# (a rule file such as granary_v2/indic_asr/regex.yaml is data, not a pipeline).
+SHIPPED_CONFIGS = sorted(
+    path.relative_to(REPO_ROOT).as_posix()
+    for path in [
+        *(REPO_ROOT / "nemo_curator" / "config" / "text").glob("*.yaml"),
+        *AUDIO_TUTORIALS_DIR.rglob("*.yaml"),
+    ]
+    if path.name != "regex.yaml"
+)
+
+
+def test_audio_tutorials_are_readme_plus_yaml() -> None:
+    """Each audio tutorial is a README plus YAML run by config/run.py, with small data files at most."""
+    for directory in [AUDIO_TUTORIALS_DIR, *(p for p in AUDIO_TUTORIALS_DIR.rglob("*") if p.is_dir())]:
+        assert (directory / "README.md").is_file(), f"{directory} has no README.md"
+    for path in AUDIO_TUTORIALS_DIR.rglob("*"):
+        if path.is_file():
+            assert path.suffix in {".md", ".yaml", ".jsonl", ".txt"}, f"tutorial code belongs in the library: {path}"
+            assert path.stat().st_size < 100_000, f"tutorial data should be small: {path}"
+
+
 # Stage keys `_instantiate_stage` applies through `.with_()` instead of the constructor.
 WITH_KEYS = {"resources", "num_workers", "num_workers_per_node"}
 
@@ -1173,8 +1195,8 @@ def _target_nodes(node: object) -> Iterator[dict]:
             yield from _target_nodes(item)
 
 
-@pytest.mark.parametrize("config_name", SHIPPED_TEXT_CONFIGS)
-def test_shipped_config_passes_only_arguments_its_targets_accept(config_name: str) -> None:
+@pytest.mark.parametrize("config_path", SHIPPED_CONFIGS)
+def test_shipped_config_passes_only_arguments_its_targets_accept(config_path: str) -> None:
     """A shipped config has to survive instantiation, and nothing cheap told us it does.
 
     ``main`` starts the Ray client before it builds the pipeline, so a key a
@@ -1186,8 +1208,10 @@ def test_shipped_config_passes_only_arguments_its_targets_accept(config_name: st
     A target whose module needs the GPU extras is imported with those packages
     mocked, so the semantic deduplication workflow is checked on CPU runners too.
     """
-    with initialize_config_dir(config_dir=str(SHIPPED_TEXT_CONFIG_DIR), version_base=None):
-        cfg = compose(config_name=config_name)
+    path = REPO_ROOT / config_path
+    with initialize_config_dir(config_dir=str(path.parent), version_base=None):
+        cfg = compose(config_name=path.stem)
+    assert "stages" in cfg or "workflow" in cfg, f"{config_path} defines no stages or workflow"
 
     unaccepted: list[str] = []
     with _missing_gpu_packages_mocked():
@@ -1201,11 +1225,11 @@ def test_shipped_config_passes_only_arguments_its_targets_accept(config_name: st
                 if not key.startswith("_") and key not in WITH_KEYS
             }
             try:
-                inspect.signature(hydra.utils.get_class(target)).bind_partial(**kwargs)
+                inspect.signature(hydra.utils.get_object(target)).bind_partial(**kwargs)
             except TypeError as error:
                 unaccepted.append(f"{target}: {error}")
 
-    assert not unaccepted, f"{config_name} passes arguments nothing accepts: " + "; ".join(unaccepted)
+    assert not unaccepted, f"{config_path} passes arguments nothing accepts: " + "; ".join(unaccepted)
 
 
 @pytest.mark.parametrize("backend", ["ray_data", "xenna"])

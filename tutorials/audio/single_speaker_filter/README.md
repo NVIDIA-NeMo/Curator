@@ -2,10 +2,6 @@
 
 Filter an ASR manifest to keep only audio files containing exactly one speaker, using [Streaming Sortformer v2.1](https://huggingface.co/nvidia/diar_streaming_sortformer_4spk-v2.1) for diarization with NeMo Curator's adapter-backed `InferenceSortformerStage`.
 
-The pipeline checkpoints each completed stage. If a run is interrupted,
-re-running with the same inputs, options, and `--output-dir` starts at the
-first incomplete stage; work inside that interrupted stage is rerun.
-
 ## Prerequisites
 
 - Python 3.11+
@@ -25,74 +21,53 @@ All fields are preserved in the output; extra fields (e.g. `duration`) pass thro
 
 ## Usage
 
-```bash
-python tutorials/audio/single_speaker_filter/run.py \
-  --manifest /path/to/manifest.jsonl \
-  --output-dir /path/to/output
-```
-
-### Resume After Failure
-
-Simply re-run with the same `--output-dir`. Completed stages are skipped; an
-interrupted stage runs again from its input checkpoint:
+From the repository root:
 
 ```bash
-python tutorials/audio/single_speaker_filter/run.py \
-  --manifest /path/to/manifest.jsonl \
-  --output-dir /path/to/output
+python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/single_speaker_filter \
+  --config-name pipeline \
+  manifest_path=/path/to/manifest.jsonl \
+  output_path=/path/to/output/filtered_manifest.jsonl
 ```
 
-The tutorial binds checkpoints to the manifest contents and inference options.
-If either changes—or after changing the tutorial or Curator code—use `--clean`;
-the script rejects detected input/configuration mismatches instead of serving
-stale results. Referenced audio bytes are not hashed, so also use `--clean`
-after replacing an audio file without changing the manifest.
+`--config-path` is relative to `nemo_curator/config/run.py`. An interrupted run
+starts again from the beginning.
 
-### Clean Run
+### Configuration
 
-```bash
-python tutorials/audio/single_speaker_filter/run.py \
-  --manifest /path/to/manifest.jsonl \
-  --output-dir /path/to/output --clean
-```
-
-### All Options
-
-| Argument | Default | Description |
-|----------|---------|-------------|
-| `--manifest` | *(required)* | Input JSONL manifest |
-| `--output-dir` | `output` | Root for checkpoints and filtered manifest |
-| `--model` | `nvidia/diar_streaming_sortformer_4spk-v2.1` | Hugging Face Sortformer model ID |
-| `--clean` | off | Remove output directory before running |
-| `--chunk-len` | `340` | Streaming chunk size (80ms frames) |
-| `--chunk-right-context` | `40` | Right context frames |
-| `--fifo-len` | `40` | FIFO queue size in frames |
-| `--spkcache-update-period` | `300` | Speaker cache update period in frames |
-| `--spkcache-len` | `188` | Speaker cache size in frames |
+| Key | Default | Description |
+|-----|---------|-------------|
+| `manifest_path` | *(required)* | Input JSONL manifest |
+| `output_path` | `./single_speaker_manifest.jsonl` | Filtered output manifest |
+| `model_id` | `nvidia/diar_streaming_sortformer_4spk-v2.1` | Hugging Face Sortformer model ID |
+| `chunk_len` | `340` | Streaming chunk size (80ms frames) |
+| `chunk_right_context` | `40` | Right context frames |
+| `fifo_len` | `40` | FIFO queue size in frames |
+| `spkcache_update_period` | `300` | Speaker cache update period in frames |
+| `spkcache_len` | `188` | Speaker cache size in frames |
+| `backend` | `xenna` | Execution backend: `xenna` or `ray_data` |
 
 ## Pipeline Stages
 
 1. **ManifestReader** — Reads the JSONL manifest and emits one `AudioTask` per entry.
 2. **InferenceSortformerStage** — The task-facing stage loads and normalizes each whole recording, then calls `NeMoSortformerAdapter` on the GPU. It adds `diar_segments` and `num_speakers` to each task.
-3. **SingleSpeakerFilterStage** — Counts unique speakers from `diar_segments`. Keeps only entries with exactly 1 speaker; multi-speaker or zero-speaker entries produce an empty task (no output rows).
+3. **PreserveByValueStage** — Keeps only entries whose `num_speakers` equals 1; multi-speaker and zero-speaker entries are dropped.
 4. **ManifestWriterStage** — Writes the surviving entries to the output JSONL manifest.
 
 ## Output
 
-`<output-dir>/filtered_manifest.jsonl` — same JSONL format as input, with an added `num_speakers` field:
+`output_path` — same JSONL format as input, with the added `diar_segments` and `num_speakers` fields:
 
 ```json
-{"text": "the cat sat on a mat", "audio_filepath": "/data/file1.wav", "num_speakers": 1}
+{"text": "the cat sat on a mat", "audio_filepath": "/data/file1.wav", "diar_segments": [{"start": 0.0, "end": 2.4, "speaker": "speaker_0"}], "num_speakers": 1}
 ```
 
-`<output-dir>/checkpoints/` — completed stage boundaries for resume support.
-
-The stage keeps Curator fields, errors, output assembly, and resume semantics
-separate from the model implementation. The tutorial passes streaming model
-settings through `adapter_kwargs`, while common executor controls use
-`.with_(resources=Resources(gpus=1), batch_size=1)`. To scale across GPUs,
-adjust `resources`, `batch_size`, or `num_workers` with `.with_()` rather than
-placing worker controls in `adapter_kwargs`.
+The stage keeps Curator fields, errors, and output assembly separate from the
+model implementation. Streaming model settings go in the stage's
+`adapter_kwargs`; GPU allocation and batching go in its `resources` and
+`batch_size`. To cap the number of Sortformer workers, add
+`+stages.1.num_workers=N`.
 
 ## Troubleshooting
 
