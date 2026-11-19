@@ -132,6 +132,28 @@ class WhisperXVADStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     Adds VAD segments to each entry under segments_key (e.g. "vad_segments").
     Entries shorter than min_length are skipped (not emitted).
     Fan-out children omit the parent transcript under pred_text_key.
+
+    Args:
+        min_length: Inputs shorter than this many seconds get no segments.
+        max_length: Longest merged speech segment, in seconds.
+        vad_onset: Speech-start probability threshold.
+        vad_offset: Speech-end probability threshold.
+        segments_key: Output list of ``{start, end}`` speech segments (seconds).
+        audio_filepath_key: Audio file read in ``file`` residency.
+        waveform_key: In-memory waveform field for ``waveform``/``auto`` residency.
+        sample_rate_key: Sample-rate field paired with ``waveform_key``.
+        input_residency: ``file``, ``waveform`` or ``auto`` audio input.
+        allow_audio_filepath_fallback: Also accept ``audio_filepath`` when
+            ``audio_filepath_key`` is missing.
+        fanout: Emit one child task per speech segment instead of a segment list.
+        start_key: Child start time in seconds (fan-out).
+        end_key: Child end time in seconds (fan-out).
+        start_ms_key: Child start time in milliseconds (fan-out).
+        end_ms_key: Child end time in milliseconds (fan-out).
+        duration_key: Input duration in seconds, and child duration (fan-out).
+        segment_num_key: Child index within its parent (fan-out).
+        original_file_key: Parent source identity copied to each child (fan-out).
+        pred_text_key: Parent transcript removed from fan-out children.
     """
 
     min_length: float = 0.5

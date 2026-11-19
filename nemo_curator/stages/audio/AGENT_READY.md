@@ -274,7 +274,8 @@ An agent chains a producer's output to a consumer's input by **role**, not key s
 resolved automatically from your `*_key` **field name** via `nemo_curator/stages/audio/_agent/_roles.py`.
 
 - If your key fields use existing names (`audio_filepath_key`, `waveform_key`, `score_key`,
-  `text_key`, `segments_key`, …) you get the right role for free.
+  `text_key`, `segments_key`, `source_lang_key`/`language_key`, `skip_me_key`, `notes_key`, …)
+  you get the right role for free.
 - If you add a **brand-new** `*_key` concept, add one line to `KEY_ROLES` in `_roles.py` (or, for a
   truly stage-internal key, list it in `INTERNAL_KEY_FIELDS`). The conformance test fails if you
   forget — it won't let a key silently fall through.

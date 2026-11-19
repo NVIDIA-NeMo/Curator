@@ -143,6 +143,36 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
     into adapter calls bounded by ``max_audio_sec_per_actor``. Enabling
     ``local_bucketing`` first orders those segments by duration to reduce GPU
     padding; disabling it preserves their input order.
+
+    Args:
+        adapter_target: Import path of a class implementing ``ASRAdapter``.
+        model_id: Model name or path passed to the adapter.
+        max_audio_sec_per_actor: Upper bound on seconds of audio per adapter call.
+        audio_filepath_key: Audio file read when ``waveform_key`` is ``None``.
+        waveform_key: In-memory waveform field, or ``None`` to load files.
+        sample_rate_key: Source sample-rate field for in-memory waveforms.
+        target_sample_rate: Rate audio is resampled to before the adapter call.
+        keep_waveform: Keep ``waveform_key`` on the row after inference.
+        source_lang_key: Optional per-row language code used for routing.
+        default_language: Language code used when a row has none.
+        supported_language_codes: Optional allowlist; other languages are not transcribed.
+        pred_text_key: Output transcript (empty for skipped rows).
+        language_key: Optional output for the routed or adapter-reported language code.
+        extras_key: Optional output for non-empty adapter metadata.
+        skip_me_key: Skip-reason field written for skipped rows.
+        notes_key: Audit-note mapping updated with language-routing notes.
+        unsupported_language_marks_skip: Set ``skip_me_key`` for unsupported languages.
+        unsupported_language_skip_reason: Format string (``{stage_name}``, ``{language}``)
+            for that skip reason; ``None`` uses the adapter's reason.
+        preserve_existing_skip: Keep an existing skip reason instead of overwriting it.
+        missing_language_is_unsupported: Treat a missing language as unsupported.
+        skip_if_output_exists: Reuse rows whose ``pred_text_key`` is already non-empty.
+        fail_on_audio_error: Raise on unreadable audio instead of skipping the row.
+        prefetch_fail_on_error: Raise when node-level weight prefetch fails.
+        adapter_kwargs: Extra adapter constructor options.
+        max_inference_duration_s: Longest single model input; longer audio is split and stitched.
+        local_bucketing: Sort segments by duration inside a batch to reduce padding.
+        num_workers_override: Fixed worker count, or ``None`` for the executor default.
     """
 
     # Adapter selection.
