@@ -22,14 +22,14 @@ Examples:
         --dataset-source hf \
         --languages hi,ur,mr,te,ta,gu \
         --samples-per-lang 100 \
-        --pytorch-model /home/sdeva/Documents/workspace/downloads/indic_transcribe/indic-transcribe.nemo \
-        --trt-engine-dir /home/sdeva/Documents/workspace/downloads/indic_transcribe/cleanbuild/engine_full \
-        --output-dir /tmp/indic_transcribe_lid_eval
+        --pytorch-model /path/to/indic-transcribe.nemo \
+        --trt-engine-dir /path/to/engine_dir \
+        --output-dir /path/to/output
 
     python scripts/audio/evaluate_indic_transcribe_lid.py \
         --backend trt \
         --dataset-source local \
-        --local-root /home/sdeva/Documents/workspace/downloads/datasets/asr/test_sets \
+        --local-root /path/to/datasets \
         --languages hi,ta \
         --samples-per-lang 50
 """
@@ -54,9 +54,9 @@ FLEURS_CONFIG_BY_LANG = {
     "gu": "gu_in",
 }
 DEFAULT_LANGUAGES = "hi,ur,mr,te,ta,gu"
-DEFAULT_PYTORCH_MODEL = "/home/sdeva/Documents/workspace/downloads/indic_transcribe/indic-transcribe.nemo"
-DEFAULT_TRT_ENGINE = "/home/sdeva/Documents/workspace/downloads/indic_transcribe/cleanbuild/engine_full"
-DEFAULT_LOCAL_ROOT = "/home/sdeva/Documents/workspace/downloads/datasets/asr/test_sets"
+DEFAULT_PYTORCH_MODEL = ""
+DEFAULT_TRT_ENGINE = ""
+DEFAULT_LOCAL_ROOT = ""
 TRT_TARGET_SR = 16000
 TRT_MIN_DURATION_SAMPLES = 400
 NON_LANGUAGE_SPECIAL_TOKENS = frozenset({"pnc", "itn"})
@@ -243,12 +243,14 @@ def lens_to_mask(lens: Any, max_length: int) -> Any:  # noqa: ANN401
     return arange.expand(batch_size, max_length) < lens.unsqueeze(1)
 
 
-def pytorch_lid(
+def pytorch_lid(  # noqa: PLR0913
     *,
     samples: list[LidSample],
     model_path: str,
     batch_size: int,
     device: str,
+    min_duration_sec: float,
+    max_duration_sec: float,
 ) -> list[dict[str, Any]]:
     import torch
     from nemo.collections.asr.models import EncDecMultiTaskModel
@@ -282,14 +284,34 @@ def pytorch_lid(
     ]
     prompt_ids = prompt_formatter.encode_dialog(turns)["input_ids"][:3].to(device)
 
+    max_samples = int(max_duration_sec * target_sr)
+
     predictions: list[dict[str, Any]] = []
     for batch in _batched(samples, batch_size):
         audios = []
         audio_lens = []
+        valid_batch = []
         for sample in batch:
             audio, _sr = load_audio(sample, target_sr=target_sr)
+            if len(audio) / target_sr < min_duration_sec:
+                predictions.append(
+                    {
+                        "sample_id": sample.sample_id,
+                        "true_lang": sample.true_lang,
+                        "pred_lang": "",
+                        "correct": False,
+                        "duration": sample.duration,
+                        "audio_path": sample.audio_path,
+                        "top5_langs": [],
+                    }
+                )
+                continue
+            audio = audio[:max_samples]
             audios.append(torch.tensor(audio, dtype=torch.float32))
             audio_lens.append(len(audio))
+            valid_batch.append(sample)
+        if not audios:
+            continue
 
         max_len = max(audio_lens)
         audio_tensor = torch.zeros(len(audios), max_len, dtype=torch.float32)
@@ -309,7 +331,7 @@ def pytorch_lid(
             if getattr(model, "use_transf_encoder", False):
                 enc_states = model.transf_encoder(encoder_states=enc_states, encoder_mask=enc_mask)
 
-            decoder_input = prompt_ids.unsqueeze(0).expand(len(batch), -1).contiguous()
+            decoder_input = prompt_ids.unsqueeze(0).expand(len(valid_batch), -1).contiguous()
             dec_states = model.transf_decoder(
                 input_ids=decoder_input,
                 decoder_mask=None,
@@ -320,7 +342,7 @@ def pytorch_lid(
             probs = torch.exp(logits.squeeze(1))
             topk_probs, topk_indices = probs.topk(5, dim=-1)
 
-        for idx, sample in enumerate(batch):
+        for idx, sample in enumerate(valid_batch):
             top5 = []
             for token_id, prob in zip(topk_indices[idx].tolist(), topk_probs[idx].tolist(), strict=True):
                 token = model.tokenizer.ids_to_text([int(token_id)])
@@ -352,7 +374,7 @@ def trt_lid(  # noqa: PLR0913
     import torch
 
     runtime = _load_trt_runtime()
-    model = runtime.CanaryTRTLLM(engine_dir, device="cuda:0")
+    model = runtime.IndicTranscribeTRTLLM(engine_dir, device="cuda:0")
     language_by_token_id = _collect_trt_language_token_ids(model, candidate_langs)
     prompt_ids = _trt_lid_prompt_ids(model)
     if len(prompt_ids) > int(model.decoder.max_input_len):
@@ -528,9 +550,7 @@ def build_comparison(metrics: dict[str, Any]) -> dict[str, Any]:
             "pytorch_accuracy": pt.get("accuracy"),
             "trt_accuracy": trt.get("accuracy"),
             "trt_minus_pytorch": (
-                trt.get("accuracy") - pt.get("accuracy")
-                if "accuracy" in pt and "accuracy" in trt
-                else None
+                trt.get("accuracy") - pt.get("accuracy") if "accuracy" in pt and "accuracy" in trt else None
             ),
         }
     return {
@@ -609,6 +629,8 @@ def main() -> None:
             model_path=args.pytorch_model,
             batch_size=args.pytorch_batch_size,
             device=args.device,
+            min_duration_sec=args.min_duration_sec,
+            max_duration_sec=args.max_duration_sec,
         )
         _write_jsonl(output_dir / "predictions_pytorch.jsonl", preds)
         metrics["pytorch"] = summarize(preds)
