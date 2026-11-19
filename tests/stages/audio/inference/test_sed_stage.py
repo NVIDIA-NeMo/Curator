@@ -28,6 +28,7 @@ from omegaconf import OmegaConf
 
 from nemo_curator.config.run import _instantiate_stage
 from nemo_curator.models.audio.sed.base import SEDResult
+from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
 from nemo_curator.stages.audio.inference.sed.stage import SEDInferenceStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -545,3 +546,16 @@ def test_module_docstring_contains_the_exact_yaml_command() -> None:
     assert "loaded without network access" in stage.__doc__
     assert "Cnn14_mAP=0.431.pth" in stage.__doc__
     assert "clip-level audio tagging" in stage.__doc__
+
+
+def test_stage_is_agent_ready(tmp_path: Path) -> None:
+    stage, _ = _stage(save_npz=True, output_dir=str(tmp_path))
+    contract = assert_agent_ready(
+        stage,
+        lambda: AudioTask(task_id="row-0", data=_task().data),
+        expected_cardinality="1:1",
+        available_keys={"waveform", "sample_rate"},
+    )
+    assert contract.gates.writes_to_disk
+    assert contract.gates.requires_stable_task_id
+    assert contract.key_roles["npz_filepath"] == "output_path"

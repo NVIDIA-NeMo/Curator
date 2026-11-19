@@ -27,16 +27,18 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
+from typing import ClassVar
 
 from loguru import logger
 
+from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, Role, StageContract, StaticHints
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
 
 @dataclass
-class SEDPostprocessingStage(ProcessingStage[AudioTask, AudioTask]):
+class SEDPostprocessingStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """Label audio entries with detected sound events from SED framewise output.
 
     Reads framewise data from task data (in-memory ``_sed_framewise`` key,
@@ -65,6 +67,9 @@ class SEDPostprocessingStage(ProcessingStage[AudioTask, AudioTask]):
         framewise_key: Key in task data for in-memory framewise array. Default ``"_sed_framewise"``.
         npz_filepath_key: Key in task data for NPZ path (fallback). Default ``"npz_filepath"``.
         events_key: Key for output events list. Default ``"sed_events"``.
+        fps_key: Key for the in-memory frame rate. Default ``"sed_fps"``.
+        valid_frames_key: Key for the in-memory count of unpadded frames.
+            Default ``"sed_valid_frames"``.
     """
 
     agg_mode: str = "noisy_or"
@@ -82,6 +87,25 @@ class SEDPostprocessingStage(ProcessingStage[AudioTask, AudioTask]):
     name: str = "SEDPostprocessing"
     batch_size: int = 1
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
+    fps_key: str = "sed_fps"
+    valid_frames_key: str = "sed_valid_frames"
+
+    KEY_ROLE_OVERRIDES: ClassVar[dict[str, Role]] = {"npz_filepath_key": "output_path", "events_key": "prediction"}
+    # In-memory SED outputs are value-matched with SEDInferenceStage.
+    INTERNAL_KEY_FIELDS: ClassVar[frozenset[str]] = frozenset({"framewise_key", "fps_key", "valid_frames_key"})
+    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(gates=Gates())
+
+    def describe(self) -> StageContract:
+        return StageContract(
+            reads_one_of=[
+                IOSpec(data_keys=[self.framewise_key]),
+                IOSpec(data_keys=[self.npz_filepath_key]),
+            ],
+            optional_reads=IOSpec(data_keys=[self.fps_key, self.valid_frames_key]),
+            writes=IOSpec(data_keys=[self.events_key]),
+            removes_keys=[self.framewise_key],
+            cardinality="1:1",
+        )
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
@@ -108,8 +132,8 @@ class SEDPostprocessingStage(ProcessingStage[AudioTask, AudioTask]):
         framewise_raw = data.get(self.framewise_key)
         if framewise_raw is not None:
             framewise = np.asarray(framewise_raw, dtype=np.float32)
-            fps = float(data.get("sed_fps", self._default_fps()))
-            valid_frames = int(data.get("sed_valid_frames", framewise.shape[0]))
+            fps = float(data.get(self.fps_key, self._default_fps()))
+            valid_frames = int(data.get(self.valid_frames_key, framewise.shape[0]))
         else:
             npz_path = str(data.get(self.npz_filepath_key, ""))
             if not npz_path or not os.path.exists(npz_path):
