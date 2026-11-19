@@ -107,7 +107,11 @@ and the two images differ. The directory holds: `sortformer.nemo`, `silero.plan`
 `indic_canary/` (the prebuilt TensorRT-LLM engine) and `indic_parakeet/` (`model.nemo` and its
 TensorRT engine). Qwen3-Omni, the text model and, for the Indic and European recovery models,
 IndicConformer, Parakeet-v3 and Whisper large-v3 download from Hugging Face on first use unless
-already cached; set `model_id` and `model_identifier` to local snapshot directories to avoid that.
+already cached; set `model_id` and `model_identifier` to local snapshot directories to avoid that. The Indic recovery loads one
+IndicConformer checkpoint per language (`ai4bharat/indicconformer_stt_<lang>_hybrid_ctc_rnnt_large`, 22 repositories of about
+0.5 GB; the Hindi checkpoint does not work for other languages). Those repositories need a Hugging Face login that accepted their
+terms; without one, `benchmarking/data_prep/prepare_audio_indic_conformer_models.py --hf-home <cache>` stages them from
+AI4Bharat's public mirror after checking each file's SHA-256 against Hugging Face.
 
 Use a UTF-8 JSONL manifest, one recording per line, with a unique `audio_item_id` and an absolute
 `audio_filepath` visible to every audio worker:

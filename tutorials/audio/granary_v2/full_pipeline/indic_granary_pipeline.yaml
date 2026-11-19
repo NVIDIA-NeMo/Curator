@@ -184,22 +184,24 @@ stages:
     keep_waveform: false
     name: IndicConformer_recovery
     skip_if_output_exists: true
-    adapter_target: nemo_curator.models.audio.indic_conformer_hybrid.IndicConformerHybridASR
+    # One checkpoint per language (the Hindi checkpoint returns unusable text for other languages); each loads when its first row arrives.
+    adapter_target: nemo_curator.models.audio.indic_conformer_per_language.IndicConformerPerLanguageASR
     supported_language_codes: [as, bn, brx, doi, gu, kn, kok, ks, mai, ml, mni, mr, ne, or, pa, sa, sat, sd, ta, te, ur]
     unsupported_language_marks_skip: false
     preserve_existing_skip: true
     max_audio_sec_per_actor: 2400.0
     pred_text_key: fallback_model_prediction
-    model_id: ai4bharat/indicconformer_stt_hi_hybrid_ctc_rnnt_large
+    model_id: ai4bharat/indicconformer_stt_{lang}_hybrid_ctc_rnnt_large
     batch_size: 64
     adapter_kwargs:
+      languages: [as, bn, brx, doi, gu, kn, kok, ks, mai, ml, mni, mr, ne, or, pa, sa, sat, sd, ta, te, ur]
       decode_mode: rnnt
       rnnt_precision: fp32
-      use_cuda_graph_decoder: false  # one decoder per language; CUDA-graph replay across them hit an illegal memory access on EOS with mixed Indic languages
+      use_cuda_graph_decoder: false  # the CUDA-graph RNNT decoder hit an illegal memory access on EOS with mixed Indic languages
       empty_audio_marks_skip: false
     resources:
       _target_: nemo_curator.stages.resources.Resources
-      gpu_memory_gb: 16
+      gpu_memory_gb: 24  # up to 21 checkpoints (about 1 GB each) stay loaded in one worker
   - ${shared.whisper_hallucination_asr}
 
   - _target_: nemo_curator.stages.audio.text_filtering.SelectBestPredictionStage
