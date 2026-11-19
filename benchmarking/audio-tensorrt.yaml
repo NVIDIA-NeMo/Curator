@@ -1,0 +1,32 @@
+# audio_tensorrt benchmark overrides.
+#
+# Layer this file after benchmarks.yaml in the Granary tutorial image (the
+# audio_tensorrt install with the TensorRT engines staged under
+# {model_weights_path}) and select the TensorRT entries:
+#   --config benchmarking/benchmarks.yaml --config benchmarking/audio-tensorrt.yaml
+#   --entries "model_stages or indic_asr or granary_metadata"
+#
+# audio_model_stages_tensorrt_xenna runs Sortformer, Silero VAD and PANNs SED
+# through their TensorRT adapters; audio_model_stages_pytorch_xenna runs the
+# same graph and input with the PyTorch adapters for comparison. The Indic ASR
+# and Granary metadata entries run the TensorRT-LLM, Parakeet TensorRT, Silero
+# and SED TensorRT paths of their tutorials.
+
+entries:
+  - name: audio_model_stages_pytorch_xenna
+    enabled: true
+
+  - name: audio_model_stages_tensorrt_xenna
+    enabled: true
+
+  - name: audio_indic_asr_xenna
+    enabled: true
+
+  - name: audio_indic_asr_raydata
+    enabled: true
+
+  - name: audio_granary_metadata_xenna
+    enabled: true
+
+  - name: audio_granary_metadata_raydata
+    enabled: true

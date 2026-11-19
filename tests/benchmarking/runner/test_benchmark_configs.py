@@ -119,3 +119,16 @@ def test_every_audio_benchmark_script_has_an_entry() -> None:
 
     assert audio_scripts
     assert audio_scripts <= registered
+
+
+def test_audio_tensorrt_override_enables_tensorrt_entries() -> None:
+    base = _entries(merge_config_files([_CONFIG_DIR / "benchmarks.yaml"]))
+    merged = _entries(merge_config_files([_CONFIG_DIR / "benchmarks.yaml", _CONFIG_DIR / "audio-tensorrt.yaml"]))
+
+    assert base["audio_model_stages_tensorrt_xenna"]["enabled"] is False
+    for entry_name in (
+        "audio_model_stages_pytorch_xenna",
+        "audio_model_stages_tensorrt_xenna",
+        "audio_indic_asr_xenna",
+    ):
+        assert merged[entry_name]["enabled"] is True
