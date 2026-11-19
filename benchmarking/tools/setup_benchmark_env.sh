@@ -191,11 +191,16 @@ install_environment() {
     local tools_dir=$2
     local script
 
+    if ! command -v uv >/dev/null 2>&1; then
+        echo "ERROR: uv is required to install benchmark environment dependencies." >&2
+        exit 1
+    fi
+
     while IFS= read -r script; do
         run_dependency_tool "$script"
     done < <(install_scripts "$tools_dir")
 
-    "$PYTHON" -m pip install --upgrade-strategy only-if-needed \
+    uv --no-config pip install --no-sources --python "$PYTHON" \
         -r "$source_root/benchmarking/requirements.txt"
 }
 

@@ -18,10 +18,11 @@ set -euo pipefail
 FFMPEG_VERSION=8.0.1
 NVCODEC_VERSION=12.1.14.0
 CHECK_ONLY=0
+AUDIO_ONLY=0
 
 usage() {
     cat <<'EOF'
-Usage: install_ffmpeg.sh [--check] [--FFMPEG_VERSION=<version>] [--NVCODEC_VERSION=<ver>]
+Usage: install_ffmpeg.sh [--check | --check-audio] [--FFMPEG_VERSION=<version>] [--NVCODEC_VERSION=<ver>]
 
 Installs the FFmpeg capabilities needed by Curator audio/video workflows and
 benchmarks. The build includes ffprobe, NVENC/NVDEC, VP8/VP9, software
@@ -30,6 +31,7 @@ libopenh264 software h264 encoder.
 
 Options:
   --check                    Verify the required FFmpeg capabilities without installing.
+  --check-audio              Verify only audio capabilities without installing.
   --FFMPEG_VERSION=<version> FFmpeg upstream release version (default: 8.0.1).
   --NVCODEC_VERSION=<ver>    nv-codec-headers release version (default: 12.1.14.0).
   -h, --help                 Show this help.
@@ -43,6 +45,7 @@ EOF
 for arg in "$@"; do
     case $arg in
         --check)                  CHECK_ONLY=1 ;;
+        --check-audio)            CHECK_ONLY=1; AUDIO_ONLY=1 ;;
         --FFMPEG_VERSION=?*)      FFMPEG_VERSION="${arg#*=}" ;;
         --NVCODEC_VERSION=?*)     NVCODEC_VERSION="${arg#*=}" ;;
         -h|--help)                usage; exit 0 ;;
@@ -61,7 +64,7 @@ check_ffmpeg() {
         echo "ERROR: ffmpeg not found on PATH" >&2
         status=1
     fi
-    if ! command -v ffprobe >/dev/null 2>&1; then
+    if [ "$AUDIO_ONLY" -eq 0 ] && ! command -v ffprobe >/dev/null 2>&1; then
         echo "ERROR: ffprobe not found on PATH" >&2
         status=1
     fi
@@ -80,13 +83,19 @@ check_ffmpeg() {
     demuxers=$(ffmpeg -hide_banner -demuxers 2>/dev/null | awk '{print $2}')
     filters=$(ffmpeg -hide_banner -filters 2>/dev/null | awk '{print $2}')
 
-    for encoder in rawvideo libvpx-vp9 h264_nvenc hevc_nvenc av1_nvenc libopenh264 pcm_s16le pcm_f32le; do
+    local required_encoders=(pcm_s16le pcm_f32le)
+    local required_decoders=(pcm_s16le pcm_f32le flac)
+    if [ "$AUDIO_ONLY" -eq 0 ]; then
+        required_encoders+=(rawvideo libvpx-vp9 h264_nvenc hevc_nvenc av1_nvenc libopenh264)
+        required_decoders+=(rawvideo libvpx-vp9 vp9 vp8 h264_cuvid hevc_cuvid av1_cuvid mpeg1video mpeg2video mpeg4 h264 hevc av1)
+    fi
+    for encoder in "${required_encoders[@]}"; do
         if ! printf '%s\n' "$encoders" | grep -Fx -- "$encoder" >/dev/null; then
             echo "ERROR: ffmpeg encoder not found: $encoder" >&2
             status=1
         fi
     done
-    for decoder in rawvideo libvpx-vp9 vp9 vp8 h264_cuvid hevc_cuvid av1_cuvid mpeg1video mpeg2video mpeg4 h264 hevc av1 pcm_s16le pcm_f32le flac; do
+    for decoder in "${required_decoders[@]}"; do
         if ! printf '%s\n' "$decoders" | grep -Fx -- "$decoder" >/dev/null; then
             echo "ERROR: ffmpeg decoder not found: $decoder" >&2
             status=1

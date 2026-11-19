@@ -100,6 +100,12 @@ WORKDIR /opt/Curator
 COPY pyproject.toml uv.lock /opt/Curator/
 COPY nemo_curator/__init__.py nemo_curator/package_info.py /opt/Curator/nemo_curator/
 
+# ARM Pynini has no wheel; prepare its native prerequisites before uv resolves audio.
+COPY docker/common/install_openfst.sh /tmp/install_openfst.sh
+RUN case "${CURATOR_EXTRA}" in \
+        all|audio*) bash /tmp/install_openfst.sh ;; \
+    esac && rm /tmp/install_openfst.sh
+
 # Install Curator
 RUN if [ -n "${CURATOR_EXTRA}" ]; then \
         uv sync --link-mode copy --locked --extra ${CURATOR_EXTRA} ${CURATOR_GROUPS} --no-cache; \

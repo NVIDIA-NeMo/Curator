@@ -46,15 +46,21 @@ def test_setup_discovers_compatible_installers_and_skips_legacy_helpers(
         marker.parent.mkdir(parents=True)
         marker.touch()
 
-    # Isolate installer discovery from pip mutation; run the real Python dependency check.
+    # Isolate installer discovery from package mutation; run the real Python dependency check.
     python = tmp_path / "python"
-    python.write_text(f'#!/bin/bash\nif [ "$1" = "-m" ]; then exit 0; fi\nexec {shlex.quote(sys.executable)} "$@"\n')
+    python.write_text(f'#!/bin/bash\nexec {shlex.quote(sys.executable)} "$@"\n')
     python.chmod(0o755)
+    uv_log = tmp_path / "uv.log"
+    uv = tmp_path / "uv"
+    uv.write_text('#!/bin/bash\nprintf "%s\\n" "$@" > "$TEST_UV_LOG"\n')
+    uv.chmod(0o755)
     result = subprocess.run(  # noqa: S603
         ["/bin/bash", str(setup), *(["--check"] if check_only else [])],
         env={
             **os.environ,
             "PYTHON": str(python),
+            "PATH": str(tmp_path) + os.pathsep + os.environ["PATH"],
+            "TEST_UV_LOG": str(uv_log),
             "TEST_INSTALLERS_LOG": str(log),
             "CURATOR_BENCHMARK_CURATOR_REPO_DIR": str(under_test),
             "CURATOR_BENCHMARK_SOURCE_DIR": str(source),
@@ -68,6 +74,19 @@ def test_setup_discovers_compatible_installers_and_skips_legacy_helpers(
     expected = [f"{selected}:--check"] if check_only else [f"{selected}:", f"{selected}:--check"]
     assert log.read_text().splitlines() == expected
     assert ("WARNING:" in result.stderr) is not compatible_under_test
+    if check_only:
+        assert not uv_log.exists()
+    else:
+        assert uv_log.read_text().splitlines() == [
+            "--no-config",
+            "pip",
+            "install",
+            "--no-sources",
+            "--python",
+            str(python),
+            "-r",
+            str(source / "benchmarking/requirements.txt"),
+        ]
 
 
 def test_check_reports_missing_pytest_in_minimal_python(tmp_path: Path) -> None:
