@@ -24,6 +24,9 @@ documentation: |
 output_path: ${output_dir}/indic.jsonl
 regex_yaml: tutorials/audio/granary_v2/indic_asr/regex.yaml
 
+# Indic text uses Gemma-4-31B-it-FP8, as in the Granary-v2 report.
+model_identifier: RedHatAI/gemma-4-31B-it-FP8-dynamic
+
 # The Indic image keeps Torch 2.9.1 for TensorRT-LLM and carries only vLLM's CPU build for the Ray Serve
 # driver, so the text model's engine runs in the replicas' isolated environments with vLLM 0.22 (Torch 2.11).
 text_model:
@@ -41,6 +44,10 @@ text_model:
         - https://wheels.vllm.ai/0.22.0/cu129
     config:
       setup_timeout_seconds: 1800
+  engine_kwargs:
+    gpu_memory_utilization: 0.95
+    revision: d4ab4f579dd3516f97d8a6a4c98d0653480bad15  # pragma: allowlist secret - public model revision
+    enable_prefix_caching: true
 
 stages:
   - ${shared.manifest_reader}

@@ -23,7 +23,9 @@ max_concurrent_requests: 256
 request_timeout_s: 21600
 max_retries: 3
 
-model_identifier: RedHatAI/gemma-4-31B-it-FP8-dynamic
+# Text model for English and European (the Granary-v2 report's choice for non-Indic languages); the Indic
+# pipeline overrides it with Gemma-4-31B-it-FP8.
+model_identifier: Qwen/Qwen3.6-27B-FP8
 model_name: ${model_identifier}
 
 # Required only when starting the configured server; keep caches runtime/GPU-specific.
@@ -53,14 +55,13 @@ text_model:
   engine_kwargs:
     tensor_parallel_size: 1
     max_model_len: 8192
-    gpu_memory_utilization: 0.95
+    gpu_memory_utilization: 0.85
     kv_cache_dtype: auto
     max_num_seqs: 256
     max_num_batched_tokens: 8192
     language_model_only: true
     trust_remote_code: true
-    revision: d4ab4f579dd3516f97d8a6a4c98d0653480bad15  # pragma: allowlist secret - public model revision
-    enable_prefix_caching: true
+    revision: a56219b8202864dc6d3e565be5ff1eea01f54cb4  # pragma: allowlist secret - public model revision
     enable_chunked_prefill: true
     async_scheduling: false
     enforce_eager: false

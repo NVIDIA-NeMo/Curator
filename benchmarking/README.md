@@ -800,6 +800,11 @@ python benchmarking/data_prep/prepare_audio_granary_italian_data.py \
   --output-path {datasets_path}/audio_granary_full_italian_fleurs_test_3p5h_70bb2e84 \
   --cache-dir {datasets_path}/_hf_cache/audio_granary_full_italian
 
+python benchmarking/data_prep/prepare_audio_granary_italian_data.py \
+  --output-path {datasets_path}/audio_granary_full_italian_fleurs_train_9h_70bb2e84 \
+  --cache-dir {datasets_path}/_hf_cache/audio_granary_full_italian \
+  --hf-split train
+
 python benchmarking/data_prep/prepare_readspeech_data.py \
   --output-path {datasets_path}/read_speech \
   --num-parts 3 \
@@ -1176,7 +1181,26 @@ text benchmarks, they have no entries or enablement overlay in the standard nigh
 For the European Qwen3-Omni script, `prepare_audio_granary_italian_data.py` stages the open Italian FLEURS test split
 (Hugging Face `google/fleurs`, `it_it`, CC-BY-4.0, revision `70bb2e84`): 865 recordings, 3.52 hours, about 810 MB, as
 `{datasets_path}/audio_granary_full_italian_fleurs_test_3p5h_70bb2e84/manifest.jsonl` (name = pipeline, source, split,
-hours, revision). It is not part of the nightly data setup.
+hours, revision). The train split (`--hf-split train`: 3,030 recordings, 9.0 hours, about 1.9 GB) is the larger benchmark
+input, as `{datasets_path}/audio_granary_full_italian_fleurs_train_9h_70bb2e84/manifest.jsonl`. Neither is part of the
+nightly data setup.
+
+### Benchmark sizes
+
+The benchmark inputs are stride samples of datasets from the data setup above, sized for about 15 minutes of
+steady-state work on one node with eight H100 80 GB GPUs. The sizes are estimates from the 64-recording tutorial runs and the
+component benchmarks in this README, not measurements; measured results replace them as they are recorded.
+
+| Script | Source manifest | Sample | Source hours |
+| --- | --- | --- | --- |
+| English | `{datasets_path}/pr2506_granary_20261015T133532Z/final/manifest.jsonl` (30,631 LibriSpeech recordings) | every 11th row, 2,700 recordings | about 9.5 |
+| European (Qwen3-Omni group) | `{datasets_path}/audio_granary_full_italian_fleurs_train_9h_70bb2e84/manifest.jsonl` | all 3,030 recordings | 9.0 |
+| Indic | `{datasets_path}/audio_indic_asr_parakeet_hindi_531h_35376a11/manifest.jsonl` (216,164 clips) | every 66th row, 3,250 clips | about 8 |
+
+`time_taken_s` covers the whole pipeline run and includes model warm-up: the Qwen3-Omni engine takes about
+11 minutes to start (compilation, profiling and warm-up), and the text-model replicas start only when audio stages free a GPU. The
+start-up lowers the reported throughput and nothing is prewarmed or excluded, so the figure is a lower bound for a
+long-running job. The 64-recording tutorial runs are dominated by this warm-up.
 
 Build the image from the table and prepare models and a recordings manifest as in the
 [full pipeline README](../tutorials/audio/granary_v2/full_pipeline/README.md), then run from the
