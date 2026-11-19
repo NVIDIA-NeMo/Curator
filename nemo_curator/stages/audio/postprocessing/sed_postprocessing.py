@@ -31,7 +31,7 @@ from typing import ClassVar
 
 from loguru import logger
 
-from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, Role, StageContract, StaticHints
+from nemo_curator.stages.audio._agent._agent_ready import AgentReady, IOSpec, Role, StageContract
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -93,7 +93,6 @@ class SEDPostprocessingStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     KEY_ROLE_OVERRIDES: ClassVar[dict[str, Role]] = {"npz_filepath_key": "output_path", "events_key": "prediction"}
     # In-memory SED outputs are value-matched with SEDInferenceStage.
     INTERNAL_KEY_FIELDS: ClassVar[frozenset[str]] = frozenset({"framewise_key", "fps_key", "valid_frames_key"})
-    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(gates=Gates())
 
     def describe(self) -> StageContract:
         return StageContract(

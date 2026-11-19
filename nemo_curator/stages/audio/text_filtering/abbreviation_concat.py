@@ -24,11 +24,9 @@ from loguru import logger
 from nemo_curator.stages.audio._agent._agent_ready import (
     AgentReady,
     ConditionalWrite,
-    Gates,
     IOSpec,
     Role,
     StageContract,
-    StaticHints,
 )
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
@@ -225,7 +223,6 @@ class AbbreviationConcatStage(AgentReady, ProcessingStage[AudioTask, AudioTask])
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 
     KEY_ROLE_OVERRIDES: ClassVar[dict[str, Role]] = {"output_text_key": "text"}
-    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(gates=Gates())
 
     def describe(self) -> StageContract:
         return StageContract(

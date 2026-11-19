@@ -20,16 +20,14 @@ confabulated rather than transcribed.
 """
 
 from dataclasses import dataclass, field
-from typing import Any, ClassVar
+from typing import Any
 
 from loguru import logger
 
 from nemo_curator.stages.audio._agent._agent_ready import (
     AgentReady,
-    Gates,
     IOSpec,
     StageContract,
-    StaticHints,
 )
 from nemo_curator.stages.audio.text_filtering.scriptio_continua import is_scriptio_continua
 from nemo_curator.stages.base import ProcessingStage
@@ -123,8 +121,6 @@ class WhisperHallucinationStage(AgentReady, ProcessingStage[AudioTask, AudioTask
     # Long phrases such as "Thank you" intentionally match their common
     # Whisper-generated continuations.
     _PREFIX_MATCH_MIN_LEN: int = 8
-
-    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(gates=Gates())
 
     def describe(self) -> StageContract:
         return StageContract(

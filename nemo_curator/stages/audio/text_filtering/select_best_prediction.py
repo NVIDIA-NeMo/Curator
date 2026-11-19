@@ -19,11 +19,9 @@ from typing import Any, ClassVar
 from nemo_curator.stages.audio._agent._agent_ready import (
     AgentReady,
     ConditionalWrite,
-    Gates,
     IOSpec,
     Role,
     StageContract,
-    StaticHints,
 )
 from nemo_curator.stages.audio.text_filtering.scriptio_continua import is_scriptio_continua
 from nemo_curator.stages.audio.text_filtering.text_metrics import (
@@ -99,7 +97,6 @@ class SelectBestPredictionStage(AgentReady, ProcessingStage[AudioTask, AudioTask
         "agreement_wer_key": "score",
     }
     INTERNAL_KEY_FIELDS: ClassVar[frozenset[str]] = frozenset({"source_key", "metric_key"})
-    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(gates=Gates())
 
     def describe(self) -> StageContract:
         agreement = [self.agreement_wer_key, self.metric_key]

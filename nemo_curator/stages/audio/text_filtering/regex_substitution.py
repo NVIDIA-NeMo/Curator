@@ -22,11 +22,9 @@ import yaml
 from nemo_curator.stages.audio._agent._agent_ready import (
     AgentReady,
     ConditionalWrite,
-    Gates,
     IOSpec,
     Role,
     StageContract,
-    StaticHints,
 )
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
@@ -63,7 +61,6 @@ class RegexSubstitutionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     _rules: list[dict[str, Any]] = field(default_factory=list, init=False, repr=False)
 
     KEY_ROLE_OVERRIDES: ClassVar[dict[str, Role]] = {"output_text_key": "text"}
-    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(gates=Gates())
 
     def describe(self) -> StageContract:
         return StageContract(

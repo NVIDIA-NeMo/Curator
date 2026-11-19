@@ -1,0 +1,21 @@
+stage_id: InferenceParakeetStage
+category: transcribe
+summary: "Transcribe in-memory waveforms with Parakeet-TDT (NeMo, or a local TensorRT engine) for the languages the checkpoint supports."
+tags: [needs_gpu, needs_internet_first_run, batch_only]
+model_id: nvidia/parakeet-tdt-0.6b-v3
+resource:
+  gpu_optional: false
+  bound: gpu
+composition:
+  typical_downstream: [SelectBestPredictionStage, WhisperHallucinationStage]
+params_of_note:
+  backend: "'nemo' (default; downloads model_id) or 'tensorrt' (requires tensorrt_engine_dir; loads a local engine)."
+  supported_langs: "Language allowlist; defaults to the 25 Parakeet-TDT-0.6B-v3 languages. Other rows get an empty prediction and a lang_not_supported note."
+  source_lang_key: "Per-row language code used for routing (default source_lang); a missing code is treated as unsupported."
+  pred_text_key: "Output transcript (default asr_prediction)."
+  language_key: "Output language code (default asr_language)."
+notes:
+  - "Reads waveform/sampling_rate; the waveform is removed unless keep_waveform is true."
+  - "Declared per-row independent only for the NeMo backend; TensorRT batching is unreviewed."
+verified: {params: mechanical, tags: mechanical, resource: best_guess}
+provenance: {model_card_url: "https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3", card_version: 1, last_validated: "2026-11-19"}

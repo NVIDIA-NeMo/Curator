@@ -1,0 +1,17 @@
+stage_id: RegexSubstitutionStage
+category: text_norm
+summary: "Apply an ordered list of regex rules (optionally per language) to one transcript field, then collapse whitespace."
+tags: []
+model_id: null
+resource: {cpus: 1.0, gpu_mem_gb: 0.0, gpu_optional: false, bound: cpu}
+composition:
+  typical_downstream: [AbbreviationConcatStage]
+params_of_note:
+  regex_params_yaml: "YAML file with the rule list; exactly one of this or rules."
+  rules: "Inline rule list: pattern, repl, optional count, langs or exclude_langs."
+  text_key: "Input transcript (default pred_text)."
+  output_text_key: "Output transcript (default text)."
+notes:
+  - "Sets skip_me_key to 'Empty after regex cleaning' when non-blank text becomes empty."
+verified: {params: mechanical, tags: mechanical, resource: best_guess}
+provenance: {model_card_url: null, card_version: 1, last_validated: "2026-11-19"}

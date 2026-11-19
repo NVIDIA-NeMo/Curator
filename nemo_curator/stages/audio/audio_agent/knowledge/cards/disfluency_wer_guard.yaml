@@ -1,0 +1,12 @@
+stage_id: DisfluencyWerGuardStage
+category: text_norm
+summary: "Restore the original transcript when a disfluency-removal pass changed it by more than max_wer_pct (WER, or CER for languages without spaces)."
+tags: []
+model_id: null
+resource: {cpus: 1.0, gpu_mem_gb: 0.0, gpu_optional: false, bound: cpu}
+params_of_note:
+  ref_text_key: "Transcript before disfluency removal."
+  hyp_text_key: "Cleaned transcript; replaced by ref_text_key when the error rate exceeds max_wer_pct."
+  wer_key: "Output error rate in percent; -1.0 when either text is empty or the row is skipped. Holds CER for scriptio-continua languages."
+verified: {params: mechanical, tags: mechanical, resource: best_guess}
+provenance: {model_card_url: null, card_version: 1, last_validated: "2026-11-19"}

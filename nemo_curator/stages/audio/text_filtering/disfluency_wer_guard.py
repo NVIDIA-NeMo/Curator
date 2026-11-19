@@ -20,11 +20,9 @@ from typing import ClassVar
 from nemo_curator.stages.audio._agent._agent_ready import (
     AgentReady,
     ConditionalWrite,
-    Gates,
     IOSpec,
     Role,
     StageContract,
-    StaticHints,
 )
 from nemo_curator.stages.audio.text_filtering.scriptio_continua import is_scriptio_continua
 from nemo_curator.stages.audio.text_filtering.text_metrics import (
@@ -60,7 +58,6 @@ class DisfluencyWerGuardStage(AgentReady, ProcessingStage[AudioTask, AudioTask])
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 
     KEY_ROLE_OVERRIDES: ClassVar[dict[str, Role]] = {"ref_text_key": "pred_text", "hyp_text_key": "pred_text"}
-    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(gates=Gates())
 
     def describe(self) -> StageContract:
         return StageContract(
