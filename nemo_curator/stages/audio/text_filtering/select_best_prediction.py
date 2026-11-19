@@ -14,8 +14,17 @@
 
 import re
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, ClassVar
 
+from nemo_curator.stages.audio._agent._agent_ready import (
+    AgentReady,
+    ConditionalWrite,
+    Gates,
+    IOSpec,
+    Role,
+    StageContract,
+    StaticHints,
+)
 from nemo_curator.stages.audio.text_filtering.scriptio_continua import is_scriptio_continua
 from nemo_curator.stages.audio.text_filtering.text_metrics import (
     character_error_rate_percent,
@@ -41,7 +50,7 @@ def _normalize_for_error_rate(text: str) -> str:
 
 
 @dataclass
-class SelectBestPredictionStage(ProcessingStage[AudioTask, AudioTask]):
+class SelectBestPredictionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """Choose one stable transcript from primary, recovery, or reference text.
 
     Selection is ordered so explicit reference policies run before model
@@ -81,6 +90,44 @@ class SelectBestPredictionStage(ProcessingStage[AudioTask, AudioTask]):
     ground_truth_source_label: str = "ground_truth"
     name: str = "SelectBestPrediction"
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
+
+    KEY_ROLE_OVERRIDES: ClassVar[dict[str, Role]] = {
+        "primary_text_key": "pred_text",
+        "fallback_text_key": "pred_text",
+        "asr_text_key": "pred_text",
+        "output_key": "text",
+        "agreement_wer_key": "score",
+    }
+    INTERNAL_KEY_FIELDS: ClassVar[frozenset[str]] = frozenset({"source_key", "metric_key"})
+    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(gates=Gates())
+
+    def describe(self) -> StageContract:
+        agreement = [self.agreement_wer_key, self.metric_key]
+        return StageContract(
+            reads=IOSpec(data_keys=self.inputs()[1]),
+            optional_reads=IOSpec(
+                data_keys=[
+                    self.asr_text_key or self.fallback_text_key,
+                    self.notes_key,
+                    self.skip_me_key,
+                    self.duration_key,
+                    self.language_key,
+                ]
+            ),
+            writes=IOSpec(data_keys=[self.output_key, self.source_key, self.notes_key]),
+            conditional_writes=[
+                ConditionalWrite(
+                    writes=IOSpec(data_keys=[self.skip_me_key]),
+                    condition="a reference, recovery or unsupported-language branch sets or clears the skip reason",
+                ),
+                ConditionalWrite(
+                    writes=IOSpec(data_keys=agreement),
+                    condition=f"'{self.skip_me_key}' starts with 'Hallucination' and both predictions are non-empty",
+                ),
+            ],
+            invalidates_prior_writes=IOSpec(data_keys=agreement),
+            cardinality="1:1",
+        )
 
     def inputs(self) -> tuple[list[str], list[str]]:
         keys = [self.primary_text_key]

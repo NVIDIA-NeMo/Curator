@@ -20,6 +20,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
 from nemo_curator.stages.audio.text_filtering.abbreviation_concat import AbbreviationConcatStage
 from nemo_curator.stages.audio.text_filtering.regex_substitution import RegexSubstitutionStage
 from nemo_curator.tasks import AudioTask
@@ -582,3 +583,15 @@ def test_shipped_rules_romanian_cedilla_to_comma(rules: str, language: str, text
     stage.process(task)
 
     assert task.data["text"] == expected
+
+
+def test_regex_substitution_is_agent_ready() -> None:
+    contract = assert_agent_ready(
+        RegexSubstitutionStage(rules=[{"pattern": r"[^a-z ]", "repl": ""}]),
+        lambda: AudioTask(data={"pred_text": "HELLO", "source_lang": "en"}),
+        expected_cardinality="1:1",
+        available_keys={"pred_text", "source_lang"},
+        setup=True,
+    )
+    assert contract.key_roles["text"] == "text"
+    assert contract.key_roles["_skipme"] == "skip_reason"

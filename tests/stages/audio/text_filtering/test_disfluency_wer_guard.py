@@ -16,6 +16,7 @@
 
 import pytest
 
+from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
 from nemo_curator.stages.audio.text_filtering import DisfluencyWerGuardStage
 from nemo_curator.tasks import AudioTask
 
@@ -113,3 +114,13 @@ def test_declares_reference_compatible_io_contract() -> None:
 
     assert stage.inputs() == ([], [_REF_KEY, _HYP_KEY])
     assert stage.outputs() == ([], [_HYP_KEY, _RATE_KEY])
+
+
+def test_disfluency_wer_guard_is_agent_ready() -> None:
+    contract = assert_agent_ready(
+        DisfluencyWerGuardStage(),
+        lambda: _task("um hello there", "completely different words", language="en"),
+        expected_cardinality="1:1",
+        available_keys={_REF_KEY, _HYP_KEY, "_skipme", "source_lang"},
+    )
+    assert contract.key_roles[_RATE_KEY] == "score"

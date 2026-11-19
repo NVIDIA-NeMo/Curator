@@ -15,7 +15,17 @@
 """Guard a disfluency-removal pass against excessive transcript changes."""
 
 from dataclasses import dataclass, field
+from typing import ClassVar
 
+from nemo_curator.stages.audio._agent._agent_ready import (
+    AgentReady,
+    ConditionalWrite,
+    Gates,
+    IOSpec,
+    Role,
+    StageContract,
+    StaticHints,
+)
 from nemo_curator.stages.audio.text_filtering.scriptio_continua import is_scriptio_continua
 from nemo_curator.stages.audio.text_filtering.text_metrics import (
     character_error_rate_percent,
@@ -27,7 +37,7 @@ from nemo_curator.tasks import AudioTask
 
 
 @dataclass
-class DisfluencyWerGuardStage(ProcessingStage[AudioTask, AudioTask]):
+class DisfluencyWerGuardStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """Restore the original prediction when disfluency removal diverges.
 
     The stage compares ``ref_text_key`` with the disfluency-cleaned text at
@@ -48,6 +58,24 @@ class DisfluencyWerGuardStage(ProcessingStage[AudioTask, AudioTask]):
     language_key: str = "source_lang"
     name: str = "DisfluencyWerGuard"
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
+
+    KEY_ROLE_OVERRIDES: ClassVar[dict[str, Role]] = {"ref_text_key": "pred_text", "hyp_text_key": "pred_text"}
+    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(gates=Gates())
+
+    def describe(self) -> StageContract:
+        return StageContract(
+            reads=IOSpec(data_keys=[self.ref_text_key, self.hyp_text_key]),
+            optional_reads=IOSpec(data_keys=[self.skip_me_key, self.language_key]),
+            writes=IOSpec(data_keys=[self.wer_key]),
+            conditional_writes=[
+                ConditionalWrite(
+                    writes=IOSpec(data_keys=[self.hyp_text_key]),
+                    condition=f"the error rate exceeds max_wer_pct, so '{self.ref_text_key}' replaces it",
+                    value_origin="transforms_upstream_same_key",
+                )
+            ],
+            cardinality="1:1",
+        )
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], [self.ref_text_key, self.hyp_text_key]

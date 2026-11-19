@@ -21,6 +21,7 @@ from omegaconf import OmegaConf
 
 from nemo_curator.config.run import create_pipeline_from_yaml
 from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
 from nemo_curator.stages.audio.text_filtering.whisper_hallucination import WhisperHallucinationStage
 from nemo_curator.tasks import AudioTask
 
@@ -302,3 +303,13 @@ def test_example_yaml_exposes_supported_filter_controls(tmp_path: Path) -> None:
     assert stage.max_char_rate == 40.0
     assert stage.overwrite is False
     assert stage.recovery_value == ""
+
+
+def test_whisper_hallucination_is_agent_ready(tmp_path: Path) -> None:
+    contract = assert_agent_ready(
+        _make_stage(tmp_path, ["Thank you for watching"]),
+        lambda: AudioTask(data={_TEXT_KEY: "yes yes yes yes yes yes", "duration": 5.0, "language": "en"}),
+        expected_cardinality="1:1",
+        available_keys={_TEXT_KEY, "duration", "language"},
+    )
+    assert contract.key_roles["language"] == "language"
