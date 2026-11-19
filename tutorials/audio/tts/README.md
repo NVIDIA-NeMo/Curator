@@ -78,6 +78,8 @@ This tutorial needs two inputs you provide: a **turn manifest** and a **referenc
 {"conversation_id": "conv001", "speaker": "Bob", "utterance": "I'm doing well, thanks!"}
 ```
 
+`text` is read when `utterance` is empty. All input and output key names are configurable on `ChatterboxTTSStage` (`conversation_id_key`, `speaker_key`, `utterance_key`, `text_key`, `audio_filepath_key`, `duration_key`, `reference_voice_key`).
+
 **Reference voices dataset** — one of two layouts:
 
 - `wavs/<dialog>/<speaker>.wav` (optional sibling `rttms/<dialog>/<speaker>.rttm` for silence stripping)

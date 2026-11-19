@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import copy
+import itertools
 import json
 from pathlib import Path
 from typing import Any
@@ -29,6 +30,7 @@ from nemo_curator.backends.ray_data import RayDataExecutor
 from nemo_curator.backends.ray_data.adapter import RayDataStageAdapter
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.backends.xenna.adapter import XennaStageAdapter
+from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
 from nemo_curator.stages.audio.common.manifest_reader import ManifestReaderStage
 from nemo_curator.stages.audio.merging import MergeConversationSDPStage
 from nemo_curator.tasks import AudioTask, FileGroupTask
@@ -446,3 +448,14 @@ def test_large_finite_annotation_times_are_clipped_before_sample_conversion(tmp_
     result = _merge(tmp_path, [turn])
     assert result["mfa_fallback"] is True
     assert _rows(result["ctm_filepath"]) == [["conversation", "1", "0.250000", "0.750000", "clipped"]]
+
+
+def test_is_agent_ready(tmp_path: Path) -> None:
+    ids = itertools.count()
+    turns = [_turn(tmp_path, index=i, speaker=str(i)) for i in range(2)]
+    assert_agent_ready(
+        _stage(tmp_path),
+        lambda: _parent(copy.deepcopy(turns), conversation_id=f"conversation_{next(ids)}"),
+        expected_cardinality="filter",
+        available_keys={"conversation_id", "turns"},
+    )

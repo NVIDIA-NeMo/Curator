@@ -32,6 +32,7 @@ import torch
 from filelock import FileLock, Timeout
 
 from nemo_curator.backends.ray_data.adapter import RayDataStageAdapter
+from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
 from nemo_curator.stages.audio.common.duration import GetAudioDurationStage
 from nemo_curator.stages.audio.tts.chatterbox_tts import (
     _CHATTERBOX_MODEL_REVISION,
@@ -331,6 +332,17 @@ class TestChatterboxTTSStage:
             stage.process(_make_task())
         with pytest.raises(ValueError, match="Unsupported language"):
             _build_stage(output_dir, ref_dataset, language="xx")
+
+    def test_is_agent_ready(self, output_dir: str, ref_dataset: str) -> None:
+        with patch.object(ChatterboxTTSStage, "_load_model", _inject_model):
+            stage = _build_stage(output_dir, ref_dataset)
+            stage.setup()
+            assert_agent_ready(
+                stage,
+                _make_task,
+                expected_cardinality="1:1",
+                available_keys={"utterance", "speaker", "conversation_id"},
+            )
 
     def test_init_repetition_penalty_defaults(self, output_dir: str, ref_dataset: str) -> None:
         english = _build_stage(output_dir, ref_dataset)
