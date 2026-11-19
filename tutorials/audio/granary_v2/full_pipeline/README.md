@@ -58,8 +58,9 @@ Use `backend=ray_data` (the default here). Curator raises an error for GPU stage
 
 Run commands from this checkout's root. The default configuration needs **8 H100 80 GB GPUs**,
 128 logical CPUs, 500 GiB shared memory for Ray's object store and more host RAM (2 TiB
-recommended): two Ray Serve replicas (autoscaling up to four) hold one GPU each for the text model, and the other six GPUs serve the audio
-stages. Audio stages declare only the GPU memory each model needs; Ray Data scales
+recommended): the text model runs on Ray Serve replicas of one GPU each (Qwen3.6-27B-FP8 for English and European,
+Gemma-4-31B-it-FP8 for Indic), autoscaling from 0 to 4 on request load, so a replica starts only when a GPU is free and
+the audio stages can use the whole node first. Audio stages declare only the GPU memory each model needs; Ray Data scales
 their worker pools into whatever the text replicas leave free. Docker and the NVIDIA Container Toolkit are required.
 
 Build the images from the repository root, from public base images. English and European:
