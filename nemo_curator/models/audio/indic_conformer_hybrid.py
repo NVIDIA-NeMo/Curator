@@ -60,7 +60,7 @@ import numpy as np
 from loguru import logger
 
 from nemo_curator.models.asr.base import ASRResult
-from nemo_curator.stages.audio.inference.audio_chunking import (
+from nemo_curator.models.audio.audio_chunking import (
     engine_chunk_duration,
     has_audio_longer_than,
     merge_chunk_texts,
@@ -69,6 +69,18 @@ from nemo_curator.stages.audio.inference.audio_chunking import (
 
 _TARGET_SR = 16_000
 _MAX_CHUNK_DURATION_SEC = 40.0
+
+
+def load_engine_metadata(engine_dir: str | Path) -> dict[str, Any]:
+    """Load and validate an IndicConformer TensorRT bundle manifest."""
+    from nemo_curator.models.audio.tensorrt_encoder import load_engine_metadata as _load_engine_metadata
+
+    return _load_engine_metadata(
+        engine_dir,
+        model_type="indic_conformer_hybrid",
+        required_positive_ints=("sample_rate", "feature_count", "subsampling_factor", "encoder_dim"),
+    )
+
 
 # Set once ``_apply_multisoftmax_patches`` has run.
 _PATCHED = False
@@ -459,8 +471,7 @@ class IndicConformerHybridASR:
 
     def _resolve_tensorrt_bundle(self) -> tuple[dict[str, Any], Path, Path]:
         """Validate and resolve the three local TensorRT bundle artifacts."""
-        from nemo_curator.stages.audio.inference.indic_conformer_tensorrt import load_engine_metadata
-        from nemo_curator.stages.audio.inference.tensorrt_encoder import ENGINE_FILENAME, MODEL_FILENAME
+        from nemo_curator.models.audio.tensorrt_encoder import ENGINE_FILENAME, MODEL_FILENAME
 
         engine_dir = self.tensorrt_engine_dir
         if engine_dir is None:
@@ -541,7 +552,7 @@ class IndicConformerHybridASR:
 
     def _enable_tensorrt_encoder(self, engine_path: Path) -> None:
         """Replace only the bundled NeMo model's encoder with TensorRT."""
-        from nemo_curator.stages.audio.inference.tensorrt_encoder import TensorRTEncoder
+        from nemo_curator.models.audio.tensorrt_encoder import TensorRTEncoder
 
         metadata = self._trt_metadata
         if metadata is None:

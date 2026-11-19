@@ -139,7 +139,7 @@ def validate_engine(  # noqa: PLR0913
 ) -> None:
     import torch
 
-    from nemo_curator.stages.audio.inference.tensorrt_encoder import TensorRTEncoderSession
+    from nemo_curator.models.audio.tensorrt_encoder import TensorRTEncoderSession
 
     validation_frames = max(min_frames, min(opt_frames, 256))
     generator = torch.Generator(device="cuda").manual_seed(0)

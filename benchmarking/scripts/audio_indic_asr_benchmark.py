@@ -37,7 +37,7 @@ from loguru import logger
 from omegaconf import OmegaConf
 
 from nemo_curator.config.run import create_executor_from_yaml, create_pipeline_from_yaml, create_ray_client_from_yaml
-from nemo_curator.stages.audio.inference.indic_canary_trtllm_runtime import _require_tensorrt_llm
+from nemo_curator.models.asr.indic_canary_trtllm_runtime import _require_tensorrt_llm
 
 _PIPELINE_CONFIG = Path(__file__).resolve().parents[2] / "tutorials/audio/granary_v2/indic_asr/pipeline.yaml"
 EXPECTED_NUM_ROWS = 216_164

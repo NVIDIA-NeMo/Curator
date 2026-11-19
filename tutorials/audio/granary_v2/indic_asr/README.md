@@ -290,7 +290,7 @@ docker run --rm --gpus all --ipc=host \
   --mount "type=bind,src=$PARAKEET_CHECKPOINT,dst=/checkpoints/parakeet.nemo,readonly" \
   --mount "type=bind,src=$PWD/indic-asr-work/engines,dst=/engine-output" \
   curator-granary-metadata \
-  python nemo_curator/stages/audio/inference/scripts/build_indic_parakeet_rnnt_tensorrt_engine.py \
+  python -m nemo_curator.models.asr.build_indic_parakeet_rnnt_tensorrt_engine \
   --model /checkpoints/parakeet.nemo \
   --output-dir /engine-output/parakeet \
   --min-batch 1 --opt-batch 8 --max-batch 16 \

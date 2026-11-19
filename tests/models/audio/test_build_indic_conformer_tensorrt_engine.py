@@ -16,8 +16,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-from nemo_curator.stages.audio.inference.scripts import build_indic_conformer_tensorrt_engine as builder
-from nemo_curator.stages.audio.inference.scripts import tensorrt_encoder_utils
+from nemo_curator.models.audio import build_indic_conformer_tensorrt_engine as builder
+from nemo_curator.models.audio import tensorrt_encoder_utils
 
 
 def test_builder_imports_packaged_encoder_utility() -> None:

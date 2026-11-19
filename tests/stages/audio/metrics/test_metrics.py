@@ -22,6 +22,7 @@ import pytest
 import soundfile as sf
 import torch
 
+from nemo_curator.models.audio.squim import TorchSquimAdapter
 from nemo_curator.stages.audio._agent._agent_ready import AgentReady, IOSpec, StageContract
 from nemo_curator.stages.audio._agent._agent_registry import build_contract, stage_params, static_contract
 from nemo_curator.stages.audio._agent._catalog import find_producers
@@ -778,7 +779,9 @@ def test_audio_metric_stages_allow_legacy_segments_metrics_alias(
         stage.process(task)
         assert segment["metrics"]["bandwidth"] == 4321
     else:
-        stage = stage_cls(segments_key="metrics", resources=Resources(gpus=0), model=_FakeSquimModel())
+        stage = stage_cls(
+            segments_key="metrics", resources=Resources(gpus=0), model=TorchSquimAdapter(model=_FakeSquimModel())
+        )
         task = AudioTask(dataset_name="d", data={"resampled_audio_filepath": str(path), "metrics": [segment]})
         stage.process_batch([task])
         assert segment["metrics"]["pesq_squim"] == 2.5
@@ -804,7 +807,7 @@ def test_audio_metric_stages_allow_segmented_path_output_alias(
         stage = stage_cls(
             audio_filepath_key="metrics",
             resources=Resources(gpus=0),
-            model=_FakeSquimModel(),
+            model=TorchSquimAdapter(model=_FakeSquimModel()),
         )
         task = AudioTask(dataset_name="d", data={"metrics": str(path), "segments": [segment]})
         stage.process_batch([task])
@@ -875,7 +878,7 @@ def test_squim_allows_legacy_empty_segments_key(tmp_path: Path) -> None:
     stage = TorchSquimQualityMetricsStage(
         segments_key="",
         resources=Resources(gpus=0),
-        model=_FakeSquimModel(),
+        model=TorchSquimAdapter(model=_FakeSquimModel()),
     )
     segment = {"start": 0.0, "end": 1.0, "text": "kept"}
     task = AudioTask(dataset_name="d", data={"resampled_audio_filepath": str(path), "": [segment]})
@@ -959,7 +962,7 @@ def test_squim_agent_ready_conformance() -> None:
     stage = TorchSquimQualityMetricsStage(
         input_residency="waveform",
         resources=Resources(gpus=0),
-        model=_FakeSquimModel(),
+        model=TorchSquimAdapter(model=_FakeSquimModel()),
     )
     task = AudioTask(
         dataset_name="d",
@@ -1044,7 +1047,7 @@ def test_squim_residency_consumption(tmp_path: Path) -> None:
         return TorchSquimQualityMetricsStage(
             input_residency=residency,
             resources=Resources(gpus=0),
-            model=_FakeSquimModel(),
+            model=TorchSquimAdapter(model=_FakeSquimModel()),
         )
 
     def file_fixture() -> AudioTask:

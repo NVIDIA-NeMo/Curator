@@ -20,7 +20,8 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from nemo_curator.models.asr.indic_canary import IndicCanaryTRTLLMASR
-from nemo_curator.stages.audio.inference.asr.stage import ASRStage, _set_note
+from nemo_curator.stages.audio.common.helpers import set_note
+from nemo_curator.stages.audio.inference.asr.stage import ASRStage
 from nemo_curator.stages.resources import Resources
 
 if TYPE_CHECKING:
@@ -117,13 +118,13 @@ class InferenceIndicCanaryStage(ASRStage):
         ):
             if result.extras.get("language_unsupported"):
                 language = str(item.get("language_code") or "").strip().lower()
-                _set_note(
+                set_note(
                     task.data,
                     self.name,
                     f"skipped (unsupported language: {language})",
                     self.notes_key,
                 )
-                _set_note(
+                set_note(
                     task.data,
                     self.pred_text_key,
                     f"lang_not_supported:{language}",
@@ -135,7 +136,7 @@ class InferenceIndicCanaryStage(ASRStage):
                     task.data[self.skip_me_key] = f"lang_not_supported:{self.name}"
             duration = float(result.extras.get("audio_duration_sec") or 0.0)
             if result.extras.get("truncated"):
-                _set_note(
+                set_note(
                     task.data,
                     self.name,
                     f"audio {duration:.2f}s exceeds {self.max_duration_sec:.0f}s encoder window; "

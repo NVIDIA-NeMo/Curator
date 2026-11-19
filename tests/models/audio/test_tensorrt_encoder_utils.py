@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from nemo_curator.stages.audio.inference.scripts import tensorrt_encoder_utils as encoder_utils
+from nemo_curator.models.audio import tensorrt_encoder_utils as encoder_utils
 
 
 def _args() -> Namespace:

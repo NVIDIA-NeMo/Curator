@@ -120,7 +120,7 @@ class IndicCanaryTRTLLMASR:
             msg = f"IndicCanaryTRTLLMASR requires exactly one GPU, got {num_gpus!r}"
             raise ValueError(msg)
         self.download_weights_on_node()
-        from nemo_curator.stages.audio.inference.indic_canary_trtllm_runtime import CanaryTRTLLM
+        from nemo_curator.models.asr.indic_canary_trtllm_runtime import CanaryTRTLLM
 
         logger.info("Loading Indic Canary TensorRT-LLM engine from {}", self.engine_dir)
         self._model = CanaryTRTLLM(
@@ -210,7 +210,7 @@ class IndicCanaryTRTLLMASR:
 
         import torch
 
-        from nemo_curator.stages.audio.inference.indic_canary_trtllm_runtime import pad_or_trim
+        from nemo_curator.models.asr.indic_canary_trtllm_runtime import pad_or_trim
 
         results = [ASRResult(text="") for _ in items]
         prepared: list[Any] = []

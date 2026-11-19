@@ -12,15 +12,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 import time
 import warnings
+from dataclasses import dataclass, field
 
 import joblib
 import numpy as np
 import torch
+from huggingface_hub import hf_hub_download
 from loguru import logger
 
 from .features import AudioFeatureExtractor
+
+_HF_REPO_ID = "nvidia/nemocurator-speech-bandwidth-filter"
+_HF_MODEL_FILENAME = "band_classifier_model_band_7000_samples.joblib"
 
 
 class BandPredictor:
@@ -111,3 +117,50 @@ class BandPredictor:
             return f"Error during prediction: {e}"
         else:
             return "full_band" if prediction == 1 else "narrow_band"
+
+
+@dataclass
+class BandAdapter:
+    """Lifecycle wrapper that loads a ``BandPredictor`` for ``BandFilterStage``.
+
+    ``model_path`` points at a local ``.joblib`` file and skips the download;
+    otherwise the model is fetched from the Hugging Face Hub into ``cache_dir``.
+    """
+
+    model_path: str | None = None
+    cache_dir: str | None = None
+    _predictor: BandPredictor | None = field(default=None, init=False, repr=False)
+
+    def download_weights_on_node(self) -> None:
+        """Download the default model; an explicit ``model_path`` needs no download."""
+        if self.model_path is None:
+            path = hf_hub_download(repo_id=_HF_REPO_ID, filename=_HF_MODEL_FILENAME, cache_dir=self.cache_dir)
+            logger.info(f"Band filter model downloaded to {path}")
+
+    def _resolve_model_path(self) -> str:
+        if self.model_path is not None:
+            if os.path.isfile(self.model_path) and os.path.getsize(self.model_path) > 0:
+                return self.model_path
+            msg = f"Band classifier model_path does not exist, is empty, or is not a file: {self.model_path!r}"
+            raise FileNotFoundError(msg)
+        return hf_hub_download(repo_id=_HF_REPO_ID, filename=_HF_MODEL_FILENAME, cache_dir=self.cache_dir)
+
+    def load_model(self, *, num_gpus: int) -> None:  # noqa: ARG002 (CPU-only sklearn model)
+        """Load the classifier; it always runs on CPU."""
+        if self._predictor is None:
+            self._predictor = BandPredictor(model_path=self._resolve_model_path())
+            logger.info("Band predictor loaded successfully")
+
+    def unload_model(self) -> None:
+        """Release the classifier and CUDA cache."""
+        if self._predictor is not None:
+            self._predictor = None
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+    def predict_audio(self, waveform: torch.Tensor, sample_rate: int) -> str | None:
+        """Return ``"full_band"``/``"narrow_band"`` (or the predictor's error string)."""
+        if self._predictor is None:
+            msg = "BandAdapter is not initialized; call load_model() first"
+            raise RuntimeError(msg)
+        return self._predictor.predict_audio(waveform, sample_rate)

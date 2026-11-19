@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Build an FP16 TensorRT encoder bundle for an Indic Parakeet RNN-T model."""
+"""Build an FP16 TensorRT encoder bundle for an AI4Bharat IndicConformer model."""
 
 from __future__ import annotations
 
@@ -22,10 +22,7 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-if __package__:
-    from .tensorrt_encoder_utils import build_encoder_bundle
-else:
-    from tensorrt_encoder_utils import build_encoder_bundle
+from nemo_curator.models.audio.tensorrt_encoder_utils import build_encoder_bundle
 
 if TYPE_CHECKING:
     import torch
@@ -35,15 +32,19 @@ def _load_model(model_path: Path) -> torch.nn.Module:
     import nemo.collections.asr as nemo_asr
     import torch
 
+    from nemo_curator.models.audio.indic_conformer_hybrid import _apply_multisoftmax_patches
+
     if not torch.cuda.is_available():
-        msg = "Building an Indic Parakeet TensorRT engine requires CUDA"
+        msg = "Building an IndicConformer TensorRT engine requires CUDA"
         raise RuntimeError(msg)
+    _apply_multisoftmax_patches()
     model = nemo_asr.models.ASRModel.restore_from(
         restore_path=str(model_path),
         map_location=torch.device("cuda"),
     )
-    if not hasattr(model, "encoder") or not hasattr(model, "decoder") or not hasattr(model, "joint"):
-        msg = "The supplied NeMo checkpoint is not an RNN-T encoder-decoder model"
+    required_components = ("encoder", "decoder", "joint", "ctc_decoder")
+    if any(not hasattr(model, component) for component in required_components):
+        msg = "The supplied NeMo checkpoint is not an IndicConformer hybrid model"
         raise TypeError(msg)
     model.eval().to(dtype=torch.float16)
     return model
@@ -59,7 +60,7 @@ def build_bundle(args: argparse.Namespace) -> None:
     feature_count = int(getattr(model.encoder, "_feat_in", model.cfg.encoder.feat_in))
     subsampling_factor = int(model.encoder.subsampling_factor)
     sample_rate = int(model.cfg.preprocessor.sample_rate)
-    vocabulary_size = int(getattr(model.joint, "_vocab_size", model.cfg.joint.num_classes))
+    encoder_dim = int(model.cfg.encoder.d_model)
 
     build_encoder_bundle(
         model,
@@ -67,21 +68,21 @@ def build_bundle(args: argparse.Namespace) -> None:
         Path(args.output_dir).resolve(),
         args=args,
         metadata={
-            "model_type": "indic_parakeet_rnnt",
+            "model_type": "indic_conformer_hybrid",
             "sample_rate": sample_rate,
             "feature_count": feature_count,
             "subsampling_factor": subsampling_factor,
-            "vocabulary_size": vocabulary_size,
-            "max_symbols_per_step": args.max_symbols_per_step,
+            "encoder_dim": encoder_dim,
         },
-        temporary_prefix=".indic-parakeet-rnnt-",
-        parity_message="INDIC_PARAKEET_RNNT_TENSORRT_ENCODER_PARITY_PASSED",
+        temporary_prefix=".indic-conformer-",
+        parity_message="INDIC_CONFORMER_TENSORRT_ENCODER_PARITY_PASSED",
+        tolerances=(5e-2, 2e-1),
     )
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--model", required=True, help="Path to the Indic Parakeet RNN-T .nemo checkpoint")
+    parser.add_argument("--model", required=True, help="Path to the AI4Bharat IndicConformer .nemo checkpoint")
     parser.add_argument("--output-dir", required=True, help="Destination engine bundle directory")
     parser.add_argument("--min-batch", type=int, default=1)
     parser.add_argument("--opt-batch", type=int, default=8)
@@ -89,7 +90,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--min-frames", type=int, default=8, help="Minimum input feature frames")
     parser.add_argument("--opt-frames", type=int, default=800, help="Optimization input feature frames")
     parser.add_argument("--max-frames", type=int, default=4001, help="Maximum input feature frames")
-    parser.add_argument("--max-symbols-per-step", type=int, default=10)
     parser.add_argument("--workspace-gb", type=int, default=8)
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
@@ -99,8 +99,6 @@ def parse_args() -> argparse.Namespace:
         parser.error("frame profile must satisfy 1 <= min-frames <= opt-frames <= max-frames")
     if args.max_frames < 4001:  # noqa: PLR2004
         parser.error("max-frames must be at least 4001 to support 40-second audio")
-    if args.max_symbols_per_step < 1:
-        parser.error("max-symbols-per-step must be at least 1")
     if args.workspace_gb < 1:
         parser.error("workspace-gb must be at least 1")
     return args

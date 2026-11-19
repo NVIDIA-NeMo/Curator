@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from nemo_curator.stages.audio.inference.indic_conformer_tensorrt import load_engine_metadata
+from nemo_curator.models.audio.indic_conformer_hybrid import load_engine_metadata
 
 
 def _metadata() -> dict[str, object]:

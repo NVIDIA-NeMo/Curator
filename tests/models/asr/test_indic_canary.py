@@ -21,9 +21,9 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 
+from nemo_curator.models.asr import indic_canary_trtllm_runtime
 from nemo_curator.models.asr.base import ASRAdapter
 from nemo_curator.models.asr.indic_canary import IndicCanaryTRTLLMASR
-from nemo_curator.stages.audio.inference import indic_canary_trtllm_runtime
 
 _SAMPLE_RATE = 16_000
 _REQUIRED_ENGINE_FILES = (

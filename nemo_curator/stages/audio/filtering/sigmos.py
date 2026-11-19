@@ -40,17 +40,15 @@ Example:
 """
 
 import math
-import os
 from dataclasses import KW_ONLY, dataclass, field
-from pathlib import Path
 from typing import Any, ClassVar, Literal
 
 import numpy as np
-import requests
 import torch
 from loguru import logger
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
+from nemo_curator.models.audio.sigmos import _DEFAULT_MODEL_DIR, SIGMOSAdapter
 from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract, StaticHints
 from nemo_curator.stages.audio._agent._residency import (
     normalize_audio_waveform,
@@ -61,17 +59,10 @@ from nemo_curator.stages.audio._agent._residency import (
     validate_audio_key_configuration,
     validate_input_residency,
 )
-from nemo_curator.stages.audio.filtering.sigmos_filter_module.third_party.sigmos.sigmos import build_sigmos_model
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
-_SIGMOS_MODEL_URL = (
-    "https://github.com/microsoft/SIG-Challenge/raw/main/"
-    "ICASSP2024/sigmos/model-sigmos_1697718653_41d092e8-epo-200.onnx"
-)
-_SIGMOS_MODEL_FILENAME = "model-sigmos_1697718653_41d092e8-epo-200.onnx"
-_DEFAULT_MODEL_DIR = str(Path.home() / ".cache" / "nemo_curator" / "sigmos_model")
 _VALID_MODES = {"task", "segments", "auto"}
 _VALID_ACTIONS = {"filter", "annotate"}
 
@@ -139,7 +130,8 @@ class SIGMOSFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
 
     Filters audio segments based on SIGMOS quality metrics.
     Input: items with waveform + sample_rate (tensor/array) or audio_filepath (WAV).
-    The ONNX model is loaded once in setup() and reused for all predictions.
+    Model download and ONNX inference live in ``nemo_curator.models.audio.sigmos.SIGMOSAdapter``,
+    loaded once in setup() and reused for all predictions.
 
     The model is automatically downloaded from Microsoft's SIG-Challenge
     GitHub repository on first use and cached at
@@ -262,7 +254,7 @@ class SIGMOSFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                 "reverb_key": self.reverb_key,
             },
         )
-        self._model = None
+        self._adapter: SIGMOSAdapter | None = None
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], []
@@ -342,84 +334,27 @@ class SIGMOSFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             ),
         )
 
-    @staticmethod
-    def _download_model(model_dir: str) -> str:
-        """Download SIGMOS ONNX model from Microsoft's SIG-Challenge repository.
-
-        Returns the path to the validated model file.
-        """
-        weights_path = str(Path(model_dir) / _SIGMOS_MODEL_FILENAME)
-
-        if not os.path.exists(weights_path):
-            Path(model_dir).mkdir(parents=True, exist_ok=True)
-
-            logger.info(f"Downloading SIGMOS model from {_SIGMOS_MODEL_URL}")
-            response = requests.get(_SIGMOS_MODEL_URL, timeout=120)
-            response.raise_for_status()
-
-            with open(weights_path, "wb") as f:
-                f.write(response.content)
-
-            logger.info(f"SIGMOS model saved to {weights_path}")
-
-        if not os.path.isfile(weights_path) or os.path.getsize(weights_path) == 0:
-            msg = (
-                f"SIGMOS model file is missing or empty at {weights_path}. "
-                f"Download manually from {_SIGMOS_MODEL_URL} "
-                f"and place it at {weights_path}"
-            )
-            raise RuntimeError(msg)
-
-        return weights_path
-
     def setup_on_node(
         self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None
     ) -> None:
         try:
+            SIGMOSAdapter(model_dir=self.model_dir, model_path=self.model_path).download_weights_on_node()
             if self.model_path is None:
-                self._download_model(self.model_dir)
                 logger.info("SIGMOS model pre-downloaded on node")
         except Exception:  # noqa: BLE001
             logger.warning("SIGMOS model pre-download in setup_on_node failed; will retry in setup().")
 
     def setup(self, _: WorkerMetadata | None = None) -> None:
-        from nemo_curator.utils.gpu_utils import ensure_cudnn_loaded
-
-        ensure_cudnn_loaded()
-        self._initialize_model()
+        if self._adapter is not None:
+            return
+        adapter = SIGMOSAdapter(model_dir=self.model_dir, model_path=self.model_path)
+        adapter.load_model(num_gpus=math.ceil(self.resources.gpus))
+        self._adapter = adapter
 
     def teardown(self) -> None:
-        self._model = None
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-
-    def _resolve_model_path(self) -> str:
-        """Resolve the ONNX model path: model_path override → model_dir download."""
-        if self.model_path is not None:
-            if os.path.isfile(self.model_path) and os.path.getsize(self.model_path) > 0:
-                return self.model_path
-            msg = f"SIGMOS model_path does not exist, is empty, or is not a file: {self.model_path!r}"
-            raise FileNotFoundError(msg)
-        return self._download_model(self.model_dir)
-
-    def _initialize_model(self) -> None:
-        if self._model is not None:
-            return
-
-        resolved_path = self._resolve_model_path()
-        if torch.cuda.is_available():
-            device_id = int(torch.cuda.current_device())
-            self._model = build_sigmos_model(
-                force_cpu=False,
-                device_id=device_id,
-                model_path=resolved_path,
-            )
-        else:
-            self._model = build_sigmos_model(
-                force_cpu=True,
-                model_path=resolved_path,
-            )
-        logger.info("SIGMOS model loaded successfully")
+        if self._adapter is not None:
+            self._adapter.unload_model()
+            self._adapter = None
 
     def _scores_from_prediction(self, score_data: Any) -> dict[str, float]:  # noqa: ANN401
         if isinstance(score_data, dict):
@@ -519,11 +454,11 @@ class SIGMOSFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             return None
         audio_np, sample_rate = audio_result
 
-        if self._model is None:
+        if self._adapter is None:
             return None
 
         try:
-            score_data = self._model.run(audio=audio_np, sr=sample_rate)
+            score_data = self._adapter.run(audio=audio_np, sr=sample_rate)
         except Exception as e:  # noqa: BLE001
             logger.exception(f"[{task.task_id}] SIGMOS prediction error: {e}")
             return None

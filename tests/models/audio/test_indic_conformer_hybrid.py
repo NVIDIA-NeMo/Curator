@@ -222,7 +222,7 @@ def test_tensorrt_backend_replaces_only_matching_encoder_without_batch_configura
 
     with (
         patch(
-            "nemo_curator.stages.audio.inference.tensorrt_encoder.TensorRTEncoder",
+            "nemo_curator.models.audio.tensorrt_encoder.TensorRTEncoder",
             return_value=optimized_encoder,
         ) as encoder_type,
         patch("torch.cuda.empty_cache"),
@@ -250,7 +250,7 @@ def test_tensorrt_backend_rejects_profile_shorter_than_40_seconds(tmp_path: Path
 
     with (
         patch(
-            "nemo_curator.stages.audio.inference.tensorrt_encoder.TensorRTEncoder",
+            "nemo_curator.models.audio.tensorrt_encoder.TensorRTEncoder",
             return_value=optimized_encoder,
         ),
         patch("torch.cuda.empty_cache"),

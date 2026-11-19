@@ -23,9 +23,9 @@ import soundfile as sf
 import torch
 import torchaudio.functional as torchaudio_F  # noqa: N812
 from loguru import logger
-from torchaudio.pipelines import SQUIM_OBJECTIVE
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
+from nemo_curator.models.audio.squim import TorchSquimAdapter
 from nemo_curator.stages.audio._agent._agent_ready import (
     AgentReady,
     ConditionalRead,
@@ -59,6 +59,7 @@ class TorchSquimQualityMetricsStage(AgentReady, ProcessingStage[AudioTask, Audio
 
     Uses a pre-trained Squim model to calculate audio quality metrics like
     PESQ, STOI, and SI-SDR for each audio segment.
+    Model loading and inference live in ``nemo_curator.models.audio.squim.TorchSquimAdapter``.
 
     Args:
         audio_filepath_key: Key for the audio file path in the manifest. Defaults to "resampled_audio_filepath".
@@ -98,7 +99,7 @@ class TorchSquimQualityMetricsStage(AgentReady, ProcessingStage[AudioTask, Audio
     )
     resources: Resources = field(default_factory=lambda: Resources(gpus=1.0))
 
-    model: Any = field(default=None, repr=False, metadata={"agent_param": False})
+    model: TorchSquimAdapter | None = field(default=None, repr=False, metadata={"agent_param": False})
 
     def __post_init__(self) -> None:
         validate_input_residency(self.input_residency, stage_name=self.name)
@@ -256,50 +257,26 @@ class TorchSquimQualityMetricsStage(AgentReady, ProcessingStage[AudioTask, Audio
             raise TypeError(msg)
         return segments
 
-    @property
-    def _device(self) -> str:
-        """Derive device from resources configuration."""
-        if self.resources.requires_gpu:
-            if not torch.cuda.is_available():
-                msg = f"[{self.name}] GPU requested via resources but CUDA is not available."
-                raise RuntimeError(msg)
-            return "cuda"
-        return "cpu"
-
     def setup_on_node(
         self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None
     ) -> None:
         """Pre-download SQUIM model weights (cache warming, no GPU allocation)."""
-        SQUIM_OBJECTIVE.get_model()
+        TorchSquimAdapter().download_weights_on_node()
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
-        """Load model onto the target device. Called once per worker."""
-        self.model = SQUIM_OBJECTIVE.get_model()
-        if self._device == "cuda":
-            self.model = self.model.cuda()
-        logger.info(f"[{self.name}] Initialized SQUIM model on {self._device}")
+        """Load the SQUIM adapter onto the target device. Called once per worker."""
+        if self.model is None:
+            self.model = TorchSquimAdapter()
+        self.model.load_model(num_gpus=1 if self.resources.requires_gpu else 0)
+
+    def teardown(self) -> None:
+        if self.model is not None:
+            self.model.unload_model()
+            self.model = None
 
     def _compute_metrics_batched(self, waveforms: list[torch.Tensor]) -> list[tuple[float, float, float]]:
         """Run SQUIM on a list of 1-D waveform tensors in batches."""
-        results: list[tuple[float, float, float]] = []
-        for i in range(0, len(waveforms), self.compute_batch_size):
-            batch = waveforms[i : i + self.compute_batch_size]
-            max_len = max(w.shape[0] for w in batch)
-            padded = torch.zeros(len(batch), max_len)
-            for j, w in enumerate(batch):
-                padded[j, : w.shape[0]] = w
-            padded = padded.to(self._device)
-            with torch.no_grad():
-                stoi, pesq, si_sdr = self.model(padded)
-            for j in range(len(batch)):
-                results.append(
-                    (
-                        round(pesq[j].item(), 3),
-                        round(stoi[j].item(), 3),
-                        round(si_sdr[j].item(), 3),
-                    )
-                )
-        return results
+        return self.model.score_batch(waveforms, self.compute_batch_size)
 
     def _resolve_entry_audio(self, data_entry: dict) -> tuple[Any, int]:
         """Return ``(mono_1d_audio_ndarray, sample_rate)`` from a waveform or the file.

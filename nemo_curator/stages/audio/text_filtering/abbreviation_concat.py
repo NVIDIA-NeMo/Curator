@@ -17,10 +17,10 @@ from __future__ import annotations
 import functools
 import re
 from dataclasses import dataclass, field
-from typing import Any
 
 from loguru import logger
 
+from nemo_curator.stages.audio.common.helpers import set_note
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -70,14 +70,6 @@ _TAIL_SLICE = 2
 _MIN_PARTS = 2
 _PLURAL_SUFFIX_LEN = 2
 _MULTI_CHAR_LEN = 3
-
-
-def _set_note(data: dict[str, Any], stage: str, value: str, notes_key: str) -> None:
-    notes = data.get(notes_key)
-    if not isinstance(notes, dict):
-        notes = {}
-        data[notes_key] = notes
-    notes[stage] = value
 
 
 @functools.lru_cache(maxsize=32)
@@ -237,5 +229,5 @@ class AbbreviationConcatStage(ProcessingStage[AudioTask, AudioTask]):
         if found:
             logger.trace("AbbreviationConcat: {!r} -> {!r} abbrevs={}", text, result, found)
             changes = ", ".join(f"{' '.join(abbreviation)} -> {abbreviation}" for abbreviation in found)
-            _set_note(task.data, self.name, f"applied ({changes})", self.notes_key)
+            set_note(task.data, self.name, f"applied ({changes})", self.notes_key)
         return task

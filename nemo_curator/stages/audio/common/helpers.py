@@ -20,6 +20,15 @@ import torch
 from loguru import logger
 
 
+def set_note(data: dict[str, Any], key: str, value: Any, notes_key: str) -> None:  # noqa: ANN401
+    """Write ``data[notes_key][key] = value``, replacing a missing or non-mapping notes field."""
+    notes = data.get(notes_key)
+    if not isinstance(notes, dict):
+        notes = {}
+        data[notes_key] = notes
+    notes[key] = value
+
+
 def load_audio_file(audio_path: str, mono: bool = True) -> tuple[torch.Tensor, int]:
     """Load audio file and return waveform tensor (channels, samples) and sample rate."""
     data, sample_rate = soundfile.read(audio_path, dtype="float32")

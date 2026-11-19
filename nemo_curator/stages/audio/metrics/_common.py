@@ -16,13 +16,13 @@
 
 from __future__ import annotations
 
-import math
 from collections.abc import MutableMapping
-from numbers import Integral, Real
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import torch
+
+from nemo_curator.stages.audio._agent._residency import resident_sample_rate
 
 if TYPE_CHECKING:
     from nemo_curator.stages.audio._agent._residency import InputResidency
@@ -59,35 +59,6 @@ def validate_metric_keys(
         duplicates = sorted({key for key in strict_values if strict_values.count(key) > 1})
         msg = f"[{stage_name}] Newly configurable keys must be distinct; duplicate values: {duplicates}"
         raise ValueError(msg)
-
-
-def resident_sample_rate(value: Any, *, sample_rate_key: str, stage_name: str) -> int:  # noqa: ANN401
-    """Return a positive integral resident sample rate without lossy coercion."""
-    if torch.is_tensor(value) and value.ndim == 0:
-        value = value.item()
-
-    rate: int | None = None
-    if isinstance(value, (bool, np.bool_)):
-        rate = None
-    elif isinstance(value, str):
-        try:
-            rate = int(value)
-        except ValueError:
-            rate = None
-    elif isinstance(value, Integral):
-        rate = int(value)
-    elif isinstance(value, Real):
-        numeric = float(value)
-        if math.isfinite(numeric) and numeric.is_integer():
-            rate = int(numeric)
-
-    if rate is None or rate <= 0:
-        msg = (
-            f"[{stage_name}] Resident sample rate '{sample_rate_key}' must be a positive, "
-            f"losslessly integral, non-boolean value; got {value!r}"
-        )
-        raise ValueError(msg)
-    return rate
 
 
 def resident_pair_is_complete(

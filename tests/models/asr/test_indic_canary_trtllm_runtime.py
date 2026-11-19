@@ -25,7 +25,7 @@ import numpy as np
 import pytest
 import torch
 
-from nemo_curator.stages.audio.inference import indic_canary_trtllm_runtime as runtime
+from nemo_curator.models.asr import indic_canary_trtllm_runtime as runtime
 
 
 def _write_decoder_bundle(tmp_path: Path, *, prompt_format: str = "canary2", country_codes: bool = True) -> Path:

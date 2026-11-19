@@ -20,7 +20,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import torch
 
-from nemo_curator.stages.audio.inference.tensorrt_encoder import (
+from nemo_curator.models.audio.tensorrt_encoder import (
     TensorRTEncoder,
     TensorRTEncoderSession,
     _trt_dtype_to_torch,

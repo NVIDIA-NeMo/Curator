@@ -84,7 +84,7 @@ def test_default_runtime_reuses_the_shared_indic_canary_runtime() -> None:
     runtime_class = _resolve_runtime_class(_DEFAULT_RUNTIME_CLASS_PATH)
 
     assert runtime_class.__name__ == "CanaryTRTLLM"
-    assert runtime_class.__module__ == "nemo_curator.stages.audio.inference.indic_canary_trtllm_runtime"
+    assert runtime_class.__module__ == "nemo_curator.models.asr.indic_canary_trtllm_runtime"
 
 
 class _Runtime:

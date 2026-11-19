@@ -59,7 +59,7 @@ class WhisperTensorRTEncoder:
     def __init__(self, engine_path: str | Path, session: Any = None) -> None:  # noqa: ANN401
         with ExitStack() as cleanup:
             if session is None:
-                from nemo_curator.stages.audio.inference.tensorrt_encoder import TensorRTEncoderSession
+                from nemo_curator.models.audio.tensorrt_encoder import TensorRTEncoderSession
 
                 session = TensorRTEncoderSession(engine_path)
                 cleanup.callback(session.close)

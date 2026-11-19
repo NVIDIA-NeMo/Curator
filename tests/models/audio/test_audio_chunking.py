@@ -17,7 +17,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from nemo_curator.stages.audio.inference.audio_chunking import (
+from nemo_curator.models.audio.audio_chunking import (
     has_audio_longer_than,
     merge_chunk_texts,
     model_chunk_duration,

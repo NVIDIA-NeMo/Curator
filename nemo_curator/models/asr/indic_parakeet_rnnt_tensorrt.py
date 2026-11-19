@@ -25,18 +25,18 @@ import torch
 from loguru import logger
 
 from nemo_curator.models.asr.nemo_asr import NeMoASRAdapter
-from nemo_curator.stages.audio.inference.audio_chunking import (
+from nemo_curator.models.audio.audio_chunking import (
     engine_chunk_duration,
     has_audio_longer_than,
     merge_chunk_texts,
     split_waveforms,
 )
-from nemo_curator.stages.audio.inference.tensorrt_encoder import (
+from nemo_curator.models.audio.tensorrt_encoder import (
     ENGINE_FILENAME,
     MODEL_FILENAME,
     TensorRTEncoder,
 )
-from nemo_curator.stages.audio.inference.tensorrt_encoder import (
+from nemo_curator.models.audio.tensorrt_encoder import (
     load_engine_metadata as _load_engine_metadata,
 )
 

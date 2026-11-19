@@ -40,6 +40,7 @@ from nemo_curator.stages.audio._agent._agent_ready import (
     StageContract,
     StaticHints,
 )
+from nemo_curator.stages.audio.common.helpers import set_note
 from nemo_curator.stages.audio.inference.base import AdapterInferenceStage
 from nemo_curator.stages.audio.model_input_segmentation import (
     plan_audio_segments,
@@ -112,19 +113,6 @@ _SKIP_ME_KEY = "_skipme"
 _NOTES_KEY = "additional_notes"
 _PADDED_SECONDS_REL_TOL = 1e-12
 _PADDED_SECONDS_ABS_TOL = 1e-9
-
-
-def _set_note(
-    task_data: dict[str, Any],
-    stage_name: str,
-    value: str,
-    notes_key: str = _NOTES_KEY,
-) -> None:
-    notes = task_data.get(notes_key)
-    if not isinstance(notes, dict):
-        notes = {}
-        task_data[notes_key] = notes
-    notes[stage_name] = value
 
 
 @dataclass
@@ -766,19 +754,19 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
         missing_language = self._supported_language_codes is not None and not item["language_code"]
         if missing_language:
             if self.missing_language_is_unsupported:
-                _set_note(task.data, self.name, "skipped (unsupported language: )", self.notes_key)
-                _set_note(task.data, self.pred_text_key, "lang_not_supported:", self.notes_key)
+                set_note(task.data, self.name, "skipped (unsupported language: )", self.notes_key)
+                set_note(task.data, self.pred_text_key, "lang_not_supported:", self.notes_key)
             else:
-                _set_note(task.data, self.name, "skipped (missing language)", self.notes_key)
-                _set_note(task.data, self.pred_text_key, "language_missing", self.notes_key)
+                set_note(task.data, self.name, "skipped (missing language)", self.notes_key)
+                set_note(task.data, self.pred_text_key, "language_missing", self.notes_key)
         elif unsupported_language:
-            _set_note(
+            set_note(
                 task.data,
                 self.name,
                 f"skipped (unsupported language: {unsupported_language})",
                 self.notes_key,
             )
-            _set_note(
+            set_note(
                 task.data,
                 self.pred_text_key,
                 f"lang_not_supported:{unsupported_language}",

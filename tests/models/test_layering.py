@@ -12,4 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Command-line utilities for building audio inference artifacts."""
+"""``nemo_curator.models`` must not depend on ``nemo_curator.stages``."""
+
+import pathlib
+
+import nemo_curator.models
+
+
+def test_models_do_not_reference_stages() -> None:
+    root = pathlib.Path(nemo_curator.models.__file__).parent
+    offenders = [
+        str(path.relative_to(root)) for path in root.rglob("*.py") if "nemo_curator.stages" in path.read_text()
+    ]
+
+    assert offenders == []
