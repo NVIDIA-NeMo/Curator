@@ -3080,13 +3080,13 @@ class TestGeneratedOutputIntegrity:
         from nemo_curator.stages.audio.audio_agent.recipe import build_stages
 
         manifest = store / "out.jsonl"
-        manifest.write_text('{"diar_segments": []}\n')
+        manifest.write_text('{"processed_text": ""}\n')
         rec = _frozen(
             [
                 _READER,
                 {
-                    "ref": "InferenceSortformerStage",
-                    "params": {"audio_filepath_key": "audio_filepath"},
+                    "ref": "AudioTextLLMStage",
+                    "params": {"endpoint": "http://localhost:1/v1", "model_name": "mock", "prompt": "fix"},
                 },
                 {"ref": "ManifestWriterStage", "params": {"output_path": str(manifest)}},
             ]

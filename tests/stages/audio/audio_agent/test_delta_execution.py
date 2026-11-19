@@ -798,7 +798,7 @@ class TestAPipelineHistoryCannotReproduce:
         refused = _verb_delta.delta_run(from_run=run_id)
 
         assert refused["status"] == "refused"
-        assert "PyAnnoteDiarizationStage.hf_token" in refused["reason"]
+        assert "InferenceSortformerStage.adapter_kwargs.hf_token" in refused["reason"]
         assert "recipe with the credential supplied" in refused["next"]
 
     def test_the_verbatim_copy_a_real_run_keeps_makes_it_adoptable(self, tmp_path: Path) -> None:
