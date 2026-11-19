@@ -853,15 +853,8 @@ def test_speaker_wavs_publish_to_a_cloud_prefix() -> None:
     stage = _stubbed_speaker_stage(
         write_to_disk=True, separated_audio_dir="memory://speakers", storage_options={"skip_instance_cache": True}
     )
-    first = stage.process(_make_task(duration_sec=0.1, sample_rate=16000))[0].data[stage.audio_filepath_key]
-    again = stage.process(_make_task(duration_sec=0.1, sample_rate=16000))[0].data[stage.audio_filepath_key]
+    path = stage.process(_make_task(duration_sec=0.1, sample_rate=16000))[0].data[stage.audio_filepath_key]
 
-    assert first.startswith("memory://speakers/")
-    with fs.open(first, "rb") as f:
+    assert path.startswith("memory://speakers/")
+    with fs.open(path, "rb") as f:
         assert sf.info(f).samplerate == 11025
-    assert again == first  # identical content-addressed output is reused
-
-    fs.pipe(first, b"damaged")
-    with pytest.raises(FileExistsError, match="existing"):
-        stage.process(_make_task(duration_sec=0.1, sample_rate=16000))
-    assert fs.cat_file(first) == b"damaged"

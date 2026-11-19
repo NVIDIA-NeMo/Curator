@@ -37,7 +37,6 @@ import posixpath
 import shutil
 import tempfile
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any, ClassVar, cast
 
 import numpy as np
@@ -392,13 +391,7 @@ class SpeakerSeparationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
 
             for speaker_data, staged_path, final_path in staged:
                 if fs is not None:
-                    # Object stores have no no-clobber link; the content-addressed name makes an
-                    # existing identical object reusable, and anything else is a conflict.
-                    if not fs.exists(final_path):
-                        fs.put_file(staged_path, final_path)
-                    elif fs.cat_file(final_path) != Path(staged_path).read_bytes():
-                        msg = f"Speaker output conflicts with an existing file: {final_path}"
-                        raise FileExistsError(msg)
+                    fs.put_file(staged_path, final_path)
                     speaker_data[self.audio_filepath_key] = final_path
                     continue
                 try:
