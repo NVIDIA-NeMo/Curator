@@ -70,7 +70,6 @@ class JusTextExtractor(HTMLExtractorAlgorithm):
             is_boilerplate: If True, text extraction will ignore boilerplate content.
                 Default is True for space-separated languages and False for non-space-separated languages
                 (Thai, Chinese, Japanese, and Korean).
-            logger: Optional logger instance for logging messages.
 
         """
         self.length_low = length_low

@@ -50,8 +50,7 @@ class ShuffleStageAdapter(BaseStageAdapter):
             stage: The shuffle stage to wrap
             rank: This actor's rank in the group
             nranks: Total number of actors in the group
-            session_id: Unique session identifier
-            input_nparts: Total input partitions
+            num_input_tasks: Number of input tasks, used to size the output partitions
         """
         super().__init__(stage)
         # Get runtime context for worker metadata (copied from RayActorPoolStageAdapter)
