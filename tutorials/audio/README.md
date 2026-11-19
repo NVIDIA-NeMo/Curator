@@ -25,15 +25,7 @@ python nemo_curator/config/run.py \
   manifest_path=tests/fixtures/audio/alm/sample_input.jsonl
 ```
 
-Expected output in under 10 seconds:
-
-```
-PIPELINE COMPLETE
-==================================================
-  Output entries: 5
-  [alm_data_builder] windows_created: 181
-  [alm_data_overlap] output_windows (after overlap): 25
-```
+After the run, `nemo_curator/config/run.py` logs the output task count and per-stage totals. For this sample they include `custom.windows_created=181` for `alm_data_builder` and `custom.output_windows=25` for `alm_data_overlap`.
 
 **With a GPU?** Run FastConformer on the bundled two-file manifest:
 

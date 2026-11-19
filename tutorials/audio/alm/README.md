@@ -68,27 +68,14 @@ python nemo_curator/config/run.py \
   manifest_path=tests/fixtures/audio/alm/sample_input.jsonl
 ```
 
-Expected output:
-```
-PIPELINE COMPLETE
-==================================================
-  Output entries: 5
-  [manifest_reader]
-    process_time: mean=0.0030s, total=0.01s
-    items_processed: 0
-  [alm_data_builder]
-    process_time: mean=0.0015s, total=0.01s
-    items_processed: 5
-    windows_created: 181
-  [alm_data_overlap]
-    process_time: mean=0.0004s, total=0.00s
-    items_processed: 5
-    output_windows (after overlap): 25
-    filtered_audio_duration: 3035.5s
-  [manifest_writer]
-    process_time: mean=0.0001s, total=0.00s
-    items_processed: 5
-```
+After the run, `nemo_curator/config/run.py` logs the output task count and, per stage, the total `process_time`, `num_items_processed`, and every custom stage metric (`custom.*`). For the sample data:
+
+| Stage | Metric | Total |
+|---|---|---|
+| `alm_data_builder` | `num_items_processed` | 5 |
+| `alm_data_builder` | `custom.windows_created` | 181 |
+| `alm_data_overlap` | `custom.output_windows` | 25 |
+| `alm_data_overlap` | `custom.filtered_dur` | 3035.5 (seconds) |
 
 ## Using Custom Data
 
@@ -369,23 +356,7 @@ python nemo_curator/config/run.py \
   manifest_path=tests/fixtures/audio/alm/nested_manifests
 ```
 
-This recursively discovers all `.jsonl` and `.json` files under `nested_manifests/` (including `subdir_a/` and `subdir_b/`), partitions them via `FilePartitioningStage`, and processes all entries through the full pipeline. Expected output with the included test fixtures (4 manifest files, 5 entries each = 20 entries):
-
-```
-PIPELINE COMPLETE
-==================================================
-  [file_partitioning]
-    items_processed: 0
-  [manifest_reader]
-    items_processed: 20
-  [alm_data_builder]
-    windows_created: 724
-  [alm_data_overlap]
-    output_windows (after overlap): 100
-    filtered_audio_duration: 12142.0s
-  [manifest_writer]
-    items_processed: 20
-```
+This recursively discovers all `.jsonl` and `.json` files under `nested_manifests/` (including `subdir_a/` and `subdir_b/`), partitions them via `FilePartitioningStage`, and processes all entries through the full pipeline. With the included test fixtures (4 manifest files, 5 entries each = 20 entries), the logged totals include `custom.windows_created=724` for `alm_data_builder` and `custom.output_windows=100` and `custom.filtered_dur=12142` for `alm_data_overlap`.
 
 ## Benchmarking
 
