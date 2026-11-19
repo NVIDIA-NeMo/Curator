@@ -27,9 +27,6 @@ from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
 
 
 def _import_stage_module() -> tuple[Any, Any]:
-    # Inject a stub for optional dependency 'wget' to avoid import errors
-    if "wget" not in sys.modules:
-        sys.modules["wget"] = types.SimpleNamespace(download=lambda *_args, **_kwargs: None)
     from nemo_curator.stages.audio.datasets.fleurs.create_initial_manifest import (
         CreateInitialManifestFleursStage,
         get_fleurs_filenames,

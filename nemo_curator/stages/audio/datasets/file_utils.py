@@ -13,11 +13,13 @@
 # limitations under the License.
 
 import os
+import shutil
 import tarfile
-import urllib
+import tempfile
+import urllib.parse
+import urllib.request
 import zipfile
 
-import wget
 from loguru import logger
 
 
@@ -35,13 +37,20 @@ def download_file(source_url: str, target_directory: str, verbose: bool = True) 
             logger.info(f"Found file {target_filepath} => will not be attempting download from {source_url}")
     else:
         logger.info(f"Not found file {target_filepath}")
-        original_dir = os.getcwd()  # record current working directory so can cd back to it
-        os.chdir(target_directory)  # cd to target dir so that temporary download file will be saved in target dir
-
-        wget.download(source_url, target_directory)
-
-        # change back to original directory as the rest of the code may assume that we are in that directory
-        os.chdir(original_dir)
+        # Stream to a temporary file beside the target and rename, so an interrupted download never
+        # leaves a partial file that the exists() check above would accept. Plain urllib keeps this
+        # working where the ``wget`` package is unavailable (it only arrives via x86-only extras).
+        with (
+            urllib.request.urlopen(source_url) as response,  # noqa: S310
+            tempfile.NamedTemporaryFile(dir=target_directory, prefix=f".{filename}.", delete=False) as tmp,
+        ):
+            try:
+                shutil.copyfileobj(response, tmp)
+            except BaseException:
+                tmp.close()
+                os.remove(tmp.name)
+                raise
+        os.replace(tmp.name, target_filepath)
         if verbose:
             logger.info("Download completed")
 
