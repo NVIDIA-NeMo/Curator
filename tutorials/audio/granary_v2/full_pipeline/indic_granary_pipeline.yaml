@@ -45,7 +45,7 @@ text_model:
     config:
       setup_timeout_seconds: 1800
   engine_kwargs:
-    gpu_memory_utilization: 0.95
+    gpu_memory_utilization: 0.85  # 0.95 failed to start on EOS: another process held about 8 GiB of the replica's GPU
     revision: d4ab4f579dd3516f97d8a6a4c98d0653480bad15  # pragma: allowlist secret - public model revision
     enable_prefix_caching: true
 
