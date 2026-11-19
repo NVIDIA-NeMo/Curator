@@ -36,6 +36,7 @@ from nemo_curator.stages.audio.alm.pretrain.io import (
     SnippetManifestWriterStage,
 )
 from nemo_curator.stages.audio.alm.pretrain.pipeline import (
+    AudioPretrainWorkflow,
     build_audio_pretrain_pipeline,
 )
 from nemo_curator.stages.audio.alm.pretrain.planning import (
@@ -45,6 +46,7 @@ from nemo_curator.stages.audio.alm.pretrain.planning import (
 )
 
 __all__ = [
+    "AudioPretrainWorkflow",
     "OverlapFilterStage",
     "PretrainMetricsAggregatorStage",
     "ReadLongFormManifestStage",

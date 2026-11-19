@@ -40,7 +40,11 @@ the source audio.
 
 from __future__ import annotations
 
+import os
+from typing import TYPE_CHECKING, Any
+
 from nemo_curator.pipeline import Pipeline
+from nemo_curator.pipeline.workflow import WorkflowBase, WorkflowRunResult
 
 from .extraction import SnippetExtractionStage
 from .finalize import (
@@ -59,7 +63,11 @@ from .planning import (
 )
 from .utils import AUDIO_PATH_RESOLUTION_BASENAME
 
+if TYPE_CHECKING:
+    from nemo_curator.backends.base import BaseExecutor
+
 __all__ = [
+    "AudioPretrainWorkflow",
     "build_audio_pretrain_pipeline",
     "finalize_audio_pretrain_outputs",
     "prepare_audio_pretrain_outputs",
@@ -110,8 +118,8 @@ def build_audio_pretrain_pipeline(  # noqa: PLR0913
        :func:`prepare_audio_pretrain_outputs` once before
        :func:`Pipeline.run` and :func:`finalize_audio_pretrain_outputs`
        once after, on the driver, to clean up stale shards and merge
-       this run's shards into the final user-visible files.  ``run.py``
-       wires both calls automatically.
+       this run's shards into the final user-visible files.
+       :class:`AudioPretrainWorkflow` wires both calls automatically.
 
     Args:
         input_manifest: Path to the input JSONL manifest, one row per
@@ -252,3 +260,40 @@ def build_audio_pretrain_pipeline(  # noqa: PLR0913
             ),
         ],
     )
+
+
+class AudioPretrainWorkflow(WorkflowBase):
+    """Run :func:`build_audio_pretrain_pipeline` with driver-side output preparation and finalization.
+
+    Takes the keyword arguments of :func:`build_audio_pretrain_pipeline`, so
+    ``nemo_curator/config/run.py`` can run it from a YAML ``workflow`` entry.
+    ``run`` creates the output directories, removes stale shards, runs the
+    pipeline, and merges the shards into the final manifest, tar, and metrics
+    JSON even if the pipeline fails, so partial output is never lost.
+    """
+
+    def __init__(self, **pipeline_kwargs: Any) -> None:  # noqa: ANN401
+        self.pipeline_kwargs = pipeline_kwargs
+
+    def run(self, executor: BaseExecutor | None = None) -> WorkflowRunResult:
+        kwargs = self.pipeline_kwargs
+        outputs = (kwargs["output_manifest_path"], kwargs["metrics_path"], kwargs["output_audio_tar_path"])
+        for path in (kwargs["output_dir"], *map(os.path.dirname, outputs)):
+            if path:
+                os.makedirs(path, exist_ok=True)
+        pipeline = build_audio_pretrain_pipeline(**kwargs)
+        prepare_audio_pretrain_outputs(*outputs)
+        try:
+            tasks = pipeline.run(executor)
+        finally:
+            finalize_audio_pretrain_outputs(
+                *outputs,
+                **{
+                    key: kwargs[key]
+                    for key in ("audio_filepath_key", "id_key", "segments_key", "duration_key")
+                    if key in kwargs
+                },
+            )
+        result = WorkflowRunResult(workflow_name="audio_pretrain")
+        result.add_pipeline_tasks(pipeline.name, tasks)
+        return result
