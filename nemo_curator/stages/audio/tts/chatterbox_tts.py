@@ -32,10 +32,14 @@ import soundfile as sf
 import torch
 import torchaudio as ta
 from filelock import FileLock
-from huggingface_hub import snapshot_download
 from loguru import logger
 from omegaconf import ListConfig
 
+from nemo_curator.models.audio.chatterbox_tts import (
+    _CHATTERBOX_MODEL_REVISION,
+    _CHATTERBOX_REPO_ID,
+    ChatterboxTTSAdapter,
+)
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -99,34 +103,6 @@ _CHATTERBOX_RUNTIME_ENV: dict[str, Any] = {
         "pip_check": False,
     },
 }
-
-_CHATTERBOX_REPO_ID = "ResembleAI/chatterbox"
-# Pin the model repository independently of the Python package.  Loading a
-# moving ``main`` revision would make cache entries irreproducible even with an
-# exact chatterbox-tts version.
-_CHATTERBOX_MODEL_REVISION = "5bb1f6ee58e50c3b8d408bc82a6d3740c2db6e18"  # pragma: allowlist secret
-_ENGLISH_MODEL_FILES = (
-    "ve.safetensors",
-    "t3_cfg.safetensors",
-    "s3gen.safetensors",
-    "tokenizer.json",
-    "conds.pt",
-)
-_MULTILINGUAL_MODEL_FILES = (
-    "ve.pt",
-    "t3_mtl23ls_v2.safetensors",
-    "s3gen.pt",
-    "grapheme_mtl_merged_expanded_v1.json",
-    "conds.pt",
-    "Cangjie5_TC.json",
-)
-
-# The multilingual model requires eager attention. Loading it mutates
-# process-global state (this env var and chatterbox's LLAMA_CONFIGS), which
-# teardown() restores so other transformer stages in the same worker are
-# unaffected. ``_UNSET`` marks state that was absent before we touched it.
-_ATTN_ENV = "TRANSFORMERS_ATTN_IMPLEMENTATION"
-_UNSET = object()
 
 # Chatterbox's S3Gen decoder always synthesises at this rate; both
 # ChatterboxTTS and ChatterboxMultilingualTTS set ``self.sr`` to it after
@@ -261,8 +237,8 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
             self.exaggeration_range = None
             self.exaggeration = float(exaggeration)
 
+        self._adapter = ChatterboxTTSAdapter(language=self.language, device=device, cache_dir=cache_dir)
         self.model = None
-        self._model_snapshot_dir: str | None = None
         self.reference_wavs_list: list[str] | None = None
         self._reference_layout: str = "wavs"
         self._speaker_audio_map: dict[str, list[str]] = {}
@@ -274,11 +250,6 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
         self.conversation_exaggeration: dict[str, float] = {}
 
         self.temp_dir: str | None = None
-
-        # Saved process-global state for restoration in teardown().
-        self._global_state_modified = False
-        self._prev_attn_env: str | None = None
-        self._llama_cfg_restore: list[tuple[dict, Any]] = []
 
     def inputs(self) -> tuple[list[str], list[str]]:
         """Required task data keys.
@@ -299,60 +270,28 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
     ) -> None:
         """Pre-download Chatterbox weights on the node so workers load from cache."""
         try:
-            self._pre_download_model_weights()
+            self._adapter.download_weights_on_node()
         except Exception:  # noqa: BLE001
             logger.warning("Chatterbox model pre-download in setup_on_node failed; will retry in setup().")
-
-    def _pre_download_model_weights(self) -> None:
-        """Download Chatterbox checkpoint files from HuggingFace."""
-        model_files = _MULTILINGUAL_MODEL_FILES if self.language else _ENGLISH_MODEL_FILES
-        self._model_snapshot_dir = snapshot_download(
-            repo_id=_CHATTERBOX_REPO_ID,
-            repo_type="model",
-            revision=_CHATTERBOX_MODEL_REVISION,
-            allow_patterns=list(model_files),
-            cache_dir=self.cache_dir,
-            token=os.getenv("HF_TOKEN"),
-        )
-        logger.info(f"Pre-downloaded Chatterbox weights from {_CHATTERBOX_REPO_ID}@{_CHATTERBOX_MODEL_REVISION}")
 
     def setup(self, worker_metadata: object = None) -> None:  # noqa: ARG002
         """Load the TTS model and discover reference audio files."""
         os.makedirs(self.output_audio_dir, exist_ok=True)
         self._init_temp_dir()
-        self._load_model()
+        self._adapter.load_model(num_gpus=1)
+        self.model = self._adapter.model
         self._load_reference_audio_files()
 
     def teardown(self) -> None:
         """Release model, restore global state, and clean up temp files."""
+        self._adapter.unload_model()
         self.model = None
         self.speaker_to_reference.clear()
         self._speaker_to_original_wav.clear()
         self.speaker_to_ref_id.clear()
         self.speaker_to_ref_content_hash.clear()
         self.conversation_exaggeration.clear()
-        self._restore_global_state()
         self._cleanup_temp_dir()
-
-    def _restore_global_state(self) -> None:
-        """Undo the process-global mutations made by the multilingual model load."""
-        if not self._global_state_modified:
-            return
-
-        if self._prev_attn_env is None:
-            os.environ.pop(_ATTN_ENV, None)
-        else:
-            os.environ[_ATTN_ENV] = self._prev_attn_env
-
-        for cfg, prev in self._llama_cfg_restore:
-            if prev is _UNSET:
-                cfg.pop("attn_implementation", None)
-            else:
-                cfg["attn_implementation"] = prev
-
-        self._llama_cfg_restore = []
-        self._prev_attn_env = None
-        self._global_state_modified = False
 
     def _init_temp_dir(self) -> None:
         if self.temp_dir is None or not os.path.exists(self.temp_dir):
@@ -363,39 +302,6 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
             with contextlib.suppress(OSError):
                 shutil.rmtree(self.temp_dir)
             self.temp_dir = None
-
-    def _load_model(self) -> None:
-        """Load ChatterboxTTS or ChatterboxMultilingualTTS."""
-        # setup_on_node() normally populated this exact snapshot.  Download it
-        # here only as a retry if node setup failed; from_local() below never
-        # consults the default HF cache or performs a second download.
-        if self._model_snapshot_dir is None:
-            self._pre_download_model_weights()
-
-        if self.language:
-            from chatterbox.models.t3 import llama_configs as _llama_cfgs
-            from chatterbox.mtl_tts import ChatterboxMultilingualTTS
-
-            self._prev_attn_env = os.environ.get(_ATTN_ENV, None)
-            self._llama_cfg_restore = [
-                (cfg, cfg.get("attn_implementation", _UNSET)) for cfg in _llama_cfgs.LLAMA_CONFIGS.values()
-            ]
-            self._global_state_modified = True
-
-            os.environ[_ATTN_ENV] = "eager"
-            for cfg in _llama_cfgs.LLAMA_CONFIGS.values():
-                cfg["attn_implementation"] = "eager"
-
-            self.model = ChatterboxMultilingualTTS.from_local(
-                self._model_snapshot_dir,
-                device=self.device,
-            )
-            logger.info(f"Loaded ChatterboxMultilingualTTS (language={self.language})")
-        else:
-            from chatterbox.tts import ChatterboxTTS
-
-            self.model = ChatterboxTTS.from_local(self._model_snapshot_dir, device=self.device)
-            logger.info("Loaded ChatterboxTTS (English)")
 
     def _load_reference_audio_files(self) -> None:
         """Discover reference audio files in wavs/ or MLS layout.
