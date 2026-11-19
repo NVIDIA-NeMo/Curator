@@ -21,6 +21,7 @@ from typing import Any
 
 from loguru import logger
 
+from nemo_curator.stages.audio.text_filtering.text_transform import RowTextTransform
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -203,7 +204,7 @@ def concat_abbreviations(text: str, language: str = "en") -> tuple[str, list[str
 
 
 @dataclass
-class AbbreviationConcatStage(ProcessingStage[AudioTask, AudioTask]):
+class AbbreviationConcatStage(RowTextTransform, ProcessingStage[AudioTask, AudioTask]):
     """Concatenate spaced single-letter abbreviations in a transcript."""
 
     text_key: str = "text"
@@ -215,19 +216,12 @@ class AbbreviationConcatStage(ProcessingStage[AudioTask, AudioTask]):
     name: str = "AbbreviationConcat"
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 
-    def inputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.text_key]
-
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.output_text_key, self.notes_key]
 
-    def process(self, task: AudioTask) -> AudioTask:
-        if task.data.get(self.skip_me_key, ""):
-            task.data.setdefault(self.output_text_key, "")
-            return task
-        text = task.data.get(self.text_key, "")
-        if not isinstance(text, str) or not text.strip():
-            task.data.setdefault(self.output_text_key, text if isinstance(text, str) else "")
+    def transform_row(self, task: AudioTask, text: str) -> AudioTask:
+        if not text.strip():
+            task.data.setdefault(self.output_text_key, text)
             return task
 
         language_value = task.data.get(self.source_lang_key) or self.default_language

@@ -19,13 +19,14 @@ from typing import Any
 
 import yaml
 
+from nemo_curator.stages.audio.text_filtering.text_transform import RowTextTransform
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
 
 @dataclass
-class RegexSubstitutionStage(ProcessingStage[AudioTask, AudioTask]):
+class RegexSubstitutionStage(RowTextTransform, ProcessingStage[AudioTask, AudioTask]):
     """Apply an ordered list of regex substitutions to one transcript field.
 
     Provide exactly one of ``regex_params_yaml`` or inline ``rules``. Each must
@@ -120,21 +121,10 @@ class RegexSubstitutionStage(ProcessingStage[AudioTask, AudioTask]):
             return language is None or language not in {x.lower() for x in rule["exclude_langs"]}
         return True
 
-    def inputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.text_key]
-
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.output_text_key, self.skip_me_key]
 
-    def process(self, task: AudioTask) -> AudioTask:
-        if task.data.get(self.skip_me_key, ""):
-            task.data.setdefault(self.output_text_key, "")
-            return task
-
-        text = task.data.get(self.text_key, "")
-        if not isinstance(text, str):
-            task.data.setdefault(self.output_text_key, "")
-            return task
+    def transform_row(self, task: AudioTask, text: str) -> AudioTask:
         had_text = bool(text.strip())
 
         language = self._base_language(task.data.get(self.language_key))
