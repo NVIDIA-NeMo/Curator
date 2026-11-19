@@ -22,6 +22,11 @@ from dataclasses import dataclass, field
 from loguru import logger
 
 from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.interleaved.pdf.nemotron_parse.page_budget import (
+    document_identity,
+    identity_digest,
+    selected_pages,
+)
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import EmptyTask, FileGroupTask
 
@@ -50,7 +55,10 @@ class PDFPartitioningStage(ProcessingStage[EmptyTask, FileGroupTask]):
     manifest_path
         Path to a JSONL file listing PDFs to process.
     pdfs_per_task
-        Number of PDFs to pack into each FileGroupTask.
+        Number of PDFs per task in legacy mode. Ignored with pages_per_task.
+    pages_per_task
+        Sole task-size limit in page mode. Every task except the final tail
+        contains this many selected pages, independent of document boundaries.
     max_pdfs
         If set, limit the total number of PDFs to process.
     dataset_name
@@ -70,8 +78,18 @@ class PDFPartitioningStage(ProcessingStage[EmptyTask, FileGroupTask]):
     file_name_field: str = "file_name"
     file_names_field: str = "cc_pdf_file_names"
     url_field: str = "url"
+    pages_per_task: int | None = field(default=None, kw_only=True)
     name: str = "pdf_partitioning"
     resources: Resources = field(default_factory=lambda: Resources(cpus=0.5))
+    _parser_config: dict = field(default_factory=dict, init=False, repr=False)
+    _extraction_config: dict = field(default_factory=dict, init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        if self.pages_per_task is not None:
+            value = self.pages_per_task
+            if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+                msg = "pages_per_task must be a positive integer"
+                raise ValueError(msg)
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], []
@@ -82,7 +100,7 @@ class PDFPartitioningStage(ProcessingStage[EmptyTask, FileGroupTask]):
     def num_workers(self) -> int | None:
         return 1
 
-    def _parse_manifest(self) -> list[str]:
+    def _parse_manifest(self) -> list[str]:  # noqa: C901
         """Read manifest and return list of JSON-serialized entries."""
         entries: list[str] = []
 
@@ -95,6 +113,9 @@ class PDFPartitioningStage(ProcessingStage[EmptyTask, FileGroupTask]):
                 url = record.get(self.url_field, "")
 
                 if self.file_names_field in record:
+                    if self.pages_per_task is not None:
+                        msg = "Page budgeting requires one counted, versioned PDF per manifest record"
+                        raise ValueError(msg)
                     # CC-MAIN style: multiple filenames per line, no per-file extra fields
                     file_names = record[self.file_names_field]
                     extra: dict = {}
@@ -107,11 +128,17 @@ class PDFPartitioningStage(ProcessingStage[EmptyTask, FileGroupTask]):
                         if k not in (self.file_name_field, self.url_field, self.file_names_field)
                     }
                 else:
+                    if self.pages_per_task is not None:
+                        msg = f"Page-budget manifest record lacks {self.file_name_field!r}"
+                        raise ValueError(msg)
                     logger.warning(f"Skipping manifest line: no '{self.file_name_field}' or '{self.file_names_field}'")
                     continue
 
                 for fname in dict.fromkeys(file_names):
                     if not fname:
+                        if self.pages_per_task is not None:
+                            msg = "Page-budget manifest record has an empty PDF filename"
+                            raise ValueError(msg)
                         continue
                     entries.append(json.dumps({"file_name": fname, "url": url, **extra}))
 
@@ -123,6 +150,8 @@ class PDFPartitioningStage(ProcessingStage[EmptyTask, FileGroupTask]):
 
     def process(self, _: EmptyTask) -> list[FileGroupTask]:
         entries = self._parse_manifest()
+        if self.pages_per_task is not None:
+            return self._chunk_tasks(entries)
 
         tasks: list[FileGroupTask] = []
         for i in range(0, len(entries), self.pdfs_per_task):
@@ -138,3 +167,55 @@ class PDFPartitioningStage(ProcessingStage[EmptyTask, FileGroupTask]):
 
         logger.info(f"Created {len(tasks)} tasks from {len(entries)} PDFs")
         return tasks
+
+    def _chunk_tasks(self, entries: list[str]) -> list[FileGroupTask]:
+        tasks, batch = [], []
+        batch_pages = 0
+        seen_ids, seen_samples = set(), set()
+        for serialized in entries:
+            entry = json.loads(serialized)
+            identity = document_identity(entry)
+            sample_id = entry["file_name"].rsplit(".", 1)[0]
+            if identity["document_id"] in seen_ids or sample_id in seen_samples:
+                msg = f"Duplicate document identity or ambiguous sample_id: {entry['file_name']!r}"
+                raise ValueError(msg)
+            seen_ids.add(identity["document_id"])
+            seen_samples.add(sample_id)
+            indexes = selected_pages(entry)
+            offset = 0
+            while offset < len(indexes):
+                if batch and batch_pages == self.pages_per_task:
+                    tasks.append(self._make_page_task(batch, len(tasks)))
+                    batch, batch_pages = [], 0
+                count = min(self.pages_per_task - batch_pages, len(indexes) - offset)
+                selected = indexes[offset : offset + count]
+                chunk = {
+                    **identity,
+                    "pdf_name": entry["file_name"],
+                    "sample_id": sample_id,
+                    "offset": offset,
+                    "total_pages": len(indexes),
+                    "selection_sha256": identity_digest(indexes),
+                    "page_indices": selected,
+                }
+                batch.append(json.dumps({**entry, "selected_page_indices": selected, "_page_chunk": chunk}))
+                batch_pages += count
+                offset += count
+        if batch:
+            tasks.append(self._make_page_task(batch, len(tasks)))
+        logger.info(f"Created {len(tasks)} page-budget tasks from {len(entries)} PDFs")
+        return tasks
+
+    def _make_page_task(self, batch: list[str], task_idx: int) -> FileGroupTask:
+        chunks = {entry["file_name"]: entry["_page_chunk"] for entry in map(json.loads, batch)}
+        return FileGroupTask(
+            dataset_name=self.dataset_name,
+            data=batch,
+            _metadata={
+                "source_files": batch,
+                "partition_index": task_idx,
+                "pdf_page_chunks": chunks,
+                "pdf_parser_config": self._parser_config,
+                "pdf_extraction_config": self._extraction_config,
+            },
+        )
