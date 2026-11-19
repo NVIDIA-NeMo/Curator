@@ -110,6 +110,8 @@ _LANG_CODE_TO_NAME: dict[str, str] = {
 
 _SKIP_ME_KEY = "_skipme"
 _NOTES_KEY = "additional_notes"
+# Adapters whose batching was reviewed for per-row independence: NeMo pads with lengths preserved.
+_ROW_INDEPENDENT_ADAPTER_TARGETS = frozenset({"nemo_curator.models.asr.nemo_asr.NeMoASRAdapter"})
 _PADDED_SECONDS_REL_TOL = 1e-12
 _PADDED_SECONDS_ABS_TOL = 1e-9
 
@@ -182,9 +184,10 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
     num_workers_override: int | None = None
 
     BATCH_ONLY = True
-    INTERNAL_KEY_FIELDS = frozenset({"source_lang_key", "language_key", "extras_key", "skip_me_key", "notes_key"})
+    INTERNAL_KEY_FIELDS = frozenset({"extras_key"})
+    # Static hints cannot see adapter_target, so they fail closed; describe() resolves it.
     AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
-        gates=Gates(requires_gpu=True, requires_internet_first_run=True, per_row_independent=True)
+        gates=Gates(requires_gpu=True, requires_internet_first_run=True, per_row_independent=False)
     )
 
     def __post_init__(self) -> None:  # noqa: C901, PLR0912, PLR0915
@@ -354,7 +357,7 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
             gates=Gates(
                 requires_gpu=self.resources.requires_gpu,
                 requires_internet_first_run=True,
-                per_row_independent=True,
+                per_row_independent=self.adapter_target in _ROW_INDEPENDENT_ADAPTER_TARGETS,
             ),
         )
 

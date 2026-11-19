@@ -176,7 +176,7 @@ class VADSegmentationStage(AgentReady, AdapterInferenceStage[VADAdapter]):
         "diar_end_key": "end",
         "diar_speaker_key": "speaker_id",
     }
-    INTERNAL_KEY_FIELDS: ClassVar[frozenset[str]] = frozenset({"read_error_key", "vad_empty_key", "skip_me_key"})
+    INTERNAL_KEY_FIELDS: ClassVar[frozenset[str]] = frozenset({"read_error_key", "vad_empty_key"})
 
     def __post_init__(self) -> None:
         super().__post_init__()

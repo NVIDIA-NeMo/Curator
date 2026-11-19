@@ -123,7 +123,6 @@ class AudioLIDInferenceStage(AgentReady, AdapterInferenceStage[AudioLIDAdapter])
 
     BATCH_ONLY = True
     KEY_ROLE_OVERRIDES: ClassVar = {"results_key": "prediction"}
-    INTERNAL_KEY_FIELDS = frozenset({"skip_me_key"})
 
     def __post_init__(self) -> None:
         super().__post_init__()

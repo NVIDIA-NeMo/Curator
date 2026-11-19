@@ -510,11 +510,12 @@ def test_static_and_configured_inference_hints_are_truthful(tmp_path: Path) -> N
     )
     assert asr_static.gates.requires_gpu
     assert asr_static.gates.requires_internet_first_run
-    assert asr_static.gates.per_row_independent is True
+    assert asr_static.gates.per_row_independent is False
     assert asr_static.dispatch == "process_batch"
     assert not asr_configured.gates.requires_gpu
     assert asr_configured.gates.requires_internet_first_run
-    assert asr_configured.gates.per_row_independent is True
+    # Qwen-Omni batching is unreviewed, so only reviewed adapters declare independence.
+    assert asr_configured.gates.per_row_independent is False
     default_sortformer = rh.build_contract(rh.InferenceSortformerStage(resources=rh.Resources(gpus=0)))
     local_sortformer = rh.build_contract(
         rh.InferenceSortformerStage(model_path="/models/local.nemo", resources=rh.Resources(gpus=0))
