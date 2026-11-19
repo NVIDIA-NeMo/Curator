@@ -16,6 +16,9 @@
 
 from pathlib import Path
 
+import fsspec
+import pytest
+
 from nemo_curator.tasks import AudioTask
 
 
@@ -49,3 +52,18 @@ def test_audio_task_validation_missing_file(tmp_path: Path) -> None:
 def test_audio_task_validation_no_filepath_key() -> None:
     entry = AudioTask(data={"text": "hello"})
     assert entry.validate() is True
+
+
+def test_audio_task_validation_uses_fsspec() -> None:
+    fs = fsspec.filesystem("memory")
+    fs.pipe("memory://audio/ok.wav", b"fake")
+    assert AudioTask(data={"audio_filepath": "memory://audio/ok.wav"}, filepath_key="audio_filepath").validate()
+    assert not AudioTask(data={"audio_filepath": "memory://audio/no.wav"}, filepath_key="audio_filepath").validate()
+
+
+@pytest.mark.parametrize("validate_on_init", [False, True])
+def test_audio_task_validate_on_init_flag(monkeypatch: pytest.MonkeyPatch, validate_on_init: bool) -> None:
+    calls = []
+    monkeypatch.setattr(AudioTask, "validate", lambda self: calls.append(self) or True)
+    AudioTask(data={"audio_filepath": "/missing.wav"}, filepath_key="audio_filepath", validate_on_init=validate_on_init)
+    assert len(calls) == int(validate_on_init)

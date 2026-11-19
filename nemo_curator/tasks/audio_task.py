@@ -12,10 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
 from dataclasses import dataclass, field
 
 from loguru import logger
+
+from nemo_curator.utils.file_utils import get_fs
 
 from .tasks import Task
 
@@ -50,17 +51,23 @@ class AudioTask(Task[dict]):
 
     Args:
         data: Manifest entry dict (e.g. ``{"audio_filepath": "...", "text": "..."}``).
-        filepath_key: Optional key whose value is validated as an existing path.
+        filepath_key: Optional key whose value is validated as an existing path
+            (local or any fsspec URL such as ``s3://``).
+        validate_on_init: Run :meth:`validate` when the task is created, like
+            other task types do. Off by default; validation only logs a warning.
     """
 
     task_id: str = ""
     dataset_name: str = ""
     data: dict = field(default_factory=_AttrDict)
     filepath_key: str | None = None
+    validate_on_init: bool = False
 
     def __post_init__(self):
         if not isinstance(self.data, _AttrDict):
             self.data = _AttrDict(self.data)
+        if self.validate_on_init:
+            self.validate()
 
     @property
     def num_items(self) -> int:
@@ -70,7 +77,7 @@ class AudioTask(Task[dict]):
         """Validate the task data."""
         if self.filepath_key and self.filepath_key in self.data:
             path = self.data[self.filepath_key]
-            if not os.path.exists(path):
+            if not get_fs(path).exists(path):
                 logger.warning(f"File {path} does not exist")
                 return False
         return True
