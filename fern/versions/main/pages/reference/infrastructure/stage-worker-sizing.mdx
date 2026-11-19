@@ -300,13 +300,17 @@ Alternatively, keep the class executor-neutral and use `stage.with_(num_workers=
 
 Some built-in single-input and fanout stages override `num_workers()` to return `1`, preventing duplicate source enumeration. Use `with_(num_workers=None)` only when executor-controlled parallelism is safe for that stage's input contract.
 
-For ASR stages, the stage-local NeMo DataLoader setting is named `dataloader_num_workers`. When migrating an ASR constructor or configuration, rename the previous stage field `num_workers` to `dataloader_num_workers`; the common `num_workers()` hook is now reserved for Curator backend workers:
+For ASR stages, the NeMo DataLoader worker count is an adapter option (`num_workers` on `NeMoASRAdapter`, passed through `adapter_kwargs`); the stage's common `num_workers()` hook is reserved for Curator backend workers:
 
 ```python
-from nemo_curator.stages.audio.tagging.inference.nemo_asr_align import NeMoASRAlignerStage
+from nemo_curator.stages.audio.inference.asr.stage import ASRStage
 
-asr_stage = NeMoASRAlignerStage(
-    dataloader_num_workers=10,
+asr_stage = ASRStage(
+    adapter_target="nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter",
+    model_id="nvidia/parakeet-tdt_ctc-1.1b",
+    max_audio_sec_per_actor=1280,
+    max_inference_duration_s=1280,
+    adapter_kwargs={"num_workers": 10},
 ).with_(num_workers=2)
 ```
 

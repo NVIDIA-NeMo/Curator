@@ -75,7 +75,7 @@ def _write_wav(path: Path, *, samples: int = 32, sample_rate: int = 16000) -> st
 def _stage(*, mode: str = "task", scorable: bool = True, input_residency: str = "auto") -> SIGMOSFilterStage:
     stage = SIGMOSFilterStage(mode=mode, action="annotate", input_residency=input_residency)
     if scorable:
-        stage._model = _make_mock_model(_GOOD_SCORES)
+        stage._adapter = _make_mock_model(_GOOD_SCORES)
     return stage
 
 
@@ -115,8 +115,8 @@ class TestSIGMOSFilterStage:
     )
     def test_output_key_collisions_are_rejected(self, params: dict[str, str]) -> None:
         with (
-            patch("nemo_curator.stages.audio.filtering.sigmos.build_sigmos_model") as build_model,
-            patch.object(SIGMOSFilterStage, "_download_model") as download,
+            patch("nemo_curator.models.audio.sigmos.build_sigmos_model") as build_model,
+            patch("nemo_curator.models.audio.sigmos.download_sigmos_model") as download,
             pytest.raises(ValueError, match="Output keys"),
         ):
             SIGMOSFilterStage(**params)
@@ -144,7 +144,7 @@ class TestSIGMOSFilterStage:
         result = stage.process(task)
 
         assert isinstance(result, AudioTask)
-        stage._model.run.assert_not_called()
+        stage._adapter.run.assert_not_called()
         score_keys = {
             stage.noise_key,
             stage.ovrl_key,
@@ -155,68 +155,6 @@ class TestSIGMOSFilterStage:
             stage.reverb_key,
         }
         assert not score_keys & audio.keys()
-
-    def test_explicit_valid_model_path_returns_without_download(self, tmp_path: Path) -> None:
-        model_path = tmp_path / "model.onnx"
-        model_path.write_bytes(b"model")
-        stage = SIGMOSFilterStage(model_path=str(model_path))
-
-        with patch.object(stage, "_download_model") as download:
-            assert stage._resolve_model_path() == str(model_path)
-
-        download.assert_not_called()
-
-    def test_explicit_missing_model_path_does_not_download(self, tmp_path: Path) -> None:
-        stage = SIGMOSFilterStage(model_path=str(tmp_path / "missing.onnx"))
-
-        with (
-            patch.object(stage, "_download_model") as download,
-            pytest.raises(FileNotFoundError, match="model_path"),
-        ):
-            stage._resolve_model_path()
-
-        download.assert_not_called()
-
-    def test_explicit_empty_model_path_does_not_download(self, tmp_path: Path) -> None:
-        model_path = tmp_path / "empty.onnx"
-        model_path.touch()
-        stage = SIGMOSFilterStage(model_path=str(model_path))
-
-        with (
-            patch.object(stage, "_download_model") as download,
-            pytest.raises(FileNotFoundError, match="empty"),
-        ):
-            stage._resolve_model_path()
-
-        download.assert_not_called()
-
-    def test_default_uncached_model_path_uses_download(self, tmp_path: Path) -> None:
-        stage = SIGMOSFilterStage(model_dir=str(tmp_path))
-
-        with patch.object(stage, "_download_model", return_value="/cache/model.onnx") as download:
-            assert stage._resolve_model_path() == "/cache/model.onnx"
-
-        download.assert_called_once_with(str(tmp_path))
-
-    def test_cached_model_is_reused_without_network(self, tmp_path: Path) -> None:
-        model_path = tmp_path / "model-sigmos_1697718653_41d092e8-epo-200.onnx"
-        model_path.write_bytes(b"cached")
-
-        with patch("nemo_curator.stages.audio.filtering.sigmos.requests.get") as request:
-            assert SIGMOSFilterStage._download_model(str(tmp_path)) == str(model_path)
-
-        request.assert_not_called()
-
-    def test_setup_on_node_prefetches_only_default_model(self, tmp_path: Path) -> None:
-        explicit = tmp_path / "explicit.onnx"
-        explicit.write_bytes(b"model")
-
-        with patch.object(SIGMOSFilterStage, "_download_model") as download:
-            SIGMOSFilterStage(model_path=str(explicit)).setup_on_node()
-            download.assert_not_called()
-
-            SIGMOSFilterStage(model_dir=str(tmp_path)).setup_on_node()
-            download.assert_called_once_with(str(tmp_path))
 
     def test_static_contract_conservatively_reports_download_and_row_independence(self) -> None:
         contract = static_contract(SIGMOSFilterStage)
@@ -237,10 +175,9 @@ class TestSIGMOSFilterStage:
         assert stage.noise_threshold == 4.0
         assert stage.ovrl_threshold == 3.5
 
-    @patch.object(SIGMOSFilterStage, "_initialize_model")
-    def test_process_passes_good_scores(self, mock_init: MagicMock) -> None:
+    def test_process_passes_good_scores(self) -> None:
         stage = SIGMOSFilterStage(noise_threshold=4.0, ovrl_threshold=3.5)
-        stage._model = _make_mock_model(_GOOD_SCORES)
+        stage._adapter = _make_mock_model(_GOOD_SCORES)
 
         result = stage.process(_make_task())
 
@@ -261,20 +198,18 @@ class TestSIGMOSFilterStage:
             ),
         ],
     )
-    @patch.object(SIGMOSFilterStage, "_initialize_model")
     def test_stereo_integer_pcm_preserves_legacy_amplitude_and_decision(
         self,
-        mock_init: MagicMock,
         resident: torch.Tensor | np.ndarray,
     ) -> None:
         stage = SIGMOSFilterStage(action="annotate", input_residency="waveform")
-        stage._model = _make_mock_model(_GOOD_SCORES)
+        stage._adapter = _make_mock_model(_GOOD_SCORES)
         task = AudioTask(dataset_name="test", data={"waveform": resident, "sample_rate": 16000})
 
         result = stage.process(task)
 
         assert isinstance(result, AudioTask)
-        audio = stage._model.run.call_args.kwargs["audio"]
+        audio = stage._adapter.run.call_args.kwargs["audio"]
         assert audio.dtype == np.float32
         assert audio.shape == (2,)
         assert audio == pytest.approx([24575.5, -24576.0])
@@ -305,7 +240,7 @@ class TestSIGMOSFilterStage:
         result = stage.process(task)
 
         assert isinstance(result, AudioTask)
-        inferred = stage._model.run.call_args.kwargs
+        inferred = stage._adapter.run.call_args.kwargs
         assert inferred["sr"] == task.data["sample_rate"] == 16000
         assert inferred["audio"].shape == (31,)
         assert inferred["audio"] == pytest.approx(task.data["waveform"].squeeze(0).numpy())
@@ -323,7 +258,7 @@ class TestSIGMOSFilterStage:
         )
 
         assert isinstance(stage.process(task), AudioTask)
-        inferred = stage._model.run.call_args.kwargs
+        inferred = stage._adapter.run.call_args.kwargs
         assert inferred["sr"] == 16000
         assert inferred["audio"].shape == (29,)
         assert "waveform" not in task.data
@@ -345,23 +280,21 @@ class TestSIGMOSFilterStage:
 
         assert isinstance(result, AudioTask)
         segment = task.data["segments"][0]
-        inferred = stage._model.run.call_args.kwargs
+        inferred = stage._adapter.run.call_args.kwargs
         assert inferred["sr"] == segment["sample_rate"] == 16000
         assert inferred["audio"] == pytest.approx(segment["waveform"].squeeze(0).numpy())
 
-    @patch.object(SIGMOSFilterStage, "_initialize_model")
-    def test_process_rejects_bad_scores(self, mock_init: MagicMock) -> None:
+    def test_process_rejects_bad_scores(self) -> None:
         stage = SIGMOSFilterStage(noise_threshold=4.0, ovrl_threshold=3.5)
-        stage._model = _make_mock_model(_BAD_SCORES)
+        stage._adapter = _make_mock_model(_BAD_SCORES)
 
         result = stage.process(_make_task())
 
         assert result == []
 
-    @patch.object(SIGMOSFilterStage, "_initialize_model")
-    def test_annotate_keeps_bad_scores(self, mock_init: MagicMock) -> None:
+    def test_annotate_keeps_bad_scores(self) -> None:
         stage = SIGMOSFilterStage(noise_threshold=4.0, ovrl_threshold=3.5, action="annotate")
-        stage._model = _make_mock_model(_BAD_SCORES)
+        stage._adapter = _make_mock_model(_BAD_SCORES)
 
         result = stage.process(_make_task())
 
@@ -370,8 +303,7 @@ class TestSIGMOSFilterStage:
         assert result.data["sigmos_ovrl"] == 2.0
         assert stage.describe().cardinality == "1:1"
 
-    @patch.object(SIGMOSFilterStage, "_initialize_model")
-    def test_none_thresholds_disable_checks(self, mock_init: MagicMock) -> None:
+    def test_none_thresholds_disable_checks(self) -> None:
         stage = SIGMOSFilterStage(
             noise_threshold=None,
             ovrl_threshold=None,
@@ -381,16 +313,15 @@ class TestSIGMOSFilterStage:
             loud_threshold=None,
             reverb_threshold=None,
         )
-        stage._model = _make_mock_model(_BAD_SCORES)
+        stage._adapter = _make_mock_model(_BAD_SCORES)
 
         result = stage.process(_make_task())
 
         assert isinstance(result, AudioTask)
 
-    @patch.object(SIGMOSFilterStage, "_initialize_model")
-    def test_partial_threshold_fail(self, mock_init: MagicMock) -> None:
+    def test_partial_threshold_fail(self) -> None:
         stage = SIGMOSFilterStage(noise_threshold=4.0, ovrl_threshold=None)
-        stage._model = _make_mock_model(
+        stage._adapter = _make_mock_model(
             {
                 "MOS_NOISE": 3.0,
                 "MOS_OVRL": 5.0,
@@ -406,10 +337,9 @@ class TestSIGMOSFilterStage:
 
         assert result == []
 
-    @patch.object(SIGMOSFilterStage, "_initialize_model")
-    def test_sigmos_output_keys(self, mock_init: MagicMock) -> None:
+    def test_sigmos_output_keys(self) -> None:
         stage = SIGMOSFilterStage(noise_threshold=1.0, ovrl_threshold=1.0)
-        stage._model = _make_mock_model(_GOOD_SCORES)
+        stage._adapter = _make_mock_model(_GOOD_SCORES)
 
         result = stage.process(_make_task())
 
@@ -425,10 +355,9 @@ class TestSIGMOSFilterStage:
         ]:
             assert key in result.data
 
-    @patch.object(SIGMOSFilterStage, "_initialize_model")
-    def test_no_audio_no_filepath_skipped(self, mock_init: MagicMock) -> None:
+    def test_no_audio_no_filepath_skipped(self) -> None:
         stage = SIGMOSFilterStage()
-        stage._model = _make_mock_model(_GOOD_SCORES)
+        stage._adapter = _make_mock_model(_GOOD_SCORES)
 
         task = AudioTask(data={"some_key": "value"}, dataset_name="test")
         result = stage.process(task)
@@ -437,15 +366,11 @@ class TestSIGMOSFilterStage:
 
     def test_model_not_available(self) -> None:
         stage = SIGMOSFilterStage()
-        stage._model = None
-
-        with patch.object(stage, "_initialize_model"):
-            result = stage.process(_make_task())
+        result = stage.process(_make_task())
 
         assert result == []
 
-    @patch.object(SIGMOSFilterStage, "_initialize_model")
-    def test_process_nested_segments_filters(self, mock_init: MagicMock) -> None:
+    def test_process_nested_segments_filters(self) -> None:
         """Nested segments: only segments passing thresholds survive."""
         stage = SIGMOSFilterStage(noise_threshold=4.0, ovrl_threshold=3.5)
         call_count = {"n": 0}
@@ -458,7 +383,7 @@ class TestSIGMOSFilterStage:
 
         model = MagicMock()
         model.run.side_effect = fake_run
-        stage._model = model
+        stage._adapter = model
 
         sr = 48000
         segments = [{"waveform": torch.randn(1, sr), "sample_rate": sr, "segment_num": i} for i in range(4)]
@@ -474,11 +399,10 @@ class TestSIGMOSFilterStage:
         for seg in result.data["segments"]:
             assert "sigmos_noise" in seg
 
-    @patch.object(SIGMOSFilterStage, "_initialize_model")
-    def test_process_nested_all_filtered_returns_empty(self, mock_init: MagicMock) -> None:
+    def test_process_nested_all_filtered_returns_empty(self) -> None:
         """Nested segments: when all fail thresholds, return []."""
         stage = SIGMOSFilterStage(noise_threshold=4.0, ovrl_threshold=3.5)
-        stage._model = _make_mock_model(_BAD_SCORES)
+        stage._adapter = _make_mock_model(_BAD_SCORES)
 
         sr = 48000
         segments = [{"waveform": torch.randn(1, sr), "sample_rate": sr, "segment_num": i} for i in range(3)]
@@ -491,11 +415,10 @@ class TestSIGMOSFilterStage:
 
         assert result == []
 
-    @patch.object(SIGMOSFilterStage, "_initialize_model")
-    def test_annotate_nested_keeps_all_segments(self, mock_init: MagicMock) -> None:
+    def test_annotate_nested_keeps_all_segments(self) -> None:
         """Nested annotate mode scores every segment without threshold dropping."""
         stage = SIGMOSFilterStage(noise_threshold=4.0, ovrl_threshold=3.5, action="annotate")
-        stage._model = _make_mock_model(_BAD_SCORES)
+        stage._adapter = _make_mock_model(_BAD_SCORES)
 
         sr = 48000
         segments = [{"waveform": torch.randn(1, sr), "sample_rate": sr, "segment_num": i} for i in range(3)]

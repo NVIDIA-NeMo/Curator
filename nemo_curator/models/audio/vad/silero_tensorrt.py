@@ -187,7 +187,7 @@ class TensorRTSileroVADAdapter:
             self._max_batch_size = self._validate_session(self._session)
             return
 
-        from nemo_curator.stages.audio.inference.tensorrt_encoder import TensorRTEncoderSession
+        from nemo_curator.models.audio.tensorrt_encoder import TensorRTEncoderSession
 
         session = TensorRTEncoderSession(self.engine_path)
         try:

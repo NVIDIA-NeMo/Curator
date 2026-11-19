@@ -80,9 +80,9 @@ Fix (any one):
 
 - **Upgrade the NVIDIA driver** to one that supports the CUDA version torch was built for.
 - **Install a torch built for the driver's CUDA** (a matching `+cuXXX` wheel, e.g. `+cu126`).
-- **Sidestep the JIT path** for ASR *alignment*: set `decoder_type='ctc'` on
-  `NeMoASRAlignerStage` / `SplitASRAlignJoinStage` (the hybrid `tdt_ctc` checkpoint has a CTC
-  head, so no CUDA graphs and no model change). Note: plain `InferenceAsrNemoStage` with a
+- **Sidestep the JIT path** for ASR *alignment*: set `adapter_kwargs.decoder_type='ctc'` on
+  `SplitASRAlignJoinStage` (or on an aligning `ASRStage` with `NeMoASRAdapter`; the hybrid
+  `tdt_ctc` checkpoint has a CTC head, so no CUDA graphs and no model change). Note: plain `InferenceAsrNemoStage` with a
   pure-TDT checkpoint has no CTC head — there the env fix (or a CTC-capable model) is the only
   option.
 

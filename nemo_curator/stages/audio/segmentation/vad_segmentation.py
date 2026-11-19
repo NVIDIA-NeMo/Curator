@@ -44,7 +44,6 @@ from nemo_curator.stages.audio._agent._agent_ready import (
 from nemo_curator.stages.audio._agent._residency import (
     InputResidency,
     validate_audio_key_configuration,
-    validate_input_residency,
 )
 from nemo_curator.stages.audio.common import ensure_mono, ensure_waveform_2d
 from nemo_curator.stages.audio.inference.base import AdapterInferenceStage
@@ -180,7 +179,6 @@ class VADSegmentationStage(AgentReady, AdapterInferenceStage[VADAdapter]):
 
     def __post_init__(self) -> None:
         super().__post_init__()
-        validate_input_residency(self.input_residency, stage_name=self.name)
         self._validate_options()
         self.adapter_kwargs = dict(self.adapter_kwargs)
         stage_owned = {

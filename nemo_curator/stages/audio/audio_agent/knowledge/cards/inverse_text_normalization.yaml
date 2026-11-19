@@ -37,6 +37,6 @@ notes:
   - "Supported ITN languages (external, NeMo Text Processing): en, es, es_en, fr, de, ar, ru, sv, vi, pt, zh, hy, mr, hi, ja. Source: https://github.com/NVIDIA/NeMo-text-processing"
   - "Interaction: NVIDIA Parakeet ASR already outputs written-form punctuated text, so running ITN on Parakeet output is usually redundant. ITN targets spoken-form ASR output."
   - "Writes normalized text to segments[].{text_key}{output_suffix}; entries without a `segments` list are rejected (top-level `text` is ignored)."
-  - "Plain ASRStage output and standalone NeMoASRAlignerStage output are not direct inputs: shape transcript/alignment data into the required per-segment schema first."
+  - "Top-level ASRStage output (pred_text / words_key) is not a direct input: shape transcript/alignment data into the required per-segment schema first."
 verified: {params: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess, comparison: best_guess}
 provenance: {model_card_url: "https://github.com/NVIDIA/NeMo-text-processing", card_version: 4, last_validated: "2026-09-22"}

@@ -138,7 +138,7 @@ def test_tdt_gpu_recipe_blocks_on_cuda_mismatch() -> None:
         (
             "ASRStage",
             {
-                "adapter_target": "nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+                "adapter_target": "nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter",
                 "model_id": "nvidia/parakeet-tdt-0.6b-v2",
                 "max_audio_sec_per_actor": 2400.0,
                 "resources": {"cpus": 1, "gpus": 1},
@@ -181,7 +181,7 @@ def test_mixed_pipeline_never_claims_cpu_when_one_leaf_is_gpu_only() -> None:
         (
             "ASRStage",
             {
-                "adapter_target": "nemo_curator.models.asr.qwen_asr.QwenASRAdapter",
+                "adapter_target": "nemo_curator.models.audio.asr.qwen_asr.QwenASRAdapter",
                 "model_id": "Qwen/Qwen3-ASR-0.6B",
                 "max_audio_sec_per_actor": 2400.0,
                 "resources": {"cpus": 1, "gpus": 1},
@@ -286,8 +286,12 @@ def test_external_ray_does_not_treat_other_driver_facts_as_worker_facts(
     stages = _build(
         ("ResampleAudioStage", {"resampled_audio_dir": str(tmp_path / "rs")}),
         (
-            "PyAnnoteDiarizationStage",
-            {"hf_token": "", "resources": {"cpus": 1, "gpus": 1}},
+            "InferenceSortformerStage",
+            {
+                "adapter_target": "nemo_curator.models.audio.speaker_diarization.pyannote.PyAnnoteDiarizationAdapter",
+                "adapter_kwargs": {"hf_token": ""},
+                "resources": {"cpus": 1, "gpus": 1},
+            },
         ),
     )
     env = _cuda_mismatch()
@@ -327,12 +331,12 @@ import sys
 from importlib.abc import MetaPathFinder
 class Block(MetaPathFinder):
     def find_spec(self, name, path=None, target=None):
-        if name.split(".")[0] == "whisperx":
-            raise ImportError("No module named 'whisperx'")
+        if name.split(".")[0] == "onnxruntime":
+            raise ImportError("No module named 'onnxruntime'")
         return None
 sys.meta_path.insert(0, Block())
 from nemo_curator.stages.audio import audio_agent as aa
-out = aa.validate({"stages": [{"ref": "WhisperXVADStage", "params": {}}]})
+out = aa.validate({"stages": [{"ref": "SIGMOSFilterStage", "params": {}}]})
 print("RESULT" + json.dumps({
     "codes": [i["code"] for i in out["issues"]],
     "unavailable": bool(aa.discover().get("unavailable")),
@@ -365,7 +369,7 @@ def test_external_ray_does_not_project_driver_missing_package_to_workers() -> No
         (
             "ASRStage",
             {
-                "adapter_target": "nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+                "adapter_target": "nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter",
                 "model_id": "nvidia/parakeet-tdt-0.6b-v2",
                 "max_audio_sec_per_actor": 2400.0,
                 "resources": {"cpus": 1, "gpus": 1},
@@ -410,11 +414,15 @@ def test_ffmpeg_and_secret_block_only_relevant_selected_stages(tmp_path: Path) -
     )
     pyannote_stages = _build(
         (
-            "PyAnnoteDiarizationStage",
-            {"hf_token": "unused-test-value", "resources": {"cpus": 1, "gpus": 1}},
+            "InferenceSortformerStage",
+            {
+                "adapter_target": "nemo_curator.models.audio.speaker_diarization.pyannote.PyAnnoteDiarizationAdapter",
+                "adapter_kwargs": {"hf_token": "unused-test-value"},
+                "resources": {"cpus": 1, "gpus": 1},
+            },
         )
     )
-    pyannote_stages[0].hf_token = ""
+    pyannote_stages[0].adapter_kwargs["hf_token"] = ""
     pyannote = environment_preflight(pyannote_stages, env)
 
     assert duration["can_execute"] is True
@@ -429,8 +437,12 @@ def test_explicit_stage_credential_satisfies_gate_without_exposing_value() -> No
     env = _healthy_env(available_secrets=[])
     stages = _build(
         (
-            "PyAnnoteDiarizationStage",
-            {"hf_token": "configured-but-never-returned", "resources": {"cpus": 1, "gpus": 1}},
+            "InferenceSortformerStage",
+            {
+                "adapter_target": "nemo_curator.models.audio.speaker_diarization.pyannote.PyAnnoteDiarizationAdapter",
+                "adapter_kwargs": {"hf_token": "configured-but-never-returned"},
+                "resources": {"cpus": 1, "gpus": 1},
+            },
         )
     )
 
@@ -447,18 +459,22 @@ def test_multiple_blockers_do_not_claim_one_choice_fixes_everything() -> None:
         (
             "ASRStage",
             {
-                "adapter_target": "nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+                "adapter_target": "nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter",
                 "model_id": "nvidia/parakeet-tdt-0.6b-v2",
                 "max_audio_sec_per_actor": 2400.0,
                 "resources": {"cpus": 1, "gpus": 1},
             },
         ),
         (
-            "PyAnnoteDiarizationStage",
-            {"hf_token": "unused-test-value", "resources": {"cpus": 1, "gpus": 1}},
+            "InferenceSortformerStage",
+            {
+                "adapter_target": "nemo_curator.models.audio.speaker_diarization.pyannote.PyAnnoteDiarizationAdapter",
+                "adapter_kwargs": {"hf_token": "unused-test-value"},
+                "resources": {"cpus": 1, "gpus": 1},
+            },
         ),
     )
-    stages[1].hf_token = ""
+    stages[1].adapter_kwargs["hf_token"] = ""
 
     decision = environment_preflight(stages, env)
 
@@ -476,18 +492,22 @@ def test_runtime_diagnosis_never_recommends_a_partial_multi_blocker_fix() -> Non
         (
             "ASRStage",
             {
-                "adapter_target": "nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+                "adapter_target": "nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter",
                 "model_id": "nvidia/parakeet-tdt-0.6b-v2",
                 "max_audio_sec_per_actor": 2400.0,
                 "resources": {"cpus": 1, "gpus": 1},
             },
         ),
         (
-            "PyAnnoteDiarizationStage",
-            {"hf_token": "placeholder", "resources": {"cpus": 1, "gpus": 1}},
+            "InferenceSortformerStage",
+            {
+                "adapter_target": "nemo_curator.models.audio.speaker_diarization.pyannote.PyAnnoteDiarizationAdapter",
+                "adapter_kwargs": {"hf_token": "placeholder"},
+                "resources": {"cpus": 1, "gpus": 1},
+            },
         ),
     )
-    stages[1].hf_token = ""
+    stages[1].adapter_kwargs["hf_token"] = ""
 
     diagnosis = diagnose_failure(
         "OSError: [Errno 28] No space left on device",
@@ -514,7 +534,7 @@ def test_validate_projects_recipe_environment_blocker_without_touching_defaults(
         {
             "ref": "ASRStage",
             "params": {
-                "adapter_target": "nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+                "adapter_target": "nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter",
                 "model_id": "nvidia/parakeet-tdt-0.6b-v2",
                 "max_audio_sec_per_actor": 2400.0,
                 "audio_filepath_key": "audio_filepath",
@@ -621,7 +641,7 @@ def test_cpu_capable_asr_adapter_ignores_cuda_mismatch_without_gpu_reservation()
         (
             "ASRStage",
             {
-                "adapter_target": "nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+                "adapter_target": "nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter",
                 "model_id": "nvidia/parakeet-tdt-0.6b-v2",
                 "max_audio_sec_per_actor": 2400.0,
                 "resources": {"cpus": 1, "gpus": 0},
@@ -638,10 +658,10 @@ def test_cpu_capable_asr_adapter_ignores_cuda_mismatch_without_gpu_reservation()
 @pytest.mark.parametrize(
     ("adapter_target", "expected"),
     [
-        ("nemo_curator.models.asr.nemo_asr.NeMoASRAdapter", True),
-        ("nemo_curator.models.asr.faster_whisper.FasterWhisperASR", True),
-        ("nemo_curator.models.asr.qwen_asr.QwenASRAdapter", False),
-        ("nemo_curator.models.asr.qwen_omni.QwenOmniASRAdapter", False),
+        ("nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter", True),
+        ("nemo_curator.models.audio.asr.faster_whisper.FasterWhisperASR", True),
+        ("nemo_curator.models.audio.asr.qwen_asr.QwenASRAdapter", False),
+        ("nemo_curator.models.audio.asr.qwen_omni.QwenOmniASRAdapter", False),
         ("third_party.UnknownAdapter", False),
     ],
 )
@@ -656,7 +676,7 @@ def test_gpu_only_asr_adapter_requires_gpu_even_if_reservation_is_zero() -> None
         (
             "ASRStage",
             {
-                "adapter_target": "nemo_curator.models.asr.qwen_asr.QwenASRAdapter",
+                "adapter_target": "nemo_curator.models.audio.asr.qwen_asr.QwenASRAdapter",
                 "model_id": "Qwen/Qwen3-ASR-0.6B",
                 "max_audio_sec_per_actor": 2400.0,
                 "resources": {"cpus": 1, "gpus": 0},
@@ -696,7 +716,7 @@ def test_execution_refuses_before_ray_or_output_preparation(
         {
             "ref": "ASRStage",
             "params": {
-                "adapter_target": "nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+                "adapter_target": "nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter",
                 "model_id": "nvidia/parakeet-tdt-0.6b-v2",
                 "max_audio_sec_per_actor": 2400.0,
                 "audio_filepath_key": "audio_filepath",
@@ -792,8 +812,11 @@ def test_continuation_never_reintroduces_recipe_secrets_after_run_redaction(
         {
             "stages": [
                 {
-                    "ref": "PyAnnoteDiarizationStage",
-                    "params": {"hf_token": secret_value},
+                    "ref": "InferenceSortformerStage",
+                    "params": {
+                        "adapter_target": "nemo_curator.models.audio.speaker_diarization.pyannote.PyAnnoteDiarizationAdapter",
+                        "adapter_kwargs": {"hf_token": secret_value},
+                    },
                 }
             ]
         }
@@ -825,7 +848,7 @@ def test_continuation_never_reintroduces_recipe_secrets_after_run_redaction(
     )
 
     assert secret_value not in str(result)
-    assert result["recipe"]["stages"][0]["params"]["hf_token"] == "<redacted-secret>"  # noqa: S105
+    assert result["recipe"]["stages"][0]["params"]["adapter_kwargs"]["hf_token"] == "<redacted-secret>"  # noqa: S105
 
 
 @pytest.mark.parametrize(
@@ -872,7 +895,7 @@ def test_ptx_diagnosis_never_offers_ctc_for_pure_tdt_transcription() -> None:
         (
             "ASRStage",
             {
-                "adapter_target": "nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+                "adapter_target": "nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter",
                 "model_id": "nvidia/parakeet-tdt-0.6b-v2",
                 "max_audio_sec_per_actor": 2400.0,
                 "resources": {"cpus": 1, "gpus": 1},

@@ -146,13 +146,16 @@ def _execution_requirements(stages: list[Any]) -> list[StageEnvironmentRequireme
             secret for secret in runtime_secrets if bool(getattr(stage, secret.lower(), None))
         ]
         cuda_runtime_jit: bool | None = False
-        if name in {"NeMoASRAlignerStage", "SplitASRAlignJoinStage"}:
-            cuda_runtime_jit = str(getattr(stage, "decoder_type", "rnnt") or "rnnt").lower() != "ctc"
+        decoder_type = (getattr(stage, "adapter_kwargs", None) or {}).get("decoder_type")
+        if name == "SplitASRAlignJoinStage":
+            cuda_runtime_jit = str(decoder_type or "rnnt").lower() != "ctc"
         elif name == "ASRStage":
             adapter_target = str(getattr(stage, "adapter_target", "") or "")
-            if adapter_target == "nemo_curator.models.asr.nemo_asr.NeMoASRAdapter":
+            if adapter_target == "nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter":
                 model_id = str(getattr(stage, "model_id", "") or "").lower()
-                if "tdt" in model_id or "rnnt" in model_id:
+                if decoder_type:
+                    cuda_runtime_jit = str(decoder_type).lower() != "ctc"
+                elif "tdt" in model_id or "rnnt" in model_id:
                     cuda_runtime_jit = True
                 elif "ctc" in model_id:
                     cuda_runtime_jit = False
@@ -326,9 +329,7 @@ def _cpu_choice(
 
 
 def _ctc_choice(requirements: list[StageEnvironmentRequirement]) -> dict[str, Any] | None:
-    eligible = sorted(
-        {req.stage for req in requirements if req.stage in {"NeMoASRAlignerStage", "SplitASRAlignJoinStage"}}
-    )
+    eligible = sorted({req.stage for req in requirements if req.stage == "SplitASRAlignJoinStage"})
     if not eligible:
         return None
     return RemediationOption(
@@ -872,7 +873,6 @@ def diagnose_failure(  # noqa: C901, PLR0913 - explicit taxonomy and applicabili
         if req.stage
         in {
             "ASRStage",
-            "NeMoASRAlignerStage",
             "SplitASRAlignJoinStage",
         }
     }

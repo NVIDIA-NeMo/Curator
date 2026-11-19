@@ -104,8 +104,8 @@ stages:
     min_speakers: 2
     max_speakers: 5
     truncation: true
-    drop_fields: "words"
-    drop_fields_top_level: "words,segments"
+    drop_fields: [words]
+    drop_fields_top_level: [words, segments]
 
   # Stage 2: Filter overlapping windows
   - _target_: nemo_curator.stages.audio.alm.ALMDataOverlapStage
@@ -132,8 +132,8 @@ The following table describes the key parameters for each stage:
 | `min_speakers` | int | 2 | Minimum distinct speakers per window |
 | `max_speakers` | int | 5 | Maximum distinct speakers per window |
 | `truncation` | bool | True | Truncate segments exceeding maximum duration |
-| `drop_fields` | str | `"words"` | Comma-separated segment-level fields to remove |
-| `drop_fields_top_level` | str | `"words,segments"` | Comma-separated entry-level fields to remove |
+| `drop_fields` | list[str] | `["words"]` | Segment-level fields to remove |
+| `drop_fields_top_level` | list[str] | `["words", "segments"]` | Entry-level fields to remove |
 
 **ALMDataOverlapStage parameters:**
 

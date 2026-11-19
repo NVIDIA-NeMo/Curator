@@ -1513,7 +1513,7 @@ def test_report_redacts_configured_transcript_aliases(tmp_path: Path, with_recip
                 {
                     "ref": "ASRStage",
                     "params": {
-                        "adapter_target": "nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+                        "adapter_target": "nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter",
                         "model_id": "fixture",
                         "max_audio_sec_per_actor": 240,
                         "pred_text_key": transcript_key,

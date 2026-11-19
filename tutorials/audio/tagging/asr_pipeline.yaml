@@ -23,13 +23,13 @@
 #   1. ResampleAudio           - Resample audio to 16 kHz mono WAV
 #   2. PyAnnoteDiarization     - Speaker diarization + overlap detection
 #   3. SplitLongAudio          - Split segments exceeding max length
-#   4. NeMoASRAligner          - Forced alignment via NeMo FastConformer
+#   4. ASRStage (NeMo)         - Word-aligned ASR via NeMo FastConformer
 #   5. JoinSplitAudioMetadata  - Rejoin split metadata
 #   6. MergeAlignmentDiar      - Merge ASR alignment with diarization
 #   7. BandwidthEstimation     - Estimate audio bandwidth
 #   8. SquimMetrics            - TorchSQUIM quality metrics
 #   9. PrepareModuleSegments   - Prepare ASR-ready segments
-#  10. NeMoASRAligner (2nd)    - Second-pass ASR transcription
+#  10. ASRStage (NeMo, 2nd)   - Second-pass ASR transcription
 #  11. ComputeWER              - Compute WER between two ASR transcripts
 #  12. ManifestWriter          - Write output JSONL manifest
 #
@@ -108,21 +108,42 @@ stages:
     target_format: "wav"
     target_nchannels: 1
 
-  - _target_: nemo_curator.stages.audio.inference.speaker_diarization.pyannote.PyAnnoteDiarizationStage
+  - _target_: nemo_curator.stages.audio.inference.speaker_diarization.stage.InferenceSortformerStage
     name: "PyAnnoteDiarization"
-    hf_token: ${hf_token}
-    max_length: ${max_segment_length}
+    adapter_target: nemo_curator.models.audio.speaker_diarization.pyannote.PyAnnoteDiarizationAdapter
+    model_id: pyannote/speaker-diarization-3.1
+    audio_filepath_key: resampled_audio_filepath
+    diar_segments_key: segments
+    overlap_segments_key: overlap_segments
+    num_speakers_key: null
+    global_speaker_ids: true
+    non_speaker_segment_max_length: ${max_segment_length}
+    resources:
+      _target_: nemo_curator.stages.resources.Resources
+      gpus: 1.0
+    adapter_kwargs:
+      hf_token: ${hf_token}
+      max_length: ${max_segment_length}
 
   - _target_: nemo_curator.stages.audio.tagging.SplitLongAudioStage
     name: "SplitLongAudio"
     suggested_max_len: ${max_segment_length}
     min_len: 1.0
 
-  - _target_: nemo_curator.stages.audio.tagging.inference.nemo_asr_align.NeMoASRAlignerStage
+  - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
     name: "ASRAlignment"
-    is_fastconformer: true
-    decoder_type: rnnt
+    adapter_target: nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter
+    model_id: nvidia/parakeet-tdt_ctc-1.1b
+    adapter_kwargs:
+      enable_local_attention: true
+      decoder_type: rnnt
+      timestamps: true
+    nested_key: split_metadata
+    pred_text_key: ${text_key1}
+    words_key: alignment
     batch_size: 32
+    max_audio_sec_per_actor: 1280
+    max_inference_duration_s: 1280
 
   - _target_: nemo_curator.stages.audio.tagging.JoinSplitAudioMetadataStage
     name: "JoinSplitMetadata"
@@ -149,16 +170,19 @@ stages:
     punctuation_split_only: false
 
   # Second pass ASR
-  - _target_: nemo_curator.stages.audio.tagging.inference.nemo_asr_align.NeMoASRAlignerStage
+  - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
     name: "ASRAlignment2"
-    model_name: nvidia/stt_en_conformer_ctc_large
-    is_fastconformer: False
-    decoder_type: ctc
+    adapter_target: nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter
+    model_id: nvidia/stt_en_conformer_ctc_large
+    adapter_kwargs:
+      decoder_type: ctc
+    nested_key: segments
+    nested_audio: slice
+    min_nested_duration_s: 1.0
+    pred_text_key: ${text_key2}
     batch_size: 64
-    split_batch_size: 100
-    text_key: ${text_key2}
-    infer_segment_only: True
-    compute_timestamps: False
+    max_audio_sec_per_actor: 640
+    max_inference_duration_s: 640
 
   - _target_: nemo_curator.stages.audio.metrics.wer.ComputeWERStage
     name: "ComputeWER"

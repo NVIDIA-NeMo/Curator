@@ -211,7 +211,7 @@ def _validate_tensorrt_engine(
     """Compare recurrent TensorRT inference with the exact PyTorch core."""
     import torch
 
-    from nemo_curator.stages.audio.inference.tensorrt_encoder import TensorRTEncoderSession
+    from nemo_curator.models.audio.tensorrt_encoder import TensorRTEncoderSession
 
     rtol, atol = (5e-2, 5e-3) if fp16 else (3e-4, 3e-5)
     generator = torch.Generator().manual_seed(2)

@@ -67,66 +67,8 @@ def test_stage_uses_shared_adapter_lifecycle() -> None:
     assert issubclass(InferenceSortformerStage, AdapterInferenceStage)
 
 
-def test_current_main_positional_constructor_order_is_preserved() -> None:
-    model = object()
-    resources = Resources(cpus=2.0)
-    stage = InferenceSortformerStage(
-        "provider/model",
-        "/models/model.nemo",
-        "/cache",
-        model,
-        "path",
-        "turns",
-        "/rttm",
-        100,
-        2,
-        8,
-        16,
-        30,
-        64,
-        3,
-        "LegacySortformer",
-        4,
-        resources,
-    )
-
-    assert stage.model_name == "provider/model"
-    assert stage.model_id == "provider/model"
-    assert stage.model_path == "/models/model.nemo"
-    assert stage.cache_dir == "/cache"
-    assert stage.diar_model is model
-    assert stage.filepath_key == "path"
-    assert stage.audio_filepath_key == "path"
-    assert stage.diar_segments_key == "turns"
-    assert stage.rttm_out_dir == "/rttm"
-    assert stage.chunk_len == 100
-    assert stage.chunk_left_context == 2
-    assert stage.chunk_right_context == 8
-    assert stage.fifo_len == 16
-    assert stage.spkcache_update_period == 30
-    assert stage.spkcache_len == 64
-    assert stage.inference_batch_size == 3
-    assert stage.name == "LegacySortformer"
-    assert stage.batch_size == 4
-    assert stage.resources is resources
-
-
-def test_current_main_dataclass_defaults_are_preserved() -> None:
-    fields = InferenceSortformerStage.__dataclass_fields__
-
-    assert fields["model_name"].default == "nvidia/diar_streaming_sortformer_4spk-v2.1"
-    assert fields["filepath_key"].default == "audio_filepath"
-    assert fields["chunk_len"].default == 340
-    assert fields["chunk_left_context"].default == 1
-    assert fields["chunk_right_context"].default == 40
-    assert fields["fifo_len"].default == 40
-    assert fields["spkcache_update_period"].default == 300
-    assert fields["spkcache_len"].default == 188
-    assert fields["inference_batch_size"].default == 1
-
-
 def test_process_batch_sorts_model_work_and_restores_task_order() -> None:
-    stage = InferenceSortformerStage(waveform_key="waveform")
+    stage = InferenceSortformerStage(waveform_key="waveform", input_residency="waveform")
     adapter = _RecordingAdapter()
     stage._adapter = adapter
     tasks = [_waveform_task("long", 32000), _waveform_task("short", 8000)]
@@ -271,26 +213,8 @@ def test_file_mode_propagates_a_batch_wide_adapter_failure(monkeypatch: pytest.M
         stage.process_batch(tasks)
 
 
-def test_legacy_diarize_method_delegates_paths_to_initialized_adapter() -> None:
-    stage = InferenceSortformerStage()
-    adapter = _RecordingAdapter(
-        results=[DiarizationResult(segments=[{"start": 0.0, "end": 1.0, "speaker": "speaker_0"}])]
-    )
-    stage._adapter = adapter
-
-    assert stage.diarize(["/audio/file.wav"]) == [
-        [{"start": 0.0, "end": 1.0, "speaker": "speaker_0"}],
-    ]
-    assert adapter.items == [{"audio_filepath": "/audio/file.wav"}]
-
-
-def test_legacy_diarize_method_requires_initialized_adapter_or_model() -> None:
-    with pytest.raises(RuntimeError, match=r"call setup\(\) before diarize"):
-        InferenceSortformerStage().diarize(["/audio/file.wav"])
-
-
 def test_resume_uses_key_presence_for_empty_result() -> None:
-    stage = InferenceSortformerStage(waveform_key="waveform", skip_if_output_exists=True)
+    stage = InferenceSortformerStage(waveform_key="waveform", input_residency="waveform", skip_if_output_exists=True)
     adapter = _RecordingAdapter()
     stage._adapter = adapter
     task = _waveform_task("done", 160)
@@ -301,7 +225,7 @@ def test_resume_uses_key_presence_for_empty_result() -> None:
 
 
 def test_read_error_passes_through_without_adapter_call() -> None:
-    stage = InferenceSortformerStage(waveform_key="waveform")
+    stage = InferenceSortformerStage(waveform_key="waveform", input_residency="waveform")
     adapter = _RecordingAdapter()
     stage._adapter = adapter
     task = AudioTask(task_id="bad", data={"read_error": True})
@@ -311,7 +235,7 @@ def test_read_error_passes_through_without_adapter_call() -> None:
 
 
 def test_audio_error_is_task_local_by_default() -> None:
-    stage = InferenceSortformerStage(waveform_key="waveform")
+    stage = InferenceSortformerStage(waveform_key="waveform", input_residency="waveform")
     stage._adapter = _RecordingAdapter()
     task = AudioTask(task_id="bad", data={"waveform": np.array([np.nan]), "sample_rate": 16000})
 
@@ -324,7 +248,7 @@ def test_audio_error_is_task_local_by_default() -> None:
 
 @pytest.mark.parametrize("error", [MemoryError("out of memory"), torch.cuda.OutOfMemoryError("out of memory")])
 def test_audio_preparation_memory_failures_propagate(error: Exception, monkeypatch: pytest.MonkeyPatch) -> None:
-    stage = InferenceSortformerStage(waveform_key="waveform")
+    stage = InferenceSortformerStage(waveform_key="waveform", input_residency="waveform")
     stage._adapter = _RecordingAdapter()
     monkeypatch.setattr(stage, "_prepare_waveform", lambda *_args: (_ for _ in ()).throw(error))
 
@@ -360,7 +284,7 @@ def test_adapter_memory_failures_propagate_without_isolation(
 
 
 def test_audio_error_is_retried_after_the_input_is_corrected() -> None:
-    stage = InferenceSortformerStage(waveform_key="waveform", skip_if_output_exists=True)
+    stage = InferenceSortformerStage(waveform_key="waveform", input_residency="waveform", skip_if_output_exists=True)
     adapter = _RecordingAdapter()
     stage._adapter = adapter
     task = AudioTask(task_id="retry", data={"waveform": np.array([np.nan]), "sample_rate": 16000})
@@ -375,7 +299,7 @@ def test_audio_error_is_retried_after_the_input_is_corrected() -> None:
 
 
 def test_fail_on_audio_error_raises() -> None:
-    stage = InferenceSortformerStage(waveform_key="waveform", fail_on_audio_error=True)
+    stage = InferenceSortformerStage(waveform_key="waveform", input_residency="waveform", fail_on_audio_error=True)
     stage._adapter = _RecordingAdapter()
 
     with pytest.raises(RuntimeError, match="Failed to prepare diarization audio"):
@@ -383,7 +307,7 @@ def test_fail_on_audio_error_raises() -> None:
 
 
 def test_adapter_result_count_must_match() -> None:
-    stage = InferenceSortformerStage(waveform_key="waveform")
+    stage = InferenceSortformerStage(waveform_key="waveform", input_residency="waveform")
     stage._adapter = _RecordingAdapter(results=[])
 
     with pytest.raises(RuntimeError, match="must match 1:1"):
@@ -391,7 +315,7 @@ def test_adapter_result_count_must_match() -> None:
 
 
 def test_rttm_uses_safe_sharded_path_and_relative_manifest_path(tmp_path) -> None:  # noqa: ANN001
-    stage = InferenceSortformerStage(waveform_key="waveform", rttm_out_dir=str(tmp_path))
+    stage = InferenceSortformerStage(waveform_key="waveform", input_residency="waveform", rttm_out_dir=str(tmp_path))
     stage._adapter = _RecordingAdapter(
         results=[
             DiarizationResult(
@@ -417,7 +341,9 @@ def test_rttm_uses_safe_sharded_path_and_relative_manifest_path(tmp_path) -> Non
 
 
 def test_rttm_paths_do_not_collide_for_equal_session_names(tmp_path: Path) -> None:
-    stage = InferenceSortformerStage(waveform_key="waveform", rttm_out_dir=str(tmp_path), skip_if_output_exists=True)
+    stage = InferenceSortformerStage(
+        waveform_key="waveform", input_residency="waveform", rttm_out_dir=str(tmp_path), skip_if_output_exists=True
+    )
     adapter = _RecordingAdapter()
     stage._adapter = adapter
     tasks = [_waveform_task("first", 160), _waveform_task("second", 160)]
@@ -441,7 +367,7 @@ def test_rttm_paths_do_not_collide_for_equal_session_names(tmp_path: Path) -> No
 
 
 def test_rttm_output_requires_framework_task_identity(tmp_path: Path) -> None:
-    stage = InferenceSortformerStage(waveform_key="waveform", rttm_out_dir=str(tmp_path))
+    stage = InferenceSortformerStage(waveform_key="waveform", input_residency="waveform", rttm_out_dir=str(tmp_path))
     stage._adapter = _RecordingAdapter()
 
     with pytest.raises(ValueError, match="non-empty task_id"):
@@ -471,6 +397,7 @@ def test_write_rttm_rejects_shard_symlink_escape(tmp_path: Path) -> None:
 def test_resume_requires_referenced_rttm_file_to_exist(tmp_path: Path) -> None:
     stage = InferenceSortformerStage(
         waveform_key="waveform",
+        input_residency="waveform",
         rttm_out_dir=str(tmp_path),
         skip_if_output_exists=True,
     )
@@ -491,6 +418,7 @@ def test_resume_requires_referenced_rttm_file_to_exist(tmp_path: Path) -> None:
 def test_resume_rejects_traversal_rttm_path(tmp_path: Path, rttm_filepath: str) -> None:
     stage = InferenceSortformerStage(
         waveform_key="waveform",
+        input_residency="waveform",
         rttm_out_dir=str(tmp_path),
         skip_if_output_exists=True,
     )
@@ -508,6 +436,7 @@ def test_resume_rejects_traversal_rttm_path(tmp_path: Path, rttm_filepath: str) 
 def test_resume_rejects_absolute_rttm_path(tmp_path: Path) -> None:
     stage = InferenceSortformerStage(
         waveform_key="waveform",
+        input_residency="waveform",
         rttm_out_dir=str(tmp_path),
         skip_if_output_exists=True,
     )
@@ -532,6 +461,7 @@ def test_resume_accepts_existing_rttm_file_below_root(tmp_path: Path) -> None:
     (tmp_path / "done.rttm").write_text("", encoding="utf-8")
     stage = InferenceSortformerStage(
         waveform_key="waveform",
+        input_residency="waveform",
         rttm_out_dir=str(tmp_path),
         skip_if_output_exists=True,
     )
@@ -563,7 +493,9 @@ def test_write_rttm_keeps_distinct_session_names_distinct(tmp_path: Path) -> Non
 
 
 def test_contract_and_validation(tmp_path: Path) -> None:
-    stage = InferenceSortformerStage(waveform_key="audio", store_segments=False, rttm_out_dir=str(tmp_path))
+    stage = InferenceSortformerStage(
+        waveform_key="audio", input_residency="waveform", store_segments=False, rttm_out_dir=str(tmp_path)
+    )
     assert stage.inputs() == ([], ["audio", "sample_rate"])
     assert stage.outputs() == ([], ["num_speakers", "additional_notes", "rttm_filepath"])
     stage._adapter = _RecordingAdapter()
@@ -575,36 +507,8 @@ def test_contract_and_validation(tmp_path: Path) -> None:
         InferenceSortformerStage(store_segments=False)
 
 
-def test_legacy_constructor_aliases_are_forwarded_to_default_adapter() -> None:
-    model = object()
-    stage = InferenceSortformerStage(
-        model_name="local/model",
-        model_path="/models/model.nemo",
-        cache_dir="/cache",
-        diar_model=model,
-        filepath_key="path",
-        chunk_len=124,
-        chunk_left_context=2,
-        inference_batch_size=3,
-    )
-
-    assert stage.model_id == "local/model"
-    assert stage.audio_filepath_key == "path"
-    assert stage.adapter_kwargs["model_path"] == "/models/model.nemo"
-    assert stage.adapter_kwargs["cache_dir"] == "/cache"
-    assert stage.adapter_kwargs["preloaded_model"] is model
-    assert stage.adapter_kwargs["chunk_len"] == 124
-    assert stage.adapter_kwargs["chunk_left_context"] == 2
-    assert stage.adapter_kwargs["inference_batch_size"] == 3
-
-
-def test_legacy_alias_conflicts_are_rejected() -> None:
-    with pytest.raises(ValueError, match="conflicts"):
-        InferenceSortformerStage(chunk_len=10, adapter_kwargs={"chunk_len": 20})
-
-
 def test_empty_batch_and_setup_requirement() -> None:
-    stage = InferenceSortformerStage(waveform_key="waveform")
+    stage = InferenceSortformerStage(waveform_key="waveform", input_residency="waveform")
     assert stage.process_batch([]) == []
     with pytest.raises(RuntimeError, match="not initialized"):
         stage.process_batch([_waveform_task("one", 1)])
@@ -613,6 +517,7 @@ def test_empty_batch_and_setup_requirement() -> None:
 def test_stage_is_agent_ready_for_waveform_input() -> None:
     stage = InferenceSortformerStage(
         waveform_key="waveform",
+        input_residency="waveform",
         resources=Resources(cpus=1.0),
     )
     stage._adapter = _RecordingAdapter(
@@ -638,6 +543,7 @@ def test_stage_is_agent_ready_for_waveform_input() -> None:
 def test_agent_contract_accepts_upstream_read_error_without_promising_outputs() -> None:
     stage = InferenceSortformerStage(
         waveform_key="waveform",
+        input_residency="waveform",
         read_error_key="failed",
         resources=Resources(cpus=1.0),
     )
@@ -659,6 +565,7 @@ def test_agent_contract_fails_closed_for_static_catalog_and_custom_adapter() -> 
     custom = InferenceSortformerStage(
         adapter_target="example.CustomAdapter",
         waveform_key="waveform",
+        input_residency="waveform",
         resources=Resources(cpus=1.0),
     ).describe()
 
@@ -672,6 +579,7 @@ def test_agent_contract_fails_closed_for_static_catalog_and_custom_adapter() -> 
 def test_configurable_session_and_read_error_keys_are_used(tmp_path: Path) -> None:
     stage = InferenceSortformerStage(
         waveform_key="waveform",
+        input_residency="waveform",
         rttm_out_dir=str(tmp_path),
         session_name_key="recording_id",
         read_error_key="failed",
@@ -705,7 +613,7 @@ def test_configurable_session_and_read_error_keys_are_used(tmp_path: Path) -> No
 )
 def test_fanout_preserves_source_audio_and_transcribes_each_turn(input_residency: str, adapter_target: str) -> None:
     from nemo_curator.backends.ray_data.adapter import RayDataStageAdapter
-    from nemo_curator.models.asr.base import ASRResult
+    from nemo_curator.models.audio.asr.base import ASRResult
     from nemo_curator.stages.audio.inference.asr.stage import ASRStage
 
     waveform = np.arange(80, dtype=np.float32).reshape(2, 40) / 80
@@ -752,6 +660,7 @@ def test_fanout_preserves_source_audio_and_transcribes_each_turn(input_residency
         adapter_target="package.Adapter",
         model_id="model",
         waveform_key="waveform",
+        input_residency="waveform",
         sample_rate_key="sample_rate",
         target_sample_rate=10,
         max_audio_sec_per_actor=2400,
@@ -944,7 +853,7 @@ def test_source_hash_does_not_alias_differently_scaled_resident_dtypes(tmp_path:
     assert tasks[0].data["rttm_filepath"] != tasks[1].data["rttm_filepath"]
 
 
-@pytest.mark.parametrize("naming", ["task_id", "legacy", "source_hash"])
+@pytest.mark.parametrize("naming", ["task_id", "source_hash"])
 @pytest.mark.parametrize("label", ["日本語" * 10, "session_" * 60])
 def test_rttm_exports_long_session_labels_without_collisions(tmp_path: Path, naming: str, label: str) -> None:
     stage = InferenceSortformerStage(

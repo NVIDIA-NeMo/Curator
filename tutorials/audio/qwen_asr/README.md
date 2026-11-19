@@ -155,5 +155,5 @@ The default language allowlist matches the
 
 This is a functional manifest-to-transcript example. It does not perform word
 alignment, diarization, WER calculation, hallucination recovery, or benchmark
-reporting. The audio tagging pipeline continues to use
-`NeMoASRAlignerStage` where word timestamps are required.
+reporting. The audio tagging pipeline uses `ASRStage` with
+`NeMoASRAdapter(timestamps=True)` where word timestamps are required.

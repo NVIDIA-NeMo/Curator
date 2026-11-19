@@ -433,8 +433,8 @@ def test_output_isolation_covers_aliases_implicit_paths_and_hidden_writes(
                 "params": {"write_to_disk": True},
             },
             {
-                "ref": "PyAnnoteDiarizationStage",
-                "params": {"hf_token": "secret"},
+                "ref": "InferenceSortformerStage",
+                "params": {},
             },
             {
                 "ref": "CreateInitialManifestReadSpeechStage",
@@ -461,7 +461,6 @@ def test_output_isolation_covers_aliases_implicit_paths_and_hidden_writes(
     assert stages[2].params["output_audio_tar_path"].endswith(".tar")
     assert _verb_smoke_inputs._inside_smoke_root(stages[2].params["output_dir"], root)
     assert _verb_smoke_inputs._inside_smoke_root(stages[3].params["output_dir"], root)
-    assert stages[4].params["write_rttm"] is False
     assert stages[5].params["raw_data_dir"] == str(tmp_path / "readspeech")
     assert stages[5].params["auto_download"] is False
     assert _verb_smoke_inputs._inside_smoke_root(stages[6].params["output_dir"], root)

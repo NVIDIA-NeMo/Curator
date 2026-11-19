@@ -41,7 +41,7 @@ from nemo_curator.stages.audio.inference.asr.stage import ASRStage
 from nemo_curator.stages.resources import Resources
 
 asr = ASRStage(
-    adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+    adapter_target="nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter",
     model_id="nvidia/stt_en_fastconformer_ctc_large",
     max_audio_sec_per_actor=240.0,
     max_inference_duration_s=120.0,
@@ -62,8 +62,9 @@ the number of GPUs each worker receives.
 Each `AudioTask` must provide an audio path under the key configured by
 `audio_filepath_key`. The default key is `resampled_audio_filepath`, so place a
 `ResampleAudioStage` before `ASRStage`, or point the stage at an existing audio
-path. For in-memory audio, set `waveform_key` and provide the sample rate under
-`sample_rate_key` (default `sampling_rate`) instead. The stage normalizes either
+path. For in-memory audio, set `input_residency="waveform"` (or `"auto"` to use
+the waveform when present) and provide the audio under `waveform_key` (default
+`waveform`) and the sample rate under `sample_rate_key` (default `sampling_rate`). The stage normalizes either
 input to mono at `target_sample_rate` (16 kHz by default) before inference.
 
 For manifest pipelines, each JSONL row can contain an audio path and optional

@@ -237,25 +237,21 @@ class TestNarrowingIsNotInvisible:
         assert "depends on the other rows" in reason
 
 
-@pytest.mark.parametrize(("naming", "depth"), [("legacy", 1), ("source_hash", 2)])
-def test_sortformer_rttm_policy_controls_agent_delta_region(naming: str, depth: int, tmp_path: Path) -> None:
+def test_sortformer_rttm_policy_controls_agent_delta_region(tmp_path: Path) -> None:
     recipe = Recipe.from_dict(
         {
             "stages": [
                 {"ref": "ManifestReader", "params": {"manifest_path": str(tmp_path / "input.jsonl")}},
                 {
                     "ref": "InferenceSortformerStage",
-                    "params": {"rttm_out_dir": str(tmp_path / "rttm"), "rttm_naming": naming},
+                    "params": {"rttm_out_dir": str(tmp_path / "rttm"), "rttm_naming": "source_hash"},
                 },
             ]
         }
     ).freeze()
     actual_depth, reason = delta.region(recipe, upto=2)
-    assert actual_depth == depth
-    if naming == "legacy":
-        assert "InferenceSortformerStage" in reason
-    else:
-        assert reason == ""
+    assert actual_depth == 2
+    assert reason == ""
 
 
 class TestInventory:
@@ -496,7 +492,7 @@ class TestRegion:
                     {
                         "ref": "ASRStage",
                         "params": {
-                            "adapter_target": "nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+                            "adapter_target": "nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter",
                             "model_id": "stt_en_conformer_ctc_small",
                             "max_audio_sec_per_actor": 2400.0,
                             "audio_filepath_key": "audio_filepath",

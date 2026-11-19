@@ -708,8 +708,8 @@ def _check_request_type_sanity(ctx: CheckContext) -> CheckResult:
 # on continuous audio, is fine. Roles come from card metadata so a new stage needs no code
 # change here -- diarizer = category 'diarize'; fragmenter = category 'segment' with a
 # 'fanout' tag, minus diarizers; re-joiners declare a tested configured card fact.
-_DIARIZERS = frozenset({"InferenceSortformerStage", "PyAnnoteDiarizationStage", "SpeakerSeparationStage"})
-_FRAGMENTERS = frozenset({"VADSegmentationStage", "WhisperXVADStage"})
+_DIARIZERS = frozenset({"InferenceSortformerStage", "SpeakerSeparationStage"})
+_FRAGMENTERS = frozenset({"VADSegmentationStage"})
 
 
 def _is_diarizer(ref: str, idx: Any) -> bool:  # noqa: ANN401

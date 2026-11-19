@@ -133,8 +133,8 @@ class TestALMDataBuilder:
 
         stage = ALMDataBuilderStage(
             target_window_duration=120.0,
-            drop_fields="words",
-            drop_fields_top_level="words,segments",
+            drop_fields=["words"],
+            drop_fields_top_level=["words", "segments"],
         )
 
         result = stage.process(AudioTask(data=entry))
@@ -156,7 +156,7 @@ class TestALMDataBuilder:
     def test_audio_filepath_contract_follows_explicit_top_level_drop(self, sample_entry: dict) -> None:
         default = ALMDataBuilderStage()
         custom = ALMDataBuilderStage(audio_filepath_key="source_path")
-        dropped = ALMDataBuilderStage(drop_fields_top_level="words,segments,audio_filepath")
+        dropped = ALMDataBuilderStage(drop_fields_top_level=["words", "segments", "audio_filepath"])
 
         assert "audio_filepath" in default.outputs()[1]
         assert "audio_filepath" in build_contract(default).writes.data_keys
@@ -176,7 +176,9 @@ class TestALMDataBuilder:
         assert build_contract(dropped).conditional_writes[0].writes.data_keys == ["audio_filepath"]
 
     def test_generated_outputs_are_not_declared_removed(self, sample_entry: dict) -> None:
-        stage = ALMDataBuilderStage(drop_fields_top_level="words,segments,windows,stats,truncation_events")
+        stage = ALMDataBuilderStage(
+            drop_fields_top_level=["words", "segments", "windows", "stats", "truncation_events"]
+        )
         contract = build_contract(stage)
 
         assert not {"windows", "stats", "truncation_events"} & set(contract.removes_keys)
@@ -241,7 +243,7 @@ class TestALMDataBuilder:
             available_keys={"source_path", "segments", "audio_sample_rate"},
         )
         assert_agent_ready(
-            ALMDataBuilderStage(drop_fields_top_level="words,segments,audio_filepath"),
+            ALMDataBuilderStage(drop_fields_top_level=["words", "segments", "audio_filepath"]),
             default_fixture,
             expected_cardinality="1:1",
             available_keys={"audio_filepath", "segments", "audio_sample_rate"},
@@ -269,7 +271,7 @@ class TestALMDataBuilder:
 
         dropped = validate_pipeline(
             [
-                ALMDataBuilderStage(drop_fields_top_level="words,segments,audio_filepath"),
+                ALMDataBuilderStage(drop_fields_top_level=["words", "segments", "audio_filepath"]),
                 GetAudioDurationStage(),
             ],
             **seed,
@@ -281,7 +283,7 @@ class TestALMDataBuilder:
             for issue in dropped.issues
         )
         producer = validate_pipeline(
-            [ALMDataBuilderStage(drop_fields_top_level="words,segments,audio_filepath")], **seed
+            [ALMDataBuilderStage(drop_fields_top_level=["words", "segments", "audio_filepath"])], **seed
         )
         assert "audio_filepath" not in producer.produced_keys
 

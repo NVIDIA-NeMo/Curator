@@ -239,7 +239,7 @@ at pipeline construction time without modifying the stage class:
 ```python
 pipeline.add_stage(
     ASRStage(
-        adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+        adapter_target="nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter",
         model_id="nvidia/parakeet-tdt-0.6b-v2",
         max_audio_sec_per_actor=240,
         max_inference_duration_s=120,
@@ -259,7 +259,7 @@ stage- or model-specific fields in the stage constructor.
 ```yaml
 stages:
   - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
-    adapter_target: nemo_curator.models.asr.nemo_asr.NeMoASRAdapter
+    adapter_target: nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter
     model_id: nvidia/parakeet-tdt-0.6b-v2
     max_audio_sec_per_actor: 240
     max_inference_duration_s: 120
@@ -645,13 +645,13 @@ pipeline.run(executor)
 ├─ Per worker — one-time setup:
 │   backends/xenna/adapter.py                      XennaStageAdapter.setup_on_node()
 │     → stages/audio/inference/asr/stage.py           ASRStage.setup_on_node()
-│       → models/asr/nemo_asr.py                      NeMoASRAdapter.download_weights_on_node()
+│       → models/audio/asr/nemo_asr.py                      NeMoASRAdapter.download_weights_on_node()
 │         ASRModel.from_pretrained(model_name=model_id, return_model_file=True)
 │       (downloads model to shared cache — one download per node)
 │   backends/xenna/adapter.py                      XennaStageAdapter.setup()
 │     → backends/base.py                             stage.setup(worker_metadata)
 │       → stages/audio/inference/asr/stage.py           ASRStage.setup()
-│         → models/asr/nemo_asr.py                      NeMoASRAdapter.load_model(num_gpus=1)
+│         → models/audio/asr/nemo_asr.py                      NeMoASRAdapter.load_model(num_gpus=1)
 │           ASRModel.from_pretrained(model_name=model_id, map_location=cuda)
 │
 ├─ Per backend batch (batch_size=16, so up to 16 candidate tasks per call):
@@ -671,7 +671,7 @@ pipeline.run(executor)
 │   │    plan calls bounded by max_audio_sec_per_actor
 │   │    for each planned call:
 │   │      adapter.transcribe_batch(items)
-│   │        → models/asr/nemo_asr.py
+│   │        → models/audio/asr/nemo_asr.py
 │   │          self._model.transcribe(audio=waveforms, batch_size=len(items))
 │   │    restore segment order, stitch parent transcripts, and update tasks
 │   └─ return tasks                                 → same 16 AudioTask objects
@@ -1070,7 +1070,7 @@ First window (in its entirety):
 ```
 
 Note: `words` arrays are **gone** from the window segments (dropped
-by `drop_fields="words"`).  The window spans 510.97s–627.58s
+by `drop_fields=["words"]`).  The window spans 510.97s–627.58s
 (116.6s duration, within the 108–132s target).  Two speakers
 contributed 24.25s and 8.10s of speech respectively.
 

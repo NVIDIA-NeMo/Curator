@@ -19,18 +19,18 @@
     "extras": ["audio_cuda12"],
     "paths": [
       "tests/stages/audio",
-      "tests/models/asr/test_nemo_asr.py",
-      "tests/models/asr/test_faster_whisper_gpu.py",
+      "tests/models/audio/asr/test_nemo_asr.py",
+      "tests/models/audio/asr/test_faster_whisper_gpu.py",
       "tests/models/audio/sed/test_cnn14.py"
     ]
   },
   "audio_qwen_asr": {
     "extras": ["audio_cuda12", "vllm"],
-    "paths": ["tests/models/asr/test_qwen_asr.py"]
+    "paths": ["tests/models/audio/asr/test_qwen_asr.py"]
   },
   "audio_qwen_vllm": {
     "extras": ["audio_cuda12", "vllm"],
-    "paths": ["tests/models/asr/test_qwen_omni_gpu.py"]
+    "paths": ["tests/models/audio/asr/test_qwen_omni_gpu.py"]
   },
   "sdg": {
     "extras": ["sdg_cuda12"],

@@ -245,7 +245,7 @@ three 0.1-second items under a 0.3-second budget do not split spuriously.
 from nemo_curator.stages.audio.inference.asr.stage import ASRStage
 
 asr = ASRStage(
-    adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+    adapter_target="nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter",
     model_id="nvidia/stt_en_fastconformer_ctc_large",
     audio_filepath_key="resampled_audio_filepath",
     max_audio_sec_per_actor=240,
@@ -259,7 +259,7 @@ asr = ASRStage(
 
 ```yaml
 - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
-  adapter_target: nemo_curator.models.asr.nemo_asr.NeMoASRAdapter
+  adapter_target: nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter
   model_id: nvidia/stt_en_fastconformer_ctc_large
   audio_filepath_key: resampled_audio_filepath
   max_audio_sec_per_actor: 240
@@ -460,7 +460,7 @@ ordered prepared segments and configuration, the plan is deterministic.
 - [`segmentation/vad_segmentation.py`](../segmentation/vad_segmentation.py):
   Silero task preparation plus segment fan-out or nested assembly.
 - [`models/audio/vad/`](../../../models/audio/vad/): Torch/ONNX Silero adapter.
-- [`models/asr/base.py`](../../../models/asr/base.py): ordered ASR adapter input
+- [`models/audio/asr/base.py`](../../../models/audio/asr/base.py): ordered ASR adapter input
   and result contract.
 - [`test_asr_stage.py`](../../../../tests/stages/audio/inference/test_asr_stage.py):
   actor budgets, mode behavior, local scope, segmentation, ordering, and error

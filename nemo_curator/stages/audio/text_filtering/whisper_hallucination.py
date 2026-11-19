@@ -20,10 +20,10 @@ confabulated rather than transcribed.
 """
 
 from dataclasses import dataclass, field
-from typing import Any
 
 from loguru import logger
 
+from nemo_curator.stages.audio.common.helpers import set_note
 from nemo_curator.stages.audio.text_filtering.scriptio_continua import is_scriptio_continua
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
@@ -117,13 +117,6 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
     # Whisper-generated continuations.
     _PREFIX_MATCH_MIN_LEN: int = 8
 
-    def _set_note(self, task_data: dict[str, Any], value: str) -> None:
-        notes = task_data.get(self.notes_key)
-        if not isinstance(notes, dict):
-            notes = {}
-            task_data[self.notes_key] = notes
-        notes[self.name] = value
-
     @staticmethod
     def _normalize_corpus_phrase(text: str) -> str:
         return text.strip().replace(".", "").replace("?", "").replace("!", "").replace(",", "")
@@ -192,11 +185,11 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
     def process(self, task: AudioTask) -> AudioTask:
         current_flag = str(task.data.setdefault(self.skip_me_key, ""))
         if not self.overwrite and current_flag:
-            self._set_note(task.data, "skipped (flagged)")
+            set_note(task.data, self.name, "skipped (flagged)", self.notes_key)
             return task
         text = task.data[self.text_key]
         if not isinstance(text, str) or not text.strip():
-            self._set_note(task.data, "skipped (empty text)")
+            set_note(task.data, self.name, "skipped (empty text)", self.notes_key)
             return task
         words = text.split()
         duration = task.data.get(self.duration_key, 0.0) or 0.0
@@ -231,13 +224,13 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
             logger.debug(f"[{self.name}] flagged ({','.join(reasons)}) dur={duration:.2f}s: {text[:80]!r}")
             if was_flagged or not current_flag:
                 task.data[self.skip_me_key] = f"Hallucination:{self.name}"
-            self._set_note(task.data, f"hallucination ({', '.join(reasons)})")
+            set_note(task.data, self.name, f"hallucination ({', '.join(reasons)})", self.notes_key)
         elif self.overwrite and was_flagged:
             task.data[self.skip_me_key] = ""
             recovery_note = self.recovery_value.lower() if self.recovery_value else "recovered"
-            self._set_note(task.data, recovery_note)
+            set_note(task.data, self.name, recovery_note, self.notes_key)
         else:
-            self._set_note(task.data, "passed")
+            set_note(task.data, self.name, "passed", self.notes_key)
         return task
 
     def teardown(self) -> None:

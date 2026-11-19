@@ -12,14 +12,26 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Per-speaker segment post-processing for ``SpeakerSeparationStage``.
+
+Diarization itself runs through a ``DiarizationAdapter`` from
+``nemo_curator.models.audio.speaker_diarization``; this module only turns its
+segments into clean, non-overlapping per-speaker tracks.
+"""
+
+from __future__ import annotations
+
 import os
 import tempfile
-from typing import NamedTuple
+from typing import TYPE_CHECKING, NamedTuple
 
 import soundfile as sf
 import torch
 from loguru import logger
 from pydub import AudioSegment
+
+if TYPE_CHECKING:
+    from nemo_curator.models.audio.speaker_diarization.base import DiarizationAdapter, DiarizationSegment
 
 
 class SpeakerResult(NamedTuple):
@@ -28,12 +40,6 @@ class SpeakerResult(NamedTuple):
     audio: AudioSegment
     duration: float
     diar_segments: list[tuple[float, float]]
-
-
-try:
-    from nemo.collections.asr.models import SortformerEncLabelModel
-except ImportError:
-    SortformerEncLabelModel = None
 
 
 def load_audio(audio_path: str) -> tuple[torch.Tensor, int]:
@@ -60,60 +66,16 @@ class SpeakerSeparator:
     Class for separating speakers in an audio file using diarization.
     """
 
-    def __init__(self, model_name: str | None = None, config: dict | None = None):
+    def __init__(self, adapter: DiarizationAdapter, config: dict | None = None):
         """
         Initialize the speaker separator.
 
         Args:
-            model_name: The name of the pretrained model to use
+            adapter: Loaded diarization adapter that produces the raw speaker segments
             config: Configuration object (dict or class with .get method)
         """
+        self.adapter = adapter
         self.config = config or {}
-
-        # Get model name
-        if model_name:
-            self.model_name = model_name
-        else:
-            val = None
-            if hasattr(self.config, "speaker_model_path"):
-                val = self.config.speaker_model_path
-            elif isinstance(self.config, dict):
-                val = self.config.get("speaker_model_path")
-            self.model_name = val or "nvidia/diar_sortformer_4spk-v1"
-            if not val:
-                logger.info("No model path specified, defaulting to nvidia/diar_sortformer_4spk-v1")
-
-        # Check for GPU usage
-        self.use_gpu = False
-        if hasattr(self.config, "use_gpu"):
-            self.use_gpu = self.config.use_gpu
-        elif isinstance(self.config, dict):
-            self.use_gpu = self.config.get("use_gpu", False)
-
-        self.device = "cpu"
-        if self.use_gpu:
-            self.device = "cuda"
-
-        self.diar_model = None
-        self._load_model()
-
-    def _load_model(self) -> None:
-        """Load the diarization model from Hugging Face Hub."""
-        logger.info(f"Loading speaker separation model from Hugging Face: {self.model_name}")
-        try:
-            self.diar_model = SortformerEncLabelModel.from_pretrained(
-                self.model_name,
-                map_location=self.device,
-            )
-            self.diar_model.eval()
-        except Exception as e:
-            msg = (
-                f"Failed to load speaker separation model '{self.model_name}': {e}. "
-                "Try downloading the model separately before running the pipeline: "
-                'python -c "from nemo.collections.asr.models import SortformerEncLabelModel; '
-                f"SortformerEncLabelModel.from_pretrained('{self.model_name}')\""
-            )
-            raise RuntimeError(msg) from e
 
     def _get_param(self, param_name: str, default_value: object) -> object:
         """Helper to get a parameter from config, handling different config structures."""
@@ -323,13 +285,15 @@ class SpeakerSeparator:
 
         return merged
 
-    def diarize_audio(self, audio_path_or_waveform: str | torch.Tensor, sample_rate: int | None = None) -> list[str]:
+    def diarize_audio(
+        self, audio_path_or_waveform: str | torch.Tensor, sample_rate: int | None = None
+    ) -> list[DiarizationSegment]:
         """
-        Run speaker diarization on an audio file or waveform.
-        """
-        if not self.diar_model:
-            self._load_model()
+        Run speaker diarization on an audio file or waveform through the adapter.
 
+        The mono audio is written to a temporary WAV at its own sample rate and
+        given to the adapter as a file, so the model performs its own resampling.
+        """
         # Check if input is a path or waveform
         if isinstance(audio_path_or_waveform, str):
             waveform, sample_rate = load_audio(audio_path_or_waveform)
@@ -350,38 +314,19 @@ class SpeakerSeparator:
             wav = waveform.squeeze(0) if waveform.dim() > 1 else waveform
             sf.write(temp_path, wav.cpu().numpy(), sample_rate)
             with torch.no_grad():
-                return self.diar_model.diarize(audio=temp_path, batch_size=1)
+                return self.adapter.diarize_batch([{"audio_filepath": temp_path}])[0].segments
         finally:
             if temp_path and os.path.exists(temp_path):
                 os.unlink(temp_path)
 
-    def get_speaker_segments(self, predicted_segments: list[str]) -> dict[str, list[tuple[float, float]]]:
+    @staticmethod
+    def get_speaker_segments(segments: list[DiarizationSegment]) -> dict[str, list[tuple[float, float]]]:
         """
-        Parse predicted segments and organize by speaker.
+        Group diarization segments by speaker.
         """
-        speaker_segments = {}
-
-        # Handle the nested list structure from the model output
-        segments = (
-            predicted_segments[0]
-            if isinstance(predicted_segments, list) and predicted_segments and isinstance(predicted_segments[0], list)
-            else predicted_segments
-        )
-
+        speaker_segments: dict[str, list[tuple[float, float]]] = {}
         for segment in segments:
-            parts = segment.split()
-            if len(parts) < 3:  # noqa: PLR2004
-                logger.warning(f"Skipping malformed diarization segment: {segment!r}")
-                continue
-            start_time = float(parts[0])
-            end_time = float(parts[1])
-            speaker = parts[2]
-
-            if speaker not in speaker_segments:
-                speaker_segments[speaker] = []
-
-            speaker_segments[speaker].append((start_time, end_time))
-
+            speaker_segments.setdefault(segment["speaker"], []).append((segment["start"], segment["end"]))
         return speaker_segments
 
     def process_audio(  # noqa: PLR0913, C901, PLR0912

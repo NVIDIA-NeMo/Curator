@@ -36,8 +36,8 @@ The stage processes one `AudioTask` at a time and mutates the task data in place
 | `min_speakers` | int | 2 | Minimum distinct speakers required per window |
 | `max_speakers` | int | 5 | Maximum distinct speakers allowed per window |
 | `truncation` | bool | True | Whether to truncate the final segment when a window exceeds the maximum duration |
-| `drop_fields` | str | `"words"` | Comma-separated segment-level fields to remove from output |
-| `drop_fields_top_level` | str | `"words,segments"` | Comma-separated entry-level fields to remove from output |
+| `drop_fields` | list[str] | `["words"]` | Segment-level fields to remove from output |
+| `drop_fields_top_level` | list[str] | `["words", "segments"]` | Entry-level fields to remove from output |
 
 ## Basic Usage
 
@@ -78,8 +78,8 @@ By default, the stage drops `words` from segments and `words,segments` from the 
 
 ```python
 builder = ALMDataBuilderStage(
-    drop_fields="",
-    drop_fields_top_level="",
+    drop_fields=[],
+    drop_fields_top_level=[],
 )
 ```
 

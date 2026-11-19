@@ -98,7 +98,7 @@ pipeline.add_stage(
 # ASR inference consumes and returns AudioTask objects
 pipeline.add_stage(
     ASRStage(
-        adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+        adapter_target="nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter",
         model_id="nvidia/stt_en_fastconformer_hybrid_large_pc",
         max_audio_sec_per_actor=240.0,
         max_inference_duration_s=120.0,
@@ -160,7 +160,7 @@ def create_custom_audio_pipeline(manifest_path: str, output_path: str) -> Pipeli
 
     # ASR processing
     pipeline.add_stage(ASRStage(
-        adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+        adapter_target="nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter",
         model_id="nvidia/stt_en_fastconformer_hybrid_large_pc",
         max_audio_sec_per_actor=240.0,
         max_inference_duration_s=120.0,

@@ -172,8 +172,8 @@ python tutorials/audio/alm/main.py \
 | `stages.1.min_speakers` | Minimum speakers per window | `2` |
 | `stages.1.max_speakers` | Maximum speakers per window | `5` |
 | `stages.1.truncation` | Truncate segments exceeding window | `true` |
-| `stages.1.drop_fields` | Comma-separated fields to drop from segments | `"words"` |
-| `stages.1.drop_fields_top_level` | Comma-separated top-level fields to drop | `"words,segments"` |
+| `stages.1.drop_fields` | Fields to drop from segments | `[words]` |
+| `stages.1.drop_fields_top_level` | Top-level fields to drop | `[words, segments]` |
 | `stages.2.overlap_percentage` | Overlap threshold 0-100 | `50` |
 | `stages.2.target_duration` | Target duration for overlap comparison | `120.0` |
 | `stages.3.output_path` | Output JSONL path | `${output_dir}/alm_output.jsonl` |

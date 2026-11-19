@@ -255,7 +255,7 @@ def test_load_model_reuses_shared_session_and_loads_learned_silence(tmp_path: Pa
     with (
         patch("torch.cuda.is_available", return_value=True),
         patch(
-            "nemo_curator.stages.audio.inference.tensorrt_encoder.TensorRTEncoderSession",
+            "nemo_curator.models.audio.tensorrt_encoder.TensorRTEncoderSession",
             return_value=session,
         ) as session_cls,
         patch(
@@ -286,7 +286,7 @@ def test_invalid_engine_contract_closes_partial_session(tmp_path: Path) -> None:
     with (
         patch("torch.cuda.is_available", return_value=True),
         patch(
-            "nemo_curator.stages.audio.inference.tensorrt_encoder.TensorRTEncoderSession",
+            "nemo_curator.models.audio.tensorrt_encoder.TensorRTEncoderSession",
             return_value=session,
         ),
         pytest.raises(ValueError, match="engine inputs"),

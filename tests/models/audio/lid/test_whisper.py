@@ -118,7 +118,7 @@ def test_tensorrt_encoder_closes_owned_session_when_validation_fails() -> None:
 
     with (
         patch(
-            "nemo_curator.stages.audio.inference.tensorrt_encoder.TensorRTEncoderSession",
+            "nemo_curator.models.audio.tensorrt_encoder.TensorRTEncoderSession",
             return_value=session,
         ),
         pytest.raises(ValueError, match="mel"),

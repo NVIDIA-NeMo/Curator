@@ -54,7 +54,7 @@ class _PreparedTurn:
     start: int = 0
 
 
-class MergeConversationSDPStage(ProcessingStage[AudioTask, AudioTask]):
+class MergeConversationStage(ProcessingStage[AudioTask, AudioTask]):
     """Merge nested conversation turns into audio and matching annotations.
 
     Each input ``AudioTask`` must contain ``conversation_id`` and a ``turns``
@@ -100,7 +100,7 @@ class MergeConversationSDPStage(ProcessingStage[AudioTask, AudioTask]):
         seglst_offset: Nonnegative padding around turn bounds in the segment list.
     """
 
-    name = "MergeConversationSDPStage"
+    name = "MergeConversationStage"
 
     def __init__(
         self,
@@ -216,7 +216,7 @@ class MergeConversationSDPStage(ProcessingStage[AudioTask, AudioTask]):
                 msg = "Each turn requires a unique integer turn_index"
                 raise ValueError(msg)
             indices.add(index)
-            MergeConversationSDPStage._validate_paths(entry)
+            MergeConversationStage._validate_paths(entry)
             overlap = entry.get("overlap", 0)
             if not isinstance(overlap, (int, float)) or not math.isfinite(overlap):
                 msg = "Turn overlap must be finite"

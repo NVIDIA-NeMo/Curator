@@ -594,7 +594,7 @@ class TensorRTSortformerAdapter:
         if block_samples <= 0:
             msg = "Sortformer TensorRT STFT block is shorter than one feature hop"
             raise ValueError(msg)
-        from nemo_curator.stages.audio.inference.tensorrt_encoder import TensorRTEncoderSession
+        from nemo_curator.models.audio.tensorrt_encoder import TensorRTEncoderSession
 
         session = TensorRTEncoderSession(self._engine_file)
         try:

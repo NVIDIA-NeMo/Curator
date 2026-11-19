@@ -144,11 +144,11 @@ class ALMDataBuilderStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     max_speakers: int = 5
     truncation: bool = True
 
-    # Fields to drop from output segments (comma-separated)
-    drop_fields: str = "words"
+    # Fields to drop from output segments
+    drop_fields: list[str] = field(default_factory=lambda: ["words"])
 
-    # Top-level fields to drop from output entry (comma-separated)
-    drop_fields_top_level: str = "words,segments"
+    # Top-level fields to drop from output entry
+    drop_fields_top_level: list[str] = field(default_factory=lambda: ["words", "segments"])
     audio_filepath_key: str = "audio_filepath"
     segments_key: str = "segments"
     audio_sample_rate_key: str = "audio_sample_rate"
@@ -163,8 +163,8 @@ class ALMDataBuilderStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         tol = self.target_window_duration * self.tolerance
         self.min_duration = self.target_window_duration - tol
         self.max_duration = self.target_window_duration + tol
-        self._drop_fields_set = {f.strip() for f in self.drop_fields.split(",") if f.strip()}
-        self._drop_fields_top_level_set = {f.strip() for f in self.drop_fields_top_level.split(",") if f.strip()}
+        self._drop_fields_set = set(self.drop_fields)
+        self._drop_fields_top_level_set = set(self.drop_fields_top_level)
         if self.segments_key != "segments" and "segments" in self._drop_fields_top_level_set:
             self._drop_fields_top_level_set.remove("segments")
             self._drop_fields_top_level_set.add(self.segments_key)

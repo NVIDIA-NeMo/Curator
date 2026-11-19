@@ -64,6 +64,7 @@ from nemo_curator.utils.hash_utils import get_deterministic_hash
 
 if TYPE_CHECKING:
     from nemo_curator.models.audio.sed.base import SEDResult
+    from nemo_curator.stages.audio._agent._residency import InputResidency
     from nemo_curator.tasks import AudioTask
 
 
@@ -71,9 +72,9 @@ if TYPE_CHECKING:
 class SEDInferenceStage(AdapterInferenceStage[SEDAdapter]):
     """Run sound-event detection through a YAML-selectable adapter.
 
-    Set ``waveform_key`` to consume in-memory audio plus ``sample_rate_key``.
-    Leave it as ``None`` to load ``audio_filepath_key`` inside the worker. Both
-    paths are normalized to contiguous mono float32 audio at ``sample_rate``
+    ``input_residency`` selects in-memory audio (``waveform_key`` plus
+    ``sample_rate_key``), ``audio_filepath_key`` loaded inside the worker (the
+    default), or ``auto`` (in-memory when present). Both paths are normalized to contiguous mono float32 audio at ``sample_rate``
     before the adapter is called.
 
     The stage writes a frame-by-class matrix, its frames-per-second value, and
@@ -87,12 +88,13 @@ class SEDInferenceStage(AdapterInferenceStage[SEDAdapter]):
             When ``None``, the adapter applies those same rules to its standard
             provider-cache file.
         sample_rate: Sample rate supplied to the adapter after resampling.
-        waveform_key: In-memory waveform field, or ``None`` to load files.
+        waveform_key: In-memory waveform field read for waveform/auto input.
         sample_rate_key: Source sample-rate field for in-memory waveforms.
         audio_filepath_key: File field used for loading and NPZ naming when
             available. Waveform-only tasks use their Curator task ID instead.
         adapter_kwargs: Model-specific constructor options. For PANNs these
             include ``model_type``, frontend settings, class count, and padding.
+        input_residency: file (default), waveform, or auto (waveform when present, else file).
     """
 
     adapter_target: str
@@ -100,7 +102,7 @@ class SEDInferenceStage(AdapterInferenceStage[SEDAdapter]):
     name: str = "SEDInference"
 
     sample_rate: int = 32000
-    waveform_key: str | None = None
+    waveform_key: str = "waveform"
     sample_rate_key: str = "sample_rate"
     audio_filepath_key: str = "audio_filepath"
     skip_me_key: str = "_skipme"
@@ -119,6 +121,7 @@ class SEDInferenceStage(AdapterInferenceStage[SEDAdapter]):
     adapter_kwargs: dict[str, Any] = field(default_factory=dict)
     batch_size: int = 32
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0, gpu_memory_gb=4.0))
+    input_residency: InputResidency = field(default="file", kw_only=True)
 
     def __post_init__(self) -> None:
         super().__post_init__()
@@ -215,7 +218,7 @@ class SEDInferenceStage(AdapterInferenceStage[SEDAdapter]):
                 continue
             audio_path = str(task.data.get(self.audio_filepath_key, "") or "")
             try:
-                if self.waveform_key:
+                if self._uses_resident(task):
                     waveform = task.data[self.waveform_key]
                     source_sample_rate = task.data[self.sample_rate_key]
                 else:

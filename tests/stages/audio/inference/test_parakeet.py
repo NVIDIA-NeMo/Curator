@@ -20,11 +20,11 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 
-from nemo_curator.models.asr.base import ASRResult
-from nemo_curator.models.asr.indic_parakeet_rnnt_tensorrt import (
+from nemo_curator.models.audio.asr.base import ASRResult
+from nemo_curator.models.audio.asr.indic_parakeet_rnnt_tensorrt import (
     TensorRTParakeetRNNTAdapter,
 )
-from nemo_curator.models.asr.nemo_asr import NeMoASRAdapter
+from nemo_curator.models.audio.asr.nemo_asr import NeMoASRAdapter
 from nemo_curator.stages.audio.inference.parakeet import (
     PARAKEET_TDT_0_6B_V3_LANGS,
     InferenceParakeetStage,

@@ -35,7 +35,7 @@ params_of_note:
   skip_me_key: "Default _skipme. Always initialized to an empty string after successful preparation."
 param_dependencies:
   audio_filepath_key: "The stage loads the whole file. Nonzero offset metadata is not used to extract a cut; materialize the intended clip first when its duration differs from the recording."
-  waveform_key: "For ASRStage, configure waveform_key=waveform and sample_rate_key=sampling_rate (or matching custom keys), plus that stage's required adapter/model/capacity settings."
+  waveform_key: "For ASRStage, configure input_residency=waveform, waveform_key=waveform and sample_rate_key=sampling_rate (or matching custom keys), plus that stage's required adapter/model/capacity settings."
   text_key: "Downstream text consumers must read a copied reference or a new ASR hypothesis: the original text key has been removed."
 semantic_facts:
   reference_text:

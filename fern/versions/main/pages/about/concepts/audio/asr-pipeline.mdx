@@ -112,7 +112,7 @@ from nemo_curator.stages.audio.inference.asr.stage import ASRStage
 
 # The executor caches weights on each node and loads one adapter per worker.
 asr_stage = ASRStage(
-    adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+    adapter_target="nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter",
     model_id="nvidia/stt_en_fastconformer_hybrid_large_pc",
     max_audio_sec_per_actor=240.0,
     max_inference_duration_s=120.0,
@@ -194,7 +194,7 @@ duration_stage = GetAudioDurationStage(
 ```python
 # Optimize for memory-constrained environments
 asr_stage = ASRStage(
-    adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+    adapter_target="nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter",
     model_id="nvidia/stt_en_fastconformer_ctc_large",
     max_audio_sec_per_actor=240.0,
     max_inference_duration_s=120.0,
@@ -211,7 +211,7 @@ asr_stage = ASRStage(
 ```python
 # Configure resources for processing
 asr_stage = ASRStage(
-    adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+    adapter_target="nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter",
     model_id="nvidia/stt_en_fastconformer_hybrid_large_pc",
     max_audio_sec_per_actor=240.0,
     max_inference_duration_s=120.0,
@@ -248,7 +248,7 @@ The ASR pipeline seamlessly integrates with text processing workflows:
 # Audio → Text pipeline
 audio_to_text = [
     ASRStage(
-        adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+        adapter_target="nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter",
         model_id="nvidia/stt_en_fastconformer_ctc_large",
         max_audio_sec_per_actor=240.0,
         max_inference_duration_s=120.0,

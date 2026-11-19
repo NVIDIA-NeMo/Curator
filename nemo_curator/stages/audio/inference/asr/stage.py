@@ -24,14 +24,14 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 from numbers import Real
-from typing import TYPE_CHECKING, Any, ClassVar, cast
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, cast
 
 import numpy as np
 import torch
 import torchaudio
 from loguru import logger
 
-from nemo_curator.models.asr.base import ASRAdapter, ASRResult
+from nemo_curator.models.audio.asr.base import ASRAdapter, ASRResult
 from nemo_curator.stages.audio._agent._agent_ready import (
     AgentReady,
     ConditionalWrite,
@@ -40,7 +40,8 @@ from nemo_curator.stages.audio._agent._agent_ready import (
     StageContract,
     StaticHints,
 )
-from nemo_curator.stages.audio.inference.base import AdapterInferenceStage
+from nemo_curator.stages.audio.common.helpers import set_note
+from nemo_curator.stages.audio.inference.base import AdapterInferenceStage, _inference_audio_read_specs
 from nemo_curator.stages.audio.model_input_segmentation import (
     plan_audio_segments,
     resolve_max_model_input_duration,
@@ -48,6 +49,7 @@ from nemo_curator.stages.audio.model_input_segmentation import (
 from nemo_curator.stages.resources import Resources
 
 if TYPE_CHECKING:
+    from nemo_curator.stages.audio._agent._residency import InputResidency
     from nemo_curator.tasks import AudioTask
 
 _MONO_DIMENSIONS = 1
@@ -114,17 +116,13 @@ _PADDED_SECONDS_REL_TOL = 1e-12
 _PADDED_SECONDS_ABS_TOL = 1e-9
 
 
-def _set_note(
-    task_data: dict[str, Any],
-    stage_name: str,
-    value: str,
-    notes_key: str = _NOTES_KEY,
-) -> None:
-    notes = task_data.get(notes_key)
-    if not isinstance(notes, dict):
-        notes = {}
-        task_data[notes_key] = notes
-    notes[stage_name] = value
+def _shift_words(words: list[dict[str, Any]], offset: float) -> list[dict[str, Any]]:
+    """Return word timestamps moved by ``offset`` seconds."""
+    if not offset:
+        return list(words)
+    return [
+        {**word, "start": round(word["start"] + offset, 3), "end": round(word["end"] + offset, 3)} for word in words
+    ]
 
 
 @dataclass
@@ -141,6 +139,21 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
     into adapter calls bounded by ``max_audio_sec_per_actor``. Enabling
     ``local_bucketing`` first orders those segments by duration to reduce GPU
     padding; disabling it preserves their input order.
+
+    Word timestamps: when the adapter returns ``extras["words"]`` (for example
+    ``NeMoASRAdapter(timestamps=True)``) and ``words_key`` is set, the stage
+    writes those ``{"word", "start", "end", "confidence"}`` entries (seconds,
+    relative to the transcribed audio) under ``words_key``.
+
+    Nested items: with ``nested_key`` set, the stage transcribes each mapping
+    in ``task.data[nested_key]`` instead of the task audio and writes
+    ``pred_text_key`` (and ``words_key``) into that mapping. With
+    ``nested_audio="file"`` each mapping supplies its own ``audio_filepath_key``
+    (e.g. ``split_metadata`` from ``SplitLongAudioStage``); with
+    ``nested_audio="slice"`` each mapping's ``start``/``end`` seconds select a
+    slice of the task audio, mappings shorter than ``min_nested_duration_s``
+    are left untouched, and word times are shifted to the task timeline.
+    Nested mode writes no ``_skipme``/notes control columns.
     """
 
     # Adapter selection.
@@ -151,7 +164,7 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
 
     # Task I/O keys.
     audio_filepath_key: str = "resampled_audio_filepath"
-    waveform_key: str | None = None
+    waveform_key: str = "waveform"
     sample_rate_key: str = "sampling_rate"
     target_sample_rate: int = 16000
     keep_waveform: bool = False
@@ -180,9 +193,16 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
     max_inference_duration_s: float = 2400.0
     local_bucketing: bool = False
     num_workers_override: int | None = None
+    words_key: str | None = field(default=None, kw_only=True)
+    nested_key: str | None = field(default=None, kw_only=True)
+    nested_audio: Literal["file", "slice"] = field(default="file", kw_only=True)
+    min_nested_duration_s: float = field(default=0.0, kw_only=True)
+    input_residency: InputResidency = field(default="file", kw_only=True)
 
     BATCH_ONLY = True
-    INTERNAL_KEY_FIELDS = frozenset({"source_lang_key", "language_key", "extras_key", "skip_me_key", "notes_key"})
+    INTERNAL_KEY_FIELDS = frozenset(
+        {"source_lang_key", "language_key", "extras_key", "skip_me_key", "notes_key", "nested_key"}
+    )
     AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
         gates=Gates(requires_gpu=True, requires_internet_first_run=True, per_row_independent=True)
     )
@@ -228,13 +248,19 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
             }:
                 msg = f"ASRStage.extras_key cannot collide with another output column: {self.extras_key!r}"
                 raise ValueError(msg)
-        input_keys = {self.audio_filepath_key, self.waveform_key, self.sample_rate_key, self.source_lang_key} - {
+        resident_key = self.waveform_key if self.input_residency != "file" else None
+        input_keys = {self.audio_filepath_key, resident_key, self.sample_rate_key, self.source_lang_key} - {
             None,
             "",
         }
-        output_keys = {self.pred_text_key, self.skip_me_key, self.notes_key, self.language_key, self.extras_key} - {
-            None
-        }
+        output_keys = {
+            self.pred_text_key,
+            self.skip_me_key,
+            self.notes_key,
+            self.language_key,
+            self.extras_key,
+            self.words_key,
+        } - {None}
         collisions = sorted(input_keys & output_keys)
         if collisions:
             msg = f"ASRStage output/control keys must not collide with input keys: {collisions}"
@@ -267,6 +293,9 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
         if self.num_workers_override is not None:
             self.num_workers_override = int(self.num_workers_override)
         self._supported_language_codes = self._normalise_supported_language_codes(self.supported_language_codes)
+        if self.nested_audio not in {"file", "slice"}:
+            msg = f"ASRStage.nested_audio must be 'file' or 'slice', got {self.nested_audio!r}"
+            raise ValueError(msg)
 
     @staticmethod
     def _validate_max_audio_sec_per_actor(value: object) -> float:
@@ -299,19 +328,60 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
             ),
         )
 
+    def inputs(self) -> tuple[list[str], list[str]]:
+        if self.nested_key is not None and self.nested_audio == "file":
+            return [], [self.nested_key]
+        return super().inputs()
+
     def outputs(self) -> tuple[list[str], list[str]]:
+        if self.nested_key is not None:
+            return [], [self.nested_key]
         optional_outputs = [self.pred_text_key, self.skip_me_key, self.notes_key]
         if self.language_key is not None:
             optional_outputs.append(self.language_key)
         if self.extras_key is not None:
             optional_outputs.append(self.extras_key)
+        if self.words_key is not None:
+            optional_outputs.append(self.words_key)
         return [], optional_outputs
 
+    def _describe_nested(self) -> StageContract:
+        nested_writes = [self.pred_text_key] + ([self.words_key] if self.words_key else [])
+        file_mode = self.nested_audio == "file"
+        audio_keys = (
+            [self.waveform_key, self.sample_rate_key]
+            if self.input_residency == "waveform"
+            else [self.audio_filepath_key]
+        )
+        return StageContract(
+            reads=IOSpec(data_keys=[self.nested_key, *([] if file_mode else audio_keys)]),
+            writes=IOSpec(),
+            conditional_writes=[
+                ConditionalWrite(
+                    writes=IOSpec(segment_data_keys=nested_writes),
+                    condition=(
+                        f"a '{self.nested_key}' mapping is transcribed"
+                        + ("" if file_mode else f" (its slice is >= {self.min_nested_duration_s}s and non-empty)")
+                    ),
+                )
+            ],
+            cardinality="1:1 nested-list",
+            iteration_key=self.nested_key,
+            gates=Gates(
+                requires_gpu=self.resources.requires_gpu,
+                requires_internet_first_run=True,
+                per_row_independent=True,
+            ),
+        )
+
     def describe(self) -> StageContract:
-        reads = (
-            IOSpec(data_keys=[self.waveform_key, self.sample_rate_key], accepts=["waveform"])
-            if self.waveform_key
-            else IOSpec(data_keys=[self.audio_filepath_key], accepts=["file"])
+        if self.nested_key is not None:
+            return self._describe_nested()
+        reads = _inference_audio_read_specs(
+            self.input_residency,
+            audio_filepath_key=self.audio_filepath_key,
+            waveform_key=self.waveform_key,
+            sample_rate_key=self.sample_rate_key,
         )
         writes = [self.pred_text_key]
         conditional_writes = [
@@ -341,15 +411,17 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
                     condition="the adapter returns non-empty metadata for the item",
                 )
             )
+        if self.words_key is not None:
+            writes.append(self.words_key)
         return StageContract(
-            reads=reads,
+            reads_one_of=reads,
             optional_reads=IOSpec(
                 data_keys=[key for key in (self.source_lang_key, self.skip_me_key, self.notes_key) if key]
             ),
             writes=IOSpec(data_keys=writes),
             conditional_writes=conditional_writes,
             cardinality="1:1",
-            removes_keys=([self.waveform_key] if self.waveform_key and not self.keep_waveform else []),
+            removes_keys=([self.waveform_key] if self.input_residency != "file" and not self.keep_waveform else []),
             invalidates_keys=([self.extras_key] if self.extras_key is not None else []),
             gates=Gates(
                 requires_gpu=self.resources.requires_gpu,
@@ -390,7 +462,7 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
                 "language_code": self._resolve_language_code(task),
                 "task_id": task.task_id,
             }
-            if self.waveform_key:
+            if self._uses_resident(task):
                 item["waveform"] = task.data[self.waveform_key]
                 item["sample_rate"] = task.data[self.sample_rate_key]
             else:
@@ -441,6 +513,8 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
         """Run one ASR batch."""
         if len(tasks) == 0:
             return []
+        if self.nested_key is not None:
+            return self._process_nested(tasks)
         tasks_to_process, output_exists_skipped = self._partition_inference_tasks(tasks)
 
         for task in tasks_to_process:
@@ -462,7 +536,7 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
             items,
             results,
         )
-        if self.waveform_key and not self.keep_waveform:
+        if self.input_residency != "file" and not self.keep_waveform:
             for task in tasks:
                 task.data.pop(self.waveform_key, None)
         if output_exists_skipped:
@@ -474,6 +548,56 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
                 len(tasks),
             )
         return tasks
+
+    def _process_nested(self, tasks: list[AudioTask]) -> list[AudioTask]:
+        """Transcribe every mapping under ``nested_key`` and write results into it."""
+        if self._adapter is None:
+            msg = "Adapter not initialized - setup() was not called"
+            raise RuntimeError(msg)
+        planned = [planned_item for task in tasks for planned_item in self._nested_items(task)]
+        if not planned:
+            return tasks
+        results = self.run_inference([item for item, _entry, _offset in planned])
+        for (_item, entry, offset), result in zip(planned, results, strict=True):
+            entry[self.pred_text_key] = result.text
+            if self.words_key is not None:
+                entry[self.words_key] = _shift_words(result.extras.get("words", []), offset)
+        return tasks
+
+    def _nested_items(self, task: AudioTask) -> list[tuple[dict[str, Any], dict[str, Any], float]]:
+        """Return ``(adapter item, target mapping, time offset)`` for one task's nested mappings."""
+        entries = task.data.get(self.nested_key)
+        if not isinstance(entries, list):
+            return []
+        base = {
+            "language": self._resolve_language(task),
+            "language_code": self._resolve_language_code(task),
+            "task_id": task.task_id,
+        }
+        planned: list[tuple[dict[str, Any], dict[str, Any], float]] = []
+        parent_audio = None
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            if self.nested_audio == "file":
+                planned.append(({**base, "audio_filepath": entry[self.audio_filepath_key]}, entry, 0.0))
+                continue
+            start, end = float(entry.get("start", 0)), float(entry.get("end", 0))
+            if end - start < self.min_nested_duration_s:
+                continue
+            if parent_audio is None:
+                parent_audio = self._task_audio(task)
+            waveform, sample_rate = parent_audio
+            audio_slice = waveform[..., int(start * sample_rate) : int(end * sample_rate)]
+            if audio_slice.shape[-1] > 0:
+                planned.append(({**base, "waveform": audio_slice, "sample_rate": sample_rate}, entry, start))
+        return planned
+
+    def _task_audio(self, task: AudioTask) -> tuple[np.ndarray, int]:
+        """Return the task's own (file or resident) audio for slicing."""
+        if self._uses_resident(task):
+            return np.asarray(task.data[self.waveform_key]), int(task.data[self.sample_rate_key])
+        return self._load_audio(str(task.data[self.audio_filepath_key]))
 
     def _partition_inference_tasks(self, tasks: list[AudioTask]) -> tuple[list[AudioTask], int]:
         tasks_to_process: list[AudioTask] = []
@@ -490,6 +614,7 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
         supported_indices = [index for index, item in enumerate(items) if self._is_language_supported(item)]
         by_index: dict[int, ASRResult] = {}
         adapter_parent_indices: list[int] = []
+        adapter_offsets: list[float] = []
         adapter_items: list[dict[str, Any]] = []
         for index in supported_indices:
             item = items[index]
@@ -497,7 +622,7 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
                 if "waveform" in item:
                     waveform = item["waveform"]
                     sample_rate = item["sample_rate"]
-                    audio_source = self.waveform_key or "waveform"
+                    audio_source = self.waveform_key
                 else:
                     audio_source = str(item["audio_filepath"])
                     waveform, sample_rate = self._load_audio(audio_source)
@@ -523,6 +648,7 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
             )
             for segment in segments:
                 adapter_parent_indices.append(index)
+                adapter_offsets.append(segment.start_sample / self.target_sample_rate)
                 adapter_items.append(
                     {
                         "waveform": np.ascontiguousarray(
@@ -540,7 +666,11 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
         if adapter_items:
             adapter_results = self._run_adapter_batches(adapter_items)
             per_parent: dict[int, list[ASRResult]] = {}
-            for parent_index, result in zip(adapter_parent_indices, adapter_results, strict=True):
+            for parent_index, offset, result in zip(
+                adapter_parent_indices, adapter_offsets, adapter_results, strict=True
+            ):
+                if offset and "words" in result.extras:
+                    result.extras["words"] = _shift_words(result.extras["words"], offset)
                 per_parent.setdefault(parent_index, []).append(result)
             for parent_index, chunk_results in per_parent.items():
                 by_index[parent_index] = self._stitch_chunk_results(chunk_results)
@@ -579,6 +709,8 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
         extras: dict[str, Any] = {}
         for result in results:
             extras.update(result.extras)
+        if any("words" in result.extras for result in results):
+            extras["words"] = [word for result in results for word in result.extras.get("words", [])]
         return ASRResult(
             text=" ".join(texts),
             skipped=any_skipped,
@@ -732,6 +864,8 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
         skipped_count = 0
         for task, item, result in zip(tasks, items, results, strict=True):
             task.data[self.pred_text_key] = result.text
+            if self.words_key is not None:
+                task.data[self.words_key] = list(result.extras.get("words", []))
             if self.language_key is not None:
                 task.data.setdefault(self.language_key, "")
             if self.extras_key is not None:
@@ -766,19 +900,19 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
         missing_language = self._supported_language_codes is not None and not item["language_code"]
         if missing_language:
             if self.missing_language_is_unsupported:
-                _set_note(task.data, self.name, "skipped (unsupported language: )", self.notes_key)
-                _set_note(task.data, self.pred_text_key, "lang_not_supported:", self.notes_key)
+                set_note(task.data, self.name, "skipped (unsupported language: )", self.notes_key)
+                set_note(task.data, self.pred_text_key, "lang_not_supported:", self.notes_key)
             else:
-                _set_note(task.data, self.name, "skipped (missing language)", self.notes_key)
-                _set_note(task.data, self.pred_text_key, "language_missing", self.notes_key)
+                set_note(task.data, self.name, "skipped (missing language)", self.notes_key)
+                set_note(task.data, self.pred_text_key, "language_missing", self.notes_key)
         elif unsupported_language:
-            _set_note(
+            set_note(
                 task.data,
                 self.name,
                 f"skipped (unsupported language: {unsupported_language})",
                 self.notes_key,
             )
-            _set_note(
+            set_note(
                 task.data,
                 self.pred_text_key,
                 f"lang_not_supported:{unsupported_language}",

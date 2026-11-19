@@ -241,7 +241,19 @@ def _adopt_recipe(run_id: str) -> tuple[Recipe, dict[str, Any] | None, dict[str,
             },
         )
     reproduced = not record.semantic_hash or rec.semantic_hash == record.semantic_hash
-    masked = [f"{s.ref}.{param}" for s in rec.stages for param in s.params if is_secret_key(param)]
+    # Adapter credentials live one level down, e.g. ``adapter_kwargs.hf_token``.
+    masked = [
+        f"{s.ref}.{path}"
+        for s in rec.stages
+        for param, value in s.params.items()
+        for path in (
+            [param]
+            if is_secret_key(param)
+            else [f"{param}.{key}" for key in value if is_secret_key(key)]
+            if isinstance(value, dict)
+            else []
+        )
+    ]
     if not reproduced and masked:
         return (
             Recipe(),

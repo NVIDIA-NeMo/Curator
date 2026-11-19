@@ -59,7 +59,7 @@ def test_additive_fields_preserve_legacy_positional_arguments() -> None:
     assert joiner.text_key == "transcript"
     assert joiner.name == "custom-join"
     assert joiner.split_filepaths_key == "split_filepaths"
-    assert composite.model_name == "legacy/model"
+    assert composite.model_id == "legacy/model"
     assert composite.output_dir is None
 
 
@@ -637,8 +637,8 @@ class TestJoinSplitAudioMetadataStage:
 def test_composite_preserves_renamed_transcript_and_alignment() -> None:
     stage = SplitASRAlignJoinStage(text_key="transcript", alignment_key="word_alignment")
     splitter, aligner, joiner = stage.decompose()
-    assert aligner.text_key == joiner.text_key == "transcript"
-    assert aligner.alignment_key == joiner.alignment_key == "word_alignment"
+    assert aligner.pred_text_key == joiner.text_key == "transcript"
+    assert aligner.words_key == joiner.alignment_key == "word_alignment"
     assert not build_contract(stage).gates.per_row_independent
     assert not build_contract(splitter).gates.per_row_independent
     task = AudioTask(

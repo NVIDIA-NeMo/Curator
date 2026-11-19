@@ -30,38 +30,28 @@ Example:
     pipeline.add_stage(BandFilterStage(band_value="narrow_band"))
 """
 
-import os
+import math
 from dataclasses import KW_ONLY, dataclass, field
 from typing import ClassVar, Literal
 
-import torch
-from huggingface_hub import hf_hub_download
 from loguru import logger
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
+from nemo_curator.models.audio.band.predict import BandAdapter
 from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract, StaticHints
 from nemo_curator.stages.audio._agent._residency import (
-    normalize_audio_waveform,
-    resolve_audio,
     scoped_audio_conditional_writes,
     scoped_audio_io_specs,
     scoped_file_audio_hydration_writes,
-    validate_audio_key_configuration,
-    validate_input_residency,
 )
-from nemo_curator.stages.audio.filtering.band_filter_module.predict import BandPredictor
+from nemo_curator.stages.audio.filtering.base import AudioQualityFilterStage
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
-_HF_REPO_ID = "nvidia/nemocurator-speech-bandwidth-filter"
-_HF_MODEL_FILENAME = "band_classifier_model_band_7000_samples.joblib"
-_VALID_MODES = {"task", "segments", "auto"}
-_VALID_ACTIONS = {"filter", "annotate"}
-
 
 @dataclass
-class BandFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
+class BandFilterStage(AudioQualityFilterStage, AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """
     Band filter stage for bandwidth classification.
 
@@ -118,34 +108,20 @@ class BandFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     input_residency: Literal["file", "waveform", "auto"] = "auto"
 
     _VALID_BAND_VALUES: ClassVar[set[str]] = {"full_band", "narrow_band"}
+    FILE_AUDIO_HYDRATION: ClassVar[str] = "always"
+    INFER_SAMPLE_RATE_FROM_FILE: ClassVar[bool] = True
     AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
         gates=Gates(requires_internet_first_run=True, per_row_independent=True)
     )
 
     def __post_init__(self):
         super().__init__()
-        self._predictor = None
+        self._adapter: BandAdapter | None = None
 
         if self.band_value not in self._VALID_BAND_VALUES:
             msg = f"band_value must be one of {self._VALID_BAND_VALUES!r}, got {self.band_value!r}"
             raise ValueError(msg)
-        if self.mode not in _VALID_MODES:
-            msg = f"mode must be one of {_VALID_MODES!r}, got {self.mode!r}"
-            raise ValueError(msg)
-        if self.action not in _VALID_ACTIONS:
-            msg = f"action must be one of {_VALID_ACTIONS!r}, got {self.action!r}"
-            raise ValueError(msg)
-        validate_input_residency(self.input_residency, stage_name=self.name)
-        validate_audio_key_configuration(
-            self.name,
-            input_keys={
-                "audio_filepath_key": self.audio_filepath_key,
-                "waveform_key": self.waveform_key,
-                "sample_rate_key": self.sample_rate_key,
-                "segments_key": self.segments_key,
-            },
-            output_keys={"prediction_key": self.prediction_key},
-        )
+        self._validate_quality_filter_config(output_keys={"prediction_key": self.prediction_key})
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], []
@@ -213,122 +189,42 @@ class BandFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None
     ) -> None:
         try:
-            if self.model_path is None:
-                self.model_path = hf_hub_download(
-                    repo_id=_HF_REPO_ID,
-                    filename=_HF_MODEL_FILENAME,
-                    cache_dir=self.cache_dir,
-                )
-                logger.info(f"Band filter model downloaded to {self.model_path}")
+            BandAdapter(model_path=self.model_path, cache_dir=self.cache_dir).download_weights_on_node()
         except Exception:  # noqa: BLE001
             logger.warning("Model pre-download in setup_on_node failed; will retry in setup().")
 
     def setup(self, _: WorkerMetadata | None = None) -> None:
-        self._initialize_predictor()
+        if self._adapter is not None:
+            return
+        adapter = BandAdapter(model_path=self.model_path, cache_dir=self.cache_dir)
+        try:
+            adapter.load_model(num_gpus=math.ceil(self.resources.gpus))
+        except Exception as e:
+            logger.error(f"Failed to initialize Band predictor: {e}")
+            raise
+        self._adapter = adapter
 
     def teardown(self) -> None:
-        if self._predictor is not None:
-            del self._predictor
-            self._predictor = None
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-
-    def _resolve_model_path(self) -> str:
-        if self.model_path is not None:
-            if os.path.isfile(self.model_path) and os.path.getsize(self.model_path) > 0:
-                return self.model_path
-            msg = f"Band classifier model_path does not exist, is empty, or is not a file: {self.model_path!r}"
-            raise FileNotFoundError(msg)
-        return hf_hub_download(
-            repo_id=_HF_REPO_ID,
-            filename=_HF_MODEL_FILENAME,
-            cache_dir=self.cache_dir,
-        )
-
-    def _initialize_predictor(self) -> None:
-        if self._predictor is None:
-            try:
-                model_path = self._resolve_model_path()
-                self._predictor = BandPredictor(model_path=model_path)
-                logger.info("Band predictor loaded successfully")
-            except Exception as e:
-                logger.error(f"Failed to initialize Band predictor: {e}")
-                raise
-
-    def process(self, task: AudioTask) -> AudioTask | list[AudioTask]:
-        """
-        Filter or annotate audio based on bandwidth classification.
-
-        Segment handling follows ``mode``: with ``mode="auto"`` (default), nested
-        mode is used when ``task.data`` contains the ``segments_key``; ``mode="task"``
-        or ``mode="segments"`` overrides that auto-detection. In nested mode each
-        segment is evaluated individually. With ``action="filter"`` only survivors
-        are kept; with ``action="annotate"`` every item is kept — including items
-        that fail the band check or cannot be classified — and only the prediction
-        annotation is written.
-
-        Returns:
-            AudioTask if it passes (or ``action="annotate"``), [] if filtered out.
-        """
-        use_segments = self.mode == "segments" or (self.mode == "auto" and self.segments_key in task.data)
-        if use_segments:
-            segments = task.data.get(self.segments_key)
-            if segments is None:
-                segments = []
-            elif not isinstance(segments, list):
-                logger.error(f"Expected {self.segments_key!r} to be a list, got {type(segments).__name__}")
-                return task if self.action == "annotate" else []
-            survivors = []
-            for seg in segments:
-                if not isinstance(seg, dict):
-                    logger.error(f"Expected each {self.segments_key!r} item to be a mapping")
-                    if self.action == "annotate":
-                        survivors.append(seg)
-                    continue
-                temp = AudioTask(data=seg)
-                result = self._process_single(temp)
-                if result is not None or self.action == "annotate":
-                    survivors.append(temp.data)
-            task.data[self.segments_key] = survivors
-            return task if survivors or self.action == "annotate" else []
-        return self._process_single(task) or (task if self.action == "annotate" else [])
+        if self._adapter is not None:
+            self._adapter.unload_model()
+            self._adapter = None
 
     def _process_single(self, task: AudioTask) -> AudioTask | None:
         """Run band classification on a single (non-nested) task."""
         # This stage owns ``prediction_key``. Clear a prior annotation before
         # inference so an unscorable rerun cannot retain stale classification.
         task.data.pop(self.prediction_key, None)
-        if self._predictor is None:
+        if self._adapter is None:
             logger.error("Band predictor not available")
             return None
 
-        try:
-            audio = resolve_audio(
-                task.data,
-                residency=self.input_residency,  # type: ignore[arg-type]
-                audio_filepath_key=self.audio_filepath_key,
-                waveform_key=self.waveform_key,
-                sample_rate_key=self.sample_rate_key,
-                infer_sample_rate_from_file=True,
-                file_audio_hydration="always",
-            )
-            if audio is not None:
-                waveform, sample_rate = audio
-                if torch.is_tensor(waveform) and not waveform.is_floating_point():
-                    waveform = waveform.to(dtype=torch.float32)
-                audio = (
-                    normalize_audio_waveform(waveform, stage_name=self.name, mono=True),
-                    sample_rate,
-                )
-        except (OSError, RuntimeError, TypeError, ValueError) as e:
-            logger.error(f"Failed to load audio for {task.data.get(self.audio_filepath_key)!r}: {e}")
-            return None
+        audio = self._resolve_mono_audio(task)
         if audio is None:
             return None
         waveform, sample_rate = audio
 
         try:
-            pred = self._predictor.predict_audio(waveform, sample_rate)
+            pred = self._adapter.predict_audio(waveform, sample_rate)
             if isinstance(pred, str) and not pred.startswith("Error") and pred in ("full_band", "narrow_band"):
                 task.data[self.prediction_key] = pred
             else:

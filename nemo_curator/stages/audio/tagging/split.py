@@ -25,7 +25,7 @@ import posixpath
 import shutil
 import tempfile
 import time
-from dataclasses import KW_ONLY, dataclass
+from dataclasses import KW_ONLY, dataclass, field
 from typing import Any, ClassVar
 
 import torchaudio
@@ -43,7 +43,7 @@ from nemo_curator.stages.audio._agent._agent_ready import (
     StaticHints,
 )
 from nemo_curator.stages.audio._agent._residency import validate_audio_key_configuration
-from nemo_curator.stages.audio.tagging.inference.nemo_asr_align import NeMoASRAlignerStage
+from nemo_curator.stages.audio.inference.asr.stage import ASRStage
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.tasks import AudioTask
 
@@ -529,73 +529,47 @@ class JoinSplitAudioMetadataStage(AgentReady, ProcessingStage[AudioTask, AudioTa
             meta_entry.pop(key, None)
 
 
+def _default_alignment_adapter_kwargs() -> dict[str, Any]:
+    return {"enable_local_attention": True, "decoder_type": "rnnt", "timestamps": True}
+
+
 @dataclass
 class SplitASRAlignJoinStage(AgentReady, CompositeStage[AudioTask, AudioTask]):
     """Composite stage: Split long audio -> ASR align -> Join results.
 
     Decomposes into three sequential stages that always run together:
     1. SplitLongAudioStage — splits audio exceeding ``suggested_max_len``
-    2. NeMoASRAlignerStage — transcribes and aligns each chunk
+    2. ASRStage with ``NeMoASRAdapter`` — transcribes each split
+       (``nested_key=split_metadata``) and writes its word timestamps
     3. JoinSplitAudioMetadataStage — merges transcripts back into original entries
 
     Args:
         suggested_max_len: Target max length for audio segments (seconds).
-        min_len: Minimum length for any split segment (also used by ASR).
-        output_dir: Optional directory for split audio chunks. When unset,
-            chunks are written beside their source audio.
-        max_len: Maximum length of audio segments for ASR processing (seconds).
-        model_name: Pretrained NeMo ASR model name.
-        model_path: Local model file path (overrides ``model_name`` if set).
-        is_fastconformer: Whether the model encoder is FastConformer.
-        decoder_type: Decoder type — ``"ctc"`` or ``"rnnt"``.
-        batch_size: Entries per processing chunk in ASR.
-        transcribe_batch_size: Batch size passed to the ASR model's transcribe call.
-        split_batch_size: Max entries/paths per batch when chunking segments.
-        dataloader_num_workers: Data-loading workers for ASR inference.
-        infer_segment_only: If True, run ASR only on individual segments
-            rather than full audio / meta-entries.
-        compute_timestamps: Whether to compute word-level timestamps.
-        timestamp_type: Timestamp granularity (``"word"`` or ``"char"``).
+        min_len: Minimum length for any split segment.
+        model_id: Pretrained NeMo ASR model name or local ``.nemo`` path.
+        adapter_kwargs: ``NeMoASRAdapter`` options. The default converts the
+            FastConformer to local attention and decodes RNNT with word
+            timestamps.
+        batch_size: Tasks per ASR ``process_batch`` call.
+        max_audio_sec_per_actor: Padded audio seconds per adapter call.
+        max_inference_duration_s: Longer splits are transcribed in chunks.
         text_key: Output key for predicted text.
         alignment_key: Output key for joined word alignments.
-        words_key: Output key for word-level alignments.
-        disable_word_confidence: Whether to disable word confidence scores.
         segments_key: Key for the segments list in each manifest entry.
+        output_dir: Optional directory for split audio chunks. When unset,
+            chunks are written beside their source audio.
     """
 
-    # Split parameters
     suggested_max_len: float = 3600.0
     min_len: float = 1.0
-
-    # ASR model configuration
-    model_name: str = "nvidia/parakeet-tdt_ctc-1.1b"
-    model_path: str | None = None
-    is_fastconformer: bool = True
-    decoder_type: str = "rnnt"
-
-    # ASR length constraints
-    max_len: float = 40.0
-
-    # ASR processing parameters
+    model_id: str = "nvidia/parakeet-tdt_ctc-1.1b"
+    adapter_kwargs: dict[str, Any] = field(default_factory=_default_alignment_adapter_kwargs)
     batch_size: int = 100
-    transcribe_batch_size: int = 32
-    split_batch_size: int = 5000
-    dataloader_num_workers: int = 10
-    infer_segment_only: bool = False
-
-    # ASR timestamp settings
-    compute_timestamps: bool = True
-    timestamp_type: str = "word"
-
-    # ASR output keys
+    max_audio_sec_per_actor: float = 3600.0
+    max_inference_duration_s: float = 2400.0
     text_key: str = "text"
-    words_key: str = "words"
-    disable_word_confidence: bool = False
     segments_key: str = "segments"
-
     name: str = "SplitASRAlignJoin"
-    # Additive agent-only routing knob. Keep it after every legacy field so
-    # positional construction retains its historical argument order.
     output_dir: str | None = None
     _: KW_ONLY
     alignment_key: str = "alignment"
@@ -616,30 +590,19 @@ class SplitASRAlignJoinStage(AgentReady, CompositeStage[AudioTask, AudioTask]):
                 suggested_max_len=self.suggested_max_len,
                 min_len=self.min_len,
                 output_dir=self.output_dir,
-                # Forwarded, or configuring the composite would silently not reach the splitter:
-                # it would keep reading "segments" while the aligner read the configured key,
-                # which is what blocks feeding diarization segments into ASR.
+                # Forwarded, or configuring the composite would silently not reach the splitter.
                 segments_key=self.segments_key,
             ),
-            NeMoASRAlignerStage(
-                model_name=self.model_name,
-                model_path=self.model_path,
-                is_fastconformer=self.is_fastconformer,
-                decoder_type=self.decoder_type,
-                min_len=self.min_len,
-                max_len=self.max_len,
+            ASRStage(
+                adapter_target="nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter",
+                model_id=self.model_id,
+                max_audio_sec_per_actor=self.max_audio_sec_per_actor,
+                max_inference_duration_s=self.max_inference_duration_s,
+                adapter_kwargs=dict(self.adapter_kwargs),
                 batch_size=self.batch_size,
-                transcribe_batch_size=self.transcribe_batch_size,
-                split_batch_size=self.split_batch_size,
-                dataloader_num_workers=self.dataloader_num_workers,
-                infer_segment_only=self.infer_segment_only,
-                compute_timestamps=self.compute_timestamps,
-                timestamp_type=self.timestamp_type,
-                text_key=self.text_key,
-                alignment_key=self.alignment_key,
-                words_key=self.words_key,
-                disable_word_confidence=self.disable_word_confidence,
-                segments_key=self.segments_key,
+                pred_text_key=self.text_key,
+                words_key=self.alignment_key,
+                nested_key="split_metadata",
             ),
             JoinSplitAudioMetadataStage(text_key=self.text_key, alignment_key=self.alignment_key),
         ]

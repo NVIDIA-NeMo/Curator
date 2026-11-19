@@ -80,7 +80,7 @@ of the chain instead of needing hand-written rules.
 
 `impl_version` is a digest of the source that implements one stage: the module defining its
 class, the configured `adapter_target` module, and the `nemo_curator` modules they transitively import, read out of the files
-with `ast` so computing it imports nothing (`code_identity.py`). Editing `nemo_asr_align.py`
+with `ast` so computing it imports nothing (`code_identity.py`). Editing `inference/asr/stage.py`
 invalidates ASR artifacts and everything chained below them; editing another modality, a test
 or a doc invalidates nothing.
 

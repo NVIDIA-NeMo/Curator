@@ -30,7 +30,7 @@ from nemo_curator.backends.ray_data.adapter import RayDataStageAdapter
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.backends.xenna.adapter import XennaStageAdapter
 from nemo_curator.stages.audio.common.manifest_reader import ManifestReaderStage
-from nemo_curator.stages.audio.merging import MergeConversationSDPStage
+from nemo_curator.stages.audio.merging import MergeConversationStage
 from nemo_curator.tasks import AudioTask, FileGroupTask
 
 SR = 8000
@@ -67,8 +67,8 @@ def _parent(turns: object, conversation_id: str = "conversation") -> AudioTask:
     return AudioTask(data={"conversation_id": conversation_id, "turns": turns}, dataset_name="test")
 
 
-def _stage(tmp_path: Path, **kwargs: float | bool) -> MergeConversationSDPStage:
-    return MergeConversationSDPStage(str(tmp_path / "output"), **kwargs)
+def _stage(tmp_path: Path, **kwargs: float | bool) -> MergeConversationStage:
+    return MergeConversationStage(str(tmp_path / "output"), **kwargs)
 
 
 def _merge(tmp_path: Path, turns: object, **kwargs: float | bool) -> dict[str, Any]:

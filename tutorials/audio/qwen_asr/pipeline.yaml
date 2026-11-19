@@ -46,7 +46,7 @@ stages:
     target_nchannels: 1
 
   - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
-    adapter_target: nemo_curator.models.asr.qwen_asr.QwenASRAdapter
+    adapter_target: nemo_curator.models.audio.asr.qwen_asr.QwenASRAdapter
     model_id: ${model_id}
     default_language: ${default_language}
     supported_language_codes: ${supported_language_codes}

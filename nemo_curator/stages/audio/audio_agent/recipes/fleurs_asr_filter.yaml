@@ -12,7 +12,7 @@ stages:
     params: {lang: "en_us", split: "dev", raw_data_dir: "REQUIRED_raw_data_dir", batch_size: 4}
   - ref: ASRStage
     params:
-      adapter_target: "nemo_curator.models.asr.nemo_asr.NeMoASRAdapter"
+      adapter_target: "nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter"
       model_id: "nvidia/parakeet-tdt-0.6b-v2"
       audio_filepath_key: "audio_filepath"
       max_audio_sec_per_actor: 2400.0

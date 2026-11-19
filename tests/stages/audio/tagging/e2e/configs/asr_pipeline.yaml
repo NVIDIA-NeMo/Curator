@@ -41,16 +41,19 @@ stages:
     resources: ${resources}
 
   # Second pass ASR
-  - _target_: nemo_curator.stages.audio.tagging.inference.nemo_asr_align.NeMoASRAlignerStage
+  - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
     name: "ASRAlignment2"
-    model_name: nvidia/stt_en_conformer_ctc_large
-    is_fastconformer: False
-    decoder_type: ctc
+    adapter_target: nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter
+    model_id: nvidia/stt_en_conformer_ctc_large
+    adapter_kwargs:
+      decoder_type: ctc
+    nested_key: segments
+    nested_audio: slice
+    min_nested_duration_s: 1.0
+    pred_text_key: ${text_key2}
     batch_size: 64
-    split_batch_size: 100
-    text_key: ${text_key2}
-    infer_segment_only: True
-    compute_timestamps: False
+    max_audio_sec_per_actor: 640
+    max_inference_duration_s: 640
     resources:
       gpus: 0.45
 
