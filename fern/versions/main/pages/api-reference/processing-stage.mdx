@@ -137,7 +137,7 @@ def setup(self, worker_metadata: dict[str, Any]) -> None:
 
 ### `teardown()`
 
-Cleanup after processing.
+Cleanup after processing. `RayDataExecutor` calls it once per actor when Ray Data releases the actor, and waits for it before shutting down Ray; task (non-actor) stages keep no worker state, so it is not called for them. `XennaExecutor` does not call it: Xenna stops its workers with `ray.kill`.
 
 ```python
 def teardown(self) -> None:

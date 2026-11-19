@@ -16,7 +16,9 @@ import copy
 from collections.abc import Callable
 from typing import Any
 
+import ray
 from loguru import logger
+from ray.actor import ActorHandle
 from ray.data import ActorPoolStrategy, Dataset, TaskPoolStrategy
 
 from nemo_curator.backends.base import BaseStageAdapter
@@ -30,7 +32,7 @@ from nemo_curator.backends.utils import (
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.utils.ray_utils import get_alive_ray_node_count
 
-from .utils import get_actor_compute_strategy_for_stage, is_actor_stage
+from .utils import get_actor_compute_strategy_for_stage, is_ray_data_actor_stage
 
 CURATOR_MANAGED_MAP_BATCHES_KWARGS = {"compute", "max_calls", "num_cpus", "num_gpus"}
 
@@ -51,11 +53,16 @@ class RayDataStageAdapter(BaseStageAdapter):
         stage: ProcessingStage,
         ignore_head_node: bool = False,
         downstream_batch_size: int | None = None,
+        initial_workers: int | None = None,
+        teardown_tracker: ActorHandle | None = None,
     ):
         super().__init__(stage)
         self.ignore_head_node = ignore_head_node
         # Batch size of the stage consuming this stage's output; sizes fanout output blocks.
         self.downstream_batch_size = downstream_batch_size
+        # Start size of an autoscaling actor pool when the stage does not set INITIAL_WORKERS.
+        self.initial_workers = initial_workers
+        self.teardown_tracker = teardown_tracker
 
         self._batch_size = self.stage.batch_size
         if self._batch_size is None and self.stage.resources.gpus > 0:
@@ -82,7 +89,8 @@ class RayDataStageAdapter(BaseStageAdapter):
         Returns:
             Dictionary with arrays/lists representing processed Task objects
         """
-        tasks = batch["item"]
+        # Ray Data hands over the column as a NumPy object array; stages expect a list.
+        tasks = list(batch["item"])
         results = self.process_batch(tasks)
         # Return the results as Ray Data expects them
         # For Task objects, we return them in the 'item' column
@@ -127,15 +135,15 @@ class RayDataStageAdapter(BaseStageAdapter):
             Dataset: Processed Ray Data dataset
         """
         ray_stage_spec = self.stage.ray_stage_spec()
-        stage_is_actor = ray_stage_spec.get(RayStageSpecKeys.IS_ACTOR_STAGE, is_actor_stage(self.stage))
+        stage_is_actor = is_ray_data_actor_stage(self.stage)
         total_pool_size = self._total_pool_size()
 
         if stage_is_actor:
-            map_batches_fn = create_actor_from_stage(self.stage)
+            map_batches_fn = create_actor_from_stage(self.stage, self.teardown_tracker)
             compute = (
                 ActorPoolStrategy(size=total_pool_size)
                 if total_pool_size is not None
-                else get_actor_compute_strategy_for_stage(self.stage)
+                else get_actor_compute_strategy_for_stage(self.stage, self.initial_workers)
             )
             map_batches_kwargs = {"compute": compute}
         else:
@@ -196,8 +204,31 @@ class RayDataStageAdapter(BaseStageAdapter):
         return processed_dataset
 
 
-def create_actor_from_stage(stage: ProcessingStage) -> type[RayDataStageAdapter]:
-    """Create a StageProcessor class with the proper stage name for display."""
+@ray.remote(num_cpus=0)
+class TeardownTracker:
+    """Counts actors that finished ``setup`` and ``teardown`` so the driver can wait for teardown."""
+
+    def __init__(self):
+        self.pending = 0
+
+    def started(self) -> None:
+        self.pending += 1
+
+    def finished(self) -> None:
+        self.pending -= 1
+
+    def num_pending(self) -> int:
+        return self.pending
+
+
+def create_actor_from_stage(
+    stage: ProcessingStage, teardown_tracker: ActorHandle | None = None
+) -> type[RayDataStageAdapter]:
+    """Create a StageProcessor class with the proper stage name for display.
+
+    With ``teardown_tracker``, the actor calls ``stage.teardown()`` when Ray Data releases it
+    and reports to the tracker, so the executor can wait for teardown before ``ray.shutdown()``.
+    """
 
     class RayDataStageActorAdapter(RayDataStageAdapter):
         """Simplified stateful processor that wraps a ProcessingStage for Ray Data."""
@@ -209,9 +240,24 @@ def create_actor_from_stage(stage: ProcessingStage) -> type[RayDataStageAdapter]
             node_info, worker_metadata = get_worker_metadata_and_node_id()
             self.setup_on_node(node_info, worker_metadata)
             self.setup(worker_metadata)
+            if teardown_tracker is not None:
+                ray.get(teardown_tracker.started.remote())
+                self.setup_done = True
 
         def __call__(self, batch: dict[str, Any]) -> dict[str, Any]:
             return self._process_batch_internal(batch)
+
+        def __del__(self) -> None:
+            # Ray Data deletes the UDF when it releases the actor; this is its only teardown hook.
+            if not getattr(self, "setup_done", False):
+                return
+            self.setup_done = False
+            try:
+                self.teardown()
+            except Exception:  # noqa: BLE001
+                logger.exception(f"Teardown failed for stage {stage.name}")
+            finally:
+                ray.get(teardown_tracker.finished.remote())
 
     # Set the class name to match the stage name
     stage_name = stage.__class__.__name__ + "Actor"

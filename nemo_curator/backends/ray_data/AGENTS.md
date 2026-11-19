@@ -51,7 +51,14 @@ strategy as follows:
 For a task stage, `num_workers=N` caps the task pool at N; without it, Ray Data
 controls parallelism through resources and backpressure. For an actor stage,
 `num_workers=N` creates a fixed pool. Otherwise Curator passes `MIN_WORKERS`,
-`MAX_WORKERS`, and `INITIAL_WORKERS` to an autoscaling actor pool.
+`MAX_WORKERS`, and `INITIAL_WORKERS` to an autoscaling actor pool. Without
+`INITIAL_WORKERS`, a GPU actor stage starts with its equal share of the GPUs free at
+pipeline start rather than one actor.
+
+Actor stages that override `teardown()` run it when Ray Data releases the actor; the
+executor waits for every such actor (up to `TEARDOWN_TIMEOUT_S`) before `ray.shutdown()`.
+While an `InferenceServer` is active, the executor caps Ray Data's GPU budget at the
+GPUs free at pipeline start, so GPUs held by served models are not counted.
 
 ## Log-first tuning workflow
 
