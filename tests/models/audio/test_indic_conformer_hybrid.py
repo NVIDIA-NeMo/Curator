@@ -21,7 +21,7 @@ import numpy as np
 import pytest
 import torch
 
-from nemo_curator.models.asr.base import ASRAdapter
+from nemo_curator.models.audio.asr.base import ASRAdapter
 from nemo_curator.models.audio.indic_conformer_hybrid import IndicConformerHybridASR
 from nemo_curator.stages.audio.inference.asr.stage import ASRStage
 

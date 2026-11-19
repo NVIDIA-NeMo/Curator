@@ -115,7 +115,7 @@ guidance for other audio inference stages.
 from nemo_curator.stages.audio.inference.asr.stage import ASRStage
 
 asr = ASRStage(
-    adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+    adapter_target="nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter",
     model_id="nvidia/stt_en_fastconformer_ctc_large",
     max_audio_sec_per_actor=240,
     max_inference_duration_s=120,

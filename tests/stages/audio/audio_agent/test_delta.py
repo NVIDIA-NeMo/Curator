@@ -492,7 +492,7 @@ class TestRegion:
                     {
                         "ref": "ASRStage",
                         "params": {
-                            "adapter_target": "nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+                            "adapter_target": "nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter",
                             "model_id": "stt_en_conformer_ctc_small",
                             "max_audio_sec_per_actor": 2400.0,
                             "audio_filepath_key": "audio_filepath",

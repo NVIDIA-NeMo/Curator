@@ -613,7 +613,7 @@ def test_configurable_session_and_read_error_keys_are_used(tmp_path: Path) -> No
 )
 def test_fanout_preserves_source_audio_and_transcribes_each_turn(input_residency: str, adapter_target: str) -> None:
     from nemo_curator.backends.ray_data.adapter import RayDataStageAdapter
-    from nemo_curator.models.asr.base import ASRResult
+    from nemo_curator.models.audio.asr.base import ASRResult
     from nemo_curator.stages.audio.inference.asr.stage import ASRStage
 
     waveform = np.arange(80, dtype=np.float32).reshape(2, 40) / 80

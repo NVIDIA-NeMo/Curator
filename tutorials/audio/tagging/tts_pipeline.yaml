@@ -125,7 +125,7 @@ stages:
 
   - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
     name: "ASRAlignment"
-    adapter_target: nemo_curator.models.asr.nemo_asr.NeMoASRAdapter
+    adapter_target: nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter
     model_id: nvidia/parakeet-tdt_ctc-1.1b
     adapter_kwargs:
       enable_local_attention: true

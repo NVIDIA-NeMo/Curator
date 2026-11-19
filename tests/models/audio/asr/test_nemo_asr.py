@@ -26,9 +26,9 @@ import pytest
 import torch
 from omegaconf import OmegaConf
 
-from nemo_curator.models.asr import nemo_asr
-from nemo_curator.models.asr.base import ASRAdapter
-from nemo_curator.models.asr.nemo_asr import NeMoASRAdapter
+from nemo_curator.models.audio.asr import nemo_asr
+from nemo_curator.models.audio.asr.base import ASRAdapter
+from nemo_curator.models.audio.asr.nemo_asr import NeMoASRAdapter
 from nemo_curator.stages.audio.inference.asr.stage import ASRStage
 from nemo_curator.tasks import AudioTask
 
@@ -68,7 +68,7 @@ def test_nemo_adapter_conforms_to_asr_protocol() -> None:
 def test_download_weights_uses_adapter_model_id() -> None:
     nemo_asr = MagicMock()
     adapter = NeMoASRAdapter(model_id="nvidia/stt_en_fastconformer_ctc_large")
-    with patch("nemo_curator.models.asr.nemo_asr._nemo_asr_module", return_value=nemo_asr):
+    with patch("nemo_curator.models.audio.asr.nemo_asr._nemo_asr_module", return_value=nemo_asr):
         adapter.download_weights_on_node()
 
     nemo_asr.models.ASRModel.from_pretrained.assert_called_once_with(
@@ -83,7 +83,7 @@ def test_local_nemo_checkpoint_is_validated_without_download(tmp_path: Path) -> 
     nemo_module = MagicMock()
     adapter = NeMoASRAdapter(model_id=str(checkpoint))
 
-    with patch("nemo_curator.models.asr.nemo_asr._nemo_asr_module", return_value=nemo_module):
+    with patch("nemo_curator.models.audio.asr.nemo_asr._nemo_asr_module", return_value=nemo_module):
         adapter.download_weights_on_node()
 
     nemo_module.models.ASRModel.from_pretrained.assert_not_called()
@@ -105,7 +105,7 @@ def test_load_local_nemo_checkpoint_uses_restore_from(tmp_path: Path) -> None:
     nemo_module.models.ASRModel.restore_from.return_value = restored
     adapter = NeMoASRAdapter(model_id=str(checkpoint), strict=False)
 
-    with patch("nemo_curator.models.asr.nemo_asr._nemo_asr_module", return_value=nemo_module):
+    with patch("nemo_curator.models.audio.asr.nemo_asr._nemo_asr_module", return_value=nemo_module):
         model = adapter._load_checkpoint(torch.device("cpu"))
 
     assert model is restored
@@ -247,7 +247,7 @@ def test_asr_stage_drives_nemo_adapter_with_exact_local_batches() -> None:
     adapter = NeMoASRAdapter()
     adapter._model = model
     stage = ASRStage(
-        adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+        adapter_target="nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter",
         model_id=_MODEL_ID,
         max_audio_sec_per_actor=4.0,
         max_inference_duration_s=4.0,

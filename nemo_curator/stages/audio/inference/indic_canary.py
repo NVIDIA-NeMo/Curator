@@ -19,16 +19,16 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
 
-from nemo_curator.models.asr.indic_canary import IndicCanaryTRTLLMASR
+from nemo_curator.models.audio.asr.indic_canary import IndicCanaryTRTLLMASR
 from nemo_curator.stages.audio.common.helpers import set_note
 from nemo_curator.stages.audio.inference.asr.stage import ASRStage
 from nemo_curator.stages.resources import Resources
 
 if TYPE_CHECKING:
-    from nemo_curator.models.asr.base import ASRResult
+    from nemo_curator.models.audio.asr.base import ASRResult
     from nemo_curator.tasks import AudioTask
 
-_ADAPTER_TARGET = "nemo_curator.models.asr.indic_canary.IndicCanaryTRTLLMASR"
+_ADAPTER_TARGET = "nemo_curator.models.audio.asr.indic_canary.IndicCanaryTRTLLMASR"
 
 
 @dataclass

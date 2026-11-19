@@ -26,8 +26,8 @@ import numpy as np
 import pytest
 import torch
 
-from nemo_curator.models.asr.base import ASRAdapter
-from nemo_curator.models.asr.qwen_asr import _MIN_SAMPLES, QwenASRAdapter
+from nemo_curator.models.audio.asr.base import ASRAdapter
+from nemo_curator.models.audio.asr.qwen_asr import _MIN_SAMPLES, QwenASRAdapter
 from nemo_curator.stages.audio.inference.asr.stage import ASRStage
 from nemo_curator.tasks import AudioTask
 
@@ -118,21 +118,21 @@ def test_qwen_adapter_rejects_adapter_owned_vllm_kwargs(reserved_key: str) -> No
 
 def test_download_weights_on_node_downloads_snapshot_without_constructing_model() -> None:
     adapter = QwenASRAdapter(model_id="Qwen/Qwen3-ASR-0.6B", revision="abc123")
-    with patch("nemo_curator.models.asr.qwen_asr.snapshot_download") as snapshot_download:
+    with patch("nemo_curator.models.audio.asr.qwen_asr.snapshot_download") as snapshot_download:
         adapter.download_weights_on_node()
     snapshot_download.assert_called_once_with("Qwen/Qwen3-ASR-0.6B", revision="abc123")
 
 
 def test_asr_stage_prefetches_qwen_adapter_with_adapter_owned_revision() -> None:
     stage = ASRStage(
-        adapter_target="nemo_curator.models.asr.qwen_asr.QwenASRAdapter",
+        adapter_target="nemo_curator.models.audio.asr.qwen_asr.QwenASRAdapter",
         model_id="Qwen/Qwen3-ASR-0.6B",
         max_audio_sec_per_actor=2400.0,
         adapter_kwargs={"revision": "abc123"},
     )
     with (
         patch("hydra.utils.get_class", return_value=QwenASRAdapter),
-        patch("nemo_curator.models.asr.qwen_asr.snapshot_download") as snapshot_download,
+        patch("nemo_curator.models.audio.asr.qwen_asr.snapshot_download") as snapshot_download,
     ):
         stage.setup_on_node()
 
@@ -151,7 +151,7 @@ def test_load_model_builds_one_worker_local_model_and_is_idempotent() -> None:
     model_cls = MagicMock()
     adapter = QwenASRAdapter(max_inference_batch_size=64, max_new_tokens=256)
 
-    with patch("nemo_curator.models.asr.qwen_asr._qwen_asr_model_cls", return_value=model_cls):
+    with patch("nemo_curator.models.audio.asr.qwen_asr._qwen_asr_model_cls", return_value=model_cls):
         adapter.load_model(num_gpus=1)
         adapter.load_model(num_gpus=1)
 
@@ -171,7 +171,7 @@ def test_load_model_forwards_gpu_utilization_to_vllm() -> None:
     model_cls = MagicMock()
     adapter = QwenASRAdapter(gpu_memory_utilization=0.75)
 
-    with patch("nemo_curator.models.asr.qwen_asr._qwen_asr_model_cls", return_value=model_cls):
+    with patch("nemo_curator.models.audio.asr.qwen_asr._qwen_asr_model_cls", return_value=model_cls):
         adapter.load_model(num_gpus=1)
 
     assert model_cls.LLM.call_args.kwargs["gpu_memory_utilization"] == 0.75
@@ -181,7 +181,7 @@ def test_load_model_forwards_revision() -> None:
     model_cls = MagicMock()
     adapter = QwenASRAdapter(revision="abc123")
 
-    with patch("nemo_curator.models.asr.qwen_asr._qwen_asr_model_cls", return_value=model_cls):
+    with patch("nemo_curator.models.audio.asr.qwen_asr._qwen_asr_model_cls", return_value=model_cls):
         adapter.load_model(num_gpus=1)
 
     assert model_cls.LLM.call_args.kwargs["revision"] == "abc123"
@@ -191,7 +191,7 @@ def test_load_model_forwards_additional_vllm_kwargs() -> None:
     model_cls = MagicMock()
     adapter = QwenASRAdapter(vllm_kwargs={"max_model_len": 8192})
 
-    with patch("nemo_curator.models.asr.qwen_asr._qwen_asr_model_cls", return_value=model_cls):
+    with patch("nemo_curator.models.audio.asr.qwen_asr._qwen_asr_model_cls", return_value=model_cls):
         adapter.load_model(num_gpus=1)
 
     assert model_cls.LLM.call_args.kwargs["max_model_len"] == 8192
@@ -212,7 +212,7 @@ def test_load_model_cleans_up_after_model_construction_failure() -> None:
     adapter = QwenASRAdapter()
 
     with (
-        patch("nemo_curator.models.asr.qwen_asr._qwen_asr_model_cls", return_value=model_cls),
+        patch("nemo_curator.models.audio.asr.qwen_asr._qwen_asr_model_cls", return_value=model_cls),
         patch.object(adapter, "unload_model", wraps=adapter.unload_model) as unload_model,
         pytest.raises(RuntimeError, match="construction failed"),
     ):
@@ -340,7 +340,7 @@ def test_asr_stage_drives_qwen_adapter_end_to_end() -> None:
         languages=["English", "Spanish"],
     )
     stage = ASRStage(
-        adapter_target="nemo_curator.models.asr.qwen_asr.QwenASRAdapter",
+        adapter_target="nemo_curator.models.audio.asr.qwen_asr.QwenASRAdapter",
         model_id="Qwen/Qwen3-ASR-0.6B",
         max_audio_sec_per_actor=2400.0,
         batch_size=2,
@@ -352,7 +352,7 @@ def test_asr_stage_drives_qwen_adapter_end_to_end() -> None:
 
     with (
         patch("hydra.utils.get_class", return_value=QwenASRAdapter),
-        patch("nemo_curator.models.asr.qwen_asr._qwen_asr_model_cls", return_value=model_cls),
+        patch("nemo_curator.models.audio.asr.qwen_asr._qwen_asr_model_cls", return_value=model_cls),
     ):
         stage.setup()
 

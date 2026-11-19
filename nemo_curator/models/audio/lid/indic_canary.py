@@ -35,7 +35,7 @@ from .base import (
 
 _TARGET_SAMPLE_RATE = 16_000
 _MIN_MODEL_SAMPLES = 400
-_DEFAULT_RUNTIME_CLASS_PATH = "nemo_curator.models.asr.indic_canary_trtllm_runtime.CanaryTRTLLM"
+_DEFAULT_RUNTIME_CLASS_PATH = "nemo_curator.models.audio.asr.indic_canary_trtllm_runtime.CanaryTRTLLM"
 _ENGINE_FILES = (
     "encoder/encoder.plan",
     "encoder/config.json",

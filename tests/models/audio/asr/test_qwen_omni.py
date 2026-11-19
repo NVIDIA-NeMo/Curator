@@ -24,7 +24,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-from nemo_curator.models.asr.qwen_omni import QwenOmniASRAdapter
+from nemo_curator.models.audio.asr.qwen_omni import QwenOmniASRAdapter
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -78,7 +78,7 @@ def _mock_external_qwen_runtime(
     adapter._sampling_params = object()
     adapter._processor = _FakeProcessor()
     with patch(
-        "nemo_curator.models.asr.qwen_omni.process_mm_info",
+        "nemo_curator.models.audio.asr.qwen_omni.process_mm_info",
         side_effect=_fake_process_mm_info,
     ) as mm_info:
         yield llm, mm_info
@@ -91,21 +91,21 @@ def _mock_qwen_model_load(
     processor_cls = MagicMock()
     processor_cls.from_pretrained.side_effect = processor_side_effect
     with (
-        patch("nemo_curator.models.asr.qwen_omni.process_mm_info", MagicMock()),
+        patch("nemo_curator.models.audio.asr.qwen_omni.process_mm_info", MagicMock()),
         patch(
-            "nemo_curator.models.asr.qwen_omni.create_vllm_llm",
+            "nemo_curator.models.audio.asr.qwen_omni.create_vllm_llm",
             return_value=MagicMock(),
         ) as llm_ctor,
         patch(
-            "nemo_curator.models.asr.qwen_omni.Qwen3OmniMoeProcessor",
+            "nemo_curator.models.audio.asr.qwen_omni.Qwen3OmniMoeProcessor",
             processor_cls,
         ),
-        patch("nemo_curator.models.asr.qwen_omni.SamplingParams") as sampling_ctor,
+        patch("nemo_curator.models.audio.asr.qwen_omni.SamplingParams") as sampling_ctor,
     ):
         yield llm_ctor, processor_cls.from_pretrained, sampling_ctor
 
 
-@patch("nemo_curator.models.asr.qwen_omni.snapshot_download")
+@patch("nemo_curator.models.audio.asr.qwen_omni.snapshot_download")
 def test_qwen_adapter_download_weights_forwards_its_revision(mock_download: MagicMock) -> None:
     adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni", revision="abc123")
 
@@ -114,7 +114,7 @@ def test_qwen_adapter_download_weights_forwards_its_revision(mock_download: Magi
     mock_download.assert_called_once_with("mock/qwen-omni", revision="abc123")
 
 
-@patch("nemo_curator.models.asr.qwen_omni.snapshot_download")
+@patch("nemo_curator.models.audio.asr.qwen_omni.snapshot_download")
 def test_qwen_adapter_download_weights_reuses_local_directory(mock_download: MagicMock, tmp_path: Path) -> None:
     QwenOmniASRAdapter(model_id=str(tmp_path)).download_weights_on_node()
 

@@ -266,7 +266,7 @@ def create_audio_pipeline(raw_data_dir: str, wer_threshold: float = 75.0) -> Pip
     # ASR inference
     pipeline.add_stage(
         ASRStage(
-            adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+            adapter_target="nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter",
             model_id="nvidia/stt_hy_fastconformer_hybrid_large_pc",
             max_audio_sec_per_actor=240.0,
             max_inference_duration_s=120.0,

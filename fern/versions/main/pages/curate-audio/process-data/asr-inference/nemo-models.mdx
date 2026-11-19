@@ -36,7 +36,7 @@ from nemo_curator.stages.resources import Resources
 
 # Create ASR inference stage with a model from NeMo Framework
 asr_stage = ASRStage(
-    adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+    adapter_target="nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter",
     model_id="nvidia/parakeet-tdt-0.6b-v2",
     max_audio_sec_per_actor=240.0,
     max_inference_duration_s=120.0,
@@ -57,7 +57,7 @@ asr_stage = asr_stage.with_(
 ```python
 # Example with custom field names
 custom_asr = ASRStage(
-    adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+    adapter_target="nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter",
     model_id="nvidia/parakeet-tdt-0.6b-v2",
     max_audio_sec_per_actor=240.0,
     max_inference_duration_s=120.0,
@@ -76,7 +76,7 @@ The executor downloads and caches model weights once per node, then loads one ad
 
 ```python
 asr_stage = ASRStage(
-    adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+    adapter_target="nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter",
     model_id="nvidia/parakeet-tdt-0.6b-v2",
     max_audio_sec_per_actor=240.0,
     max_inference_duration_s=120.0,
@@ -97,7 +97,7 @@ from nemo_curator.stages.resources import Resources
 
 # Single GPU configuration
 asr_stage = ASRStage(
-    adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+    adapter_target="nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter",
     model_id="nvidia/parakeet-tdt-0.6b-v2",
     max_audio_sec_per_actor=240.0,
     max_inference_duration_s=120.0,

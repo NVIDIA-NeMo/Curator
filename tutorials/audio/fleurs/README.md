@@ -212,7 +212,7 @@ pipeline = Pipeline(
     stages=[
         CreateInitialManifestFleursStage(lang="en_us", split="dev", raw_data_dir="./data"),
         ASRStage(
-            adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+            adapter_target="nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter",
             model_id="nvidia/parakeet-tdt-0.6b-v2",
             max_audio_sec_per_actor=240,
             max_inference_duration_s=120,

@@ -19,7 +19,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from nemo_curator.models.asr.nemo_asr import NeMoASRAdapter
+from nemo_curator.models.audio.asr.nemo_asr import NeMoASRAdapter
 from nemo_curator.stages.audio.inference.asr.stage import ASRStage
 from nemo_curator.stages.resources import Resources
 
@@ -53,8 +53,8 @@ PARAKEET_TDT_0_6B_V3_LANGS: frozenset[str] = frozenset(
     }
 )
 
-_ADAPTER_TARGET = "nemo_curator.models.asr.nemo_asr.NeMoASRAdapter"
-_TENSORRT_ADAPTER_TARGET = "nemo_curator.models.asr.indic_parakeet_rnnt_tensorrt.TensorRTParakeetRNNTAdapter"
+_ADAPTER_TARGET = "nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter"
+_TENSORRT_ADAPTER_TARGET = "nemo_curator.models.audio.asr.indic_parakeet_rnnt_tensorrt.TensorRTParakeetRNNTAdapter"
 
 
 @dataclass

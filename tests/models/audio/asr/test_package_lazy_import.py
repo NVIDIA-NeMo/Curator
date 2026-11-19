@@ -29,10 +29,10 @@ def test_importing_asr_subpackage_does_not_load_concrete_adapters(monkeypatch: p
     original_import = builtins.__import__
     blocked: list[str] = []
     concrete_modules = {
-        "nemo_curator.models.asr.faster_whisper",
-        "nemo_curator.models.asr.nemo_asr",
-        "nemo_curator.models.asr.qwen_asr",
-        "nemo_curator.models.asr.qwen_omni",
+        "nemo_curator.models.audio.asr.faster_whisper",
+        "nemo_curator.models.audio.asr.nemo_asr",
+        "nemo_curator.models.audio.asr.qwen_asr",
+        "nemo_curator.models.audio.asr.qwen_omni",
     }
 
     def tracking_import(
@@ -51,19 +51,19 @@ def test_importing_asr_subpackage_does_not_load_concrete_adapters(monkeypatch: p
     monkeypatch.setattr(builtins, "__import__", tracking_import)
 
     module_names = {
-        "nemo_curator.models.asr",
-        "nemo_curator.models.asr.base",
-        "nemo_curator.models.asr.faster_whisper",
-        "nemo_curator.models.asr.nemo_asr",
-        "nemo_curator.models.asr.qwen_asr",
-        "nemo_curator.models.asr.qwen_omni",
+        "nemo_curator.models.audio.asr",
+        "nemo_curator.models.audio.asr.base",
+        "nemo_curator.models.audio.asr.faster_whisper",
+        "nemo_curator.models.audio.asr.nemo_asr",
+        "nemo_curator.models.audio.asr.qwen_asr",
+        "nemo_curator.models.audio.asr.qwen_omni",
     }
     saved_modules = {name: sys.modules.get(name) for name in module_names}
     try:
         for mod_name in module_names:
             sys.modules.pop(mod_name, None)
 
-        import nemo_curator.models.asr as asr_pkg
+        import nemo_curator.models.audio.asr as asr_pkg
 
         assert blocked == []
         assert "FasterWhisperASR" not in vars(asr_pkg)
@@ -82,9 +82,9 @@ def test_hydra_resolves_adapters_from_module_paths() -> None:
     import hydra.utils
 
     targets = {
-        "nemo_curator.models.asr.faster_whisper.FasterWhisperASR": "FasterWhisperASR",
-        "nemo_curator.models.asr.qwen_asr.QwenASRAdapter": "QwenASRAdapter",
-        "nemo_curator.models.asr.qwen_omni.QwenOmniASRAdapter": "QwenOmniASRAdapter",
+        "nemo_curator.models.audio.asr.faster_whisper.FasterWhisperASR": "FasterWhisperASR",
+        "nemo_curator.models.audio.asr.qwen_asr.QwenASRAdapter": "QwenASRAdapter",
+        "nemo_curator.models.audio.asr.qwen_omni.QwenOmniASRAdapter": "QwenOmniASRAdapter",
     }
     for target, expected_name in targets.items():
         assert hydra.utils.get_class(target).__name__ == expected_name
@@ -93,6 +93,6 @@ def test_hydra_resolves_adapters_from_module_paths() -> None:
 def test_hydra_resolves_nemo_adapter_from_module_path() -> None:
     import hydra.utils
 
-    adapter_cls = hydra.utils.get_class("nemo_curator.models.asr.nemo_asr.NeMoASRAdapter")
+    adapter_cls = hydra.utils.get_class("nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter")
 
     assert adapter_cls.__name__ == "NeMoASRAdapter"

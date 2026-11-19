@@ -15,13 +15,13 @@ resource:
   bound: gpu
   throughput_hint: "adapter-dependent batched inference; the default NeMo path supports CPU, while some adapters require GPU runtimes"
 adapter_capabilities:
-  nemo_curator.models.asr.nemo_asr.NeMoASRAdapter:
+  nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter:
     supported_devices: [cpu, cuda]
-  nemo_curator.models.asr.faster_whisper.FasterWhisperASR:
+  nemo_curator.models.audio.asr.faster_whisper.FasterWhisperASR:
     supported_devices: [cpu, cuda]
-  nemo_curator.models.asr.qwen_asr.QwenASRAdapter:
+  nemo_curator.models.audio.asr.qwen_asr.QwenASRAdapter:
     supported_devices: [cuda]
-  nemo_curator.models.asr.qwen_omni.QwenOmniASRAdapter:
+  nemo_curator.models.audio.asr.qwen_omni.QwenOmniASRAdapter:
     supported_devices: [cuda]
 use_cases:
   good_for:
@@ -36,7 +36,7 @@ composition:
   typical_upstream: [ResampleAudioStage, ManifestReader]
   typical_downstream: [GetPairwiseWerStage, ComputeWERStage]
 params_of_note:
-  adapter_target: "adapter class path -- REQUIRED, no default. One of: nemo_curator.models.asr.nemo_asr.NeMoASRAdapter (NeMo/parakeet), nemo_curator.models.asr.qwen_asr.QwenASRAdapter (Qwen3-ASR via vLLM), nemo_curator.models.asr.qwen_omni.QwenOmniASRAdapter (Qwen3-Omni thinker-only via vLLM). Prefer a preset over hand-writing this."
+  adapter_target: "adapter class path -- REQUIRED, no default. One of: nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter (NeMo/parakeet), nemo_curator.models.audio.asr.qwen_asr.QwenASRAdapter (Qwen3-ASR via vLLM), nemo_curator.models.audio.asr.qwen_omni.QwenOmniASRAdapter (Qwen3-Omni thinker-only via vLLM). Prefer a preset over hand-writing this."
   model_id: "the ASR checkpoint id -- REQUIRED, and must match the chosen adapter. Choose per language; apply the english_parakeet preset for English."
   max_audio_sec_per_actor: "REQUIRED finite positive budget for each adapter call: item count multiplied by the longest prepared audio duration. Presets supply 2400 padded audio seconds. This is a batching proxy, not a GPU-memory guarantee."
   max_inference_duration_s: "maximum prepared segment duration (default 2400 seconds); longer rows are split and their transcripts stitched. Must not exceed max_audio_sec_per_actor; choose a ceiling supported by the selected model."
@@ -80,11 +80,11 @@ notes:
   - "Language coverage is a checkpoint (model-card) fact, not derivable from source; match the checkpoint to the data language."
   - "WER/CER filtering requires reference transcripts in the source manifest; if absent, WER is unproducible."
 presets:
-  english_parakeet: {adapter_target: "nemo_curator.models.asr.nemo_asr.NeMoASRAdapter", model_id: "nvidia/parakeet-tdt-0.6b-v2", max_audio_sec_per_actor: 2400.0}
-  multilingual_parakeet_v3: {adapter_target: "nemo_curator.models.asr.nemo_asr.NeMoASRAdapter", model_id: "nvidia/parakeet-tdt-0.6b-v3", max_audio_sec_per_actor: 2400.0}
-  longform_english_1_1b: {adapter_target: "nemo_curator.models.asr.nemo_asr.NeMoASRAdapter", model_id: "nvidia/parakeet-tdt_ctc-1.1b", max_audio_sec_per_actor: 2400.0}
-  qwen3_asr: {adapter_target: "nemo_curator.models.asr.qwen_asr.QwenASRAdapter", model_id: "Qwen/Qwen3-ASR-0.6B", max_audio_sec_per_actor: 2400.0}
-  qwen3_omni: {adapter_target: "nemo_curator.models.asr.qwen_omni.QwenOmniASRAdapter", model_id: "Qwen/Qwen3-Omni-30B-A3B-Instruct", max_audio_sec_per_actor: 2400.0}
+  english_parakeet: {adapter_target: "nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter", model_id: "nvidia/parakeet-tdt-0.6b-v2", max_audio_sec_per_actor: 2400.0}
+  multilingual_parakeet_v3: {adapter_target: "nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter", model_id: "nvidia/parakeet-tdt-0.6b-v3", max_audio_sec_per_actor: 2400.0}
+  longform_english_1_1b: {adapter_target: "nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter", model_id: "nvidia/parakeet-tdt_ctc-1.1b", max_audio_sec_per_actor: 2400.0}
+  qwen3_asr: {adapter_target: "nemo_curator.models.audio.asr.qwen_asr.QwenASRAdapter", model_id: "Qwen/Qwen3-ASR-0.6B", max_audio_sec_per_actor: 2400.0}
+  qwen3_omni: {adapter_target: "nemo_curator.models.audio.asr.qwen_omni.QwenOmniASRAdapter", model_id: "Qwen/Qwen3-Omni-30B-A3B-Instruct", max_audio_sec_per_actor: 2400.0}
 versions:   # verified interchangeable via model_id -- load + run + identical pred_text output structure.
             # NeMo checkpoints only: a Qwen model also needs a different adapter_target, so it is a
             # preset (a param bundle), not a drop-in model_id swap.

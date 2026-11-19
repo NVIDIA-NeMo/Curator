@@ -199,7 +199,7 @@ In audio ASR stages, the old `num_workers` constructor argument no longer sets D
 
 ```python
 asr = ASRStage(
-    adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+    adapter_target="nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter",
     model_id="nvidia/parakeet-tdt-0.6b-v2",
     max_audio_sec_per_actor=1280,
     max_inference_duration_s=1280,
@@ -230,7 +230,7 @@ In [#2049](https://github.com/NVIDIA-NeMo/Curator/pull/2049), the audio dependen
 On aarch64 or macOS, audit imports of stages such as:
 
 ```python
-from nemo_curator.stages.audio.tagging import InverseTextNormalizationStage
+from nemo_curator.stages.audio.text_filtering.itn import InverseTextNormalizationStage
 from nemo_curator.stages.audio.metrics import ComputeWERStage
 ```
 

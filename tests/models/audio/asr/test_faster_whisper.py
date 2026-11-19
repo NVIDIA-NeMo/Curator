@@ -18,9 +18,9 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-from nemo_curator.models.asr import faster_whisper as faster_whisper_module
-from nemo_curator.models.asr.base import ASRAdapter
-from nemo_curator.models.asr.faster_whisper import _LANGUAGE_ALIASES, FasterWhisperASR
+from nemo_curator.models.audio.asr import faster_whisper as faster_whisper_module
+from nemo_curator.models.audio.asr.base import ASRAdapter
+from nemo_curator.models.audio.asr.faster_whisper import _LANGUAGE_ALIASES, FasterWhisperASR
 
 
 def _item(*, sample_rate: int = 16_000, language_code: str = "en") -> dict[str, object]:
@@ -83,7 +83,7 @@ def test_adapter_rejects_empty_model_id() -> None:
 
 def test_download_weights_uses_download_only() -> None:
     adapter = FasterWhisperASR(revision="abc123")
-    with patch("nemo_curator.models.asr.faster_whisper._download_whisper_model") as download_model:
+    with patch("nemo_curator.models.audio.asr.faster_whisper._download_whisper_model") as download_model:
         adapter.download_weights_on_node()
 
     download_model.assert_called_once_with("large-v3", "abc123")
@@ -93,7 +93,7 @@ def test_load_model_uses_stage_owned_gpu_count() -> None:
     model_class = MagicMock()
     adapter = FasterWhisperASR(compute_type="float16", revision="abc123")
 
-    with patch("nemo_curator.models.asr.faster_whisper._whisper_model_class", return_value=model_class):
+    with patch("nemo_curator.models.audio.asr.faster_whisper._whisper_model_class", return_value=model_class):
         adapter.load_model(num_gpus=1)
 
     model_class.assert_called_once_with("large-v3", device="cuda", compute_type="float16", revision="abc123")
@@ -103,7 +103,7 @@ def test_load_model_uses_cpu_compute_type() -> None:
     model_class = MagicMock()
     adapter = FasterWhisperASR(compute_type="float16", cpu_compute_type="int8_float32")
 
-    with patch("nemo_curator.models.asr.faster_whisper._whisper_model_class", return_value=model_class):
+    with patch("nemo_curator.models.audio.asr.faster_whisper._whisper_model_class", return_value=model_class):
         adapter.load_model(num_gpus=0)
 
     model_class.assert_called_once_with(
@@ -118,7 +118,7 @@ def test_load_model_is_idempotent() -> None:
     adapter = FasterWhisperASR()
     adapter._model = object()
 
-    with patch("nemo_curator.models.asr.faster_whisper._whisper_model_class") as model_class:
+    with patch("nemo_curator.models.audio.asr.faster_whisper._whisper_model_class") as model_class:
         adapter.load_model(num_gpus=1)
 
     model_class.assert_not_called()
@@ -134,7 +134,7 @@ def test_unload_model_releases_model_and_cuda_cache() -> None:
     adapter._model = object()
 
     with (
-        patch("nemo_curator.models.asr.faster_whisper.gc.collect") as collect,
+        patch("nemo_curator.models.audio.asr.faster_whisper.gc.collect") as collect,
         patch("torch.cuda.is_available", return_value=True),
         patch("torch.cuda.empty_cache") as empty_cache,
     ):

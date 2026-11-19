@@ -31,7 +31,7 @@ import torch
 import torchaudio
 from loguru import logger
 
-from nemo_curator.models.asr.base import ASRAdapter, ASRResult
+from nemo_curator.models.audio.asr.base import ASRAdapter, ASRResult
 from nemo_curator.stages.audio._agent._agent_ready import (
     AgentReady,
     ConditionalWrite,

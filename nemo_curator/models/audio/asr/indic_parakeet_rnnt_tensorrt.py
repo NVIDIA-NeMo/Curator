@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING, Any, Literal
 import torch
 from loguru import logger
 
-from nemo_curator.models.asr.nemo_asr import NeMoASRAdapter
+from nemo_curator.models.audio.asr.nemo_asr import NeMoASRAdapter
 from nemo_curator.models.audio.audio_chunking import (
     engine_chunk_duration,
     has_audio_longer_than,

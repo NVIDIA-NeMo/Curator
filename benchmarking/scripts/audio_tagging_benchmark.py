@@ -65,7 +65,7 @@ _REQUIRED_STAGE_NAMES = (
     "ManifestWriter",
 )
 
-_NEMO_ADAPTER = "nemo_curator.models.asr.nemo_asr.NeMoASRAdapter"
+_NEMO_ADAPTER = "nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter"
 
 
 def _load_jsonl_rows(path: Path, label: str) -> list[dict[str, Any]]:

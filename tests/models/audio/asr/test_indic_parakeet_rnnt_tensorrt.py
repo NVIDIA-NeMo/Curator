@@ -23,11 +23,11 @@ import pytest
 import torch
 from omegaconf import OmegaConf
 
-from nemo_curator.models.asr.indic_parakeet_rnnt_tensorrt import (
+from nemo_curator.models.audio.asr.indic_parakeet_rnnt_tensorrt import (
     TensorRTParakeetRNNTAdapter,
     load_engine_metadata,
 )
-from nemo_curator.models.asr.nemo_asr import NeMoASRAdapter
+from nemo_curator.models.audio.asr.nemo_asr import NeMoASRAdapter
 
 
 def _metadata() -> dict[str, object]:
@@ -190,7 +190,7 @@ def test_adapter_replaces_only_encoder(tmp_path: Path) -> None:
         patch("torch.cuda.is_available", return_value=True),
         patch("torch.cuda.empty_cache"),
         patch(
-            "nemo_curator.models.asr.indic_parakeet_rnnt_tensorrt.TensorRTEncoder",
+            "nemo_curator.models.audio.asr.indic_parakeet_rnnt_tensorrt.TensorRTEncoder",
             return_value=optimized_encoder,
         ) as encoder_type,
     ):
@@ -216,7 +216,7 @@ def test_adapter_rejects_engine_shorter_than_40_seconds(tmp_path: Path) -> None:
         patch("torch.cuda.is_available", return_value=True),
         patch("torch.cuda.empty_cache"),
         patch(
-            "nemo_curator.models.asr.indic_parakeet_rnnt_tensorrt.TensorRTEncoder",
+            "nemo_curator.models.audio.asr.indic_parakeet_rnnt_tensorrt.TensorRTEncoder",
             return_value=optimized_encoder,
         ),
         pytest.raises(ValueError, match="--max-frames 4001"),

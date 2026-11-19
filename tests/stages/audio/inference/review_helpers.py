@@ -29,7 +29,7 @@ import pytest
 import soundfile as sf
 import torch
 
-from nemo_curator.models.asr.base import ASRResult
+from nemo_curator.models.audio.asr.base import ASRResult
 from nemo_curator.models.audio.speaker_diarization.pyannote import PyAnnoteDiarizationAdapter
 from nemo_curator.stages.audio._agent._agent_registry import build_contract, static_contract
 from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
@@ -46,7 +46,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
     from pathlib import Path
 
-_ASR_TARGET = "nemo_curator.models.asr.qwen_omni.QwenOmniASRAdapter"
+_ASR_TARGET = "nemo_curator.models.audio.asr.qwen_omni.QwenOmniASRAdapter"
 _SAMPLE_RATE = 10
 _SEGMENTS = [
     {"start": 0.2, "end": 0.6, "speaker": "speaker_0"},

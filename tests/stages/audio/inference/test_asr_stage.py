@@ -28,8 +28,8 @@ import torch
 
 from nemo_curator.backends.base import BaseStageAdapter
 from nemo_curator.backends.ray_data.adapter import RayDataStageAdapter
-from nemo_curator.models.asr.base import ASRResult
-from nemo_curator.models.asr.faster_whisper import FasterWhisperASR
+from nemo_curator.models.audio.asr.base import ASRResult
+from nemo_curator.models.audio.asr.faster_whisper import FasterWhisperASR
 from nemo_curator.stages.audio._agent._agent_ready import AgentReady, IOSpec, StageContract
 from nemo_curator.stages.audio.inference.asr.stage import ASRStage
 from nemo_curator.stages.base import ProcessingStage
@@ -40,8 +40,8 @@ from tests.stages.audio.inference import review_helpers as rh
 if TYPE_CHECKING:
     from typing import Any
 
-_QWEN_ADAPTER_TARGET = "nemo_curator.models.asr.qwen_omni.QwenOmniASRAdapter"
-_FASTER_WHISPER_ADAPTER_TARGET = "nemo_curator.models.asr.faster_whisper.FasterWhisperASR"
+_QWEN_ADAPTER_TARGET = "nemo_curator.models.audio.asr.qwen_omni.QwenOmniASRAdapter"
+_FASTER_WHISPER_ADAPTER_TARGET = "nemo_curator.models.audio.asr.faster_whisper.FasterWhisperASR"
 _SR = 16000
 _RESAMPLED_AUDIO_PATH = "/data/resampled.wav"
 
@@ -1011,7 +1011,7 @@ def test_skipped_result_sets_typed_skip_reason(result: ASRResult, expected_reaso
     assert results[0].data["_skipme"] == expected_reason
 
 
-@patch("nemo_curator.models.asr.qwen_omni.snapshot_download")
+@patch("nemo_curator.models.audio.asr.qwen_omni.snapshot_download")
 def test_setup_on_node_downloads_weights(mock_download: MagicMock) -> None:
     stage = ASRStage(
         adapter_target=_QWEN_ADAPTER_TARGET,
@@ -1023,7 +1023,7 @@ def test_setup_on_node_downloads_weights(mock_download: MagicMock) -> None:
     mock_download.assert_called_once_with("mock/model", revision="abc123")
 
 
-@patch("nemo_curator.models.asr.faster_whisper._download_whisper_model")
+@patch("nemo_curator.models.audio.asr.faster_whisper._download_whisper_model")
 def test_setup_on_node_downloads_faster_whisper_weights(mock_download: MagicMock) -> None:
     stage = ASRStage(
         adapter_target=_FASTER_WHISPER_ADAPTER_TARGET,
@@ -1036,7 +1036,7 @@ def test_setup_on_node_downloads_faster_whisper_weights(mock_download: MagicMock
 
 
 @patch(
-    "nemo_curator.models.asr.qwen_omni.snapshot_download",
+    "nemo_curator.models.audio.asr.qwen_omni.snapshot_download",
     side_effect=RuntimeError("missing auth"),
 )
 def test_setup_on_node_raises_by_default(mock_download: MagicMock) -> None:
@@ -1051,7 +1051,7 @@ def test_setup_on_node_raises_by_default(mock_download: MagicMock) -> None:
 
 
 @patch(
-    "nemo_curator.models.asr.qwen_omni.snapshot_download",
+    "nemo_curator.models.audio.asr.qwen_omni.snapshot_download",
     side_effect=RuntimeError("offline"),
 )
 def test_setup_on_node_can_warn_and_retry_later(mock_download: MagicMock) -> None:
@@ -1211,7 +1211,7 @@ def test_real_nemo_batch_preserves_language_and_serializable_output(resident: bo
         waveform, rate = sf.read(fixture, dtype="int16")
         data.update({"waveform": waveform, "sample_rate": rate})
     stage = ASRStage(
-        adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+        adapter_target="nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter",
         model_id="nvidia/stt_en_fastconformer_ctc_large",
         max_audio_sec_per_actor=10.0,
         max_inference_duration_s=5.0,

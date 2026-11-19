@@ -594,7 +594,7 @@ class SplitASRAlignJoinStage(AgentReady, CompositeStage[AudioTask, AudioTask]):
                 segments_key=self.segments_key,
             ),
             ASRStage(
-                adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+                adapter_target="nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter",
                 model_id=self.model_id,
                 max_audio_sec_per_actor=self.max_audio_sec_per_actor,
                 max_inference_duration_s=self.max_inference_duration_s,

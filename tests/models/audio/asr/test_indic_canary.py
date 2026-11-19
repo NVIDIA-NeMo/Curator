@@ -21,9 +21,9 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 
-from nemo_curator.models.asr import indic_canary_trtllm_runtime
-from nemo_curator.models.asr.base import ASRAdapter
-from nemo_curator.models.asr.indic_canary import IndicCanaryTRTLLMASR
+from nemo_curator.models.audio.asr import indic_canary_trtllm_runtime
+from nemo_curator.models.audio.asr.base import ASRAdapter
+from nemo_curator.models.audio.asr.indic_canary import IndicCanaryTRTLLMASR
 
 _SAMPLE_RATE = 16_000
 _REQUIRED_ENGINE_FILES = (
@@ -168,7 +168,7 @@ def test_unload_model_releases_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
     adapter._model = object()
     collect = MagicMock()
     empty_cache = MagicMock()
-    monkeypatch.setattr("nemo_curator.models.asr.indic_canary.gc.collect", collect)
+    monkeypatch.setattr("nemo_curator.models.audio.asr.indic_canary.gc.collect", collect)
     monkeypatch.setattr("torch.cuda.empty_cache", empty_cache)
 
     adapter.unload_model()

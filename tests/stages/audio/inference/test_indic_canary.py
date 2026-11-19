@@ -20,8 +20,8 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 
-from nemo_curator.models.asr.base import ASRResult
-from nemo_curator.models.asr.indic_canary import IndicCanaryTRTLLMASR
+from nemo_curator.models.audio.asr.base import ASRResult
+from nemo_curator.models.audio.asr.indic_canary import IndicCanaryTRTLLMASR
 from nemo_curator.stages.audio.inference.indic_canary import InferenceIndicCanaryStage
 from nemo_curator.tasks import AudioTask
 

@@ -21,8 +21,8 @@ from typing import Any
 import pytest
 import torch
 
-from nemo_curator.models.asr import build_indic_parakeet_rnnt_tensorrt_engine as builder
 from nemo_curator.models.audio import tensorrt_encoder_utils
+from nemo_curator.models.audio.asr import build_indic_parakeet_rnnt_tensorrt_engine as builder
 
 
 def test_builder_imports_packaged_encoder_utility() -> None:

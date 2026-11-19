@@ -138,7 +138,7 @@ def test_tdt_gpu_recipe_blocks_on_cuda_mismatch() -> None:
         (
             "ASRStage",
             {
-                "adapter_target": "nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+                "adapter_target": "nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter",
                 "model_id": "nvidia/parakeet-tdt-0.6b-v2",
                 "max_audio_sec_per_actor": 2400.0,
                 "resources": {"cpus": 1, "gpus": 1},
@@ -181,7 +181,7 @@ def test_mixed_pipeline_never_claims_cpu_when_one_leaf_is_gpu_only() -> None:
         (
             "ASRStage",
             {
-                "adapter_target": "nemo_curator.models.asr.qwen_asr.QwenASRAdapter",
+                "adapter_target": "nemo_curator.models.audio.asr.qwen_asr.QwenASRAdapter",
                 "model_id": "Qwen/Qwen3-ASR-0.6B",
                 "max_audio_sec_per_actor": 2400.0,
                 "resources": {"cpus": 1, "gpus": 1},
@@ -369,7 +369,7 @@ def test_external_ray_does_not_project_driver_missing_package_to_workers() -> No
         (
             "ASRStage",
             {
-                "adapter_target": "nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+                "adapter_target": "nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter",
                 "model_id": "nvidia/parakeet-tdt-0.6b-v2",
                 "max_audio_sec_per_actor": 2400.0,
                 "resources": {"cpus": 1, "gpus": 1},
@@ -459,7 +459,7 @@ def test_multiple_blockers_do_not_claim_one_choice_fixes_everything() -> None:
         (
             "ASRStage",
             {
-                "adapter_target": "nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+                "adapter_target": "nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter",
                 "model_id": "nvidia/parakeet-tdt-0.6b-v2",
                 "max_audio_sec_per_actor": 2400.0,
                 "resources": {"cpus": 1, "gpus": 1},
@@ -492,7 +492,7 @@ def test_runtime_diagnosis_never_recommends_a_partial_multi_blocker_fix() -> Non
         (
             "ASRStage",
             {
-                "adapter_target": "nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+                "adapter_target": "nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter",
                 "model_id": "nvidia/parakeet-tdt-0.6b-v2",
                 "max_audio_sec_per_actor": 2400.0,
                 "resources": {"cpus": 1, "gpus": 1},
@@ -534,7 +534,7 @@ def test_validate_projects_recipe_environment_blocker_without_touching_defaults(
         {
             "ref": "ASRStage",
             "params": {
-                "adapter_target": "nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+                "adapter_target": "nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter",
                 "model_id": "nvidia/parakeet-tdt-0.6b-v2",
                 "max_audio_sec_per_actor": 2400.0,
                 "audio_filepath_key": "audio_filepath",
@@ -641,7 +641,7 @@ def test_cpu_capable_asr_adapter_ignores_cuda_mismatch_without_gpu_reservation()
         (
             "ASRStage",
             {
-                "adapter_target": "nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+                "adapter_target": "nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter",
                 "model_id": "nvidia/parakeet-tdt-0.6b-v2",
                 "max_audio_sec_per_actor": 2400.0,
                 "resources": {"cpus": 1, "gpus": 0},
@@ -658,10 +658,10 @@ def test_cpu_capable_asr_adapter_ignores_cuda_mismatch_without_gpu_reservation()
 @pytest.mark.parametrize(
     ("adapter_target", "expected"),
     [
-        ("nemo_curator.models.asr.nemo_asr.NeMoASRAdapter", True),
-        ("nemo_curator.models.asr.faster_whisper.FasterWhisperASR", True),
-        ("nemo_curator.models.asr.qwen_asr.QwenASRAdapter", False),
-        ("nemo_curator.models.asr.qwen_omni.QwenOmniASRAdapter", False),
+        ("nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter", True),
+        ("nemo_curator.models.audio.asr.faster_whisper.FasterWhisperASR", True),
+        ("nemo_curator.models.audio.asr.qwen_asr.QwenASRAdapter", False),
+        ("nemo_curator.models.audio.asr.qwen_omni.QwenOmniASRAdapter", False),
         ("third_party.UnknownAdapter", False),
     ],
 )
@@ -676,7 +676,7 @@ def test_gpu_only_asr_adapter_requires_gpu_even_if_reservation_is_zero() -> None
         (
             "ASRStage",
             {
-                "adapter_target": "nemo_curator.models.asr.qwen_asr.QwenASRAdapter",
+                "adapter_target": "nemo_curator.models.audio.asr.qwen_asr.QwenASRAdapter",
                 "model_id": "Qwen/Qwen3-ASR-0.6B",
                 "max_audio_sec_per_actor": 2400.0,
                 "resources": {"cpus": 1, "gpus": 0},
@@ -716,7 +716,7 @@ def test_execution_refuses_before_ray_or_output_preparation(
         {
             "ref": "ASRStage",
             "params": {
-                "adapter_target": "nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+                "adapter_target": "nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter",
                 "model_id": "nvidia/parakeet-tdt-0.6b-v2",
                 "max_audio_sec_per_actor": 2400.0,
                 "audio_filepath_key": "audio_filepath",
@@ -895,7 +895,7 @@ def test_ptx_diagnosis_never_offers_ctc_for_pure_tdt_transcription() -> None:
         (
             "ASRStage",
             {
-                "adapter_target": "nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+                "adapter_target": "nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter",
                 "model_id": "nvidia/parakeet-tdt-0.6b-v2",
                 "max_audio_sec_per_actor": 2400.0,
                 "resources": {"cpus": 1, "gpus": 1},

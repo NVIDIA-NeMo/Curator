@@ -176,7 +176,9 @@ class TestALMDataBuilder:
         assert build_contract(dropped).conditional_writes[0].writes.data_keys == ["audio_filepath"]
 
     def test_generated_outputs_are_not_declared_removed(self, sample_entry: dict) -> None:
-        stage = ALMDataBuilderStage(drop_fields_top_level=["words", "segments", "windows", "stats", "truncation_events"])
+        stage = ALMDataBuilderStage(
+            drop_fields_top_level=["words", "segments", "windows", "stats", "truncation_events"]
+        )
         contract = build_contract(stage)
 
         assert not {"windows", "stats", "truncation_events"} & set(contract.removes_keys)

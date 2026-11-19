@@ -59,7 +59,7 @@ from typing import Any, Literal
 import numpy as np
 from loguru import logger
 
-from nemo_curator.models.asr.base import ASRResult
+from nemo_curator.models.audio.asr.base import ASRResult
 from nemo_curator.models.audio.audio_chunking import (
     engine_chunk_duration,
     has_audio_longer_than,

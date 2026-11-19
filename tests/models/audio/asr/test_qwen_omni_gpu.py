@@ -23,7 +23,7 @@ import numpy as np
 import pytest
 import torch
 
-from nemo_curator.models.asr.qwen_omni import (
+from nemo_curator.models.audio.asr.qwen_omni import (
     Qwen3OmniMoeProcessor,
     QwenOmniASRAdapter,
     SamplingParams,

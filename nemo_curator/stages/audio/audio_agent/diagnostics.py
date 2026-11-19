@@ -151,7 +151,7 @@ def _execution_requirements(stages: list[Any]) -> list[StageEnvironmentRequireme
             cuda_runtime_jit = str(decoder_type or "rnnt").lower() != "ctc"
         elif name == "ASRStage":
             adapter_target = str(getattr(stage, "adapter_target", "") or "")
-            if adapter_target == "nemo_curator.models.asr.nemo_asr.NeMoASRAdapter":
+            if adapter_target == "nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter":
                 model_id = str(getattr(stage, "model_id", "") or "").lower()
                 if decoder_type:
                     cuda_runtime_jit = str(decoder_type).lower() != "ctc"

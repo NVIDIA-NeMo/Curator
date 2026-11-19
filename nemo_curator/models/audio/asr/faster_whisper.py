@@ -23,7 +23,7 @@ from typing import Any
 import numpy as np
 from loguru import logger
 
-from nemo_curator.models.asr.base import ASRResult
+from nemo_curator.models.audio.asr.base import ASRResult
 
 _TARGET_SAMPLE_RATE = 16_000
 _LANGUAGE_ALIASES = {

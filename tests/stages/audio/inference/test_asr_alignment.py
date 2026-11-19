@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 import soundfile as sf
 
-from nemo_curator.models.asr.base import ASRResult
+from nemo_curator.models.audio.asr.base import ASRResult
 from nemo_curator.stages.audio._agent._planning import validate_pipeline
 from nemo_curator.stages.audio.inference.asr.stage import ASRStage
 from nemo_curator.stages.audio.tagging.merge_alignment_diarization import MergeAlignmentDiarizationStage
@@ -58,7 +58,7 @@ class _WordAdapter:
 def _stage(**kwargs: Any) -> ASRStage:  # noqa: ANN401
     options = {"max_audio_sec_per_actor": 100.0, "max_inference_duration_s": 100.0, **kwargs}
     stage = ASRStage(
-        adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+        adapter_target="nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter",
         model_id="m",
         resources=Resources(cpus=1.0),
         **options,

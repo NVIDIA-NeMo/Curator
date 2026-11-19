@@ -27,7 +27,7 @@ import numpy as np
 import torch
 from omegaconf import open_dict
 
-from nemo_curator.models.asr.base import ASRResult
+from nemo_curator.models.audio.asr.base import ASRResult
 
 
 def _nemo_asr_module() -> Any:  # noqa: ANN401

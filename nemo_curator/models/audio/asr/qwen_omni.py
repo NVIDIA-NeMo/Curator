@@ -26,7 +26,7 @@ import torch
 from huggingface_hub import snapshot_download
 from loguru import logger
 
-from nemo_curator.models.asr.base import ASRResult
+from nemo_curator.models.audio.asr.base import ASRResult
 from nemo_curator.utils.vllm_utils import create_vllm_llm, merge_vllm_kwargs
 
 if TYPE_CHECKING:

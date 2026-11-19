@@ -558,7 +558,7 @@ def test_qwen_omni_asr_yaml_uses_audio_only_prompts_and_recovers_hallucinations(
         SimpleNamespace(outputs=[SimpleNamespace(text=text)]) for text in [prediction, "hello hello hello hello"]
     ]
     asr._adapter = adapter
-    with patch("nemo_curator.models.asr.qwen_omni.process_mm_info", return_value=([object()], None, None)):
+    with patch("nemo_curator.models.audio.asr.qwen_omni.process_mm_info", return_value=([object()], None, None)):
         tasks = asr.process_batch(tasks)
     prompts = adapter._llm.generate.call_args.args[0]
     expected_prompt = cfg.stages[2].adapter_kwargs["en_prompt_text" if language == "en" else "prompt_text"]
@@ -786,7 +786,7 @@ def test_faster_whisper_tutorial_yaml_matches_reference_contract():
 
     assert stage.__class__.__name__ == "ASRStage"
     assert stage.name == "FasterWhisper_inference"
-    assert stage.adapter_target == "nemo_curator.models.asr.faster_whisper.FasterWhisperASR"
+    assert stage.adapter_target == "nemo_curator.models.audio.asr.faster_whisper.FasterWhisperASR"
     assert stage.model_id == "large-v3"
     assert stage.audio_filepath_key == "resampled_audio_filepath"
     assert stage.inputs()[1] == ["resampled_audio_filepath"]
@@ -953,7 +953,7 @@ def test_nemo_fastconformer_tutorial_yaml_uses_shared_adapter_contract():
         "audio_resampled",
     )
     assert stage.__class__.__name__ == "ASRStage"
-    assert stage.adapter_target == "nemo_curator.models.asr.nemo_asr.NeMoASRAdapter"
+    assert stage.adapter_target == "nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter"
     assert stage.model_id == "nvidia/stt_en_fastconformer_ctc_large"
     assert stage.audio_filepath_key == "resampled_audio_filepath"
     assert stage.target_sample_rate == 16000
@@ -1010,7 +1010,7 @@ def test_run_cli_defaults_to_pipeline_config_for_fastconformer() -> None:
         text=True,
     )
 
-    assert "adapter_target: nemo_curator.models.asr.nemo_asr.NeMoASRAdapter" in result.stdout
+    assert "adapter_target: nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter" in result.stdout
 
 
 SHIPPED_TEXT_CONFIG_DIR = Path(__file__).parents[2] / "nemo_curator" / "config" / "text"

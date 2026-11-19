@@ -24,7 +24,7 @@ import numpy as np
 import pytest
 import torch
 
-from nemo_curator.models.asr.faster_whisper import FasterWhisperASR, _faster_whisper_stack
+from nemo_curator.models.audio.asr.faster_whisper import FasterWhisperASR, _faster_whisper_stack
 
 pytestmark = pytest.mark.gpu
 

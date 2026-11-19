@@ -306,7 +306,7 @@ For ASR stages, the NeMo DataLoader worker count is an adapter option (`num_work
 from nemo_curator.stages.audio.inference.asr.stage import ASRStage
 
 asr_stage = ASRStage(
-    adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+    adapter_target="nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter",
     model_id="nvidia/parakeet-tdt_ctc-1.1b",
     max_audio_sec_per_actor=1280,
     max_inference_duration_s=1280,

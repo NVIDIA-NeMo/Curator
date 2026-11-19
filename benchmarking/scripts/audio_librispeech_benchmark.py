@@ -173,7 +173,7 @@ def run_audio_librispeech_benchmark(  # noqa: PLR0913
         asr_batch_size = 16
         pipeline.add_stage(ManifestReader(manifest_path=input_manifest))
         asr_kwargs = {
-            "adapter_target": "nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+            "adapter_target": "nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter",
             "model_id": model_name,
             "audio_filepath_key": "audio_filepath",
             "batch_size": asr_batch_size,
