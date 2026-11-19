@@ -600,6 +600,9 @@ navigation:
               - page: Text Integration
                 path: ./main/pages/curate-audio/process-data/text-integration/index.mdx
                 slug: text-integration
+              - page: Stage Reference
+                path: ./main/pages/curate-audio/process-data/stage-reference.mdx
+                slug: stage-reference
           - page: Save and Export
             path: ./main/pages/curate-audio/save-export.mdx
             slug: save-export
