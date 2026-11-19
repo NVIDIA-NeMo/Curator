@@ -36,7 +36,7 @@ param_dependencies:
   text_key: "required for format: txt and for write_timeline: true; pair it with an ASR/alignment stage upstream."
   write_timeline: "ordering uses start/end; without those columns rows fall back to arrival order."
 notes:
-  - "For the diarization fan-out -> ASR example, configure ASRStage with waveform_key='waveform' and sample_rate_key='sample_rate'. Passthrough diarization lists need explicit row shaping before this exporter."
+  - "For the diarization fan-out -> ASR example, configure ASRStage with input_residency='waveform', waveform_key='waveform' and sample_rate_key='sample_rate'. Passthrough diarization lists need explicit row shaping before this exporter."
   - "Pass-through: rows are returned unchanged, so this is a tee and can be followed by ManifestWriterStage."
   - "Non-serializable values (e.g. a resident waveform tensor) are dropped from the written columns instead of crashing -- unlike ManifestWriterStage, which needs sanitized input."
   - "Group files are truncated on first write in a run, so a re-run replaces its own output rather than appending to the previous one."

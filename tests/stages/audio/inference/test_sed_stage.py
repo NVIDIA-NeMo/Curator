@@ -69,7 +69,7 @@ def _stage(**kwargs: object) -> tuple[SEDInferenceStage, _FakeSEDAdapter]:
         adapter_target=_ADAPTER_TARGET,
         checkpoint_path=_CHECKPOINT,
         sample_rate=_SR,
-        waveform_key="waveform",
+        input_residency="waveform",
         **kwargs,
     )
     adapter = _FakeSEDAdapter()
@@ -157,7 +157,6 @@ def test_a_missing_audio_filepath_is_marked_without_adapter_inference() -> None:
         adapter_target=_ADAPTER_TARGET,
         checkpoint_path=_CHECKPOINT,
         sample_rate=_SR,
-        waveform_key=None,
     )
     adapter = _FakeSEDAdapter()
     stage._adapter = adapter
@@ -263,7 +262,6 @@ def test_file_mode_loads_the_yaml_manifest_contract(tmp_path: Path) -> None:
         adapter_target=_ADAPTER_TARGET,
         checkpoint_path=_CHECKPOINT,
         sample_rate=_SR,
-        waveform_key=None,
     )
     adapter = _FakeSEDAdapter()
     stage._adapter = adapter

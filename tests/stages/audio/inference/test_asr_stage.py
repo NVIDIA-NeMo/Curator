@@ -56,7 +56,7 @@ def _make_stage(  # noqa: PLR0913
     max_inference_duration_s: float = 2400.0,
     supported_language_codes: list[str] | None = None,
     skip_if_output_exists: bool = False,
-    waveform_key: str | None = None,
+    input_residency: str = "file",
     keep_waveform: bool = False,
     extras_key: str | None = None,
     fail_on_audio_error: bool = False,
@@ -74,7 +74,7 @@ def _make_stage(  # noqa: PLR0913
         max_inference_duration_s=max_inference_duration_s,
         supported_language_codes=supported_language_codes,
         skip_if_output_exists=skip_if_output_exists,
-        waveform_key=waveform_key,
+        input_residency=input_residency,
         keep_waveform=keep_waveform,
         extras_key=extras_key,
         fail_on_audio_error=fail_on_audio_error,
@@ -191,7 +191,7 @@ def test_ray_data_numpy_batch_preserves_tasks_and_predictions(num_tasks: int) ->
 
 def test_local_bucketing_groups_all_rows_and_restores_task_order() -> None:
     stage = _make_stage(
-        waveform_key="waveform",
+        input_residency="waveform",
         keep_waveform=True,
         max_audio_sec_per_actor=50.0,
         max_inference_duration_s=50.0,
@@ -231,7 +231,7 @@ def test_actor_audio_budget_is_enforced_with_bucketing_on_or_off(
     expected_call_task_ids: list[list[str]],
 ) -> None:
     stage = _make_stage(
-        waveform_key="waveform",
+        input_residency="waveform",
         keep_waveform=True,
         max_audio_sec_per_actor=8.0,
         max_inference_duration_s=8.0,
@@ -261,7 +261,7 @@ def test_actor_audio_budget_is_enforced_with_bucketing_on_or_off(
 
 def test_local_bucketing_minimizes_padded_seconds_after_call_count() -> None:
     stage = _make_stage(
-        waveform_key="waveform",
+        input_residency="waveform",
         keep_waveform=True,
         max_audio_sec_per_actor=4.0,
         max_inference_duration_s=4.0,
@@ -301,7 +301,7 @@ def test_actor_budget_accepts_decimal_roundoff_at_exact_boundary(local_bucketing
 
 
 def test_local_bucketing_is_scoped_to_each_process_batch_call() -> None:
-    stage = _make_stage(waveform_key="waveform", keep_waveform=True, local_bucketing=True)
+    stage = _make_stage(input_residency="waveform", keep_waveform=True, local_bucketing=True)
     first = _make_waveform_task()
     second = _make_waveform_task()
     first.task_id = "first-window"
@@ -323,7 +323,7 @@ def test_local_bucketing_is_scoped_to_each_process_batch_call() -> None:
 
 def test_batch_size_does_not_cap_adapter_calls() -> None:
     stage = _make_stage(
-        waveform_key="waveform",
+        input_residency="waveform",
         keep_waveform=True,
         batch_size=2,
         max_audio_sec_per_actor=3.0,
@@ -346,7 +346,7 @@ def test_batch_size_does_not_cap_adapter_calls() -> None:
 def test_model_safe_segmentation_preserves_samples_and_stitches_parent_order(local_bucketing: bool) -> None:
     sample_rate = 10
     stage = _make_stage(
-        waveform_key="waveform",
+        input_residency="waveform",
         keep_waveform=True,
         target_sample_rate=sample_rate,
         max_audio_sec_per_actor=9.0,
@@ -396,7 +396,7 @@ def test_segmented_parent_obeys_actor_audio_budget_before_stitching() -> None:
     sample_rate = 10
     waveform = np.arange(10 * sample_rate, dtype=np.float32)
     stage = _make_stage(
-        waveform_key="waveform",
+        input_residency="waveform",
         keep_waveform=True,
         target_sample_rate=sample_rate,
         max_audio_sec_per_actor=6.0,
@@ -425,7 +425,7 @@ def test_segmented_parent_obeys_actor_audio_budget_before_stitching() -> None:
 def test_long_row_tail_can_co_bucket_after_model_safe_segmentation() -> None:
     sample_rate = 10
     stage = _make_stage(
-        waveform_key="waveform",
+        input_residency="waveform",
         keep_waveform=True,
         target_sample_rate=sample_rate,
         max_audio_sec_per_actor=240.0,
@@ -454,7 +454,7 @@ def test_long_row_tail_can_co_bucket_after_model_safe_segmentation() -> None:
 def test_segmented_parent_marks_partial_chunk_failure() -> None:
     sample_rate = 10
     stage = _make_stage(
-        waveform_key="waveform",
+        input_residency="waveform",
         keep_waveform=True,
         target_sample_rate=sample_rate,
         max_inference_duration_s=3.0,
@@ -474,7 +474,7 @@ def test_segmented_parent_marks_partial_chunk_failure() -> None:
 def test_segmented_parent_preserves_skip_reason_and_flat_adapter_extras() -> None:
     sample_rate = 10
     stage = _make_stage(
-        waveform_key="waveform",
+        input_residency="waveform",
         keep_waveform=True,
         extras_key="asr_extras",
         target_sample_rate=sample_rate,
@@ -707,6 +707,7 @@ def test_in_memory_input_contract_requires_waveform_and_sample_rate() -> None:
         model_id="mock/model",
         max_audio_sec_per_actor=2400.0,
         waveform_key="waveform",
+        input_residency="waveform",
         sample_rate_key="sampling_rate",
     )
 
@@ -740,7 +741,7 @@ def test_stage_load_audio_preserves_stereo_channel_first(tmp_path: Path) -> None
 
 
 def test_in_memory_waveform_is_normalized_once_and_removed_after_inference() -> None:
-    stage = _make_stage(waveform_key="waveform")
+    stage = _make_stage(input_residency="waveform")
     stage._adapter.transcribe_batch.return_value = [ASRResult(text="hello")]
     stereo_8khz = np.ones((2, 8000), dtype=np.float64)
     task = _make_waveform_task(waveform=stereo_8khz, sample_rate=8000)
@@ -765,7 +766,7 @@ def test_resident_waveform_preserves_legacy_cast_only_semantics(
     mono = np.array([16384, -16384, 0, 1], dtype=dtype)
     channel_first = np.stack([mono] * channels) if channels > 1 else mono
     resident = torch.from_numpy(channel_first.copy()) if as_torch else channel_first
-    stage = _make_stage(waveform_key="waveform")
+    stage = _make_stage(input_residency="waveform")
 
     prepared = stage._prepare_waveform(resident, _SR)
 
@@ -775,7 +776,7 @@ def test_resident_waveform_preserves_legacy_cast_only_semantics(
 
 
 def test_integer_list_waveform_reaches_adapter_without_skipping() -> None:
-    stage = _make_stage(waveform_key="waveform")
+    stage = _make_stage(input_residency="waveform")
     stage._adapter.transcribe_batch.return_value = [ASRResult(text="transcribed")]
     task = _make_waveform_task(waveform=[0, 1, -1], sample_rate=_SR)
 
@@ -796,6 +797,7 @@ def test_faster_whisper_empty_8khz_audio_preserves_reference_output(waveform: np
         model_id="large-v3",
         max_audio_sec_per_actor=2400.0,
         waveform_key="waveform",
+        input_residency="waveform",
         sample_rate_key="sampling_rate",
         supported_language_codes=["fil"],
         pred_text_key="asr_prediction",
@@ -820,7 +822,7 @@ def test_faster_whisper_empty_8khz_audio_preserves_reference_output(waveform: np
 
 
 def test_in_memory_waveform_can_be_retained_for_recovery_inference() -> None:
-    stage = _make_stage(waveform_key="waveform", keep_waveform=True)
+    stage = _make_stage(input_residency="waveform", keep_waveform=True)
     stage._adapter.transcribe_batch.return_value = [ASRResult(text="hello")]
     waveform = np.ones(_SR, dtype=np.float32)
     task = _make_waveform_task(waveform=waveform)
@@ -977,7 +979,7 @@ def test_output_and_control_keys_cannot_alias_waveform_input(output_field: str, 
             max_audio_sec_per_actor=2400.0,
             adapter_target=_QWEN_ADAPTER_TARGET,
             model_id="mock/model",
-            waveform_key="waveform",
+            input_residency="waveform",
             sample_rate_key="sample_rate",
             keep_waveform=keep_waveform,
             **{output_field: "waveform"},
@@ -1214,7 +1216,7 @@ def test_real_nemo_batch_preserves_language_and_serializable_output(resident: bo
         max_audio_sec_per_actor=10.0,
         max_inference_duration_s=5.0,
         audio_filepath_key="audio_filepath",
-        waveform_key="waveform" if resident else None,
+        input_residency="waveform" if resident else "file",
         sample_rate_key="sample_rate",
         language_key="language",
         resources=Resources(gpus=1),
@@ -1281,6 +1283,7 @@ def test_fanout_children_feed_asr_exact_slices(
         adapter_target=rh._ASR_TARGET,
         model_id="mock/model",
         waveform_key="waveform",
+        input_residency="waveform",
         sample_rate_key="sample_rate",
         target_sample_rate=rh._SAMPLE_RATE,
         keep_waveform=True,
@@ -1303,6 +1306,7 @@ def test_asr_waveform_removal_contract_matches_runtime_including_skips() -> None
         adapter_target=rh._ASR_TARGET,
         model_id="mock/model",
         waveform_key="waveform",
+        input_residency="waveform",
         sample_rate_key="sample_rate",
         skip_if_output_exists=True,
         keep_waveform=False,
@@ -1312,6 +1316,7 @@ def test_asr_waveform_removal_contract_matches_runtime_including_skips() -> None
         adapter_target=rh._ASR_TARGET,
         model_id="mock/model",
         waveform_key="waveform",
+        input_residency="waveform",
         sample_rate_key="sample_rate",
         keep_waveform=True,
     )
@@ -1320,7 +1325,9 @@ def test_asr_waveform_removal_contract_matches_runtime_including_skips() -> None
     assert (
         rh.build_contract(
             rh.ASRStage(
-                max_audio_sec_per_actor=2400.0, adapter_target=rh._ASR_TARGET, model_id="mock/model", waveform_key=""
+                max_audio_sec_per_actor=2400.0,
+                adapter_target=rh._ASR_TARGET,
+                model_id="mock/model",
             )
         ).removes_keys
         == []
@@ -1352,6 +1359,7 @@ def test_asr_waveform_removal_contract_matches_runtime_including_skips() -> None
         adapter_target=rh._ASR_TARGET,
         model_id="mock/model",
         waveform_key="waveform",
+        input_residency="waveform",
         sample_rate_key="sample_rate",
         target_sample_rate=rh._SAMPLE_RATE,
     )
@@ -1391,7 +1399,7 @@ class _MetadataReader(AgentReady, ProcessingStage[AudioTask, AudioTask]):
 
 @pytest.mark.parametrize("extras", [{}, {"confidence": 0.9}])
 def test_metadata_replacement_does_not_preserve_an_upstream_guarantee(extras: dict[str, Any]) -> None:
-    stage = _make_stage(waveform_key="waveform", keep_waveform=True, extras_key="asr_extras")
+    stage = _make_stage(input_residency="waveform", keep_waveform=True, extras_key="asr_extras")
     stage._adapter.transcribe_batch.return_value = [ASRResult(text="hello", extras=extras)]
     initial_keys = {"waveform", "sampling_rate", "asr_extras"}
     required_reader = _MetadataReader()
@@ -1420,6 +1428,7 @@ def test_language_contract_matches_transcribed_and_reused_rows(reuse: bool) -> N
         model_id="mock/model",
         max_audio_sec_per_actor=2400.0,
         waveform_key="waveform",
+        input_residency="waveform",
         language_key="detected_language",
         skip_if_output_exists=reuse,
         keep_waveform=True,

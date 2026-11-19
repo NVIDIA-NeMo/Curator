@@ -38,7 +38,7 @@ from nemo_curator.stages.audio._agent._residency import resolve_audio_path
 from nemo_curator.stages.audio.inference import base as inference_base
 from nemo_curator.stages.audio.inference.asr.stage import ASRStage
 from nemo_curator.stages.audio.inference.base import _channel_first_waveform
-from nemo_curator.stages.audio.inference.speaker_diarization.sortformer import InferenceSortformerStage
+from nemo_curator.stages.audio.inference.speaker_diarization.stage import InferenceSortformerStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 

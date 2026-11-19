@@ -41,7 +41,7 @@ from nemo_curator.stages.audio._agent._agent_ready import (
     StaticHints,
 )
 from nemo_curator.stages.audio.common.helpers import set_note
-from nemo_curator.stages.audio.inference.base import AdapterInferenceStage
+from nemo_curator.stages.audio.inference.base import AdapterInferenceStage, _inference_audio_read_specs
 from nemo_curator.stages.audio.model_input_segmentation import (
     plan_audio_segments,
     resolve_max_model_input_duration,
@@ -49,6 +49,7 @@ from nemo_curator.stages.audio.model_input_segmentation import (
 from nemo_curator.stages.resources import Resources
 
 if TYPE_CHECKING:
+    from nemo_curator.stages.audio._agent._residency import InputResidency
     from nemo_curator.tasks import AudioTask
 
 _MONO_DIMENSIONS = 1
@@ -163,7 +164,7 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
 
     # Task I/O keys.
     audio_filepath_key: str = "resampled_audio_filepath"
-    waveform_key: str | None = None
+    waveform_key: str = "waveform"
     sample_rate_key: str = "sampling_rate"
     target_sample_rate: int = 16000
     keep_waveform: bool = False
@@ -196,6 +197,7 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
     nested_key: str | None = field(default=None, kw_only=True)
     nested_audio: Literal["file", "slice"] = field(default="file", kw_only=True)
     min_nested_duration_s: float = field(default=0.0, kw_only=True)
+    input_residency: InputResidency = field(default="file", kw_only=True)
 
     BATCH_ONLY = True
     INTERNAL_KEY_FIELDS = frozenset(
@@ -246,7 +248,8 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
             }:
                 msg = f"ASRStage.extras_key cannot collide with another output column: {self.extras_key!r}"
                 raise ValueError(msg)
-        input_keys = {self.audio_filepath_key, self.waveform_key, self.sample_rate_key, self.source_lang_key} - {
+        resident_key = self.waveform_key if self.input_residency != "file" else None
+        input_keys = {self.audio_filepath_key, resident_key, self.sample_rate_key, self.source_lang_key} - {
             None,
             "",
         }
@@ -345,7 +348,11 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
     def _describe_nested(self) -> StageContract:
         nested_writes = [self.pred_text_key] + ([self.words_key] if self.words_key else [])
         file_mode = self.nested_audio == "file"
-        audio_keys = [self.waveform_key, self.sample_rate_key] if self.waveform_key else [self.audio_filepath_key]
+        audio_keys = (
+            [self.waveform_key, self.sample_rate_key]
+            if self.input_residency == "waveform"
+            else [self.audio_filepath_key]
+        )
         return StageContract(
             reads=IOSpec(data_keys=[self.nested_key, *([] if file_mode else audio_keys)]),
             writes=IOSpec(),
@@ -370,10 +377,11 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
     def describe(self) -> StageContract:
         if self.nested_key is not None:
             return self._describe_nested()
-        reads = (
-            IOSpec(data_keys=[self.waveform_key, self.sample_rate_key], accepts=["waveform"])
-            if self.waveform_key
-            else IOSpec(data_keys=[self.audio_filepath_key], accepts=["file"])
+        reads = _inference_audio_read_specs(
+            self.input_residency,
+            audio_filepath_key=self.audio_filepath_key,
+            waveform_key=self.waveform_key,
+            sample_rate_key=self.sample_rate_key,
         )
         writes = [self.pred_text_key]
         conditional_writes = [
@@ -406,14 +414,14 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
         if self.words_key is not None:
             writes.append(self.words_key)
         return StageContract(
-            reads=reads,
+            reads_one_of=reads,
             optional_reads=IOSpec(
                 data_keys=[key for key in (self.source_lang_key, self.skip_me_key, self.notes_key) if key]
             ),
             writes=IOSpec(data_keys=writes),
             conditional_writes=conditional_writes,
             cardinality="1:1",
-            removes_keys=([self.waveform_key] if self.waveform_key and not self.keep_waveform else []),
+            removes_keys=([self.waveform_key] if self.input_residency != "file" and not self.keep_waveform else []),
             invalidates_keys=([self.extras_key] if self.extras_key is not None else []),
             gates=Gates(
                 requires_gpu=self.resources.requires_gpu,
@@ -454,7 +462,7 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
                 "language_code": self._resolve_language_code(task),
                 "task_id": task.task_id,
             }
-            if self.waveform_key:
+            if self._uses_resident(task):
                 item["waveform"] = task.data[self.waveform_key]
                 item["sample_rate"] = task.data[self.sample_rate_key]
             else:
@@ -528,7 +536,7 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
             items,
             results,
         )
-        if self.waveform_key and not self.keep_waveform:
+        if self.input_residency != "file" and not self.keep_waveform:
             for task in tasks:
                 task.data.pop(self.waveform_key, None)
         if output_exists_skipped:
@@ -587,7 +595,7 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
 
     def _task_audio(self, task: AudioTask) -> tuple[np.ndarray, int]:
         """Return the task's own (file or resident) audio for slicing."""
-        if self.waveform_key:
+        if self._uses_resident(task):
             return np.asarray(task.data[self.waveform_key]), int(task.data[self.sample_rate_key])
         return self._load_audio(str(task.data[self.audio_filepath_key]))
 
@@ -614,7 +622,7 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
                 if "waveform" in item:
                     waveform = item["waveform"]
                     sample_rate = item["sample_rate"]
-                    audio_source = self.waveform_key or "waveform"
+                    audio_source = self.waveform_key
                 else:
                     audio_source = str(item["audio_filepath"])
                     waveform, sample_rate = self._load_audio(audio_source)

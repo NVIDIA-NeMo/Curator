@@ -43,6 +43,7 @@ def test_resident_count_output_preserves_audio_for_asr(monkeypatch: pytest.Monke
         model_id="mock/model",
         max_audio_sec_per_actor=2400.0,
         waveform_key="waveform",
+        input_residency="waveform",
         sample_rate_key="sample_rate",
         target_sample_rate=rh._SAMPLE_RATE,
     )

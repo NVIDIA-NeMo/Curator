@@ -345,6 +345,7 @@ def test_asr_stage_drives_qwen_adapter_end_to_end() -> None:
         max_audio_sec_per_actor=2400.0,
         batch_size=2,
         waveform_key="waveform",
+        input_residency="waveform",
         sample_rate_key="sample_rate",
         extras_key="asr_extras",
     )

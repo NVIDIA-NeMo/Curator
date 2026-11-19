@@ -33,9 +33,9 @@ from loguru import logger
 
 from nemo_curator.models.audio.lid.base import AudioLIDAdapter, AudioLIDResult
 from nemo_curator.stages.audio._agent._agent_ready import AgentReady, ConditionalWrite, Gates, IOSpec, StageContract
-from nemo_curator.stages.audio._agent._residency import validate_audio_key_configuration
+from nemo_curator.stages.audio._agent._residency import InputResidency, validate_audio_key_configuration
 from nemo_curator.stages.audio.common import ensure_mono, ensure_waveform_2d
-from nemo_curator.stages.audio.inference.base import AdapterInferenceStage
+from nemo_curator.stages.audio.inference.base import AdapterInferenceStage, _inference_audio_read_specs
 from nemo_curator.stages.resources import Resources
 
 if TYPE_CHECKING:
@@ -75,9 +75,9 @@ class AudioLIDInferenceStage(AgentReady, AdapterInferenceStage[AudioLIDAdapter])
         model_id: Stable key used for this model in the shared result mapping.
         tag: Ensemble role recorded with every result.
         sample_rate: Canonical adapter sample rate.
-        waveform_key: In-memory waveform key, or ``None`` to load a file.
+        waveform_key: In-memory waveform key read for waveform/auto input.
         sample_rate_key: Source sample-rate key for in-memory waveforms.
-        audio_filepath_key: File key used when ``waveform_key`` is ``None``.
+        audio_filepath_key: File key read for file/auto input.
         results_key: Shared mapping populated by every ensemble component.
         skip_me_key: Shared terminal skip-reason key (default ``"_skipme"``).
         min_duration_sec: Clips shorter than this receive an empty result.
@@ -95,6 +95,7 @@ class AudioLIDInferenceStage(AgentReady, AdapterInferenceStage[AudioLIDAdapter])
             for heavyweight ensemble models that should not scale to every
             available fractional-GPU slot.
         adapter_kwargs: Provider-native adapter constructor arguments.
+        input_residency: file (default), waveform, or auto (waveform when present, else file).
     """
 
     adapter_target: str
@@ -103,7 +104,7 @@ class AudioLIDInferenceStage(AgentReady, AdapterInferenceStage[AudioLIDAdapter])
     name: str = "AudioLIDInference"
 
     sample_rate: int = 16000
-    waveform_key: str | None = None
+    waveform_key: str = "waveform"
     sample_rate_key: str = "sample_rate"
     audio_filepath_key: str = "audio_filepath"
     results_key: str = "lid"
@@ -120,6 +121,7 @@ class AudioLIDInferenceStage(AgentReady, AdapterInferenceStage[AudioLIDAdapter])
     num_workers_override: int | None = None
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0, gpu_memory_gb=4.0))
     skip_me_key: str = field(default="_skipme", kw_only=True)
+    input_residency: InputResidency = field(default="file", kw_only=True)
 
     BATCH_ONLY = True
     KEY_ROLE_OVERRIDES: ClassVar = {"results_key": "prediction"}
@@ -131,6 +133,7 @@ class AudioLIDInferenceStage(AgentReady, AdapterInferenceStage[AudioLIDAdapter])
             "adapter_target",
             "model_id",
             "tag",
+            "waveform_key",
             "sample_rate_key",
             "audio_filepath_key",
             "results_key",
@@ -139,15 +142,12 @@ class AudioLIDInferenceStage(AgentReady, AdapterInferenceStage[AudioLIDAdapter])
             if not isinstance(value, str) or not value.strip():
                 msg = f"AudioLIDInferenceStage.{field_name} must be a non-empty string"
                 raise ValueError(msg)
-        if self.waveform_key is not None and (not isinstance(self.waveform_key, str) or not self.waveform_key.strip()):
-            msg = "AudioLIDInferenceStage.waveform_key must be None or a non-empty string"
-            raise ValueError(msg)
         validate_audio_key_configuration(
             self.name,
             input_keys={
                 "audio_filepath_key": self.audio_filepath_key,
                 "sample_rate_key": self.sample_rate_key,
-                **({"waveform_key": self.waveform_key} if self.waveform_key is not None else {}),
+                **({"waveform_key": self.waveform_key} if self.input_residency != "file" else {}),
             },
             output_keys={"results_key": self.results_key, "skip_me_key": self.skip_me_key},
         )
@@ -225,9 +225,11 @@ class AudioLIDInferenceStage(AgentReady, AdapterInferenceStage[AudioLIDAdapter])
                 )
             )
         return StageContract(
-            reads=IOSpec(
-                data_keys=self.inputs()[1],
-                accepts=["waveform" if self.waveform_key is not None else "file"],
+            reads_one_of=_inference_audio_read_specs(
+                self.input_residency,
+                audio_filepath_key=self.audio_filepath_key,
+                waveform_key=self.waveform_key,
+                sample_rate_key=self.sample_rate_key,
             ),
             optional_reads=IOSpec(data_keys=[self.results_key, self.skip_me_key, self.audio_filepath_key]),
             conditional_writes=conditional_writes,
@@ -306,7 +308,7 @@ class AudioLIDInferenceStage(AgentReady, AdapterInferenceStage[AudioLIDAdapter])
                 continue
             audio_path = str(task.data.get(self.audio_filepath_key, "") or "")
             try:
-                if self.waveform_key is not None:
+                if self._uses_resident(task):
                     waveform = task.data[self.waveform_key]
                     source_sample_rate = task.data[self.sample_rate_key]
                 else:

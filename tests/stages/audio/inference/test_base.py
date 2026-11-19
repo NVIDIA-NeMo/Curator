@@ -78,6 +78,7 @@ def test_asr_waveform_retention_controls_downstream_auto_residency(
         model_id="model",
         max_audio_sec_per_actor=2400.0,
         waveform_key="waveform",
+        input_residency="waveform",
         sample_rate_key="sample_rate",
         keep_waveform=keep_waveform,
     )
@@ -104,9 +105,9 @@ def test_common_adapter_infrastructure_is_not_reimplemented() -> None:
     ):
         assert common_methods.isdisjoint(stage_type.__dict__)
 
-    # VAD accepts either an in-memory waveform or a file and therefore owns
-    # its disjunctive input declaration; the other adapter stages use the base.
-    for stage_type in (ASRStage, SEDInferenceStage, InferenceSortformerStage, AudioLIDInferenceStage):
+    # VAD owns its disjunctive input declaration and ASR its nested-list one;
+    # the other adapter stages use the base.
+    for stage_type in (SEDInferenceStage, InferenceSortformerStage, AudioLIDInferenceStage):
         assert "inputs" not in stage_type.__dict__
 
 
@@ -250,6 +251,7 @@ def test_fanout_contract_is_waveform_only_and_blocks_file_consumers(
         adapter_target=rh._ASR_TARGET,
         model_id="mock/model",
         waveform_key="waveform",
+        input_residency="waveform",
         sample_rate_key="sample_rate",
     )
     accepted = rh.validate_pipeline(
@@ -267,7 +269,7 @@ def test_fanout_contract_is_waveform_only_and_blocks_file_consumers(
 @rh.pytest.mark.parametrize(
     ("cls", "path_key", "container_key"),
     [
-        (rh.InferenceSortformerStage, "filepath_key", "diar_segments_key"),
+        (rh.InferenceSortformerStage, "audio_filepath_key", "diar_segments_key"),
     ],
 )
 def test_fanout_rejects_output_and_path_key_collisions(cls: type, path_key: str, container_key: str) -> None:
@@ -332,6 +334,7 @@ def test_pcm16_resident_fanout_matches_file_amplitude(
         adapter_target=rh._ASR_TARGET,
         model_id="mock/model",
         waveform_key="waveform",
+        input_residency="waveform",
         sample_rate_key="sample_rate",
         target_sample_rate=rh._SAMPLE_RATE,
         keep_waveform=True,
@@ -413,10 +416,12 @@ def test_static_and_configured_inference_hints_are_truthful() -> None:
     assert asr_configured.gates.per_row_independent is True
     default_sortformer = rh.build_contract(rh.InferenceSortformerStage(resources=rh.Resources(gpus=0)))
     local_sortformer = rh.build_contract(
-        rh.InferenceSortformerStage(model_path="/models/local.nemo", resources=rh.Resources(gpus=0))
+        rh.InferenceSortformerStage(
+            adapter_kwargs={"model_path": "/models/local.nemo"}, resources=rh.Resources(gpus=0)
+        )
     )
     injected_sortformer = rh.build_contract(
-        rh.InferenceSortformerStage(diar_model=rh.MagicMock(), resources=rh.Resources(gpus=0))
+        rh.InferenceSortformerStage(adapter_kwargs={"preloaded_model": rh.MagicMock()}, resources=rh.Resources(gpus=0))
     )
     assert default_sortformer.gates.requires_internet_first_run
     assert not local_sortformer.gates.requires_internet_first_run

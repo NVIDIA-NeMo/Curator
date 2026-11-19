@@ -74,7 +74,7 @@ def _wav(path: Path, seconds: float) -> str:
 
 def test_words_are_written_and_long_audio_chunks_are_shifted() -> None:
     stage = _stage(
-        waveform_key="waveform", words_key="words", max_audio_sec_per_actor=4.0, max_inference_duration_s=2.0
+        input_residency="waveform", words_key="words", max_audio_sec_per_actor=4.0, max_inference_duration_s=2.0
     )
     task = AudioTask(data={"waveform": np.zeros(3 * _SR, dtype=np.float32), "sampling_rate": _SR})
 
@@ -120,7 +120,7 @@ def test_nested_file_mode_transcribes_each_split_then_joins(tmp_path: Path) -> N
 
 def test_nested_slice_mode_skips_short_segments_and_offsets_words() -> None:
     stage = _stage(
-        waveform_key="waveform",
+        input_residency="waveform",
         pred_text_key="text_2",
         words_key="words",
         nested_key="segments",

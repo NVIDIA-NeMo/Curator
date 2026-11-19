@@ -51,21 +51,15 @@ stages:
 
   - _target_: nemo_curator.stages.audio.inference.speaker_diarization.stage.InferenceSortformerStage
     model_id: ${model_dir}/sortformer.nemo
-    model_path: ${model_dir}/sortformer.nemo
     waveform_key: waveform
+    input_residency: waveform
     audio_filepath_key: audio_filepath
     target_sample_rate: 16000
     rttm_out_dir: ${output_dir}/rttm
-    chunk_len: 340
-    chunk_left_context: 1
-    chunk_right_context: 40
-    fifo_len: 40
-    spkcache_update_period: 300
-    spkcache_len: 188
-    inference_batch_size: 1
     batch_size: 1
     fail_on_audio_error: true
     adapter_kwargs:
+      model_path: ${model_dir}/sortformer.nemo
       precision: fp32
       compile_encoder: false
     resources:
@@ -95,6 +89,7 @@ stages:
     adapter_target: nemo_curator.models.audio.sed.tensorrt.TensorRTPANNsSEDAdapter
     checkpoint_path: ${model_dir}/sed.pth
     waveform_key: waveform
+    input_residency: waveform
     sample_rate_key: sample_rate
     sample_rate: 16000
     batch_size: 1
@@ -121,6 +116,7 @@ stages:
     model_id: SpeechBrainLangID
     tag: primary
     waveform_key: waveform
+    input_residency: waveform
     min_duration_sec: 1
     max_duration_sec: 10
     batch_size: 16
@@ -138,6 +134,7 @@ stages:
     model_id: IndicCanaryLangID
     tag: secondary
     waveform_key: waveform
+    input_residency: waveform
     min_duration_sec: 1
     max_duration_sec: 40
     batch_size: 16
@@ -161,6 +158,7 @@ stages:
     model_id: WhisperLangID
     tag: tertiary
     waveform_key: waveform
+    input_residency: waveform
     min_duration_sec: 1
     max_duration_sec: 30
     batch_size: 16

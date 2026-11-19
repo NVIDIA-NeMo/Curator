@@ -17,7 +17,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from nemo_curator.models.asr.indic_canary import IndicCanaryTRTLLMASR
 from nemo_curator.stages.audio.common.helpers import set_note
@@ -51,7 +51,7 @@ class InferenceIndicCanaryStage(ASRStage):
     kv_cache_free_gpu_memory_fraction: float = 0.2
     cross_kv_cache_fraction: float = 0.2
     source_lang_key: str = "source_lang"
-    waveform_key: str = "waveform"
+    input_residency: Literal["file", "waveform", "auto"] = field(default="waveform", kw_only=True)
     sample_rate_key: str = "sampling_rate"
     pred_text_key: str = "asr_prediction"
     language_key: str = "asr_language"

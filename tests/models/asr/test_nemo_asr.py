@@ -253,6 +253,7 @@ def test_asr_stage_drives_nemo_adapter_with_exact_local_batches() -> None:
         max_inference_duration_s=4.0,
         local_bucketing=True,
         waveform_key="waveform",
+        input_residency="waveform",
         sample_rate_key="sampling_rate",
         keep_waveform=True,
     )

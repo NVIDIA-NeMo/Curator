@@ -68,7 +68,7 @@ class InferenceParakeetStage(ASRStage):
     backend: Literal["nemo", "tensorrt"] = "nemo"
     tensorrt_engine_dir: str | None = None
     chunking_mode: Literal["engine", "none"] = "engine"
-    waveform_key: str = "waveform"
+    input_residency: Literal["file", "waveform", "auto"] = field(default="waveform", kw_only=True)
     sample_rate_key: str = "sampling_rate"
     pred_text_key: str = "asr_prediction"
     language_key: str = "asr_language"
