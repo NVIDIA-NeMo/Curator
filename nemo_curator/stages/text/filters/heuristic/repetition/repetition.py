@@ -65,6 +65,7 @@ class RepeatedParagraphsFilter(DocumentFilter):
         paragraphs = self._paragraphs
         if paragraphs is None:
             paragraphs = get_paragraphs(text)
+        paragraphs = [paragraph for paragraph in paragraphs if paragraph.strip()]
         if not paragraphs:
             return 0.0
         return len(set(paragraphs)) / len(paragraphs)
