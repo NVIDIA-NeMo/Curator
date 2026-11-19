@@ -1,9 +1,20 @@
 # Changelog
 
-This file is no longer updated after 1.0.0. For 1.1.0 and later, refer to:
+This file has no entries for 1.1.0 through 1.4.0. For those releases, refer to:
 
 - [GitHub Releases](https://github.com/NVIDIA-NeMo/Curator/releases), whose notes the release workflow generates from merged pull requests.
 - The [release notes](https://docs.nvidia.com/nemo/curator/latest/about/release-notes) in the documentation, with highlights and migration guides for each docs train (for example, 26.09 is v1.4.0).
+
+## Unreleased
+
+Audio features on `main` that are not yet in a release or its release notes:
+
+- **Audio agent**: an agent interface that plans, validates, and runs audio curation pipelines (`nemo_curator/stages/audio/audio_agent`, [#2482](https://github.com/NVIDIA-NeMo/Curator/pull/2482)).
+- **Granary v2 tutorials**: metadata preparation, Indic and Qwen-Omni ASR, and transcript text pipelines (`tutorials/audio/granary_v2`, [#2506](https://github.com/NVIDIA-NeMo/Curator/pull/2506)).
+- **Indic ASR with TensorRT-LLM**: `InferenceIndicCanaryStage` and `InferenceIndicConformerHybridStage`, with a dedicated image in `docker/audio/Dockerfile.trt_llm` ([#2270](https://github.com/NVIDIA-NeMo/Curator/pull/2270), [#2456](https://github.com/NVIDIA-NeMo/Curator/pull/2456)).
+- **MFA forced alignment**: `MFAAlignmentStage` runs the Montreal Forced Aligner and writes TextGrid, RTTM, and CTM files ([#1977](https://github.com/NVIDIA-NeMo/Curator/pull/1977)).
+
+Long-form audio cutting for ALM pretraining ([#1898](https://github.com/NVIDIA-NeMo/Curator/pull/1898)) shipped in 1.3.0 and is described in the 26.07 release notes.
 
 ## NVIDIA NeMo Curator 1.0.0
 
