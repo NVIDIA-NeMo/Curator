@@ -43,6 +43,14 @@ def _error_rate_percent(reference: Sequence[_Token], hypothesis: Sequence[_Token
     return round(_levenshtein_distance(reference, hypothesis) / len(reference) * 100.0, 2)
 
 
+def word_error_rate(reference: str, hypothesis: str) -> float:
+    """Return unrounded whitespace-token WER as a fraction; ``inf`` for an empty reference (NeMo convention)."""
+    reference_tokens = reference.split()
+    if not reference_tokens:
+        return float("inf")
+    return _levenshtein_distance(reference_tokens, hypothesis.split()) / len(reference_tokens)
+
+
 def word_error_rate_percent(reference: str, hypothesis: str) -> float:
     """Return whitespace-token word error rate as a percentage."""
     return _error_rate_percent(reference.split(), hypothesis.split())

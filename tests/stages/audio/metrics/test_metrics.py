@@ -469,6 +469,28 @@ class TestGetPairwiseWerStage:
 
         assert stage.process(task).data["score"] == 0.0
 
+    @pytest.mark.parametrize(
+        ("reference", "hypothesis"),
+        [
+            ("", ""),
+            ("", "extra words"),
+            ("a b c", "a b c"),
+            ("a b c", "a x b c d"),
+            ("a b c d e", "a c"),
+            ("a b c", ""),
+            ("  spaced   out  ", "spaced out"),
+            ("one two three", "three two one"),
+        ],
+    )
+    def test_matches_nemo_word_error_rate_detail(self, reference: str, hypothesis: str) -> None:
+        """The shared dependency-free WER helper reproduces the previous NeMo-based output exactly."""
+        from nemo.collections.asr.metrics.wer import word_error_rate_detail
+
+        expected = round(word_error_rate_detail([hypothesis], [reference], use_cer=False)[0] * 100.0, 4)
+        task = AudioTask(dataset_name="d", data={"text": reference, "pred_text": hypothesis})
+
+        assert GetPairwiseWerStage().process(task).data["wer_pct"] == expected
+
 
 class TestLoopContainment:
     """Tests that per-segment errors don't abort remaining segments."""

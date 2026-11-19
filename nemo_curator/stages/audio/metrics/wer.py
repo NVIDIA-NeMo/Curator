@@ -32,8 +32,23 @@ from nemo_curator.stages.audio._agent._agent_ready import (
     StageContract,
 )
 from nemo_curator.stages.audio.metrics._common import metrics_mapping, validate_metric_keys
+from nemo_curator.stages.audio.text_filtering.text_metrics import word_error_rate
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask
+
+
+def _error_rate_detail(hypothesis: str, reference: str, use_cer: bool) -> dict[str, float | int]:
+    """Return NeMo's WER/CER with insertion/deletion/substitution rates, rounded to 4 places."""
+    rate, tokens, ins_rate, del_rate, sub_rate = word_error_rate_detail(
+        hypotheses=[hypothesis], references=[reference], use_cer=use_cer
+    )
+    return {
+        "cer" if use_cer else "wer": round(rate, 4),
+        "tokens": tokens,
+        "ins_rate": round(ins_rate, 4),
+        "del_rate": round(del_rate, 4),
+        "sub_rate": round(sub_rate, 4),
+    }
 
 
 @dataclass
@@ -333,96 +348,17 @@ class ComputeWERStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         metrics["char_rate"] = self.get_char_rate(audio_segment[self.hypothesis_text_key], duration)
         metrics["word_rate"] = self.get_word_rate(audio_segment[self.hypothesis_text_key], duration)
 
-        wer_val, tokens, ins_rate, del_rate, sub_rate = word_error_rate_detail(
-            hypotheses=[hypothesis_clean],
-            references=[reference_clean],
-            use_cer=False,
+        metrics["wer"] = _error_rate_detail(hypothesis_clean, reference_clean, use_cer=False)
+        metrics["cer"] = _error_rate_detail(hypothesis_clean, reference_clean, use_cer=True)
+        metrics["start_cer"] = _error_rate_detail(
+            hypothesis_clean[: self.edge_length], reference_clean[: self.edge_length], use_cer=True
         )
-        metrics["wer"] = {
-            "wer": round(wer_val, 4),
-            "tokens": tokens,
-            "ins_rate": round(ins_rate, 4),
-            "del_rate": round(del_rate, 4),
-            "sub_rate": round(sub_rate, 4),
-        }
-
-        cer_val, tokens, ins_rate, del_rate, sub_rate = word_error_rate_detail(
-            hypotheses=[hypothesis_clean],
-            references=[reference_clean],
-            use_cer=True,
+        metrics["end_cer"] = _error_rate_detail(
+            hypothesis_clean[-self.edge_length :], reference_clean[-self.edge_length :], use_cer=True
         )
-        metrics["cer"] = {
-            "cer": round(cer_val, 4),
-            "tokens": tokens,
-            "ins_rate": round(ins_rate, 4),
-            "del_rate": round(del_rate, 4),
-            "sub_rate": round(sub_rate, 4),
-        }
-
-        (start_cer, tokens, ins_rate, del_rate, sub_rate) = word_error_rate_detail(
-            hypotheses=[hypothesis_clean[: self.edge_length]],
-            references=[reference_clean[: self.edge_length]],
-            use_cer=True,
-        )
-        metrics["start_cer"] = {
-            "cer": round(start_cer, 4),
-            "tokens": tokens,
-            "ins_rate": round(ins_rate, 4),
-            "del_rate": round(del_rate, 4),
-            "sub_rate": round(sub_rate, 4),
-        }
-
-        end_cer, tokens, ins_rate, del_rate, sub_rate = word_error_rate_detail(
-            hypotheses=[hypothesis_clean[-self.edge_length :]],
-            references=[reference_clean[-self.edge_length :]],
-            use_cer=True,
-        )
-        metrics["end_cer"] = {
-            "cer": round(end_cer, 4),
-            "tokens": tokens,
-            "ins_rate": round(ins_rate, 4),
-            "del_rate": round(del_rate, 4),
-            "sub_rate": round(sub_rate, 4),
-        }
-
         if self.compute_pnc_wer:
-            (
-                wer_pnc,
-                tokens_pnc,
-                ins_rate_pnc,
-                del_rate_pnc,
-                sub_rate_pnc,
-            ) = word_error_rate_detail(
-                hypotheses=[hypothesis_pnc],
-                references=[reference_pnc],
-                use_cer=False,
-            )
-            metrics["wer_pnc"] = {
-                "wer": round(wer_pnc, 4),
-                "tokens": tokens_pnc,
-                "ins_rate": round(ins_rate_pnc, 4),
-                "del_rate": round(del_rate_pnc, 4),
-                "sub_rate": round(sub_rate_pnc, 4),
-            }
-
-            (
-                cer_pnc,
-                tokens_pnc,
-                ins_rate_pnc,
-                del_rate_pnc,
-                sub_rate_pnc,
-            ) = word_error_rate_detail(
-                hypotheses=[hypothesis_pnc],
-                references=[reference_pnc],
-                use_cer=True,
-            )
-            metrics["cer_pnc"] = {
-                "cer": round(cer_pnc, 4),
-                "tokens": tokens_pnc,
-                "ins_rate": round(ins_rate_pnc, 4),
-                "del_rate": round(del_rate_pnc, 4),
-                "sub_rate": round(sub_rate_pnc, 4),
-            }
+            metrics["wer_pnc"] = _error_rate_detail(hypothesis_pnc, reference_pnc, use_cer=False)
+            metrics["cer_pnc"] = _error_rate_detail(hypothesis_pnc, reference_pnc, use_cer=True)
 
         audio_segment[self.metrics_key] = metrics
 
@@ -494,10 +430,5 @@ class GetPairwiseWerStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         reference = task.data.get(self.text_key)
         if hypothesis is None or reference is None:
             return task
-        wer_val, _, _, _, _ = word_error_rate_detail(
-            hypotheses=[hypothesis],
-            references=[reference],
-            use_cer=False,
-        )
-        task.data[self.wer_key] = round(wer_val * 100.0, 4)
+        task.data[self.wer_key] = round(word_error_rate(reference, hypothesis) * 100.0, 4)
         return task
