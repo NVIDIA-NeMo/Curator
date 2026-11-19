@@ -40,6 +40,10 @@ ray_client:
   num_cpus: 128
   object_store_memory: 536870912000
 
+# Replicas of the text server that stay up from the start. 0 holds no GPU until the audio stages free one; the Indic pipeline
+# sets 1 (see indic_granary_pipeline.yaml).
+text_min_replicas: 0
+
 # Text model settings used by the Ray Serve server below; indic_granary_pipeline.yaml overrides only the runtime_env.
 text_model:
   runtime_env:
@@ -86,7 +90,7 @@ inference_server:
       # these bounds, and a new replica starts only when a GPU is free.
       deployment_config:
         autoscaling_config:
-          min_replicas: 0  # no GPU is held at start; replicas start when audio stages free GPUs
+          min_replicas: ${text_min_replicas}
           max_replicas: 4
           # Ray's LLM default is 1e9, which never scales up. Half of max_num_seqs keeps a queue short.
           target_ongoing_requests: 128

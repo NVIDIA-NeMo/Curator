@@ -29,6 +29,10 @@ model_identifier: RedHatAI/gemma-4-31B-it-FP8-dynamic
 
 # The Indic image keeps Torch 2.9.1 for TensorRT-LLM and carries only vLLM's CPU build for the Ray Serve
 # driver, so the text model's engine runs in the replicas' isolated environments with vLLM 0.22 (Torch 2.11).
+# One replica is up from the start. With 0, a replica started late on a GPU that a TensorRT-LLM stage was still releasing, the engine
+# failed its free-memory check, and the text stage failed on 503s while no replica was healthy (EOS, 35 h run).
+text_min_replicas: 1
+
 text_model:
   runtime_env:
     uv:
