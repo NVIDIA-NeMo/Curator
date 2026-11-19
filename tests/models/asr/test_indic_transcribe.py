@@ -136,7 +136,7 @@ def test_load_model_validates_then_constructs_runtime_once(
     _write_engine_files(tmp_path)
     runtime = MagicMock()
     runtime_cls = MagicMock(return_value=runtime)
-    monkeypatch.setattr(indic_transcribe_trtllm_runtime, "CanaryTRTLLM", runtime_cls)
+    monkeypatch.setattr(indic_transcribe_trtllm_runtime, "IndicTranscribeTRTLLM", runtime_cls)
     adapter = IndicTranscribeTRTLLMASR(
         str(tmp_path),
         kv_cache_free_gpu_memory_fraction=0.1,

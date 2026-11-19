@@ -161,7 +161,7 @@ def test_missing_optional_runtime_is_reported_at_construction(
     monkeypatch.setattr(runtime, "_TRTLLM_IMPORT_ERROR", ImportError("not installed"))
 
     with pytest.raises(ImportError, match=r"docker/audio/Dockerfile\.trt_llm"):
-        runtime.CanaryTRTLLM(tmp_path)
+        runtime.IndicTranscribeTRTLLM(tmp_path)
 
 
 @pytest.mark.parametrize("configured_launcher", [None, "rsh"])
@@ -592,7 +592,7 @@ def test_canary_runtime_constructs_components_from_bundle(
     monkeypatch.setattr(runtime, "CanaryEncoder", FakeEncoder)
     monkeypatch.setattr(runtime, "CanaryDecoding", FakeDecoder)
 
-    model = runtime.CanaryTRTLLM(
+    model = runtime.IndicTranscribeTRTLLM(
         tmp_path,
         debug_mode=True,
         device="cpu",
@@ -659,7 +659,7 @@ def test_canary_runtime_processes_and_decodes_mocked_batch(
             calls["decoder"] = (prompt_ids.tolist(), encoded.shape, lengths.tolist(), kwargs)
             return [[[1]], [[2]]]
 
-    model = object.__new__(runtime.CanaryTRTLLM)
+    model = object.__new__(runtime.IndicTranscribeTRTLLM)
     model.device = "cpu"
     model.max_seq_len = 24
     model.tokenizer = FakeTokenizer()

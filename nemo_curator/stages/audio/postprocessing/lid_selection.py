@@ -98,7 +98,7 @@ class SelectAudioLanguageStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
     reason belongs to another pipeline stage and is intentionally preserved.
 
     Precedence is: missing results; unconditional Whisper English; missing or
-    empty Whisper; three-way primary/Canary/Whisper agreement; primary/Whisper
+    empty Whisper; three-way primary/Indic Transcribe/Whisper agreement; primary/Whisper
     agreement for non-Indic languages; disagreement.
     """
 

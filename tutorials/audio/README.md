@@ -143,7 +143,7 @@ docker build -f docker/audio/Dockerfile.trt_llm -t curator-indic-trtllm .
 docker run --rm --gpus all curator-indic-trtllm python docker/audio/check_trt_llm.py
 ```
 
-It runs Curator, Canary TensorRT-LLM, and Parakeet TensorRT in one Python 3.12 /
+It runs Curator, Indic Transcribe TensorRT-LLM, and Parakeet TensorRT in one Python 3.12 /
 Torch 2.9.1 environment, without changing the normal Curator dependency stack.
 Do not run root `uv sync` inside this image. See the
 [Indic ASR tutorial](granary_v2/indic_asr/README.md#1-build-and-check-the-environment) for mounts
