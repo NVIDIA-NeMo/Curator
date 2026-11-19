@@ -881,8 +881,9 @@ paths and executor, retaining the tutorial's model settings, batch64, eight
 workers per model, reader/preparation worker counts and Ray resources. Input
 validation and manifest sharding happen before the pipeline timer.
 
-The Indic run entries are intentionally absent from `benchmarks.yaml`; the
-dataset mapping and `nightly-data-setup.yaml` entry remain available. The
+The Indic entries `audio_indic_asr_xenna` and `audio_indic_asr_raydata` are
+registered in `benchmarks.yaml` with `enabled: false`. Enable them from a site
+override that selects this image and supplies the staged data and engines. The
 benchmark script keeps the standard audio benchmark interface, shared YAML executor configuration,
 and `params.json` / `metrics.json` result writer. Like the LibriSpeech benchmark,
 it derives correctness metrics from the final JSONL rather than retained tasks;
@@ -959,7 +960,7 @@ present.
 | LibriSpeech ASR | Full English FLEURS, 7.4908h: Xenna 92.45s, Ray Data 143.92s | Shared 750h `openslr/librispeech_asr` manifest (CC BY 4.0), 217,974 unique clips with no repeated rows. |
 | Audio tagging | Three AMI meetings: 100s; synthetic 8× repeat entry: 243s | 56 unique AMI SDM meetings / 30.2032h: 12m02s wall / 11m45s processing. Target achieved with real data; the repeat entry and repeat-factor support were removed |
 | ALM | Ticket baselines: Ray Data 65s, Xenna 187s | Full AMI metadata (168 meetings / 82,063 segments / 96.41 timeline hours): Ray Data 32.37s, Xenna 38.72s. CPU-only, so the 8-GPU target does not apply |
-| Hindi Indic ASR | Production Slurm pipeline only | 2026-10-20, 216,164 clips / 531.75763h on 8× H100: Xenna 624.493s full process / 531.098s pipeline; Ray Data 5,028.510s / 4,938.302s. Pipeline throughput: 3,604.471 / 387.649 audio-hours/hour. Xenna met the 600–900s full-process target. Neither executor is registered in the standard nightly matrix. |
+| Hindi Indic ASR | Production Slurm pipeline only | 2026-10-20, 216,164 clips / 531.75763h on 8× H100: Xenna 624.493s full process / 531.098s pipeline; Ray Data 5,028.510s / 4,938.302s. Pipeline throughput: 3,604.471 / 387.649 audio-hours/hour. Xenna met the 600–900s full-process target. Both entries are registered but disabled in `benchmarks.yaml`. |
 | ReadSpeech | Ticket baselines: Xenna 315s; Ray Data did not finish when checked | Three DNS ReadSpeech parts (43,354 WAV files / 18.63 GB / ~57h), 48 kHz full-band on 8× H100: Xenna 732.18s wall / 711.52s processing; Ray Data 4314.47s wall / 4285.61s processing. Xenna target achieved. |
 
 ### Granary metadata extraction
@@ -978,8 +979,11 @@ Both paths require 128 logical CPUs, eight H100 80 GB GPUs, and a 500 GiB Ray
 object store (`536870912000` bytes); 1 TiB host RAM is recommended. A standard
 benchmark runner must request those same resources. Do not install packages,
 replace models, or override stage settings between tutorial and benchmark.
-This benchmark is not registered in the standard nightly matrix because that
-environment does not provide the complete native stack and model artifacts.
+Its entries, `audio_granary_metadata_xenna` and
+`audio_granary_metadata_raydata`, are registered in `benchmarks.yaml` with
+`enabled: false`: the standard nightly environment does not provide the complete
+native stack and model artifacts. They read the `granary_metadata_input` dataset
+and `{model_weights_path}/granary_metadata`.
 
 Stage audio before measurement. Each input row needs an absolute
 `audio_filepath` and its accurate decoded `duration` in seconds. Optional
@@ -1105,8 +1109,10 @@ preserving disfluencies and spoken numbers without a supplied transcript.
 Both Xenna and Ray Data load the complete
 [tutorial YAML](../tutorials/audio/granary_v2/qwen_omni_asr/pipeline.yaml), including its
 pinned model revision, batching, and all eight stages. Only the input
-size, paths, and executor change. The script is standalone; it is not registered
-in `benchmarks.yaml`.
+size, paths, and executor change. Its entries, `audio_qwen_omni_asr_xenna` and
+`audio_qwen_omni_asr_raydata`, are registered in `benchmarks.yaml` with
+`enabled: false`; they read the `qwen_omni_asr_librispeech_5h` data setup and
+`{model_weights_path}/qwen_omni_asr/Qwen3-Omni-30B-A3B-Instruct_26291f7`.
 
 Use the [tutorial environment](../tutorials/audio/granary_v2/qwen_omni_asr/README.md#1-set-up-the-environment)
 for both executors, with `.venv-qwen-omni` activated. Keep the same installed
@@ -1200,8 +1206,10 @@ The tutorial and benchmark use the same prompts, stage order, generation options
 and serving settings. Defaults are `RedHatAI/gemma-4-31B-it-FP8-dynamic`, four
 Dynamo replicas with tensor parallelism two (eight GPUs), 12 workers, batches of
 128 and 256 concurrent requests per worker. The benchmark uses Curator's existing
-`InferenceServer` API and executor/result helpers. Like the standalone Indic ASR
-benchmark, it has no entries or enablement overlay in the standard nightly matrix.
+`InferenceServer` API and executor/result helpers. Its entries, `audio_text_llm_xenna` and
+`audio_text_llm_raydata`, are registered in `benchmarks.yaml` with
+`enabled: false`; they start their own server from the `audio_text_llm_english`
+dataset and `{model_weights_path}/audio_text_llm/compilation_cache`.
 
 ### Input and paired runs
 

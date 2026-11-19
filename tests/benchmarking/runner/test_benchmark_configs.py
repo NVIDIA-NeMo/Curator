@@ -110,3 +110,12 @@ def test_audio_cpu_override_runs_alm_entries_without_gpus() -> None:
     assert config["gpu_stats_recorder"]["interval_s"] == 0
     for entry_name in ("alm_pipeline_xenna", "alm_pipeline_ray_data"):
         assert entries[entry_name]["ray"]["num_gpus"] == 0
+
+
+def test_every_audio_benchmark_script_has_an_entry() -> None:
+    config = merge_config_files([_CONFIG_DIR / "benchmarks.yaml"])
+    registered = {entry["script"] for entry in config["entries"]}
+    audio_scripts = {path.name for path in (_CONFIG_DIR / "scripts").glob("audio_*_benchmark.py")}
+
+    assert audio_scripts
+    assert audio_scripts <= registered
