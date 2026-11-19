@@ -501,6 +501,9 @@ navigation:
               - page: ReadSpeech Tutorial
                 path: ./main/pages/curate-audio/tutorials/readspeech.mdx
                 slug: readspeech
+              - page: Granary v2 Tutorials
+                path: ./main/pages/curate-audio/tutorials/granary-v2.mdx
+                slug: granary-v2
           - section: Load Data
             slug: load-data
             contents:
