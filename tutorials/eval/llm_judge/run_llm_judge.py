@@ -30,9 +30,14 @@ Example:
 from __future__ import annotations
 
 import argparse
+import sys
+from pathlib import Path
+
+import yaml
 
 from nemo_curator.core.client import RayClient
 from nemo_curator.eval.llm_judge import LLMJudgeWorkflow
+from nemo_curator.utils.file_utils import FILETYPE_TO_DEFAULT_EXTENSIONS, get_all_file_paths_and_size_under
 
 
 def _parse_args() -> argparse.Namespace:
@@ -97,8 +102,45 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _preflight_errors(args: argparse.Namespace) -> list[str]:
+    """Collect config mistakes that would otherwise surface only after the model server has loaded."""
+    errors: list[str] = []
+    config_path = Path(args.judge_config).resolve()
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    aliases = {str(model["alias"]) for model in config.get("models", [])}
+    for stage in config.get("execution", {}).get("stages", []):
+        for judge in stage.get("judges", []):
+            name = judge.get("name")
+            # Omitting model_alias selects the first model; an explicit value (including null) is looked up as str().
+            if "model_alias" in judge and str(judge["model_alias"]) not in aliases:
+                errors.append(
+                    f"Judge {name!r}: unknown model_alias {str(judge['model_alias'])!r} (configured: {sorted(aliases)})."
+                )
+            if not judge.get("prompt_path"):
+                errors.append(f"Judge {name!r}: prompt_path is required and must not be empty.")
+            for key in ("prompt_path", "system_prompt_path"):  # only system_prompt_path is optional
+                if template := judge.get(key):
+                    template_path = config_path.parent / template  # absolute paths replace the parent
+                    if not template_path.is_file():
+                        errors.append(f"Judge {name!r}: {key} not found: {template_path}")
+
+    try:
+        input_files = get_all_file_paths_and_size_under(
+            args.input_path,
+            recurse_subdirectories=True,
+            keep_extensions=FILETYPE_TO_DEFAULT_EXTENSIONS[args.input_format],
+        )
+    except FileNotFoundError:
+        input_files = []
+    if not input_files:
+        errors.append(f"No {args.input_format} files found at --input-path: {args.input_path}")
+    return errors
+
+
 def main() -> None:
     args = _parse_args()
+    if errors := _preflight_errors(args):
+        sys.exit("Config errors (found before starting the model server):\n  " + "\n  ".join(errors))
     workflow = LLMJudgeWorkflow(
         judge_config=args.judge_config,
         input_path=args.input_path,

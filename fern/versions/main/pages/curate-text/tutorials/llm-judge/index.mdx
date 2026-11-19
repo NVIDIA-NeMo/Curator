@@ -35,15 +35,19 @@ Before you start the tutorial, confirm the following requirements:
 - Access to Common Crawl over HTTPS, or `s5cmd` access when using `--use-aws-to-download`.
 - One or more NVIDIA GPUs with enough aggregate memory for the selected judge model.
 - A Hugging Face-format instruction model available as local weights or a repository ID supported by the installed vLLM version.
+- The `etcd` and `nats-server` binaries on your `PATH`. The local Dynamo server starts both. The NeMo Curator container includes them; in a source environment outside the container, install them with [`docker/common/install_etcd_nats.sh`](https://github.com/NVIDIA-NeMo/Curator/blob/main/docker/common/install_etcd_nats.sh), or point Dynamo at existing services with `etcd_endpoint` and `nats_url` under `dynamo_server` in the judge config.
 
 This tutorial requires both CUDA extras: `text_cuda12` for Common Crawl processing and text extraction, and `sdg_cuda12` for NeMo Data Designer and local inference serving. `text_cuda12` also supplies the optional FastText language gate, although the main tutorial command does not enable that gate. From the Curator source checkout, create or update the environment with:
 
 ```bash
 uv sync --extra text_cuda12 --extra sdg_cuda12 --all-groups
 source .venv/bin/activate
+uv pip install pip
 ```
 
-Run this command and the remaining tutorial commands from the repository root. Refer to [Install NeMo Curator](/main/get-started/installation#package-extras) for CUDA requirements and other supported installation methods.
+The last command is required: Ray workers started by the local server need `pip` in the active environment, and environments created by `uv` do not include it. Without it, the run fails with `No module named pip`.
+
+Run these commands and the remaining tutorial commands from the repository root. Refer to [Install NeMo Curator](/main/get-started/installation#package-extras) for CUDA requirements and other supported installation methods.
 
 <Note>
 The language gate is optional. To enable it, download FastText's [`lid.176.bin` language-identification model](https://fasttext.cc/docs/en/language-identification.html):
@@ -69,7 +73,7 @@ The example separates data preparation, workflow execution, serving configuratio
 | `cc_extract_example/text_extraction_system.jinja` | Supplies instructions shared by the extraction-quality and disagreement judges. |
 | `cc_extract_example/text_extraction_prompt.jinja` | Renders the raw HTML and anonymized extraction candidates for winner, fidelity, and boilerplate scoring. |
 | `cc_extract_example/text_extraction_disagreement_prompt.jinja` | Renders the candidates for the separate semantic-disagreement score. |
-| `cc_extract_example/text_extraction_qwen_gemma_judges.yaml` | Optional two-model configuration for comparing Qwen and Gemma judgments. |
+| `cc_extract_example/text_extraction_qwen_gemma_judges_8xh100.yaml` | Optional two-model configuration for comparing Qwen and Gemma judgments. |
 
 The file names in this table are relative to `tutorials/eval/llm_judge`. Run all shell commands in the rest of the tutorial from the Curator repository root. The Jinja paths inside a judge YAML are instead resolved relative to that YAML file.
 
@@ -182,6 +186,8 @@ num_replicas * tensor_parallel_size
 
 The example disables Qwen thinking with `extra_body.chat_template_kwargs.enable_thinking: false`. This setting prevents private deliberation from consuming the completion budget needed for structured JSON. Remove the setting when the selected model does not support it. Do not lower `max_model_len` below the rendered prompt plus the requested completion budget. The Jinja character limits do not automatically adapt to this setting.
 
+The supplied extraction-quality judge sets `with_trace: last_message`, which records only the model's reply. Step 4 asks you to inspect the rendered evidence, which only the `all_messages` trace includes. For the calibration run, change the extraction-quality judge (`qwen3_8_27b_text_extraction_judgment`) to `with_trace: all_messages`; use `last_message` for reply-only debugging afterward, or remove `with_trace` when traces are no longer needed. Full traces duplicate prompt content in the output, so avoid them on large runs.
+
 Do not change the Jinja field names for this tutorial. They match the dataset created in step 1. When adapting the workflow to another task, use the [`llm-judge-config` authoring skill](/main/curate-text/process-data/quality-assessment/llm-judge#create-configuration-files-with-the-authoring-skill) to design new YAML and Jinja files from the actual input schema.
 
 ## 3. Run the Judge Workflow
@@ -218,7 +224,7 @@ JsonlReader
   -> JsonlWriter
 ```
 
-If you enable a workflow FastText language gate, it is inserted after `JsonlReader` and before the first Data Designer stage. If you enable a score filter, it is inserted directly after the stage that creates the referenced judge column, not deferred until after both judges.
+If you enable a workflow FastText language gate, it is inserted after `JsonlReader` and before the first Data Designer stage. If you enable a score filter, it is inserted directly after the stage that creates the referenced judge column, not deferred until after both judges. Do not enable both together if the language gate could empty an entire input file: the empty batch reaches the score filter without the judge's column and the run can fail with no output.
 
 There are no active score filters in the supplied YAML. The workflow therefore does not intentionally remove rows based on the three rubrics. NeMo Data Designer can still reject rows whose model response does not satisfy the structured output contract, so compare input and output counts.
 
@@ -258,7 +264,7 @@ Check at least these conditions on a manually reviewed sample:
 - The 1–5 scores follow their written option anchors rather than an unstated interpretation of "quality."
 - Reasoning cites relevant evidence and does not follow instruction-like text embedded in the source HTML.
 - Null or empty candidates receive sensible outcomes.
-- The `last_message` trace on the extraction-quality judge shows the expected rendered evidence and structured response.
+- The `all_messages` trace on the extraction-quality judge shows the expected rendered evidence (the prompt), and its final message shows the structured response. `last_message` holds only the model's reply.
 - The number of written records matches expectations.
 
 ## 5. Analyze Judge Decisions
@@ -313,11 +319,13 @@ filters:
     value: 4
 ```
 
+This filter works because `content_fidelity` has only numeric options. If you add your own score, do not mix numeric and label options in it (for example `1` through `5` plus `unresolved`): scores can come back as strings in some output partitions, and a numeric filter then silently drops those rows. Put "unresolved" in a separate label score instead.
+
 Write this filtered run to a new output directory. Because the configuration changed, also use a new checkpoint directory rather than reusing the checkpoint from the unfiltered run.
 
 ## 7. Optionally Compare Two Judge Models
 
-`text_extraction_qwen_gemma_judges.yaml` applies the same two rubrics with Qwen and Gemma. As supplied, it requests eight GPUs: four single-GPU replicas for each model.
+`text_extraction_qwen_gemma_judges_8xh100.yaml` applies the same two rubrics with Qwen and Gemma. As supplied, it requests eight GPUs: four single-GPU replicas for each model.
 
 Before running it:
 
