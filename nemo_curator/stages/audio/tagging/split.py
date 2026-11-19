@@ -430,6 +430,8 @@ class JoinSplitAudioMetadataStage(AgentReady, ProcessingStage[AudioTask, AudioTa
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.text_key, self.alignment_key]
 
+    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(gates=Gates(per_row_independent=True))
+
     def describe(self) -> StageContract:
         return StageContract(
             reads=IOSpec(
@@ -602,6 +604,8 @@ class SplitASRAlignJoinStage(AgentReady, CompositeStage[AudioTask, AudioTask]):
 
     def __post_init__(self) -> None:
         super().__init__()
+
+    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(gates=Gates(per_row_independent=False))
 
     def describe(self) -> StageContract:
         return StageContract(

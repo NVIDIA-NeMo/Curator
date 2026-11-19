@@ -24,9 +24,16 @@ Produces identical output to SDP implementation.
 
 import time
 from dataclasses import asdict, dataclass, field
-from typing import Any
+from typing import Any, ClassVar
 
-from nemo_curator.stages.audio._agent._agent_ready import AgentReady, ConditionalWrite, Gates, IOSpec, StageContract
+from nemo_curator.stages.audio._agent._agent_ready import (
+    AgentReady,
+    ConditionalWrite,
+    Gates,
+    IOSpec,
+    StageContract,
+    StaticHints,
+)
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask
 
@@ -131,6 +138,25 @@ class ALMDataBuilderStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     Filters segments by sample rate, bandwidth, speaker count, and duration
     to create valid training windows.  Mutates the entry dict in-place,
     adding ``windows``, ``stats``, and ``truncation_events`` keys.
+
+    Args:
+        target_window_duration: Target window length in seconds.
+        tolerance: Allowed fraction of ``target_window_duration`` above or below it.
+        min_bandwidth: Minimum segment bandwidth in Hz.
+        min_sample_rate: Minimum ``audio_sample_rate_key`` value in Hz.
+        min_speakers: Minimum distinct speakers per window.
+        max_speakers: Maximum distinct speakers per window.
+        truncation: Cut a segment that overruns the window at the window end;
+            when False the window ends before that segment.
+        drop_fields: Comma-separated keys removed from output segments.
+        drop_fields_top_level: Comma-separated keys removed from the output entry.
+        audio_filepath_key: Source audio path.
+        segments_key: Input segment list.
+        audio_sample_rate_key: Source sample rate in Hz.
+        windows_key: Output list of training windows.
+        stats_key: Output per-entry filtering statistics.
+        truncation_events_key: Output count of truncated segments.
+        swift_audio_filepath_key: Optional alternate audio path kept on the entry.
     """
 
     name: str = "alm_data_builder"
@@ -191,6 +217,8 @@ class ALMDataBuilderStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         if self.audio_filepath_key not in self._drop_fields_top_level_set:
             data_keys.append(self.audio_filepath_key)
         return [], data_keys
+
+    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(gates=Gates(per_row_independent=True))
 
     def describe(self) -> StageContract:
         _, output_keys = self.outputs()

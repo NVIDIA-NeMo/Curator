@@ -26,7 +26,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, ClassVar
 
-from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract
+from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract, StaticHints
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask
 
@@ -155,6 +155,21 @@ class ALMDataOverlapStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
 
     Removes windows with overlap exceeding the threshold, keeping
     windows closest to target duration.
+
+    Args:
+        overlap_percentage: Allowed overlap between kept windows, 0-100.
+        target_duration: Preferred window length in seconds.
+        windows_key: Input windows from ``ALMDataBuilderStage``.
+        filtered_windows_key: Output list of kept windows.
+        stats_key: Builder statistics; their manifest and swift paths are copied out.
+        total_dur_window_key: Output total duration of input windows.
+        total_dur_list_window_key: Output per-window input durations.
+        total_dur_list_window_timestamps_key: Output input window bounds.
+        filtered_key: Output bounds of kept windows.
+        filtered_dur_key: Output total duration of kept windows.
+        filtered_dur_list_key: Output per-window kept durations.
+        manifest_filepath_key: Output manifest path from ``stats_key``, or ``None``.
+        swift_filepath_key: Output swift audio path from ``stats_key``, or ``None``.
     """
 
     name: str = "alm_data_overlap"
@@ -220,6 +235,8 @@ class ALMDataOverlapStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             self.manifest_filepath_key,
             self.swift_filepath_key,
         ]
+
+    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(gates=Gates(per_row_independent=True))
 
     def describe(self) -> StageContract:
         _, output_keys = self.outputs()

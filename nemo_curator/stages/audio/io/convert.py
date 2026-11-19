@@ -129,6 +129,8 @@ class AudioToDocumentStage(AgentReady, ProcessingStage[AudioTask, DocumentBatch]
         removed = self._removed_keys()
         return [key for key in dict.fromkeys(self.keep_keys) if key not in removed]
 
+    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(gates=Gates(per_row_independent=True))
+
     def describe(self) -> StageContract:
         projected_keys = self._projected_keys()
         return StageContract(

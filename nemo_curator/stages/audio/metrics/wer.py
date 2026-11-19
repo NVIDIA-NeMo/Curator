@@ -16,7 +16,7 @@
 
 import re
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, ClassVar
 
 from loguru import logger
 from nemo.collections.asr.metrics.wer import word_error_rate_detail
@@ -30,6 +30,7 @@ from nemo_curator.stages.audio._agent._agent_ready import (
     Gates,
     IOSpec,
     StageContract,
+    StaticHints,
 )
 from nemo_curator.stages.audio.metrics._common import metrics_mapping, validate_metric_keys
 from nemo_curator.stages.base import ProcessingStage
@@ -119,6 +120,8 @@ class ComputeWERStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.metrics_key]
+
+    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(gates=Gates(per_row_independent=True))
 
     def describe(self) -> StageContract:
         nested = IOSpec(
@@ -471,6 +474,8 @@ class GetPairwiseWerStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.text_key, self.pred_text_key, self.wer_key]
+
+    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(gates=Gates(per_row_independent=True))
 
     def describe(self) -> StageContract:
         return StageContract(
