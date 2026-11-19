@@ -17,16 +17,12 @@
 from __future__ import annotations
 
 import hashlib
-import io
 import json
-import os
 import posixpath
-import tempfile
 from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 
-import fsspec
 import soundfile as sf
 import torch
 
@@ -39,6 +35,7 @@ from nemo_curator.stages.audio._agent._agent_ready import (
     StaticHints,
 )
 from nemo_curator.stages.audio._agent._residency import normalize_audio_waveform
+from nemo_curator.stages.audio.io.segment_io import write_audio
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask
 from nemo_curator.utils.client_utils import is_remote_url
@@ -69,7 +66,7 @@ class AudioSegmentWriterStage(AgentReady, ProcessingStage[AudioTask, AudioTask])
 
     Args:
         output_dir: Local directory shared by every executor node, or a cloud prefix
-            (``s3://``, ``gs://``, ...). Cloud clips are encoded in memory and uploaded whole.
+            (``s3://``, ``gs://``, ...).
         storage_options: fsspec options for a cloud ``output_dir`` (credentials, endpoints).
     """
 
@@ -189,31 +186,21 @@ class AudioSegmentWriterStage(AgentReady, ProcessingStage[AudioTask, AudioTask])
         samples = waveform.cpu().numpy().reshape(-1).astype("<f4", copy=False)
         identity = json.dumps([source, task.data.get(self.start_ms_key), task.data.get(self.end_ms_key)]).encode()
         digest = hashlib.sha256(identity + samples.tobytes()).hexdigest()
-        remote = is_remote_url(self.output_dir)
-        if remote:
+        if is_remote_url(self.output_dir):
             output_path = posixpath.join(self.output_dir.rstrip("/"), "audio", f"{digest}.opus")
         else:
-            output_dir = Path(self.output_dir).expanduser().resolve() / "audio"
-            output_path = output_dir / f"{digest}.opus"
-        data[self.audio_filepath_key] = str(output_path)
+            output_path = str(Path(self.output_dir).expanduser().resolve() / "audio" / f"{digest}.opus")
+        data[self.audio_filepath_key] = output_path
         data[self.audio_item_id_key] = digest
         data[self.duration_key] = waveform.shape[1] / _SAMPLE_RATE
         json.dumps(data, allow_nan=False)
-        if remote:
-            # Encode fully before opening the object, so a failed encode never publishes a partial clip.
-            buffer = io.BytesIO()
-            sf.write(buffer, samples, _SAMPLE_RATE, format="OGG", subtype="OPUS")
-            with fsspec.open(output_path, "wb", **(self.storage_options or {})) as f:
-                f.write(buffer.getvalue())
-            task.data = data
-            return task
-        output_dir.mkdir(parents=True, exist_ok=True)
-        with tempfile.NamedTemporaryFile(dir=output_dir, suffix=".opus", delete=False) as temporary:
-            temporary_path = Path(temporary.name)
-        try:
-            sf.write(temporary_path, samples, _SAMPLE_RATE, format="OGG", subtype="OPUS")
-            os.replace(temporary_path, output_path)
-        finally:
-            temporary_path.unlink(missing_ok=True)
+        write_audio(
+            output_path,
+            samples,
+            _SAMPLE_RATE,
+            file_format="OGG",
+            subtype="OPUS",
+            storage_options=self.storage_options,
+        )
         task.data = data
         return task

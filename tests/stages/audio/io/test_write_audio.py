@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import io
 import json
 from pathlib import Path
 from unittest.mock import patch
@@ -141,13 +142,13 @@ def test_encoder_failure_is_atomic(tmp_path: Path) -> None:
     stage = AudioSegmentWriterStage(output_dir=str(tmp_path))
     task = _segment()
 
-    def failing_encoder(path: Path, *_args: object, **_kwargs: object) -> None:
-        path.write_bytes(b"partial")
+    def failing_encoder(buffer: io.BytesIO, *_args: object, **_kwargs: object) -> None:
+        buffer.write(b"partial")
         msg = "encoder failed"
         raise RuntimeError(msg)
 
     with (
-        patch("nemo_curator.stages.audio.io.write_audio.sf.write", side_effect=failing_encoder),
+        patch("nemo_curator.stages.audio.io.segment_io.sf.write", side_effect=failing_encoder),
         pytest.raises(RuntimeError, match="encoder failed"),
     ):
         stage.process(task)
