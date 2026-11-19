@@ -797,12 +797,12 @@ python benchmarking/data_prep/prepare_audio_indic_asr_data.py \
   --cache-dir {datasets_path}/_hf_cache/audio_indic_asr
 
 python benchmarking/data_prep/prepare_audio_granary_english_data.py \
-  --output-path {datasets_path}/audio_granary_full_english_librispeech_other_45h_71cacbfb \
-  --cache-dir {datasets_path}/_hf_cache/librispeech --target-audio-hours 45
+  --output-path {datasets_path}/audio_granary_full_english_librispeech_other_95h_71cacbfb \
+  --cache-dir {datasets_path}/_hf_cache/librispeech --target-audio-hours 95
 
 python benchmarking/data_prep/prepare_audio_granary_italian_data.py \
-  --output-path {datasets_path}/audio_granary_full_italian_mls_train_55h_2e83e618 \
-  --cache-dir {datasets_path}/_hf_cache/mls --target-audio-hours 55
+  --output-path {datasets_path}/audio_granary_full_italian_mls_train_130h_2e83e618 \
+  --cache-dir {datasets_path}/_hf_cache/mls --target-audio-hours 130
 
 python benchmarking/data_prep/prepare_audio_granary_indic_data.py \
   --output-path {datasets_path}/audio_granary_full_indic_fleurs_9lang_35h_70bb2e84 \
@@ -1193,12 +1193,21 @@ The three Granary scripts each stage open, ungated Hugging Face data (CC-BY-4.0)
 
 None is part of the nightly data setup.
 
-### Benchmark sizes
+### Benchmark sizes and measured results
 
-Each benchmark takes the whole manifest staged by its data-prep script above. The 45, 55 and 35 hour sizes aim at about
-2 hours of wall time per pipeline on one node with eight H100 80 GB GPUs. They come from measured first runs of 9.5, 9.0
-and 8 hours that took 35 to 40 minutes, including about 12 minutes of model warm-up; they are estimates until the
-2-hour runs are recorded.
+Each benchmark takes the whole manifest staged by its data-prep script above, on one node with eight H100 80 GB GPUs
+(Qwen3-Omni and Qwen3-ASR for English and European, Ray Serve text server). Measured on EOS at commit `59d11041`:
+
+| Script | Staged | Pipeline time | Throughput (audio hours per hour) | Output rows (flagged) |
+| --- | --- | --- | --- | --- |
+| English | 95 h, 28,248 recordings (LibriSpeech `train.other.500`) | 1 h 40 min | 53.8 | 36,017 (14) |
+| European (Qwen3-Omni group) | 130 h, 31,414 recordings (MLS Italian) | 1 h 51 min | 67.0 | 35,469 (22) |
+| Indic | 35 h, 10,358 recordings (FLEURS, 9 languages) | 16 min (+ 6 min server start-up) | 97.6 | 8,761 (7,913) |
+
+English and European are sized for about 2 hours. The Indic run took 16 minutes for 35 hours, so a 2-hour Indic run needs
+about 260 hours, more than the nine FLEURS languages provide. The Indic flagged rows are all non-Hindi: IndicConformer
+recovery uses the Hindi checkpoint for the other languages and produces unusable text there (the primary Canary text is
+kept), which the pipeline's hallucination check flags; Hindi rows are not flagged.
 
 `time_taken_s` covers the whole pipeline run and includes model warm-up: the Qwen3-Omni engine takes about
 11 minutes to start (compilation, profiling and warm-up), and the text-model replicas start only when audio stages free a GPU. The
