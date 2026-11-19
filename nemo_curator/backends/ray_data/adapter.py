@@ -46,9 +46,16 @@ class RayDataStageAdapter(BaseStageAdapter):
         c. Else we use tasks
     """
 
-    def __init__(self, stage: ProcessingStage, ignore_head_node: bool = False):
+    def __init__(
+        self,
+        stage: ProcessingStage,
+        ignore_head_node: bool = False,
+        downstream_batch_size: int | None = None,
+    ):
         super().__init__(stage)
         self.ignore_head_node = ignore_head_node
+        # Batch size of the stage consuming this stage's output; sizes fanout output blocks.
+        self.downstream_batch_size = downstream_batch_size
 
         self._batch_size = self.stage.batch_size
         if self._batch_size is None and self.stage.resources.gpus > 0:
@@ -179,7 +186,12 @@ class RayDataStageAdapter(BaseStageAdapter):
         processed_dataset = dataset.map_batches(map_batches_fn, batch_size=self.batch_size, **map_batches_kwargs)  # type: ignore[reportArgumentType]
 
         if ray_stage_spec.get(RayStageSpecKeys.IS_FANOUT_STAGE, False):
-            processed_dataset = processed_dataset.repartition(target_num_rows_per_block=1)
+            # A fanout emits all its output Tasks in one block; split it so the next stage can run
+            # them in parallel. Size blocks to one downstream batch: the next map_batches bundles
+            # blocks up to its batch_size anyway, so this keeps its parallelism while avoiding
+            # one tiny block (and its scheduling/object-store overhead) per Task.
+            rows_per_block = max(1, self.downstream_batch_size or 1)
+            processed_dataset = processed_dataset.repartition(target_num_rows_per_block=rows_per_block)
 
         return processed_dataset
 

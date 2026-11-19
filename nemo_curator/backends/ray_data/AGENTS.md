@@ -28,8 +28,9 @@ blocks. Curator constructs its initial dataset with:
 ray.data.from_items(tasks, override_num_blocks=len(tasks))
 ```
 
-This creates one opaque Task row per block. Fanout stages repartition their outputs
-back to one row per block. In practice, **one row = one block = one Task**.
+This creates one opaque Task row per block, so **one row = one Task**. Fanout stages
+repartition their outputs into blocks of the next stage's `batch_size` rows (one row
+per block when that is 1 or unset), so each downstream batch is one block.
 
 The default stage `batch_size=1` passes one Task to each stage call. Ray cannot see
 or split records contained inside that Task. If a task is too large, too small, or

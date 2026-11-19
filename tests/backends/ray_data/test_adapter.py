@@ -15,12 +15,13 @@
 from unittest import mock
 
 import pytest
+import ray
 from ray.data import ActorPoolStrategy, TaskPoolStrategy
 
 from nemo_curator.backends.ray_data.adapter import RayDataStageAdapter
 from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.base import ProcessingStage, Resources
-from nemo_curator.tasks import EmptyTask
+from nemo_curator.tasks import EmptyTask, FileGroupTask
 
 
 class RecordingDataset:
@@ -204,3 +205,36 @@ def _map_batches_kwargs(stage: ProcessingStage, ignore_head_node: bool = False) 
     assert dataset.map_batches_kwargs is not None
     assert dataset.batch_size == stage.batch_size
     return dataset.map_batches_kwargs
+
+
+class FanoutStage(ProcessingStage[FileGroupTask, FileGroupTask]):
+    """Splits one FileGroupTask into one task per file, like a manifest/file reader."""
+
+    name = "fanout"
+    resources = Resources(cpus=1.0)
+
+    def process(self, task: FileGroupTask) -> list[FileGroupTask]:
+        return [FileGroupTask(dataset_name=task.dataset_name, data=[f]) for f in task.data]
+
+
+@pytest.mark.usefixtures("shared_ray_client")
+@pytest.mark.parametrize(
+    ("downstream_batch_size", "expected_num_blocks"),
+    [
+        (None, 10),  # unknown/last stage: keep one Task per block
+        (1, 10),
+        (4, 3),  # ceil(10 / 4): one downstream batch per block
+        (16, 1),
+    ],
+)
+def test_fanout_output_blocks_match_downstream_batch_size(
+    downstream_batch_size: int | None, expected_num_blocks: int
+) -> None:
+    files = [f"file_{i}" for i in range(10)]
+    dataset = ray.data.from_items([FileGroupTask(dataset_name="ds", data=files)], override_num_blocks=1)
+
+    adapter = RayDataStageAdapter(FanoutStage(), downstream_batch_size=downstream_batch_size)
+    output = adapter.process_dataset(dataset).materialize()
+
+    assert output.num_blocks() == expected_num_blocks
+    assert sorted(row["item"].data[0] for row in output.take_all()) == sorted(files)

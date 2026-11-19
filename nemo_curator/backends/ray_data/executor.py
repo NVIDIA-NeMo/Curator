@@ -100,7 +100,12 @@ class RayDataExecutor(BaseExecutor):
                 logger.info(f"  CPU cores: {stage.resources.cpus}, GPU ratio: {stage.resources.gpus}")
 
                 # Create adapter for this stage
-                adapter = RayDataStageAdapter(stage, ignore_head_node=self.ignore_head_node)
+                next_stage = stages[i + 1] if i + 1 < len(stages) else None
+                adapter = RayDataStageAdapter(
+                    stage,
+                    ignore_head_node=self.ignore_head_node,
+                    downstream_batch_size=next_stage.batch_size if next_stage is not None else None,
+                )
 
                 # Apply stage transformation
                 current_dataset = adapter.process_dataset(current_dataset)
