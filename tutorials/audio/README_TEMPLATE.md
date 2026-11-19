@@ -45,10 +45,18 @@ uv sync --extra audio_cpu
 
 ## Quick start
 
+Audio tutorials are YAML-only: put the pipeline in `pipeline.yaml` and run it
+with the generic runner (`--config-path` is relative to
+`nemo_curator/config/run.py`). Put reusable logic in a library stage, not in a
+tutorial script.
+
 Run with bundled or auto-downloaded sample data in under 2 minutes:
 
 ```bash
-python tutorials/audio/<tutorial>/run.py <minimal args>
+python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/<tutorial> \
+  --config-name pipeline \
+  <minimal overrides>
 ```
 
 Expected output:
@@ -59,28 +67,31 @@ Expected output:
 
 ## Usage
 
-### All CLI options
+### Common overrides
 
-| Argument | Default | Description |
+| Override | Default | Description |
 |---|---|---|
-| `--arg1` | *(required)* | <description> |
-| `--arg2` | `value` | <description> |
-| `--backend` | `xenna` | Execution backend: `xenna` or `ray_data` |
-| `--clean` | off | Remove output directory before running |
+| `manifest_path` | *(required)* | <description> |
+| `output_path` | `./<tutorial>_output.jsonl` | <description> |
+| `backend` | `ray_data` | Execution backend: `xenna` or `ray_data` |
+| `stages.<i>.<field>` | | Override one stage argument |
+| `+stages.<i>.num_workers=N` | executor default | Cap one stage's worker count (`+` adds a key the YAML does not set) |
 
 ### Using custom data
 
 ```bash
-python tutorials/audio/<tutorial>/run.py \
-  --input /path/to/your/data \
-  --output-dir ./my_output
+python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/<tutorial> \
+  --config-name pipeline \
+  manifest_path=/path/to/your/manifest.jsonl \
+  output_path=./my_output.jsonl
 ```
 
 ### Choosing a backend
 
 | Backend | Description | When to use |
 |---|---|---|
-| `xenna` | Default. Cosmos-Xenna streaming engine with automatic worker allocation. | Most workloads, CI/nightly benchmarks. |
+| `xenna` | Cosmos-Xenna streaming engine with automatic worker allocation. Set `execution_mode` to `streaming` or `batch`. | Most workloads, CI/nightly benchmarks. |
 | `ray_data` | Built on Ray Data `map_batches`. | Development, machines without Xenna GPU support, or Ray Data integration preferred. |
 
 ## Pipeline stages

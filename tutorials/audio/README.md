@@ -20,8 +20,8 @@ No data download needed — run the ALM pipeline on bundled fixtures:
 uv sync --extra audio_cpu && source .venv/bin/activate
 
 # Run the ALM pipeline on sample data
-python tutorials/audio/alm/main.py \
-  --config-path . --config-name pipeline \
+python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/alm --config-name pipeline \
   manifest_path=tests/fixtures/audio/alm/sample_input.jsonl
 ```
 
@@ -66,6 +66,8 @@ python nemo_curator/config/run.py \
 | Filter a manifest to keep only single-speaker audio | [**single_speaker_filter/**](single_speaker_filter/) | Yes (~8 GB VRAM) | Requires a pre-existing JSONL manifest |
 | Quality-filter raw audio (MOS, VAD, bandwidth, noise) | [**readspeech/**](readspeech/) | Recommended (~4 GB VRAM) | Auto-downloads DNS Challenge (4.88 GB) |
 | Synthesise multi-speaker conversation audio from text (Chatterbox TTS) | [**tts/**](tts/) | Yes (~4 GB VRAM) | Bring your own turn manifest + reference voices |
+| Detect sound events framewise with PANNs CNN14 | [**sed/**](sed/) | Recommended (4 GB per actor) | Bring your own audio manifest |
+| Flag Whisper hallucinations in an existing ASR manifest | [**whisper_hallucination/**](whisper_hallucination/) | No (CPU-only) | Bundled two-row sample |
 
 ## Data availability
 
@@ -87,6 +89,9 @@ python nemo_curator/config/run.py \
 | `single_speaker_filter/` | No | Varies | Bring your own NeMo-style JSONL manifest |
 | `readspeech/` | Yes | 4.88 GB compressed | Downloads DNS Challenge Read Speech (14,279 WAV files) |
 | `tts/` | No | Varies | Bring your own turn manifest + reference voices dataset |
+| `alignment/` | No | Varies | Bring your own audio manifest with transcripts |
+| `sed/` | Model only | Varies | Downloads the PANNs CNN14 decision-level checkpoint on first use |
+| `whisper_hallucination/` | N/A | Bundled | Uses `tests/fixtures/audio/text_filtering/whisper_hallucination_input.jsonl` (2 rows) |
 
 The Indic ASR tutorial downloads two FLEURS clips. Its separate
 [standalone benchmark](../../benchmarking/README.md#audio-benchmark-data-setup)
@@ -125,6 +130,9 @@ For multi-node Ray or Xenna runs, make FFmpeg available on every executor node a
 | `single_speaker_filter/` | `ffmpeg` | `audio_cuda12` |
 | `readspeech/` | `ffmpeg` | `audio_cuda12` (recommended) or `audio_cpu` |
 | `tts/` | `ffmpeg` | `audio_cuda12` |
+| `alignment/` | Montreal Forced Aligner (conda/micromamba) | `audio_cpu` or `audio_cuda12` |
+| `sed/` | None | `audio_cuda12` |
+| `whisper_hallucination/` | None | `audio_cpu` |
 
 Install pip extras from the repo root:
 
