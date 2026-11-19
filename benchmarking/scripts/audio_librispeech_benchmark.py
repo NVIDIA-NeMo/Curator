@@ -20,12 +20,14 @@ import argparse
 import inspect
 import json
 import math
+import re
 import time
 import traceback
 from pathlib import Path
 from typing import Any
 
 from loguru import logger
+from nemo.collections.asr.metrics.wer import word_error_rate
 from utils import setup_executor, write_benchmark_results
 
 from nemo_curator.pipeline import Pipeline
@@ -34,6 +36,20 @@ from nemo_curator.stages.audio.inference.asr.stage import ASRStage
 from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
 from nemo_curator.stages.audio.metrics.wer import GetPairwiseWerStage
 from nemo_curator.stages.text.io.writer import JsonlWriter
+
+# LibriSpeech references are upper case without punctuation; ASR output is cased and punctuated.
+_NON_WORD_CHARS = re.compile(r"[^\w\s']")
+
+
+def _normalize_for_wer(text: str) -> str:
+    return " ".join(_NON_WORD_CHARS.sub(" ", text.lower()).split())
+
+
+def normalized_corpus_wer_pct(rows: list[dict[str, Any]]) -> float:
+    """Corpus WER (percent) after lower-casing and stripping punctuation from both sides."""
+    references = [_normalize_for_wer(str(row.get("text", ""))) for row in rows]
+    hypotheses = [_normalize_for_wer(str(row.get("pred_text", ""))) for row in rows]
+    return 100.0 * word_error_rate(hypotheses=hypotheses, references=references)
 
 
 def _load_input_audio_paths(manifest_path: Path) -> list[str]:
@@ -135,6 +151,7 @@ def _finalize_output(
         "num_tasks_processed": num_tasks,
         "total_audio_duration_hours": total_duration_s / 3600,
         "wer_output_coverage_ratio": num_tasks / len(input_audio_paths),
+        "normalized_corpus_wer_pct": normalized_corpus_wer_pct(list(output_rows.values())),
     }
 
 
@@ -224,6 +241,7 @@ def run_audio_librispeech_benchmark(  # noqa: PLR0913
             "num_tasks_processed": 0,
             "total_audio_duration_hours": 0.0,
             "wer_output_coverage_ratio": 0.0,
+            "normalized_corpus_wer_pct": 100.0,
         }
         success = False
 
