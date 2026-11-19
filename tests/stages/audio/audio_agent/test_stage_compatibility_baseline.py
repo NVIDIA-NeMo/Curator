@@ -93,7 +93,7 @@ ADDITIVE_STAGE_NAMES = (
 # This surface includes adapter-backed VAD/diarization, conservative IO gates,
 # and the additive resampling/timestamp parameters shipped with those stages.
 EXPECTED_LEGACY_COMPATIBILITY_SHA256 = (
-    "3c5368e4ab0eca21fe7c0995a9f5e55f4a1ec7a529fe40169f6e7a53828a9f0d"  # pragma: allowlist secret
+    "e946fb6a43e49b6c6c971cdd28ef2e5b9c6bc854b316578ac4002a64dc5320df"  # pragma: allowlist secret
 )
 
 
@@ -147,7 +147,7 @@ def _constructor_defaults(cls: type) -> dict[str, Any]:
 def _compatibility_payload() -> list[dict[str, Any]]:
     payload: list[dict[str, Any]] = []
     # Additive opt-in stages must not force the legacy compatibility hash to
-    # move. The payload intentionally remains scoped to the original 44.
+    # move. The payload intentionally remains scoped to the original stages that still exist.
     for name in LEGACY_STAGE_NAMES:
         cls = get_agent_ready_stage_class(name)
         contract = static_contract(cls).to_dict()

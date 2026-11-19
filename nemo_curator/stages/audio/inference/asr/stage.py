@@ -198,7 +198,9 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
     min_nested_duration_s: float = field(default=0.0, kw_only=True)
 
     BATCH_ONLY = True
-    INTERNAL_KEY_FIELDS = frozenset({"source_lang_key", "language_key", "extras_key", "skip_me_key", "notes_key"})
+    INTERNAL_KEY_FIELDS = frozenset(
+        {"source_lang_key", "language_key", "extras_key", "skip_me_key", "notes_key", "nested_key"}
+    )
     AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
         gates=Gates(requires_gpu=True, requires_internet_first_run=True, per_row_independent=True)
     )
