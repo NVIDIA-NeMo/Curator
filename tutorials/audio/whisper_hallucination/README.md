@@ -40,11 +40,14 @@ python nemo_curator/config/run.py \
 
 `--config-path` is relative to `nemo_curator/config/run.py`. In the output,
 the `"Thank you."` row has `"_skipme": "Hallucination:WhisperHallucination"`
-and the other row is unchanged.
+and `additional_notes.WhisperHallucination` set to `hallucination (phrase_match)`;
+the other row keeps an empty `_skipme` and gets the note `passed`.
 
 ## Output
 
-A flagged row gets `_skipme` set to `Hallucination:<stage name>`. An existing
+A flagged row gets `_skipme` set to `Hallucination:<stage name>`, and every row
+gets a note under `additional_notes.<stage name>` naming the result and the check
+that fired. An existing
 non-hallucination `_skipme` value from an earlier filter is kept. Downstream
 stages can drop flagged rows by filtering on `_skipme`.
 
