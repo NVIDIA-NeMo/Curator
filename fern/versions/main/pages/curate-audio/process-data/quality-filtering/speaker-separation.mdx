@@ -71,7 +71,7 @@ Speaker overlap regions (where multiple speakers talk simultaneously) and short 
 
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
-| `model_path` | str | `"nvidia/diar_sortformer_4spk-v1"` | Hugging Face model ID or path to a `.nemo` checkpoint. |
+| `model_path` | str | `"nvidia/diar_sortformer_4spk-v1"` | Hugging Face repository ID, local `.nemo` checkpoint, or a directory containing one. Loaded through `NeMoSortformerAdapter` with the checkpoint's own (offline) settings. |
 | `exclude_overlaps` | bool | `True` | Drop regions where multiple speakers overlap. |
 | `min_duration` | float | `0.8` | Minimum per-speaker segment duration (seconds). |
 | `gap_threshold` | float | `0.1` | Gap threshold for merging adjacent same-speaker segments. |

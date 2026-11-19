@@ -26,6 +26,8 @@ import soundfile as sf
 import torch
 from pydub import AudioSegment
 
+from nemo_curator.models.audio.speaker_diarization.base import DiarizationResult
+from nemo_curator.models.audio.speaker_diarization.sortformer import NeMoSortformerAdapter
 from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
 from nemo_curator.stages.audio._agent._planning import validate_pipeline
 from nemo_curator.stages.audio.common import ManifestWriterStage
@@ -56,8 +58,7 @@ class TestSpeakerSeparationStage:
 
         assert stage.ray_stage_spec()["is_fanout_stage"] is True
 
-    @patch("nemo_curator.stages.audio.segmentation.speaker_separation.SpeakerSeparationStage._initialize_separator")
-    def test_process_returns_per_speaker_tasks(self, mock_init: MagicMock) -> None:
+    def test_process_returns_per_speaker_tasks(self) -> None:
         stage = SpeakerSeparationStage(min_duration=0.5)
 
         separator = MagicMock()
@@ -79,8 +80,7 @@ class TestSpeakerSeparationStage:
             assert r.data["num_speakers"] == 2
             assert "duration" in r.data
 
-    @patch("nemo_curator.stages.audio.segmentation.speaker_separation.SpeakerSeparationStage._initialize_separator")
-    def test_process_output_keys(self, mock_init: MagicMock) -> None:
+    def test_process_output_keys(self) -> None:
         stage = SpeakerSeparationStage(min_duration=0.5)
 
         separator = MagicMock()
@@ -108,8 +108,7 @@ class TestSpeakerSeparationStage:
         assert contract.gates.writes_to_disk is False
         assert "audio_filepath" not in contract.writes.data_keys
 
-    @patch("nemo_curator.stages.audio.segmentation.speaker_separation.SpeakerSeparationStage._initialize_separator")
-    def test_write_to_disk_persists_and_sets_path(self, mock_init: MagicMock, tmp_path) -> None:  # noqa: ANN001
+    def test_write_to_disk_persists_and_sets_path(self, tmp_path) -> None:  # noqa: ANN001
         stage = SpeakerSeparationStage(min_duration=0.5, write_to_disk=True, separated_audio_dir=str(tmp_path / "sep"))
         separator = MagicMock()
         separator.get_speaker_audio_data.return_value = {
@@ -122,8 +121,7 @@ class TestSpeakerSeparationStage:
         assert "audio_filepath" in item
         assert os.path.exists(item["audio_filepath"])
 
-    @patch("nemo_curator.stages.audio.segmentation.speaker_separation.SpeakerSeparationStage._initialize_separator")
-    def test_write_to_disk_only_drops_waveform(self, mock_init: MagicMock, tmp_path) -> None:  # noqa: ANN001
+    def test_write_to_disk_only_drops_waveform(self, tmp_path) -> None:  # noqa: ANN001
         stage = SpeakerSeparationStage(
             min_duration=0.5,
             write_to_disk=True,
@@ -147,8 +145,7 @@ class TestSpeakerSeparationStage:
         with pytest.raises(ValueError, match="keep_waveform_in_task or write_to_disk"):
             SpeakerSeparationStage(keep_waveform_in_task=False)
 
-    @patch("nemo_curator.stages.audio.segmentation.speaker_separation.SpeakerSeparationStage._initialize_separator")
-    def test_min_duration_filters_short_speakers(self, mock_init: MagicMock) -> None:
+    def test_min_duration_filters_short_speakers(self) -> None:
         stage = SpeakerSeparationStage(min_duration=2.0)
 
         separator = MagicMock()
@@ -163,8 +160,7 @@ class TestSpeakerSeparationStage:
         assert len(result) == 1
         assert result[0].data["speaker_id"] == "speaker_0"
 
-    @patch("nemo_curator.stages.audio.segmentation.speaker_separation.SpeakerSeparationStage._initialize_separator")
-    def test_no_speakers_returns_empty(self, mock_init: MagicMock) -> None:
+    def test_no_speakers_returns_empty(self) -> None:
         stage = SpeakerSeparationStage()
 
         separator = MagicMock()
@@ -176,8 +172,7 @@ class TestSpeakerSeparationStage:
         assert isinstance(result, list)
         assert len(result) == 0
 
-    @patch("nemo_curator.stages.audio.segmentation.speaker_separation.SpeakerSeparationStage._initialize_separator")
-    def test_no_audio_no_filepath_skipped(self, mock_init: MagicMock) -> None:
+    def test_no_audio_no_filepath_skipped(self) -> None:
         stage = SpeakerSeparationStage()
         stage._separator = MagicMock()
 
@@ -194,11 +189,10 @@ class TestSpeakerSeparationStage:
         stage = SpeakerSeparationStage()
         stage._separator = None
 
-        with patch.object(stage, "_initialize_separator"):
-            try:
-                result = stage.process(_make_task())
-            except RuntimeError:
-                result = "raised"
+        try:
+            result = stage.process(_make_task())
+        except RuntimeError:
+            result = "raised"
 
         assert result == "raised"
 
@@ -210,8 +204,7 @@ class TestSpeakerSeparationStage:
         assert restored.exclude_overlaps is False
         assert restored._separator is None
 
-    @patch("nemo_curator.stages.audio.segmentation.speaker_separation.SpeakerSeparationStage._initialize_separator")
-    def test_separator_exception_skips_task(self, mock_init: MagicMock) -> None:
+    def test_separator_exception_skips_task(self) -> None:
         stage = SpeakerSeparationStage(min_duration=0.5)
 
         separator = MagicMock()
@@ -225,12 +218,62 @@ class TestSpeakerSeparationStage:
 
 
 def _make_separator() -> SpeakerSeparator:
-    """Create a SpeakerSeparator with mocked model loading."""
-    with patch.object(SpeakerSeparator, "_load_model"):
-        return SpeakerSeparator(
-            model_name="mock",
-            config={"speaker_gap_threshold": 0.1, "speaker_min_duration": 0.5, "speaker_buffer_time": 0.5},
-        )
+    """Create a SpeakerSeparator around a fake diarization adapter."""
+    return SpeakerSeparator(
+        MagicMock(),
+        config={"speaker_gap_threshold": 0.1, "speaker_min_duration": 0.5, "speaker_buffer_time": 0.5},
+    )
+
+
+def test_separator_diarizes_mono_temp_wav_through_adapter() -> None:
+    adapter = MagicMock()
+    seen: dict[str, Any] = {}
+
+    def diarize_batch(items: list[dict[str, Any]]) -> list[DiarizationResult]:
+        audio, rate = sf.read(items[0]["audio_filepath"], dtype="float32")
+        seen.update(shape=audio.shape, rate=rate)
+        return [
+            DiarizationResult(
+                segments=[
+                    {"start": 0.0, "end": 1.0, "speaker": "speaker_0"},
+                    {"start": 1.5, "end": 2.0, "speaker": "speaker_1"},
+                    {"start": 2.0, "end": 3.0, "speaker": "speaker_0"},
+                ]
+            )
+        ]
+
+    adapter.diarize_batch.side_effect = diarize_batch
+    separator = SpeakerSeparator(adapter)
+
+    segments = separator.diarize_audio(torch.stack([torch.zeros(800), torch.ones(800)]), sample_rate=8000)
+
+    assert seen == {"shape": (800,), "rate": 8000}
+    assert separator.get_speaker_segments(segments) == {
+        "speaker_0": [(0.0, 1.0), (2.0, 3.0)],
+        "speaker_1": [(1.5, 2.0)],
+    }
+
+
+def test_stage_runs_offline_sortformer_through_adapter() -> None:
+    stage = SpeakerSeparationStage(model_path="/models/diar.nemo", resources=Resources(gpus=0.0))
+    adapter = stage._create_adapter()
+
+    assert adapter.model_id == "/models/diar.nemo"
+    assert adapter.strict is True
+    assert adapter.bounded_stft is False
+    assert adapter.max_positional_encoding_length is None
+    assert {adapter.chunk_len, adapter.fifo_len, adapter.spkcache_len} == {None}
+
+    with (
+        patch.object(NeMoSortformerAdapter, "load_model") as load,
+        patch.object(NeMoSortformerAdapter, "unload_model") as unload,
+    ):
+        stage.setup()
+        load.assert_called_once_with(num_gpus=0)
+        assert isinstance(stage._separator.adapter, NeMoSortformerAdapter)
+        stage.teardown()
+    unload.assert_called_once()
+    assert stage._separator is None
 
 
 class TestMergeAdjacentSegments:

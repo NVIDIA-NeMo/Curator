@@ -27,7 +27,7 @@ composition:
   typical_upstream: [MonoConversionStage, ResampleAudioStage]
   typical_downstream: [GetAudioDurationStage, UTMOSFilterStage, SIGMOSFilterStage, TorchSquimQualityMetricsStage, AudioToDocumentStage]
 params_of_note:
-  model_path: "pretrained NeMo model id passed to from_pretrained (default nvidia/diar_sortformer_4spk-v1); this stage has no local .nemo restore route"
+  model_path: "Hugging Face repo id (default nvidia/diar_sortformer_4spk-v1), local .nemo file, or directory holding one; loaded through NeMoSortformerAdapter in offline mode"
   exclude_overlaps: "drop overlapping-speaker regions (default True); False uses clean-cut overlap splitting"
   min_duration: "minimum per-speaker segment duration in s (default 0.8)"
   gap_threshold: "merge gap threshold in s (default 0.1)"
@@ -60,7 +60,7 @@ notes:
   - "A speaker track preserves the source timeline: selected regions are overlaid at original positions on a full-length silent track, not concatenated. duration is the sum of selected speaker-region lengths, not waveform playback length. This selects diarized regions; it does not disentangle simultaneous voices."
   - "When ResampleAudioStage is upstream, route its output explicitly: read resampled_audio_filepath, consume a retained resident waveform, or configure the resampler to update audio_filepath. The resampler's default leaves audio_filepath unchanged."
   - "PrepareModuleSegmentsStage is not a direct consumer: separation emits per-speaker audio plus diar_segments, while preparation expects a configured segments list, top-level duration, and usable word/alignment data."
-  - "Uses the OFFLINE non-streaming checkpoint nvidia/diar_sortformer_4spk-v1 (loaded via from_pretrained), distinct from InferenceSortformerStage's streaming v2.1."
+  - "Uses the OFFLINE non-streaming checkpoint nvidia/diar_sortformer_4spk-v1 (run through NeMoSortformerAdapter with no streaming overrides), distinct from InferenceSortformerStage's streaming v2.1."
   - "The default resources request a GPU. Resources(gpus=0) selects the supported CPU path; downloads the NeMo model from HuggingFace Hub on first run."
   - "(external) Sortformer end-to-end diarizer (arXiv 2409.06656): 4-speaker cap, 16 kHz mono, English-primary."
 verified: {params: mechanical, semantic_facts: mechanical, tags: best_guess, model_version: mechanical, resource: measured, constraints: best_guess, domain: best_guess, use_cases: best_guess, comparison: best_guess}
