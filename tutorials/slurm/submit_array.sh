@@ -22,12 +22,13 @@
 #     CONTAINER_MOUNTS    — extra bind-mounts (auto-built from the paths above)
 #     INPUT_FILE_TYPE     — "jsonl" (default) or "parquet"
 #     OUTPUT_FILE_TYPE    — "jsonl" (default) or "parquet"
-#     FILES_PER_PARTITION — source files per Dask partition (default: 1)
+#     FILES_PER_PARTITION — source files per batch partition (default: 1)
 #
 # ── Minimal usage ────────────────────────────────────────────────────────────
 #   export INPUT_DIR=/shared/data/my-dataset
 #   export OUTPUT_DIR=/shared/output/my-dataset
 #   export CONTAINER_IMAGE=/shared/containers/nemo-curator.sqsh
+#   mkdir -p logs   # Slurm needs the log directory to exist before the job starts
 #   sbatch --array=0-19 tutorials/slurm/submit_array.sh
 #
 # ── Override resources without editing this file ─────────────────────────────
@@ -41,8 +42,8 @@
 #SBATCH --cpus-per-task=16
 #SBATCH --gpus-per-node=0
 #SBATCH --time=01:00:00
-#SBATCH --output=array_%A_%a.log
-#SBATCH --error=array_%A_%a.log
+#SBATCH --output=logs/array_%A_%a.log
+#SBATCH --error=logs/array_%A_%a.log
 
 set -euo pipefail
 
@@ -54,7 +55,9 @@ if (($#)); then
     exit 2
 fi
 
-CURATOR_DIR="${CURATOR_DIR:-$(cd "${SCRIPT_DIR}/../.." && pwd)}"
+# sbatch runs a copy of this script from a spool directory, so prefer the submit
+# directory (submit from the repo root) over the script location.
+CURATOR_DIR="${CURATOR_DIR:-${SLURM_SUBMIT_DIR:-$(cd "${SCRIPT_DIR}/../.." && pwd)}}"
 
 # ---------------------------------------------------------------------------
 # Required variables — fail fast with a clear message if any are not set
