@@ -35,14 +35,13 @@ Example:
 
 import math
 from dataclasses import KW_ONLY, dataclass, field
-from pathlib import Path
 from typing import Any, ClassVar, Literal
 
 import torch
-import torchaudio
 from loguru import logger
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
+from nemo_curator.models.audio.utmos import _UTMOS_TARGET_SR, UTMOSAdapter
 from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract, StaticHints
 from nemo_curator.stages.audio._agent._residency import (
     normalize_audio_waveform,
@@ -57,9 +56,6 @@ from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
-_UTMOS_REPO = "tarepan/SpeechMOS:v1.2.0"
-_UTMOS_ENTRYPOINT = "utmos22_strong"
-_UTMOS_TARGET_SR = 16000
 _VALID_MODES = {"task", "segments", "auto"}
 _VALID_ACTIONS = {"filter", "annotate"}
 
@@ -116,8 +112,8 @@ class UTMOSFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     UTMOS quality assessment filter stage.
 
     Filters audio segments based on the UTMOS predicted MOS score.
-    The model (utmos22_strong) is loaded via torch.hub from tarepan/SpeechMOS.
-    Audio is resampled to 16 kHz for inference.
+    Model loading and inference live in ``nemo_curator.models.audio.utmos.UTMOSAdapter``
+    (utmos22_strong via torch.hub from tarepan/SpeechMOS, resampled to 16 kHz).
 
     Args:
         mos_threshold: Minimum MOS score to pass (None to disable)
@@ -189,9 +185,7 @@ class UTMOSFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             },
             output_keys={"score_key": self.score_key},
         )
-        self._model = None
-        self._model_failed = False
-        self._resamplers: dict[int, Any] = {}
+        self._adapter: UTMOSAdapter | None = None
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], []
@@ -254,71 +248,21 @@ class UTMOSFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None
     ) -> None:
         try:
-            torch.hub.load(
-                _UTMOS_REPO,
-                _UTMOS_ENTRYPOINT,
-                trust_repo=True,
-                force_reload=False,
-                skip_validation=True,
-            )
+            UTMOSAdapter(sample_rate=self.sample_rate).download_weights_on_node()
         except Exception:  # noqa: BLE001
             logger.opt(exception=True).warning("UTMOS repo pre-download in setup_on_node failed.")
 
     def setup(self, _: WorkerMetadata | None = None) -> None:
-        self._ensure_model()
-        if self._model is None:
-            msg = "UTMOS model failed to load. Check network connectivity and torch.hub cache."
-            raise RuntimeError(msg)
+        if self._adapter is not None:
+            return
+        adapter = UTMOSAdapter(sample_rate=self.sample_rate)
+        adapter.load_model(num_gpus=math.ceil(self.resources.gpus))
+        self._adapter = adapter
 
     def teardown(self) -> None:
-        self._model = None
-        self._model_failed = False
-        self._resamplers.clear()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-
-    def _ensure_model(self) -> None:
-        if self._model is not None:
-            return
-        if self._model_failed:
-            return
-
-        device = torch.device(f"cuda:{torch.cuda.current_device()}" if torch.cuda.is_available() else "cpu")
-
-        try:
-            predictor = torch.hub.load(
-                _UTMOS_REPO,
-                _UTMOS_ENTRYPOINT,
-                trust_repo=True,
-                force_reload=False,
-                skip_validation=True,
-            )
-        except Exception:  # noqa: BLE001
-            repo, ref = _UTMOS_REPO.rsplit(":", 1)
-            cached_repo = Path(torch.hub.get_dir()) / f"{repo.replace('/', '_')}_{ref.replace('/', '_')}"
-            logger.opt(exception=True).warning(f"UTMOS initial load failed; trying local cache at {cached_repo}")
-            try:
-                predictor = torch.hub.load(
-                    str(cached_repo),
-                    _UTMOS_ENTRYPOINT,
-                    trust_repo=True,
-                    source="local",
-                    skip_validation=True,
-                )
-            except Exception as e:  # noqa: BLE001
-                logger.error(f"UTMOS model unavailable (download and cache both failed): {e}")
-                self._model_failed = True
-                return
-
-        predictor = predictor.to(device)
-        predictor.eval()
-
-        dummy = torch.randn(1, self.sample_rate, device=device)
-        with torch.no_grad():
-            _ = predictor(dummy, self.sample_rate)
-
-        self._model = predictor
-        logger.info(f"UTMOS model loaded on {device}")
+        if self._adapter is not None:
+            self._adapter.unload_model()
+            self._adapter = None
 
     def process(self, task: AudioTask) -> AudioTask | list[AudioTask]:
         """Process a single AudioTask and filter or annotate by UTMOS MOS score.
@@ -370,22 +314,11 @@ class UTMOSFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             return None
         waveform, sr = audio_result
 
-        if self._model is None:
+        if self._adapter is None:
             return None
 
         try:
-            device = next(self._model.parameters()).device
-            waveform = waveform.to(device)
-
-            if sr != self.sample_rate:
-                if sr not in self._resamplers:
-                    self._resamplers[sr] = torchaudio.transforms.Resample(sr, self.sample_rate).to(device)
-                waveform = self._resamplers[sr](waveform)
-
-            with torch.no_grad():
-                score = self._model(waveform, sr=self.sample_rate)
-
-            mos = float(score.item() if torch.is_tensor(score) else score)
+            mos = self._adapter.score(waveform, sr)
         except Exception as e:  # noqa: BLE001
             logger.exception(f"[{task.task_id}] UTMOS prediction error: {e}")
             return None
