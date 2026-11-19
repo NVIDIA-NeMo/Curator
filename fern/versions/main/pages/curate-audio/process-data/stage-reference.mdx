@@ -123,29 +123,6 @@ stage = ManifestGroupExportStage(output_dir="/data/by_speaker", group_by="speake
 | `write_timeline` | `False` | Also write a who-spoke-when `timeline.txt` |
 | `missing_group` | `"unknown"` | Group name for rows without a `group_by` value |
 
-### DocumentBatchJsonlWriterStage
-
-Appends every row of a `DocumentBatch` to one JSONL file. It is the sink for `AudioToDocumentStage`, which converts `AudioTask` rows into a `DocumentBatch`. Unlike the text `JsonlWriter`, it writes a single fixed manifest instead of per-batch shards. It runs with one worker because appends are not locked; do not override that.
-
-```python
-from nemo_curator.stages.audio.io.convert import AudioToDocumentStage, DocumentBatchJsonlWriterStage
-
-pipeline.add_stage(AudioToDocumentStage())
-pipeline.add_stage(DocumentBatchJsonlWriterStage(output_path="/data/output/manifest.jsonl"))
-```
-
-### ManifestCheckpointStage
-
-Saves the complete `task.data` rows at an intermediate point as JSONL and passes every task downstream unchanged. A later pipeline can read the checkpoint back with `ManifestReader` and reuse expensive scores when only downstream filtering changes. This differs from `Pipeline.run(checkpoint_path=...)`, which only tracks completed source partitions.
-
-```python
-from nemo_curator.stages.audio.common.manifest_checkpoint import ManifestCheckpointStage
-
-stage = ManifestCheckpointStage(output_path="/data/checkpoints/after_scoring.jsonl")
-```
-
-The destination must be local and must not already exist. Waveform tensors and other values that are not JSON are rejected, so place the stage after in-memory audio is dropped.
-
 ## ASR Inference
 
 These stages subclass `ASRStage` and fix the adapter for one model family. Refer to [ASR Inference](/curate-audio/process-data/asr-inference) for the general adapter-based stage. All three read an in-memory waveform from `waveform_key` (default `waveform`) at the sample rate in `sample_rate_key` (default `sampling_rate`), write the transcript to `pred_text_key` (default `asr_prediction`), and record notes under `additional_notes`. They request one GPU by default.
