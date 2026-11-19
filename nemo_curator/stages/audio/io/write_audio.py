@@ -17,13 +17,16 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import os
+import posixpath
 import tempfile
 from dataclasses import dataclass, fields
 from pathlib import Path
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
+import fsspec
 import soundfile as sf
 import torch
 
@@ -38,6 +41,7 @@ from nemo_curator.stages.audio._agent._agent_ready import (
 from nemo_curator.stages.audio._agent._residency import normalize_audio_waveform
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask
+from nemo_curator.utils.client_utils import is_remote_url
 
 if TYPE_CHECKING:
     from nemo_curator.backends.base import WorkerMetadata
@@ -64,7 +68,9 @@ class AudioSegmentWriterStage(AgentReady, ProcessingStage[AudioTask, AudioTask])
     basenames and retried work cannot collide with different segments.
 
     Args:
-        output_dir: Local directory shared by every executor node.
+        output_dir: Local directory shared by every executor node, or a cloud prefix
+            (``s3://``, ``gs://``, ...). Cloud clips are encoded in memory and uploaded whole.
+        storage_options: fsspec options for a cloud ``output_dir`` (credentials, endpoints).
     """
 
     output_dir: str
@@ -84,6 +90,7 @@ class AudioSegmentWriterStage(AgentReady, ProcessingStage[AudioTask, AudioTask])
     is_mono_key: str = "is_mono"
     diar_segments_key: str = "diar_segments"
     name: str = "AudioSegmentWriter"
+    storage_options: dict[str, Any] | None = None
     INTERNAL_KEY_FIELDS: ClassVar[frozenset[str]] = frozenset({"vad_empty_key", "read_error_key", "framewise_key"})
 
     AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
@@ -97,8 +104,12 @@ class AudioSegmentWriterStage(AgentReady, ProcessingStage[AudioTask, AudioTask])
     )
 
     def __post_init__(self) -> None:
-        if not isinstance(self.output_dir, str) or not self.output_dir.strip() or "://" in self.output_dir:
-            msg = "output_dir must be a non-empty local directory"
+        if (
+            not isinstance(self.output_dir, str)
+            or not self.output_dir.strip()
+            or ("://" in self.output_dir and not is_remote_url(self.output_dir))
+        ):
+            msg = "output_dir must be a non-empty local directory or cloud prefix"
             raise ValueError(msg)
         keys = [getattr(self, item.name) for item in fields(self) if item.name.endswith("_key")]
         if any(not isinstance(key, str) or not key.strip() for key in keys) or len(keys) != len(set(keys)):
@@ -178,12 +189,24 @@ class AudioSegmentWriterStage(AgentReady, ProcessingStage[AudioTask, AudioTask])
         samples = waveform.cpu().numpy().reshape(-1).astype("<f4", copy=False)
         identity = json.dumps([source, task.data.get(self.start_ms_key), task.data.get(self.end_ms_key)]).encode()
         digest = hashlib.sha256(identity + samples.tobytes()).hexdigest()
-        output_dir = Path(self.output_dir).expanduser().resolve() / "audio"
-        output_path = output_dir / f"{digest}.opus"
+        remote = is_remote_url(self.output_dir)
+        if remote:
+            output_path = posixpath.join(self.output_dir.rstrip("/"), "audio", f"{digest}.opus")
+        else:
+            output_dir = Path(self.output_dir).expanduser().resolve() / "audio"
+            output_path = output_dir / f"{digest}.opus"
         data[self.audio_filepath_key] = str(output_path)
         data[self.audio_item_id_key] = digest
         data[self.duration_key] = waveform.shape[1] / _SAMPLE_RATE
         json.dumps(data, allow_nan=False)
+        if remote:
+            # Encode fully before opening the object, so a failed encode never publishes a partial clip.
+            buffer = io.BytesIO()
+            sf.write(buffer, samples, _SAMPLE_RATE, format="OGG", subtype="OPUS")
+            with fsspec.open(output_path, "wb", **(self.storage_options or {})) as f:
+                f.write(buffer.getvalue())
+            task.data = data
+            return task
         output_dir.mkdir(parents=True, exist_ok=True)
         with tempfile.NamedTemporaryFile(dir=output_dir, suffix=".opus", delete=False) as temporary:
             temporary_path = Path(temporary.name)

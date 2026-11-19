@@ -191,3 +191,21 @@ def test_remapped_keys(tmp_path: Path) -> None:
 def test_key_aliases_are_rejected(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="distinct"):
         AudioSegmentWriterStage(output_dir=str(tmp_path), waveform_key="audio_filepath")
+
+
+def test_cloud_output_dir_uploads_whole_clip() -> None:
+    import fsspec
+
+    stage = AudioSegmentWriterStage(output_dir="memory://segments/", storage_options={"skip_instance_cache": True})
+    output = stage.process(_segment())
+
+    path = output.data["audio_filepath"]
+    assert path == f"memory://segments/audio/{output.data['audio_item_id']}.opus"
+    with fsspec.open(path, "rb") as f:
+        waveform, sample_rate = sf.read(f)
+    assert (sample_rate, waveform.shape) == (16000, (16000,))
+
+
+def test_non_cloud_uri_output_dir_is_still_rejected() -> None:
+    with pytest.raises(ValueError, match="local directory or cloud prefix"):
+        AudioSegmentWriterStage(output_dir="file:///tmp/segments")
