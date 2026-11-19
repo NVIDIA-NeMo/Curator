@@ -40,12 +40,14 @@ def _patch_audio_io(monkeypatch: pytest.MonkeyPatch, saved_paths: list[str]) -> 
     def fake_load(_path: str) -> tuple[np.ndarray, int]:
         return np.linspace(-0.5, 0.5, 80, dtype=np.float32)[None, :], 10
 
-    def fake_save(path: str, waveform: np.ndarray, sample_rate: int) -> None:
+    real_save = SplitLongAudioStage._save_split
+
+    def recording_save(self: SplitLongAudioStage, path: str, *args: object) -> None:
         saved_paths.append(path)
-        sf.write(path, waveform.T, sample_rate)
+        real_save(self, path, *args)
 
     monkeypatch.setattr("nemo_curator.stages.audio.tagging.split.torchaudio.load", fake_load)
-    monkeypatch.setattr("nemo_curator.stages.audio.tagging.split.torchaudio.save", fake_save)
+    monkeypatch.setattr(SplitLongAudioStage, "_save_split", recording_save)
 
 
 def test_additive_fields_preserve_legacy_positional_arguments() -> None:
@@ -303,13 +305,14 @@ class TestSplitLongAudioStageProcessDatasetEntry:
         monkeypatch: pytest.MonkeyPatch,
         audio_task: Callable[..., AudioTask],
     ) -> None:
-        local_writes: list[str] = []
-        _patch_audio_io(monkeypatch, local_writes)
+        saved_paths: list[str] = []
+        _patch_audio_io(monkeypatch, saved_paths)
         output_dir = f"memory://split-{tmp_path.name}"
         result = SplitLongAudioStage(
             suggested_max_len=5.0,
             min_len=0.5,
             output_dir=output_dir,
+            storage_options={"skip_instance_cache": True},
         ).process(
             audio_task(
                 duration=8.0,
@@ -323,30 +326,24 @@ class TestSplitLongAudioStageProcessDatasetEntry:
         for advertised in result.data["split_filepaths"]:
             fs, path = url_to_fs(advertised)
             assert fs.exists(path)
-        assert local_writes
-        assert all(not Path(path).exists() for path in local_writes)
+            assert sf.info(fs.open(path, "rb")).subtype == "FLOAT"
+        assert len(saved_paths) == 2
 
-    def test_remote_output_cleans_local_temp_when_save_fails(
+    def test_remote_output_writes_nothing_when_encoding_fails(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
         audio_task: Callable[..., AudioTask],
     ) -> None:
-        local_writes: list[str] = []
-        _patch_audio_io(monkeypatch, local_writes)
+        _patch_audio_io(monkeypatch, [])
 
-        def fail_save(path: str, waveform: np.ndarray, sample_rate: int) -> None:
-            local_writes.append(path)
-            sf.write(path, waveform.T, sample_rate)
+        def fail_encode(*_args: object, **_kwargs: object) -> bytes:
             message = "local encoding failed"
             raise OSError(message)
 
-        monkeypatch.setattr("nemo_curator.stages.audio.tagging.split.torchaudio.save", fail_save)
-        stage = SplitLongAudioStage(
-            suggested_max_len=5.0,
-            min_len=0.5,
-            output_dir=f"memory://split-failure-{tmp_path.name}",
-        )
+        monkeypatch.setattr("nemo_curator.stages.audio.tagging.split.encode_audio", fail_encode)
+        output_dir = f"memory://split-failure-{tmp_path.name}"
+        stage = SplitLongAudioStage(suggested_max_len=5.0, min_len=0.5, output_dir=output_dir)
 
         with pytest.raises(OSError, match="local encoding failed"):
             stage.process(
@@ -358,8 +355,8 @@ class TestSplitLongAudioStageProcessDatasetEntry:
                 )
             )
 
-        assert len(local_writes) == 1
-        assert not Path(local_writes[0]).exists()
+        fs, path = url_to_fs(output_dir)
+        assert fs.find(path) == []
 
     def test_remote_output_rolls_back_earlier_chunks_when_a_later_save_fails(
         self,

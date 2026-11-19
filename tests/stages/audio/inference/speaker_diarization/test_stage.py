@@ -1033,3 +1033,18 @@ def test_file_fanout_keeps_selected_path_ahead_of_session_identity(tmp_path: Pat
     )
     parent = AudioTask(data={"audio_filepath": str(path), "session_name": "meeting", "audio_item_id": "item"})
     assert stage.process_batch([parent])[0].data["original_file"] == str(path)
+
+
+def test_write_rttm_to_a_cloud_root() -> None:
+    import fsspec
+
+    path = _write_rttm(
+        [{"start": 0.0, "end": 1.5, "speaker": "speaker_0"}],
+        "session",
+        "memory://rttm-root/",
+        shard_key="shard/a",
+        storage_options={"skip_instance_cache": True},
+    )
+
+    assert path == "memory://rttm-root/shard/a/session.rttm"
+    assert fsspec.filesystem("memory").cat_file(path).decode().startswith("SPEAKER session 1 0.000 1.500")
