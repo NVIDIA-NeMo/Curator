@@ -37,7 +37,7 @@ _ADAPTER_TARGET = "nemo_curator.models.asr.indic_transcribe.IndicTranscribeTRTLL
 
 @dataclass
 class InferenceIndicTranscribeStage(ASRStage):
-    """Transcribe Indic audio with an existing Canary TensorRT-LLM engine.
+    """Transcribe Indic audio with an existing Indic Transcribe TensorRT-LLM engine.
 
     Use ``docker/audio/Dockerfile.trt_llm`` for the CPython 3.12 native stack.
     TensorRT-LLM is loaded directly in the Curator worker, sharing the selected
@@ -100,7 +100,7 @@ class InferenceIndicTranscribeStage(ASRStage):
         super().__post_init__()
 
     def _create_adapter(self) -> IndicTranscribeTRTLLMASR:
-        """Construct Canary through its reference-compatible ``engine_dir`` API."""
+        """Construct the Indic Transcribe adapter via its ``engine_dir`` API."""
         return IndicTranscribeTRTLLMASR(engine_dir=self.engine_dir, **self.adapter_kwargs)
 
     def assemble(
@@ -109,7 +109,7 @@ class InferenceIndicTranscribeStage(ASRStage):
         items: list[dict[str, Any]],
         results: list[ASRResult],
     ) -> list[AudioTask]:
-        """Write Canary-specific unsupported-language and truncation metadata."""
+        """Write Indic Transcribe unsupported-language and truncation metadata."""
         previous_skip_values = [task.data.get(self.skip_me_key) for task in tasks]
         super().assemble(tasks, items, results)
 

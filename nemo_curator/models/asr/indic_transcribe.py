@@ -126,10 +126,10 @@ class IndicTranscribeTRTLLMASR:
             msg = f"IndicTranscribeTRTLLMASR requires exactly one GPU, got {num_gpus!r}"
             raise ValueError(msg)
         self.download_weights_on_node()
-        from nemo_curator.stages.audio.inference.indic_transcribe_trtllm_runtime import CanaryTRTLLM
+        from nemo_curator.stages.audio.inference.indic_transcribe_trtllm_runtime import IndicTranscribeTRTLLM
 
         logger.info("Loading Indic Transcribe TensorRT-LLM engine from {}", self.engine_dir)
-        self._model = CanaryTRTLLM(
+        self._model = IndicTranscribeTRTLLM(
             self.engine_dir,
             device="cuda:0",
             kv_cache_free_gpu_memory_fraction=self.kv_cache_free_gpu_memory_fraction,

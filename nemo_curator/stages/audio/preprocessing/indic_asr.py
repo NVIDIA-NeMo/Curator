@@ -19,10 +19,7 @@ from __future__ import annotations
 import math
 from dataclasses import KW_ONLY, dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, ClassVar
-
-if TYPE_CHECKING:
-    import torch
+from typing import ClassVar
 
 from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, Role, StageContract
 from nemo_curator.stages.audio.common import load_audio_file
@@ -32,10 +29,6 @@ from nemo_curator.tasks import AudioTask
 
 SAMPLE_RATE = 16_000
 MAX_DURATION_ERROR_S = 0.001
-# Shared duration policy applied before inference so both the TensorRT and
-# PyTorch backends always receive identical audio segments.
-_DEFAULT_MAX_DURATION_SEC = 40.0
-_DEFAULT_MIN_DURATION_SEC = 0.5
 
 
 @dataclass
@@ -44,15 +37,11 @@ class PrepareIndicASRInputStage(AgentReady, ProcessingStage[AudioTask, AudioTask
 
     The input reference is removed from ``text_key`` and copied unchanged to
     both reference outputs; it is not an ASR prediction. Audio is downmixed to
-    mono float32 and clipped to ``max_duration_sec`` before being stored as a
-    waveform, so both the TensorRT and PyTorch inference backends receive the
-    same audio segment. Clips shorter than ``min_duration_sec`` are skipped
-    immediately with ``_skipme`` set, rather than being forwarded to inference
-    where each backend would handle them differently. The manifest duration is
-    checked within 1 ms before clipping; it is not updated to reflect the
-    clipped length. Existing notes survive while model-selection labels are
-    initialized, and the skip reason is cleared for valid clips. This stage
-    does not transcribe audio or verify reference accuracy.
+    mono float32, retained as a [1, samples] waveform, and checked against the
+    manifest duration within 1 ms without changing that duration. The resolved
+    file path and sample rate in Hz describe that same clip. Existing notes
+    survive while model-selection labels are initialized, and the skip reason
+    is cleared. This stage does not transcribe audio or verify reference accuracy.
 
     Args:
         audio_root: Base directory for relative audio paths.
@@ -65,18 +54,13 @@ class PrepareIndicASRInputStage(AgentReady, ProcessingStage[AudioTask, AudioTask
         granary_v1_prediction_key: Legacy reference copy, not a model prediction.
         reference_text_key: Reference copy used for downstream WER.
         sample_rate_key: Decoded waveform sample rate in Hz.
-        waveform_key: In-memory mono float32 waveform, clipped to max_duration_sec.
+        waveform_key: In-memory mono float32 waveform tensor.
         skip_me_key: Processing skip reason, initialized to an empty string.
-        max_duration_sec: Clips longer than this are truncated before inference.
-            Must match the TensorRT encoder window (default 40 s).
-        min_duration_sec: Clips shorter than this are skipped immediately.
     """
 
     name: str = "prepare_indic_asr_input"
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
     audio_root: str | None = None
-    max_duration_sec: float = _DEFAULT_MAX_DURATION_SEC
-    min_duration_sec: float = _DEFAULT_MIN_DURATION_SEC
 
     _: KW_ONLY
     audio_filepath_key: str = "audio_filepath"
@@ -175,41 +159,6 @@ class PrepareIndicASRInputStage(AgentReady, ProcessingStage[AudioTask, AudioTask
         data[self.granary_v1_prediction_key] = reference_text
         data[self.reference_text_key] = reference_text
         data[self.sample_rate_key] = sample_rate
-        return self._apply_duration_policy(task, waveform, notes, audio_item_id)
-
-    def _apply_duration_policy(
-        self,
-        task: AudioTask,
-        waveform: torch.Tensor,
-        notes: dict[str, object],
-        audio_item_id: str,
-    ) -> AudioTask:
-        """Apply shared duration gate before inference.
-
-        Both the TensorRT (IndicTranscribe) and PyTorch (Parakeet) backends
-        receive the same audio because truncation and minimum-duration skipping
-        happen once here, not independently inside each adapter.
-        """
-        data = task.data
-        max_samples = int(self.max_duration_sec * SAMPLE_RATE)
-        min_samples = int(self.min_duration_sec * SAMPLE_RATE)
-        num_samples = waveform.shape[-1]
-
-        if num_samples < min_samples:
-            data[self.waveform_key] = waveform
-            data[self.skip_me_key] = (
-                f"duration_too_short:{audio_item_id} ({num_samples / SAMPLE_RATE:.3f}s < {self.min_duration_sec}s)"
-            )
-            return task
-
-        if num_samples > max_samples:
-            original_duration_s = num_samples / SAMPLE_RATE
-            notes[self.name] = (
-                f"audio {original_duration_s:.2f}s exceeds {self.max_duration_sec:.0f}s encoder window; "
-                "transcription truncated (split with VAD before inference)"
-            )
-            data[self.waveform_key] = waveform[:, :max_samples]
-        else:
-            data[self.waveform_key] = waveform
+        data[self.waveform_key] = waveform
         data[self.skip_me_key] = ""
         return task
