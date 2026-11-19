@@ -1,23 +1,32 @@
 # High-Throughput Text Embedding with vLLM
 
-This tutorial embeds a text column of Parquet files with `VLLMEmbeddingModelStage`, which runs [vLLM](https://github.com/vllm-project/vllm) inside each GPU worker. It focuses on the settings that decide throughput for bulk embedding.
+This tutorial embeds a text column of Parquet files with `VLLMEmbeddingModelStage`, which runs [vLLM](https://github.com/vllm-project/vllm) inside each GPU worker. It defaults to [`nvidia/Nemotron-3.5-Embed-1B-NVFP4`](https://huggingface.co/nvidia/Nemotron-3.5-Embed-1B-NVFP4) and focuses on the settings that decide throughput for bulk embedding.
+
+## Install
+
+```
+uv venv --python 3.12 && source .venv/bin/activate
+uv pip install --no-sources "nemo_curator[vllm] @ git+https://github.com/NVIDIA-NeMo/Curator"
+```
+
+Tested with vLLM 0.34.0, PyTorch 2.14.0 (CUDA 13.0) and Transformers 5.22.2 on Linux arm64. `--no-sources` makes `uv` take vLLM and PyTorch from PyPI; without it, Curator's CUDA 12.9 index settings apply and the install does not resolve. NVFP4 checkpoints need a GPU with native FP4 support (NVIDIA Blackwell) to run at full speed.
 
 ## Usage
-
-Install NeMo Curator with vLLM (`pip install nemo_curator[vllm]`), then run:
 
 ```
 python tutorials/text/vllm-embedding/main.py \
     --input-path /path/to/parquet \
     --output-path /path/to/embeddings \
-    --model <hugging-face-embedding-model> \
     --text-field text \
     --keep-fields id \
-    --text-prefix "passage: " \
-    --replicas-per-gpu 2
+    --replicas-per-gpu 3
 ```
 
 The output has the `--keep-fields` columns and an `embeddings` column, in input row order. The input text is not copied to the output.
+
+For the default model the script sets what it needs: the `passage: ` prefix (see [Text prefixes](#text-prefixes)) and the vLLM arguments `dtype=bfloat16` and `trust_remote_code=True`. To embed queries, pass the query prefix from the model card with `--text-prefix`. For another model, pass `--model`; no prefix or extra vLLM arguments are applied unless you give them.
+
+Embed one corpus with one vLLM version. Vectors from different versions are close but not identical (mean cosine 0.999 between 0.30 and 0.34 on the default model), which is enough to disturb exact comparisons.
 
 ## Settings that matter
 
@@ -37,4 +46,4 @@ Many embedding models are trained with a prefix that marks the input's role, suc
 
 - `--embedding-dtype`: `float32` by default. `float16` halves the output size; keep `float32` if the embeddings feed semantic deduplication.
 - `--cache-dir`: where the model is downloaded and loaded from.
-- `--vllm-init-kwargs`: extra arguments for `vllm.LLM` as JSON, for example `'{"dtype": "bfloat16", "trust_remote_code": true}'`.
+- `--vllm-init-kwargs`: arguments for `vllm.LLM` as JSON, for example `'{"dtype": "bfloat16", "trust_remote_code": true}'`. Giving this replaces the default model's arguments.

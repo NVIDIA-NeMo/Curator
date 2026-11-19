@@ -25,8 +25,18 @@ from nemo_curator.stages.text.embedders.vllm import VLLMEmbeddingModelStage
 from nemo_curator.stages.text.io.reader import ParquetReader
 from nemo_curator.stages.text.io.writer import ParquetWriter
 
+_MODEL = "nvidia/Nemotron-3.5-Embed-1B-NVFP4"
+# What the default model needs; other models get no prefix and no extra vLLM kwargs unless given.
+_MODEL_TEXT_PREFIX = "passage: "
+_MODEL_VLLM_INIT_KWARGS = {"dtype": "bfloat16", "trust_remote_code": True}
+
 
 def main(args: argparse.Namespace) -> None:
+    if args.model == _MODEL:
+        args.text_prefix = _MODEL_TEXT_PREFIX if args.text_prefix is None else args.text_prefix
+        args.vllm_init_kwargs = _MODEL_VLLM_INIT_KWARGS if args.vllm_init_kwargs is None else args.vllm_init_kwargs
+    args.vllm_init_kwargs = args.vllm_init_kwargs or {}
+
     ray_client = RayClient()
     ray_client.start()
 
@@ -78,12 +88,14 @@ def attach_args() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input-path", required=True, help="Directory of Parquet files")
     parser.add_argument("--output-path", required=True)
-    parser.add_argument("--model", required=True, help="Hugging Face model id of a vLLM-supported embedding model")
+    parser.add_argument("--model", default=_MODEL, help="Hugging Face id of a vLLM-supported embedding model")
     parser.add_argument("--text-field", default="text")
     parser.add_argument(
         "--keep-fields", nargs="*", default=[], help="Columns to keep next to the embeddings, e.g. an id"
     )
-    parser.add_argument("--text-prefix", default=None, help='Prefix the model was trained with, e.g. "passage: "')
+    parser.add_argument(
+        "--text-prefix", default=None, help=f"Prefix the model was trained with (default for {_MODEL}: passage)"
+    )
     parser.add_argument("--replicas-per-gpu", type=int, default=1, help="Model replicas sharing each GPU")
     parser.add_argument("--num-workers", type=int, default=None, help="Total replicas (default: fill every GPU)")
     parser.add_argument("--max-num-seqs", type=int, default=256)
@@ -91,7 +103,7 @@ def attach_args() -> argparse.ArgumentParser:
     parser.add_argument("--max-model-len", type=int, default=None, help="Truncate longer texts to this many tokens")
     parser.add_argument("--embedding-dtype", default="float32", choices=["float16", "float32", "float64"])
     parser.add_argument("--cache-dir", default=None)
-    parser.add_argument("--vllm-init-kwargs", type=json.loads, default={}, help="Extra vllm.LLM kwargs as JSON")
+    parser.add_argument("--vllm-init-kwargs", type=json.loads, default=None, help="Extra vllm.LLM kwargs as JSON")
     return parser
 
 
