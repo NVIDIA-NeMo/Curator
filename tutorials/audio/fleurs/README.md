@@ -132,7 +132,7 @@ Converts surviving `AudioTask` objects to `DocumentBatch` format and writes JSON
 
 WER (Word Error Rate) measures transcription accuracy on a 0–100 scale: 0 = perfect match, 100 = every word wrong. Values above 100 are possible when insertions outnumber deletions.
 
-The default **`wer_threshold` of 5.5** matches the nightly FLEURS benchmark and the tutorial notebook. It keeps high-quality transcriptions when the ASR model matches the target language (e.g. `hy_am` + `stt_hy_fastconformer_hybrid_large_pc`).
+The default **`wer_threshold` of 5.5** matches the nightly FLEURS benchmark. It keeps high-quality transcriptions when the ASR model matches the target language (e.g. `hy_am` + `stt_hy_fastconformer_hybrid_large_pc`).
 
 **Recommended thresholds by use case:**
 

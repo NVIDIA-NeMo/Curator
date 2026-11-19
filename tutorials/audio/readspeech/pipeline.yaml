@@ -22,6 +22,12 @@ documentation: |
   * **auto_download**: Automatically downloads and extracts dataset (default: true)
   * The pipeline will automatically download the dataset on first run
 
+  Usage (from the Curator repository root):
+    python nemo_curator/config/run.py \
+      --config-path ../../tutorials/audio/readspeech \
+      --config-name pipeline \
+      raw_data_dir=./dns_data
+
   **Required arguments**:
   * **raw_data_dir**: Directory where data will be downloaded to (if auto_download=true)
                       or directory containing read_speech WAV files (if auto_download=false)
@@ -29,6 +35,7 @@ documentation: |
 raw_data_dir: ???
 output_dir: ${raw_data_dir}/result
 
+backend: xenna
 # 'batch' runs stages sequentially (works with any GPU/CPU count)
 # 'streaming' runs stages concurrently (requires enough resources for all stages simultaneously)
 execution_mode: streaming
@@ -71,7 +78,7 @@ speaker_exclude_overlaps: true
 speaker_min_duration: 0.8
 speaker_separation_gpus: 0.3
 
-processors:
+stages:
   - _target_: nemo_curator.stages.audio.datasets.readspeech.CreateInitialManifestReadSpeechStage
     raw_data_dir: ${raw_data_dir}
     max_samples: ${max_samples}

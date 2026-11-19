@@ -29,27 +29,28 @@ The full pipeline requires: `soundfile`, `torchaudio`, `librosa`, `scipy`, `pydu
 
 ## Quick Start
 
+Run every command from the repository root. `pipeline.yaml` is run by the
+generic YAML runner; `--config-path` is relative to `nemo_curator/config/run.py`.
+
 ### Validate Your Setup (~2–3 minutes)
 
 Run a minimal end-to-end test with 10 samples to confirm everything is installed correctly:
 
 ```bash
 # Quick check with UTMOS + VAD only (~1–2 minutes)
-python pipeline.py \
-    --raw_data_dir ./dns_data \
-    --max-samples 10 \
-    --enable-utmos \
-    --enable-vad
+python nemo_curator/config/run.py \
+    --config-path ../../tutorials/audio/readspeech \
+    --config-name pipeline \
+    raw_data_dir=./dns_data \
+    max_samples=10 \
+    enable_sigmos=false enable_band_filter=false enable_speaker_separation=false
 
 # Full validation with all filters (~2–3 minutes)
-python pipeline.py \
-    --raw_data_dir ./dns_data \
-    --max-samples 10 \
-    --enable-utmos \
-    --enable-vad \
-    --enable-sigmos \
-    --enable-band-filter \
-    --enable-speaker-separation
+python nemo_curator/config/run.py \
+    --config-path ../../tutorials/audio/readspeech \
+    --config-name pipeline \
+    raw_data_dir=./dns_data \
+    max_samples=10
 ```
 
 This downloads the dataset on first run, processes only 10 files, and writes results to `./dns_data/result/`. Expected wall-clock time with all filters: **~2–3 minutes** (model downloads add negligible overhead; runtime is dominated by model loading and initialization).
@@ -57,24 +58,25 @@ This downloads the dataset on first run, processes only 10 files, and writes res
 ### Standard Usage
 
 ```bash
-# Auto-download dataset and process (default: 5000 samples)
-python pipeline.py \
-    --raw_data_dir ./dns_data \
-    --enable-utmos \
-    --enable-vad
+# Auto-download the dataset and process all 14,279 files with every filter
+python nemo_curator/config/run.py \
+    --config-path ../../tutorials/audio/readspeech \
+    --config-name pipeline \
+    raw_data_dir=./dns_data
 
-# Process all 14,279 files
-python pipeline.py \
-    --raw_data_dir ./dns_data \
-    --max-samples -1 \
-    --enable-utmos \
-    --enable-vad
+# Process the first 5000 files
+python nemo_curator/config/run.py \
+    --config-path ../../tutorials/audio/readspeech \
+    --config-name pipeline \
+    raw_data_dir=./dns_data \
+    max_samples=5000
 
 # Use pre-downloaded data
-python pipeline.py \
-    --raw_data_dir /path/to/existing/read_speech \
-    --no-auto-download \
-    --enable-utmos
+python nemo_curator/config/run.py \
+    --config-path ../../tutorials/audio/readspeech \
+    --config-name pipeline \
+    raw_data_dir=/path/to/existing/read_speech \
+    auto_download=false
 ```
 
 ## Dataset Overview
@@ -106,12 +108,12 @@ raw_data_dir/
 
 The pipeline supports four topologies based on which features are enabled:
 
-| Topology | Flags | Output (per input file) |
+| Topology | Overrides | Output (per input file) |
 |----------|-------|------------------------|
-| Combo 1 | *(none)* | 1 row with whole-file scores |
-| Combo 2 | `--enable-vad` | N rows, one per speech segment |
-| Combo 3 | `--enable-speaker-separation` | K rows, one per speaker with diarization timestamps |
-| Combo 4 | `--enable-vad --enable-speaker-separation` | K*M rows, one per speaker-segment |
+| Combo 1 | `enable_vad=false enable_speaker_separation=false` | 1 row with whole-file scores |
+| Combo 2 | `enable_vad=true enable_speaker_separation=false` | N rows, one per speech segment |
+| Combo 3 | `enable_vad=false enable_speaker_separation=true` | K rows, one per speaker with diarization timestamps |
+| Combo 4 | `enable_vad=true enable_speaker_separation=true` (default) | K*M rows, one per speaker-segment |
 
 ```
 CreateInitialManifestReadSpeechStage
@@ -130,93 +132,37 @@ AudioToDocumentStage -> JsonlWriter
   Output: manifest.jsonl
 ```
 
-## Running the Pipeline
+## Configuration
 
-### Option 1: Python Script (`pipeline.py`)
+Override any top-level key of `pipeline.yaml` on the command line, for example
+`max_samples=1000 utmos_mos_threshold=4.0 backend=ray_data`.
 
-```bash
-# With all filters
-python pipeline.py \
-    --raw_data_dir ./dns_data \
-    --enable-vad \
-    --enable-utmos \
-    --enable-sigmos \
-    --enable-band-filter \
-    --enable-speaker-separation
-
-# Process all 14,279 files
-python pipeline.py \
-    --raw_data_dir ./dns_data \
-    --max-samples -1 \
-    --enable-utmos \
-    --enable-sigmos
-```
-
-### Option 2: YAML Config (`run.py`)
-
-```bash
-# Default (all 14,279 files as configured in pipeline.yaml)
-python run.py \
-    --config-path . \
-    --config-name pipeline.yaml \
-    raw_data_dir=./dns_data
-
-# Limit to 5000 samples
-python run.py \
-    --config-path . \
-    --config-name pipeline.yaml \
-    raw_data_dir=./dns_data \
-    max_samples=5000
-```
-
-## Command Line Options
-
-### Required
-
-| Option          | Description                                          |
-|-----------------|------------------------------------------------------|
-| `--raw_data_dir` | Directory for data download or path to existing data |
-
-### Download Settings
-
-| Option               | Default | Description                        |
-|----------------------|---------|------------------------------------|
-| `--auto-download`    | `true`  | Auto-download dataset (~4.88 GB)   |
-| `--no-auto-download` |         | Disable auto-download              |
-
-### Processing
-
-| Option           | Default              | Description                                    |
-|------------------|----------------------|------------------------------------------------|
-| `--output_dir`   | `{raw_data_dir}/result` | Output directory                            |
-| `--max-samples`  | `5000`               | Max samples (-1 for all 14,279 files)          |
-| `--batch_size`   | `1`                  | Batch size                                     |
-| `--sample_rate`  | `48000`              | Audio sample rate                              |
-| `--clean`        | `false`              | Clean output dir                               |
-| `--backend`      | `xenna`              | Execution backend: `xenna` or `ray_data`       |
-| `--verbose`      | `false`              | DEBUG logging                                  |
-
-### Filter Toggles and Thresholds
-
-| Option                          | Default     | Description                          |
-|---------------------------------|-------------|--------------------------------------|
-| `--enable-vad`                  | `false`     | Enable VAD segmentation              |
-| `--vad-min-duration`            | `2.0`       | Min segment (sec)                    |
-| `--vad-max-duration`            | `60.0`      | Max segment (sec)                    |
-| `--vad-threshold`               | `0.5`       | VAD threshold (0–1)                  |
-| `--vad-min-interval-ms`         | `500`       | Min silence to split segments (ms)   |
-| `--vad-speech-pad-ms`           | `300`       | Padding before/after speech (ms)     |
-| `--enable-utmos`                | `false`     | Enable UTMOS filter                  |
-| `--utmos-mos-threshold`         | `3.4`       | Min UTMOS MOS (0–5)                  |
-| `--enable-sigmos`               | `false`     | Enable SIGMOS filter                 |
-| `--sigmos-noise-threshold`      | `4.0`       | Min SIGMOS noise (0–5)               |
-| `--sigmos-ovrl-threshold`       | `3.5`       | Min SIGMOS overall (0–5)             |
-| `--enable-band-filter`          | `false`     | Enable band filter                   |
-| `--band-value`                  | `full_band` | Band type to pass                    |
-| `--enable-speaker-separation`   | `false`     | Enable speaker diarization           |
-| `--speaker-exclude-overlaps`    | `true`      | Exclude overlapping speech           |
-| `--no-speaker-exclude-overlaps` |             | Allow overlapping speaker segments   |
-| `--speaker-min-duration`        | `0.8`       | Min speaker segment (sec)            |
+| Key | Default | Description |
+|-----|---------|-------------|
+| `raw_data_dir` | *(required)* | Directory for data download or path to existing data |
+| `output_dir` | `${raw_data_dir}/result` | Output directory |
+| `auto_download` | `true` | Auto-download dataset (~4.88 GB) |
+| `max_samples` | `-1` | Max samples (-1 for all 14,279 files) |
+| `batch_size` | `1` | Manifest-creation batch size |
+| `sample_rate` | `48000` | Audio sample rate |
+| `backend` | `xenna` | Execution backend: `xenna` or `ray_data` |
+| `execution_mode` | `streaming` | Xenna mode: `streaming` or `batch` |
+| `enable_vad` | `true` | Enable VAD segmentation |
+| `vad_min_duration_sec` | `2.0` | Min segment (sec) |
+| `vad_max_duration_sec` | `60.0` | Max segment (sec) |
+| `vad_threshold` | `0.5` | VAD threshold (0–1) |
+| `vad_min_interval_ms` | `500` | Min silence to split segments (ms) |
+| `vad_speech_pad_ms` | `300` | Padding before/after speech (ms) |
+| `enable_utmos` | `true` | Enable UTMOS filter |
+| `utmos_mos_threshold` | `3.4` | Min UTMOS MOS (0–5) |
+| `enable_sigmos` | `true` | Enable SIGMOS filter |
+| `sigmos_noise_threshold` | `4.0` | Min SIGMOS noise (0–5) |
+| `sigmos_ovrl_threshold` | `3.5` | Min SIGMOS overall (0–5) |
+| `enable_band_filter` | `true` | Enable band filter |
+| `band_value` | `full_band` | Band type to pass |
+| `enable_speaker_separation` | `true` | Enable speaker diarization |
+| `speaker_exclude_overlaps` | `true` | Exclude overlapping speech |
+| `speaker_min_duration` | `0.8` | Min speaker segment (sec) |
 
 ## Parameter Tuning
 
@@ -226,7 +172,7 @@ All filter thresholds and resource allocations (CPU/GPU per stage) can also be c
 nemo_curator/stages/audio/advanced_pipelines/audio_data_filter/default_config.yaml
 ```
 
-This YAML controls thresholds, enable/disable flags, and `cpus`/`gpus` resource allocation for each stage. Any values you pass via CLI or `pipeline.yaml` override these defaults.
+This YAML controls thresholds, enable/disable flags, and `cpus`/`gpus` resource allocation for each stage. Any values you set in `pipeline.yaml` or pass as overrides take precedence over these defaults.
 
 Model-backed VAD configuration is split deliberately: detection thresholds
 remain stage settings, while `adapter_target` and `adapter_kwargs` select the
@@ -234,7 +180,7 @@ runtime. Common execution controls (`cpus`, `gpus`, `batch_size`, and
 `num_workers`) are applied to the decomposed VAD stage through its `.with_()`
 settings.
 
-### UTMOS MOS Threshold (`--utmos-mos-threshold`)
+### UTMOS MOS Threshold (`utmos_mos_threshold`)
 
 UTMOS predicts a [Mean Opinion Score (MOS)](https://en.wikipedia.org/wiki/Mean_opinion_score) on a 0–5 scale:
 
@@ -269,10 +215,10 @@ The default threshold of **3.4** ("fair-to-good") balances data retention agains
 | **LOUD**    | `sigmos_loud`    | Loudness appropriateness of the signal                   | Detect clipped/over-compressed or too-quiet recordings          |
 | **REVERB**  | `sigmos_reverb`  | Reverberation — room echo and reflections                | Filter reverberant recordings; important for close-talk TTS data |
 
-The pipeline currently exposes two CLI thresholds:
+`pipeline.yaml` exposes two SIGMOS thresholds:
 
-- **`--sigmos-noise-threshold`** (default: 4.0): Minimum noise score. 4.0 passes only clips with very low background noise.
-- **`--sigmos-ovrl-threshold`** (default: 3.5): Minimum overall quality. 3.5 passes clips with good overall quality.
+- **`sigmos_noise_threshold`** (default: 4.0): Minimum noise score. 4.0 passes only clips with very low background noise.
+- **`sigmos_ovrl_threshold`** (default: 3.5): Minimum overall quality. 3.5 passes clips with good overall quality.
 
 All 7 scores are written to the output manifest regardless of which thresholds are active, so you can post-filter on any dimension. The `SIGMOSFilterStage` also supports thresholds for all 7 dimensions programmatically (`sig_threshold`, `col_threshold`, `disc_threshold`, `loud_threshold`, `reverb_threshold`).
 
@@ -280,11 +226,11 @@ All 7 scores are written to the output manifest regardless of which thresholds a
 
 | Parameter                | Default | Effect of Raising                           | Effect of Lowering                        |
 |--------------------------|---------|---------------------------------------------|-------------------------------------------|
-| `--vad-threshold`        | 0.5     | Stricter: fewer, higher-confidence segments | More aggressive: captures quieter speech  |
-| `--vad-min-duration`     | 2.0s    | Drops short utterances                      | Keeps very short speech fragments         |
-| `--vad-max-duration`     | 60.0s   | No effect (already generous)                | Forces splits on long segments            |
-| `--vad-min-interval-ms`  | 500ms   | Merges segments across longer pauses        | Splits on shorter silences                |
-| `--vad-speech-pad-ms`    | 300ms   | Wider padding around speech                 | Tighter cuts (risk clipping speech)       |
+| `vad_threshold`          | 0.5     | Stricter: fewer, higher-confidence segments | More aggressive: captures quieter speech  |
+| `vad_min_duration_sec`   | 2.0s    | Drops short utterances                      | Keeps very short speech fragments         |
+| `vad_max_duration_sec`   | 60.0s   | No effect (already generous)                | Forces splits on long segments            |
+| `vad_min_interval_ms`    | 500ms   | Merges segments across longer pauses        | Splits on shorter silences                |
+| `vad_speech_pad_ms`      | 300ms   | Wider padding around speech                 | Tighter cuts (risk clipping speech)       |
 
 The maintained default is the Torch runtime:
 
@@ -308,7 +254,7 @@ For CPU ONNX inference, set `backend: onnx` and `gpus: 0.0`. The stage keeps
 the same segment fields and writes duration in the existing `duration` key for
 both maintained runtimes.
 
-### Band Filter (`--band-value`)
+### Band Filter (`band_value`)
 
 The [NeMo Curator Speech Bandwidth Filter](https://huggingface.co/nvidia/nemocurator-speech-bandwidth-filter) is a scikit-learn Random Forest Classifier that classifies audio as `full_band` (high fidelity) or `narrow_band` (low fidelity) based on spectral characteristics. It runs entirely on CPU — no GPU required.
 
@@ -397,20 +343,27 @@ are inherited by child tasks.
 
 ## Extracting Audio Segments
 
-After the pipeline produces a `manifest.jsonl`, use `extract_segments.py` to extract the actual audio segments from the original files. The script auto-detects the pipeline topology from the manifest schema.
-
-### Basic Usage
+After the pipeline writes its manifest, run `extract_segments.yaml` to write the
+audio segments as standalone files. `SegmentExtractionStage` detects the
+pipeline topology from each manifest row.
 
 ```bash
-# Extract from a single manifest file
-python extract_segments.py -m ./dns_data/result/manifest.jsonl -o ./extracted/
-
-# Extract from a directory of jsonl files (auto-combines them)
-python extract_segments.py -m ./dns_data/result/ -o ./extracted/
+python nemo_curator/config/run.py \
+    --config-path ../../tutorials/audio/readspeech \
+    --config-name extract_segments \
+    manifest_path=./dns_data/result \
+    output_dir=./extracted
 
 # Output as FLAC
-python extract_segments.py -m ./dns_data/result/ -o ./extracted/ -f flac
+python nemo_curator/config/run.py \
+    --config-path ../../tutorials/audio/readspeech \
+    --config-name extract_segments \
+    manifest_path=./dns_data/result \
+    output_dir=./extracted \
+    output_format=flac
 ```
+
+`manifest_path` can be one JSONL file or a directory of JSONL files.
 
 ### Extraction per topology
 
@@ -427,24 +380,13 @@ python extract_segments.py -m ./dns_data/result/ -o ./extracted/ -f flac
 extracted/
 ├── {name}_speaker_0_segment_000.wav  # Audio segments
 ├── {name}_speaker_0_segment_001.wav
-├── metadata.csv                      # Per-segment metadata with quality scores
-├── manifest.jsonl                    # Combined manifest (when input is a directory)
-└── extraction_summary.json           # Statistics summary
+└── metadata.csv                      # Per-segment metadata with quality scores
 ```
 
 The `metadata.csv` contains one row per extracted segment with columns:
 `filename`, `original_file`, `start_sec`, `end_sec`, `duration`, and all quality scores from the manifest.
 
-### Options
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--manifest, -m` | required | Path to manifest.jsonl or directory of .jsonl files |
-| `--output-dir, -o` | required | Directory for extracted audio segments |
-| `--output-format, -f` | `wav` | Output format: `wav`, `flac`, or `ogg` |
-| `--verbose, -v` | `false` | Enable verbose (DEBUG) logging |
-
-> **Note**: Supported output formats are `wav`, `flac`, and `ogg` via `soundfile`.
+Supported output formats are `wav`, `flac`, and `ogg` via `soundfile`.
 
 **Storage**: ~11 GB (4.88 GB download + 6.3 GB extracted WAV files; archive is deleted after extraction).
 
@@ -461,13 +403,15 @@ The `metadata.csv` contains one row per extracted segment with columns:
 
 > **Measured on NVIDIA A100-SXM4-80GB** with 5,000 samples, all filters enabled. Sustained VRAM: **~6.3 GB** (all models loaded concurrently in streaming mode). GPU utilization: **23–92%** sustained during processing. In batch/sequential mode, VRAM is not cumulative — each stage loads its model, processes, then releases GPU memory.
 >
-> Default GPU resource allocations total **0.9 GPU** for the main branch (VAD `0.1` + UTMOS `0.1` + SIGMOS `0.1` + Speaker Separation `0.3`). When `--enable-speaker-separation` is set, `AudioDataFilterStage.decompose()` instantiates a **duplicated post-speaker filter branch** (VAD `0.1` + Band `0.0` + UTMOS `0.1` + SIGMOS `0.1` = **+0.3 GPU**), so the peak fractional allocation across all stages is **0.9 GPU** — safely within a single GPU. All fractions can be raised in [`default_config.yaml`](https://github.com/NVIDIA-NeMo/Curator/blob/main/nemo_curator/stages/audio/advanced_pipelines/audio_data_filter/default_config.yaml) for faster scheduling on multi-GPU nodes.
+> Default GPU resource allocations total **0.9 GPU** for the main branch (VAD `0.1` + UTMOS `0.1` + SIGMOS `0.1` + Speaker Separation `0.3`). When `enable_speaker_separation=true`, `AudioDataFilterStage.decompose()` instantiates a **duplicated post-speaker filter branch** (VAD `0.1` + Band `0.0` + UTMOS `0.1` + SIGMOS `0.1` = **+0.3 GPU**), so the peak fractional allocation across all stages is **0.9 GPU** — safely within a single GPU. All fractions can be raised in [`default_config.yaml`](https://github.com/NVIDIA-NeMo/Curator/blob/main/nemo_curator/stages/audio/advanced_pipelines/audio_data_filter/default_config.yaml) for faster scheduling on multi-GPU nodes.
 
 The model stages can run on CPU, but resource requests are explicit. For the
 YAML pipeline, select the ONNX VAD runtime and clear every GPU reservation:
 
 ```bash
-python run.py --config-path . --config-name pipeline.yaml \
+python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/readspeech \
+  --config-name pipeline \
   raw_data_dir=./dns_data \
   execution_mode=batch \
   vad_backend=onnx vad_gpus=0.0 \
@@ -484,13 +428,13 @@ efficiently on CPU.
 
 ### Timing Estimates
 
-Measured on a single **NVIDIA A100-SXM4-80GB** (1 GPU, 20 CPUs), DNS Challenge Read Speech dataset, all filters enabled (UTMOS + VAD + SIGMOS + Band + Speaker Separation), `--backend ray_data`:
+Measured on a single **NVIDIA A100-SXM4-80GB** (1 GPU, 20 CPUs), DNS Challenge Read Speech dataset, all filters enabled (UTMOS + VAD + SIGMOS + Band + Speaker Separation), `backend=ray_data`:
 
 | Configuration                                        | Samples | Wall-Clock Time      | Ray Execution Time |
 |------------------------------------------------------|---------|----------------------|--------------------|
-| Validate setup (`--max-samples 10`, all filters)     | 10      | **~1 min 42 sec**    | ~42 sec            |
-| Default (`--max-samples 5000`)                       | 5,000   | **~14 min 34 sec**   | ~13 min 24 sec     |
-| Full dataset (`--max-samples -1`)                    | 14,279  | **~40 min 5 sec**    | ~36 min 57 sec     |
+| Validate setup (`max_samples=10`, all filters)       | 10      | **~1 min 42 sec**    | ~42 sec            |
+| `max_samples=5000`                                   | 5,000   | **~14 min 34 sec**   | ~13 min 24 sec     |
+| Full dataset (`max_samples=-1`, default)             | 14,279  | **~40 min 5 sec**    | ~36 min 57 sec     |
 
 > **Hardware setup**: 1× A100-SXM4-80GB GPU, 20 CPUs. Wall-clock time includes Ray startup, model loading, and worker initialization. Ray Execution Time is the actual data processing time reported by `streaming_executor`.
 
@@ -518,7 +462,7 @@ With default thresholds on the DNS Challenge Read Speech dataset:
 | UTMOS ≥ 3.4 + VAD + Band Filter (`full_band`)              | ~65–75%            | Combined filtering                           |
 | All filters (UTMOS + SIGMOS + VAD + Band + Speaker Sep)    | **~23%**           | Measured: 3,306 / 14,279 passed (full dataset) |
 
-> **Measured on A100-SXM4-80GB** with the full 14,279-sample dataset, all filters at default thresholds. SIGMOS (OVRL ≥ 3.5, NOISE ≥ 4.0) is the most aggressive filter — it drops the majority of samples. To retain more data, consider lowering `--sigmos-ovrl-threshold`.
+> **Measured on A100-SXM4-80GB** with the full 14,279-sample dataset, all filters at default thresholds. SIGMOS (OVRL ≥ 3.5, NOISE ≥ 4.0) is the most aggressive filter — it drops the majority of samples. To retain more data, consider lowering `sigmos_ovrl_threshold`.
 
 These ratios depend on the dataset. Noisier or lower-quality audio will see higher drop rates. If your pass rate deviates significantly from these ranges, verify your threshold settings.
 
@@ -526,9 +470,9 @@ These ratios depend on the dataset. Noisier or lower-quality audio will see high
 
 | Issue                                    | Solution                                                                     |
 |------------------------------------------|------------------------------------------------------------------------------|
-| No audio files found                     | Check `--auto-download` is enabled or verify path to existing data           |
+| No audio files found                     | Check `auto_download=true` or verify the path to existing data              |
 | `AF_UNIX path length` error             | `export RAY_TMPDIR=/tmp`                                                     |
-| CUDA out of memory                       | Disable some filters, use `--max-samples`, or reduce `--batch_size`          |
+| CUDA out of memory                       | Disable some filters or use `max_samples`                                   |
 | Download interrupted                     | Re-run pipeline; it skips already-downloaded files                           |
 | Pipeline appears hung                    | See "Is my pipeline hung?" below                                             |
 | UTMOS/SIGMOS model download fails        | Check internet connectivity; models are fetched from HuggingFace/ONNX Hub   |
@@ -538,7 +482,7 @@ These ratios depend on the dataset. Noisier or lower-quality audio will see high
 
 If the pipeline seems stuck:
 
-1. **Check logs**: Run with `--verbose` for DEBUG-level output showing per-file progress.
+1. **Check logs**: Watch the per-stage progress the executor logs.
 2. **Check GPU utilization**: Run `watch -n1 nvidia-smi` — active inference shows >0% GPU utilization.
 3. **Common causes of apparent hangs**:
    - **First-run model download**: UTMOS, SIGMOS, Band filter, and Sortformer models are downloaded on first execution. This can take a few minutes on slow connections.

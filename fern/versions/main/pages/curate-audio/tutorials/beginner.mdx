@@ -30,12 +30,10 @@ The working tutorial is maintained in one place:
 ```text
 tutorials/audio/fleurs/
 ├── README.md
-├── main.py
-├── pipeline.yaml
-└── fleurs_tutorial.ipynb
+└── pipeline.yaml
 ```
 
-`main.py` loads `pipeline.yaml` through Hydra and manages the Ray client and selected executor. Use this entrypoint instead of copying the pipeline into a second script.
+The generic runner, `nemo_curator/config/run.py`, loads `pipeline.yaml` through Hydra and manages the Ray client and selected executor. Use it instead of copying the pipeline into a script.
 
 ## Prerequisites
 
