@@ -166,6 +166,33 @@ class TestJsonlReaderWithoutIdGenerator:
         assert arrow_as_pandas["created_at"].dtype.storage == "pyarrow"
         assert pd.Timestamp(arrow_as_pandas["created_at"].iloc[0]) == expected
 
+    @pytest.mark.parametrize("engine", ["pyarrow_direct", "pandas"])
+    def test_zero_byte_file_adds_no_rows(self, tmp_path: Path, engine: str) -> None:
+        """A zero-byte file should not fail a group whose other files have rows."""
+        data_path = tmp_path / "data.jsonl"
+        data_path.write_text('{"text":"a"}\n{"text":"b"}\n', encoding="utf-8")
+        empty_path = tmp_path / "empty.jsonl"
+        empty_path.write_text("", encoding="utf-8")
+        task = FileGroupTask(dataset_name="ds", data=[str(data_path), str(empty_path)], _metadata={})
+
+        result = JsonlReaderStage(read_kwargs={"engine": engine}).process(task)
+
+        assert result.to_pandas()["text"].tolist() == ["a", "b"]
+
+    @pytest.mark.parametrize("engine", ["pyarrow_direct", "pandas"])
+    def test_zero_byte_file_alone_follows_allow_empty(self, tmp_path: Path, engine: str) -> None:
+        """A group holding only a zero-byte file is a zero-row result, which allow_empty controls."""
+        empty_path = tmp_path / "empty.jsonl"
+        empty_path.write_text("", encoding="utf-8")
+        task = FileGroupTask(dataset_name="ds", data=[str(empty_path)], _metadata={})
+
+        with pytest.raises(ValueError, match="No data read"):
+            JsonlReaderStage(read_kwargs={"engine": engine}).process(task)
+
+        result = JsonlReaderStage(read_kwargs={"engine": engine}, allow_empty=True).process(task)
+
+        assert result.num_items == 0
+
     def test_pyarrow_direct_does_not_fall_back(self, tmp_path: Path) -> None:
         """The explicit direct engine should expose unsupported Arrow input instead of silently changing engines."""
         file_path = tmp_path / "mixed.jsonl"

@@ -86,6 +86,10 @@ def _read_jsonl_file_with_pyarrow(
             ) as stream:
                 return paj.read_json(stream, read_options=read_options)
         except pa.ArrowInvalid as error:
+            # PyArrow rejects a zero-byte file, although it reads a file holding
+            # only blank lines as a table with no rows.
+            if "Empty JSON file" in str(error):
+                return pa.table({})
             if "straddling object" not in str(error) or block_size >= max_block_size:
                 raise
             block_size = min(block_size * 2, max_block_size)
