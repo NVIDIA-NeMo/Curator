@@ -24,6 +24,7 @@ from nemo_curator.stages.deduplication.id_generator import (
     CURATOR_DEDUP_ID_STR,
 )
 from nemo_curator.stages.text.io.reader.jsonl import JsonlReader, JsonlReaderStage
+from nemo_curator.stages.text.io.writer import JsonlWriter
 from nemo_curator.tasks import EmptyTask, FileGroupTask
 
 
@@ -86,6 +87,56 @@ class TestJsonlReaderWithoutIdGenerator:
             "Doc 2-1",
             "Doc 2-2",
         ]
+
+    def test_default_reader_keeps_date_like_strings(self, tmp_path: Path) -> None:
+        """Date-like strings without fractional seconds stay strings, so a JSONL round trip does not rewrite them."""
+        file_path = tmp_path / "dates.jsonl"
+        rows = [
+            {"id": 1, "date": "2024-03-05", "created_at": "2024-03-05T10:20:30Z", "text": "a"},
+            {"id": 2, "date": "2024-03-06", "created_at": "2024-03-06T10:20:30Z", "text": "b"},
+        ]
+        file_path.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+        task = FileGroupTask(dataset_name="ds", data=[str(file_path)], _metadata={"source_files": [str(file_path)]})
+
+        result = JsonlReaderStage().process(task)
+
+        assert result.data.column_names == ["id", "date", "created_at", "text"]
+        assert result.data.schema.field("date").type == pa.string()
+        assert result.data.schema.field("created_at").type == pa.string()
+        assert result.data["date"].to_pylist() == ["2024-03-05", "2024-03-06"]
+        assert result.data["created_at"].to_pylist() == ["2024-03-05T10:20:30Z", "2024-03-06T10:20:30Z"]
+
+        written = JsonlWriter(path=str(tmp_path / "out")).process(result)
+        assert [json.loads(line) for line in Path(written.data[0]).read_text(encoding="utf-8").splitlines()] == rows
+
+    def test_default_reader_keeps_date_like_strings_in_nested_values(self, tmp_path: Path) -> None:
+        """Nested objects and lists keep their date-like strings too, and other nested values keep their types."""
+        file_path = tmp_path / "nested.jsonl"
+        rows = [
+            {"meta": {"seen": "2024-03-05", "n": 1}, "events": ["2024-03-05T10:20:30Z"], "text": "a"},
+            {"meta": {"seen": "2024-03-06", "n": 2}, "events": ["2024-03-06T10:20:30Z"], "text": "b"},
+        ]
+        file_path.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+        task = FileGroupTask(dataset_name="ds", data=[str(file_path)], _metadata={})
+
+        result = JsonlReaderStage().process(task)
+
+        assert result.data.column_names == ["meta", "events", "text"]
+        assert result.data.to_pylist() == rows
+        assert result.data.schema.field("meta").type == pa.struct([("seen", pa.string()), ("n", pa.int64())])
+        assert result.data.schema.field("events").type == pa.list_(pa.string())
+
+    def test_default_reader_concatenates_files_with_and_without_inferred_timestamps(self, tmp_path: Path) -> None:
+        """PyArrow parses the first file's value as a timestamp but not the second's; both should read as strings."""
+        first = tmp_path / "first.jsonl"
+        second = tmp_path / "second.jsonl"
+        first.write_text('{"created_at":"2024-03-05T10:20:30Z"}\n', encoding="utf-8")
+        second.write_text('{"created_at":"2024-03-05T10:20:30.5Z"}\n', encoding="utf-8")
+        task = FileGroupTask(dataset_name="ds", data=[str(first), str(second)], _metadata={})
+
+        result = JsonlReaderStage().process(task)
+
+        assert result.data["created_at"].to_pylist() == ["2024-03-05T10:20:30Z", "2024-03-05T10:20:30.5Z"]
 
     @pytest.mark.parametrize("engine", [None, "pyarrow_direct", "pandas", "ujson", "pyarrow"])
     def test_stage_rejects_lines_false_at_initialization(self, engine: str | None) -> None:
