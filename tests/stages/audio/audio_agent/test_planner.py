@@ -48,7 +48,7 @@ class TestPlanner:
         p = _plan(
             [
                 {"ref": "ManifestReader", "params": {"manifest_path": "/tmp/m.jsonl"}},  # noqa: S108
-                {"ref": "ResampleAudioStage", "params": {"resampled_audio_dir": "/tmp/r"}},  # noqa: S108
+                {"ref": "AudioFormatStage", "params": {"target_sample_rate": 16000}},
                 {"ref": "VADSegmentationStage", "params": {}},
                 {"ref": "SplitASRAlignJoinStage", "params": {}},
                 {"ref": "ManifestWriterStage", "params": {"output_path": "/tmp/o.jsonl"}},  # noqa: S108

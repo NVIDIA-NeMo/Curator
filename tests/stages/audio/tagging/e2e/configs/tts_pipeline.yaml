@@ -6,7 +6,6 @@
 input_manifest: ???
 final_manifest: ???
 workspace_dir: /tmp/tagging_test_workspace
-resampled_audio_dir: ${workspace_dir}/audio_resampled
 language_short: en
 hf_token: ""
 sample_rate: 16000
@@ -21,13 +20,13 @@ stages:
     files_per_partition: 1
 
   # 1. Resample audio to 16 kHz mono WAV
-  - _target_: nemo_curator.stages.audio.tagging.ResampleAudioStage
-    name: "ResampleAudio"
-    resampled_audio_dir: ${resampled_audio_dir}
-    input_format: "wav"
+  - _target_: nemo_curator.stages.audio.preprocessing.AudioFormatStage
     target_sample_rate: ${sample_rate}
-    target_format: "wav"
-    target_nchannels: 1
+    target_channels: 1
+    write_to_disk: true
+    keep_waveform_in_task: false
+    output_dir: ${workspace_dir}/audio_resampled
+    output_audio_filepath_key: resampled_audio_filepath
     resources: ${resources}
 
   # 2. Speaker diarization (PyAnnote)

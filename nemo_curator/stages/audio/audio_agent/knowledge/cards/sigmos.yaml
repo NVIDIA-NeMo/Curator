@@ -8,7 +8,7 @@ model_id: "microsoft SIGMOS (ONNX, P.804)"
 # ``best_guess`` in ``verified`` so a reader knows not to treat it as a pin.
 model_version: "P.804-ONNX"
 domain: {language: any, style: speech}
-constraints: {}   # no supported_sample_rates constraint: any input rate is accepted and resampled internally to 48 kHz for inference, so no upstream ResampleAudioStage is required
+constraints: {}   # no supported_sample_rates constraint: any input rate is accepted and resampled internally to 48 kHz for inference, so no upstream AudioFormatStage conversion is required
 resource:
   cpus: 1.0
   gpu_mem_gb: 0.5   # measured on RTX 4090 via nvidia-smi delta (~0.46 GB, ONNX Runtime CUDA)
@@ -24,7 +24,7 @@ use_cases:
     - "non-speech audio"
     - "when a single overall 'good enough' bar is sufficient -- use UTMOSFilterStage (cheaper)"
 composition:
-  typical_upstream: [MonoConversionStage, VADSegmentationStage, UTMOSFilterStage]
+  typical_upstream: [AudioFormatStage, VADSegmentationStage, UTMOSFilterStage]
   typical_downstream: [AudioToDocumentStage, ManifestWriterStage]
 params_of_note:
   noise_threshold: "minimum NOISE score (default 4.0); None disables this dimension"

@@ -65,7 +65,7 @@ The stage supports two input modes:
 
 | Mode | Input | When to Use |
 |------|-------|-------------|
-| **In-pipeline** | `waveform` from upstream (e.g., from `MonoConversionStage` or `VADSegmentationStage`) | Default — pulls existing waveform; no extra disk I/O. |
+| **In-pipeline** | `waveform` from upstream (e.g., from `AudioFormatStage` or `VADSegmentationStage`) | Default — pulls existing waveform; no extra disk I/O. |
 | **Standalone** | `audio_filepath` only | Useful when running the filter as a one-off classification step before any other stages. |
 
 In-pipeline mode is automatic when an upstream stage has populated `waveform`; otherwise the stage falls back to reading from `audio_filepath`.
@@ -117,7 +117,7 @@ If the distribution is severely skewed, you may want to filter; if balanced, tra
 ```python
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.backends.xenna import XennaExecutor
-from nemo_curator.stages.audio.preprocessing.mono_conversion import MonoConversionStage
+from nemo_curator.stages.audio.preprocessing import AudioFormatStage
 from nemo_curator.stages.audio.segmentation.vad_segmentation import VADSegmentationStage
 from nemo_curator.stages.audio.filtering.band import BandFilterStage
 from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
@@ -126,7 +126,7 @@ from nemo_curator.stages.text.io.writer import JsonlWriter
 pipeline = Pipeline(name="band_filtering")
 
 # 1. Normalize input
-pipeline.add_stage(MonoConversionStage(output_sample_rate=48000))
+pipeline.add_stage(AudioFormatStage(allowed_sample_rates=[48000], target_channels=1))
 
 # 2. Segment
 pipeline.add_stage(VADSegmentationStage(min_duration_sec=2.0))
@@ -152,7 +152,7 @@ pipeline.run(executor)
 - **Verify your assumption first**: don't band-filter without first confirming your dataset actually contains a mix. If everything is full-band, you'll just add latency for no benefit.
 - **Cache the model**: set `cache_dir` to avoid re-downloading the classifier on every run, especially in containerized or ephemeral environments.
 - **Place band filter early**: it's cheap (CPU-only). Run it before expensive GPU stages (UTMOS, SIGMOS, speaker separation) so you don't pay for scoring audio you'd reject anyway.
-- **Don't mix `band_value` with `MonoConversionStage` resampling**: if upstream resampling has changed the spectrum, the classifier may misclassify. Place the band filter immediately after VAD on the original-rate audio when possible.
+- **Don't mix `band_value` with `AudioFormatStage` resampling**: if upstream resampling has changed the spectrum, the classifier may misclassify. Place the band filter immediately after VAD on the original-rate audio when possible.
 
 ## Related Topics
 

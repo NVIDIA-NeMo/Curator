@@ -44,8 +44,8 @@ _ASR = {
 # Holds its waveform in the task, so everything downstream of it carries a tensor no manifest
 # can serialize, until a sanitizing stage drops it.
 _KEEPS_WAVEFORM = {
-    "ref": "ResampleAudioStage",
-    "params": {"resampled_audio_dir": "/tmp/rs", "keep_waveform_in_task": True, "write_to_disk": False},  # noqa: S108
+    "ref": "AudioFormatStage",
+    "params": {"target_sample_rate": 16000, "keep_waveform_in_task": True},
 }
 _SANITIZER = {"ref": "AudioToDocumentStage", "params": {}}
 
@@ -193,7 +193,7 @@ class TestTheOfferOnAMiss:
 
     def test_the_offer_names_a_position_a_manifest_can_actually_hold(self) -> None:
         recipe = _recipe(_READER, _KEEPS_WAVEFORM, _ASR, _SANITIZER, _DUR, _WRITER)
-        unsaved = {"stages": ["ManifestReader", "ResampleAudioStage", "ASRStage"]}
+        unsaved = {"stages": ["ManifestReader", "AudioFormatStage", "ASRStage"]}
         offer = reuse._persist_offer(recipe, unsaved)
         assert offer is not None
         # The prefix ends at the ASR stage, and a writer there is exactly what crashes.

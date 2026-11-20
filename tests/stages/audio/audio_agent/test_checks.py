@@ -53,12 +53,9 @@ def test_unknown_rewrite_forgets_only_its_own_rate_evidence(
         stages=[
             StageRef("ManifestReader", {"manifest_path": "source.jsonl"}),
             StageRef(
-                "ResampleAudioStage",
+                "AudioFormatStage",
                 {
-                    "resampled_audio_dir": "unused",
                     "target_sample_rate": 48000,
-                    "write_to_disk": False,
-                    "keep_waveform_in_task": True,
                     "waveform_key": waveform_key,
                 },
             ),
@@ -166,7 +163,7 @@ def test_audio_consumers_still_refuse_missing_carriers(tmp_path: Path, residency
     recipe = _recipe(
         tmp_path,
         [
-            {"ref": "ChannelCountStage", "params": {"action": "annotate", "input_residency": residency}},
+            {"ref": "AudioFormatStage", "params": {"input_residency": residency}},
         ],
         {"id": "a", "text": "hello"},
     )
@@ -180,7 +177,7 @@ def test_available_resident_pair_is_not_forced_to_have_a_path(tmp_path: Path) ->
         _recipe(
             tmp_path,
             [
-                {"ref": "ChannelCountStage", "params": {"action": "annotate", "input_residency": "auto"}},
+                {"ref": "AudioFormatStage", "params": {"input_residency": "auto"}},
             ],
             {"waveform": [0.0], "sample_rate": 16000},
         )
@@ -198,9 +195,8 @@ def test_source_paths_must_match_the_configured_consumer(tmp_path: Path, columns
             tmp_path,
             [
                 {
-                    "ref": "ChannelCountStage",
+                    "ref": "AudioFormatStage",
                     "params": {
-                        "action": "annotate",
                         "input_residency": "file",
                         "audio_filepath_key": "recording",
                     },
@@ -256,9 +252,10 @@ def test_reviewer_requirements_are_explained_at_validation(tmp_path: Path) -> No
 def test_directory_sink_reports_unproven_acceptance_before_execution(tmp_path: Path) -> None:
     recipe = _recipe(tmp_path, [], {"audio_filepath": "/clip.wav"})
     recipe["stages"][-1] = {
-        "ref": "ResampleAudioStage",
+        "ref": "AudioFormatStage",
         "params": {
-            "resampled_audio_dir": str(tmp_path / "audio"),
+            "target_sample_rate": 16000,
+            "output_dir": str(tmp_path / "audio"),
             "write_to_disk": True,
         },
     }

@@ -24,11 +24,13 @@ stages:
   - _target_: nemo_curator.stages.audio.common.ManifestReader
     manifest_path: ${manifest_path}
     files_per_partition: 1
-  - _target_: nemo_curator.stages.audio.tagging.ResampleAudioStage
-    resampled_audio_dir: ${workspace_dir}/audio_resampled
+  - _target_: nemo_curator.stages.audio.preprocessing.AudioFormatStage
     target_sample_rate: 16000
-    target_format: wav
-    target_nchannels: 1
+    target_channels: 1
+    write_to_disk: true
+    keep_waveform_in_task: false
+    output_dir: ${workspace_dir}/audio_resampled
+    output_audio_filepath_key: resampled_audio_filepath
   - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
     adapter_target: nemo_curator.models.asr.qwen_omni.QwenOmniASRAdapter
     model_id: ${model_id}

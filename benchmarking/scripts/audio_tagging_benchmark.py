@@ -33,10 +33,10 @@ from nemo_curator.stages.audio.inference.speaker_diarization.pyannote import PyA
 from nemo_curator.stages.audio.metrics.bandwidth import BandwidthEstimationStage
 from nemo_curator.stages.audio.metrics.squim import TorchSquimQualityMetricsStage
 from nemo_curator.stages.audio.metrics.wer import ComputeWERStage
+from nemo_curator.stages.audio.preprocessing import AudioFormatStage
 from nemo_curator.stages.audio.tagging.inference.nemo_asr_align import NeMoASRAlignerStage
 from nemo_curator.stages.audio.tagging.merge_alignment_diarization import MergeAlignmentDiarizationStage
 from nemo_curator.stages.audio.tagging.prepare_module_segments import PrepareModuleSegmentsStage
-from nemo_curator.stages.audio.tagging.resample_audio import ResampleAudioStage
 from nemo_curator.stages.audio.tagging.split import JoinSplitAudioMetadataStage, SplitLongAudioStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -51,7 +51,7 @@ AUDIO_TAGGING_HF_FILENAMES = (
 )
 
 _REQUIRED_STAGE_NAMES = (
-    "ResampleAudio",
+    "AudioFormat",
     "PyAnnoteDiarization",
     "SplitLongAudio",
     "ASRAlignment",
@@ -384,12 +384,13 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
     pipeline.add_stage(ManifestReader(manifest_path=str(input_manifest_path)))
 
     pipeline.add_stage(
-        ResampleAudioStage(
-            resampled_audio_dir=str(scratch_output_path / "audio_resampled"),
-            input_format="wav",
+        AudioFormatStage(
             target_sample_rate=16000,
-            target_format="wav",
-            target_nchannels=1,
+            target_channels=1,
+            write_to_disk=True,
+            keep_waveform_in_task=False,
+            output_dir=str(scratch_output_path / "audio_resampled"),
+            output_audio_filepath_key="resampled_audio_filepath",
         ).with_(resources=Resources(cpus=1))
     )
     pipeline.add_stage(

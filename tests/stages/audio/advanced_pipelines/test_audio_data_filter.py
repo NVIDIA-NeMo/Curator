@@ -31,7 +31,7 @@ from nemo_curator.stages.audio.advanced_pipelines.audio_data_filter.config impor
 )
 from nemo_curator.stages.audio.filtering import BandFilterStage, SIGMOSFilterStage, UTMOSFilterStage
 from nemo_curator.stages.audio.postprocessing import TimestampMapperStage
-from nemo_curator.stages.audio.preprocessing import MonoConversionStage, SegmentConcatenationStage
+from nemo_curator.stages.audio.preprocessing import AudioFormatStage, SegmentConcatenationStage
 from nemo_curator.stages.audio.segmentation import SpeakerSeparationStage, VADSegmentationStage
 
 # ---------------------------------------------------------------------------
@@ -76,7 +76,7 @@ class TestLoadConfig:
     def test_load_config_defaults(self) -> None:
         cfg = load_config(None)
         expected_keys = {
-            "mono_conversion",
+            "audio_format",
             "vad",
             "band_filter",
             "utmos",
@@ -166,12 +166,6 @@ class TestValidate:
         with pytest.raises(ValueError, match=r"speaker_separation\.min_duration"):
             _validate(cfg)
 
-    def test_validate_sample_rate_zero(self) -> None:
-        cfg = load_config(None)
-        cfg["mono_conversion"]["output_sample_rate"] = 0
-        with pytest.raises(ValueError, match="output_sample_rate"):
-            _validate(cfg)
-
     def test_validate_silence_negative(self) -> None:
         cfg = load_config(None)
         cfg["concatenation"]["silence_duration_sec"] = -1
@@ -188,7 +182,7 @@ class TestGetEnabledStages:
     def test_get_enabled_stages_all_enabled(self) -> None:
         cfg = load_config(None)
         stages = get_enabled_stages(cfg)
-        assert "mono_conversion" in stages
+        assert "audio_format" in stages
         assert "vad" in stages
         assert "band_filter" in stages
         assert "utmos" in stages
@@ -204,7 +198,7 @@ class TestGetEnabledStages:
         cfg["sigmos"]["enable"] = False
         cfg["speaker_separation"]["enable"] = False
         stages = get_enabled_stages(cfg)
-        assert stages == ["mono_conversion", "vad", "timestamp_mapper"]
+        assert stages == ["audio_format", "vad", "timestamp_mapper"]
 
     def test_get_enabled_stages_no_speaker_no_concatenation(self) -> None:
         cfg = load_config(None)
@@ -237,7 +231,8 @@ class TestDecomposeStageCount:
         )
         stages = stage.decompose()
         assert len(stages) == 2
-        assert isinstance(stages[0], MonoConversionStage)
+        assert isinstance(stages[0], AudioFormatStage)
+        assert (stages[0].allowed_sample_rates, stages[0].target_channels) == ([48000], 1)
         assert isinstance(stages[1], TimestampMapperStage)
 
     def test_decompose_no_speaker_no_second_pass(self) -> None:
@@ -425,7 +420,7 @@ class TestDefaultYAMLConsistency:
     def test_default_yaml_all_stages_have_resources(self) -> None:
         cfg = load_config(None)
         stages_with_cpus = [
-            "mono_conversion",
+            "audio_format",
             "vad",
             "band_filter",
             "utmos",

@@ -40,8 +40,6 @@ _MODULE_CATEGORY_RULES: tuple[tuple[str, str], ...] = (
     ("datasets", "ingest"),
     ("ManifestReader", "ingest"),
     ("ManifestWriter", "export"),
-    ("resample", "preprocess"),
-    ("mono_conversion", "preprocess"),
     ("concatenation", "segment"),
     ("segmentation.vad", "segment"),
     ("inference.vad", "segment"),

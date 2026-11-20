@@ -315,8 +315,9 @@ def test_published_manifest_tracks_implicit_generated_audio(
             "stages": [
                 _READER,
                 {
-                    "ref": "MonoConversionStage",
+                    "ref": "AudioFormatStage",
                     "params": {
+                        "target_channels": 1,
                         "write_to_disk": True,
                         "keep_waveform_in_task": False,
                         "output_audio_filepath_key": "converted_path",
@@ -678,11 +679,11 @@ class TestRunWorkspaceLock:
         recipe = {
             "stages": [
                 {
-                    "ref": "ReadLongFormManifestStage",
+                    "ref": "ManifestReader",
                     "params": {
-                        "input_manifest": str(manifest),
+                        "manifest_path": str(manifest),
                         "audio_dir": str(audio_dir),
-                        "audio_filepath_key": "custom_audio",
+                        "include_files_key": "custom_audio",
                         "audio_path_resolution": "relative",
                     },
                 }
@@ -1292,51 +1293,6 @@ class TestDataInformedConfig:
         path.write_text(json.dumps(row) + "\n", encoding="utf-8")
         return str(path)
 
-    def test_the_observed_rate_is_bound_so_the_default_does_not_discard_the_corpus(self, tmp_path) -> None:  # noqa: ANN001
-        """MonoConversion VERIFIES the rate and drops non-matching rows; its 48 kHz default
-        would silently discard a 16 kHz corpus."""
-        manifest = self._manifest(tmp_path, "nemo.jsonl", {"audio_filepath": "@wav", "text": "hi"})
-        result = aa.resolve("MonoConversionStage", data=manifest)
-        assert result["params"]["output_sample_rate"] == 16000
-        assert result["asks"] == []
-
-    def test_a_folder_source_needs_no_column_question(self, tmp_path) -> None:  # noqa: ANN001
-        """The agent creates the manifest for a folder, so the schema is known by construction."""
-        import numpy as np
-        import soundfile as sf
-
-        sf.write(str(tmp_path / "a.wav"), np.zeros(16000, dtype="float32"), 16000)
-        result = aa.resolve("MonoConversionStage", data=str(tmp_path))
-        assert result["params"]["output_sample_rate"] == 16000
-        assert result["asks"] == []
-
-    def test_an_explicit_value_outranks_the_inferred_one(self, tmp_path) -> None:  # noqa: ANN001
-        manifest = self._manifest(tmp_path, "nemo.jsonl", {"audio_filepath": "@wav", "text": "hi"})
-        result = aa.resolve("MonoConversionStage", explicit={"output_sample_rate": 48000}, data=manifest)
-        assert result["params"]["output_sample_rate"] == 48000
-
-    def test_an_overridden_inference_leaves_no_trace_claiming_it_applied(self, tmp_path) -> None:  # noqa: ANN001
-        """The value was always the user's, but the strategy trail also gained a data_informed
-        entry stating 16000 and why it was chosen -- an audit record of a binding that never
-        happened. On the one param a user is most likely to have pinned deliberately, as a
-        strict gate, that reads as the agent having quietly widened it to fit the data.
-        """
-        manifest = self._manifest(tmp_path, "nemo.jsonl", {"audio_filepath": "@wav", "text": "hi"})
-        result = aa.resolve("MonoConversionStage", explicit={"output_sample_rate": 48000}, data=manifest)
-        rate_entries = [e for e in result["strategy"] if e["param"] == "output_sample_rate"]
-        assert [e["value"] for e in rate_entries] == [48000]
-
-    def test_the_derivation_is_recorded_as_recomputable(self, tmp_path) -> None:  # noqa: ANN001
-        """A data-derived value must be stamped so a different dataset recomputes it."""
-        manifest = self._manifest(tmp_path, "nemo.jsonl", {"audio_filepath": "@wav", "text": "hi"})
-        entry = next(
-            e
-            for e in aa.resolve("MonoConversionStage", data=manifest)["strategy"]
-            if e["param"] == "output_sample_rate"
-        )
-        assert entry["mode"] == "data_informed"
-        assert entry["recompute_on"] == "data_change"
-
     def test_path_a_alone_is_unchanged(self) -> None:
         assert aa.resolve("UTMOSFilterStage", label="studio")["params"] == {"mos_threshold": 4.0}
 
@@ -1348,7 +1304,7 @@ class TestDataInformedConfig:
         workspace = tmp_path / "workspace"
         workspace.mkdir()
         monkeypatch.setenv("AUDIO_AGENT_WORKSPACE", str(workspace))
-        result = aa.resolve("MonoConversionStage", data=outside)
+        result = aa.resolve("AudioFormatStage", data=outside)
         assert result["status"] == "refused"
         assert "outside the allowed workspace" in result["reason"]
         assert "params" not in result

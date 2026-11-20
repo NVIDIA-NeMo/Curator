@@ -63,9 +63,8 @@ OUTPUT_LOCATION_PARAMS = frozenset(
     {
         "output_path",  # ManifestWriterStage, Snippet*/PretrainMetrics* writers
         "output_manifest",  # recipe-level alias mapped onto output_path
-        "output_dir",  # SegmentExtraction / MonoConversion / SegmentConcatenation / SnippetExtraction
+        "output_dir",  # SegmentExtraction / AudioFormat / SegmentConcatenation / SnippetExtraction
         "output_audio_tar_path",  # SnippetExtractionStage
-        "resampled_audio_dir",  # ResampleAudioStage
         "separated_audio_dir",  # SpeakerSeparationStage
         "rttm_out_dir",  # InferenceSortformerStage
     }

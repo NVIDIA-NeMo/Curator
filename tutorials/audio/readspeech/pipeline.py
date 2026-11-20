@@ -24,15 +24,15 @@ Source: https://github.com/microsoft/DNS-Challenge
 Pipeline supports four topologies depending on which features are enabled:
 
   Combo 1 (default, no flags):
-    MonoConversion -> Filters -> TimestampMapper -> JsonlWriter
+    AudioFormat -> Filters -> TimestampMapper -> JsonlWriter
     Output: 1 row per file with whole-file quality scores.
 
   Combo 2 (--enable-vad):
-    MonoConversion -> VAD(fan-out) -> Filters -> TimestampMapper -> JsonlWriter
+    AudioFormat -> VAD(fan-out) -> Filters -> TimestampMapper -> JsonlWriter
     Output: 1 row per speech segment with per-segment scores and timestamps.
 
   Combo 3 (--enable-speaker-separation):
-    MonoConversion -> Filters -> SpeakerSep(fan-out) -> Filters -> TimestampMapper
+    AudioFormat -> Filters -> SpeakerSep(fan-out) -> Filters -> TimestampMapper
     Output: 1 row per speaker with diarization timestamps and per-speaker scores.
 
   Combo 4 (--enable-vad --enable-speaker-separation):
@@ -107,8 +107,8 @@ def create_readspeech_pipeline(args: argparse.Namespace) -> Pipeline:
     pipeline.add_stage(
         AudioDataFilterStage(
             config={
-                "mono_conversion": {
-                    "output_sample_rate": args.sample_rate,
+                "audio_format": {
+                    "allowed_sample_rates": [args.sample_rate],
                 },
                 "vad": {
                     "enable": args.enable_vad,
@@ -201,7 +201,9 @@ Examples:
         help="Disable automatic download (expects data already exists)",
     )
     parser.add_argument("--batch_size", type=int, default=1, help="Batch size")
-    parser.add_argument("--sample_rate", type=int, default=48000, help="Target sample rate")
+    parser.add_argument(
+        "--sample_rate", type=int, default=48000, help="Required input sample rate; other rates are dropped"
+    )
     parser.add_argument("--clean", action="store_true", help="Clean output directory")
     parser.add_argument(
         "--backend",
@@ -312,8 +314,7 @@ def main() -> None:
         sys.exit(1)
     elapsed = time.monotonic() - t0
     logger.info(
-        f"Pipeline completed in {elapsed:.2f}s ({elapsed / 60:.2f} min) "
-        f"for input dataset at {args.raw_data_dir}",
+        f"Pipeline completed in {elapsed:.2f}s ({elapsed / 60:.2f} min) for input dataset at {args.raw_data_dir}",
     )
     logger.info(f"Results written to {args.output_dir}/*.jsonl")
     logger.info("Done!")

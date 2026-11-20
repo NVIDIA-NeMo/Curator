@@ -1,7 +1,7 @@
 ---
-description: "Audio preprocessing stages — mono conversion, segment concatenation, and timestamp mapping for downstream filtering pipelines"
+description: "Audio preprocessing stages — audio format (sample rate and channels), segment concatenation, and timestamp mapping for downstream filtering pipelines"
 categories: ["audio-processing"]
-tags: ["audio-filtering", "preprocessing", "mono-conversion", "concatenation", "timestamp"]
+tags: ["audio-filtering", "preprocessing", "audio-format", "concatenation", "timestamp"]
 personas: ["data-scientist-focused", "mle-focused"]
 difficulty: "beginner"
 content_type: "how-to"
@@ -10,82 +10,52 @@ modality: "audio-only"
 
 # Preprocessing Stages
 
-Three lightweight stages handle the common audio plumbing tasks: **collapsing channels**, **joining segments after filtering**, and **projecting filtered timestamps back to the original input file**. Together they form the scaffolding around the heavier filtering stages — mono conversion runs first, segment concatenation re-merges surviving segments after filtering, and timestamp mapping closes the loop by projecting final boundaries back to source-file positions.
+Three lightweight stages handle the common audio plumbing tasks: **normalizing sample rate and channels**, **joining segments after filtering**, and **projecting filtered timestamps back to the original input file**. Together they form the scaffolding around the heavier filtering stages — the audio format stage runs first, segment concatenation re-merges surviving segments after filtering, and timestamp mapping closes the loop by projecting final boundaries back to source-file positions.
 
 ## Stage Roles
 
 | Stage | When | Job |
 |-------|------|------|
-| `MonoConversionStage` | First | Normalize multi-channel input to mono and verify (or resample to) the target sample rate. |
+| `AudioFormatStage` | First | Record, select on, or convert sample rate and channel count (mono downmix, resampling). |
 | `SegmentConcatenationStage` | After filters | Concatenate surviving filtered segments back into one waveform with configurable silence between them. |
 | `TimestampMapperStage` | Last | Resolve final segment positions in the concatenated waveform back to positions in the original source file. |
 
-## `ChannelCountStage`
+## `AudioFormatStage`
 
-Use `action="annotate"` (the default) to record `num_channels`, `action="filter"`
-to select existing channel counts, or `action="convert"` to change them.
-Annotation and filtering inspect file headers when reading files; conversion
-requires waveform samples. Sample rate is unchanged.
-
-```python
-from nemo_curator.stages.audio.preprocessing import ChannelCountStage
-
-pipeline.add_stage(ChannelCountStage(action="filter", allowed_channels=[1]))
-# For conversion instead:
-# pipeline.add_stage(ChannelCountStage(action="convert", target_channels=1))
-```
-
-Under annotation and filtering, `num_channels` is the observed input count.
-Under conversion, it is the resulting count. Filtering for mono preserves only
-already-mono rows; converting to mono changes multi-channel rows.
-
-| Input channels | Target channels | Conversion |
-| --- | --- | --- |
-| N | N | Preserve the waveform. |
-| N > 1 | 1 | Average channels into mono. |
-| 1 | T > 1 | Duplicate mono into T channels. |
-| N > 1 | T > 1, T != N | Drop the row: layout-aware conversion is unsupported. |
-
-A waveform tensor does not retain the file's speaker layout or channel mask.
-Multi-channel conversion therefore needs a layout-aware tool such as ffmpeg;
-this stage does not infer a stereo or surround layout from the channel count.
-Set sample-rate policy separately with `SampleRateFilterStage` or
-`ResampleAudioStage`.
-
-## `MonoConversionStage`
-
-Converts multi-channel audio to mono and verifies that the input sample rate matches `output_sample_rate`. Place it as the **first** stage in any quality-filtering pipeline so downstream stages can assume a consistent waveform shape.
-
-### Usage
+One stage records each row's `sample_rate` and `num_channels`, drops rows outside the
+configured constraints, and optionally converts the audio. Without a `target_*` it reads only
+the file header (or the resident waveform), so rejected rows are never decoded. With a target
+it decodes, converts, and keeps the waveform in the task and/or writes a WAV file.
 
 ```python
-from nemo_curator.stages.audio.preprocessing.mono_conversion import MonoConversionStage
+from nemo_curator.stages.audio.preprocessing import AudioFormatStage
 
-mono = MonoConversionStage(
-    output_sample_rate=48000,
-    audio_filepath_key="audio_filepath",
-    strict_sample_rate=True,
+# Select: keep only 48 kHz rows, decode nothing.
+pipeline.add_stage(AudioFormatStage(allowed_sample_rates=[48000]))
+# Convert: 16 kHz mono waveform for downstream in-memory stages.
+pipeline.add_stage(AudioFormatStage(target_sample_rate=16000, target_channels=1))
+# Convert to files, e.g. ahead of a file-based ASR stage.
+pipeline.add_stage(
+    AudioFormatStage(
+        target_sample_rate=16000,
+        target_channels=1,
+        write_to_disk=True,
+        keep_waveform_in_task=False,
+        output_dir="/data/audio_16k",
+        output_audio_filepath_key="resampled_audio_filepath",
+    )
 )
-
-pipeline.add_stage(mono)
 ```
 
-### Parameters
-
-| Parameter | Type | Default | Description |
-| --- | --- | --- | --- |
-| `output_sample_rate` | int | `48000` | Required input sample rate. When `strict_sample_rate=True`, mismatched inputs raise; otherwise they are auto-resampled. |
-| `audio_filepath_key` | str | `"audio_filepath"` | Manifest field containing the audio file path. |
-| `strict_sample_rate` | bool | `True` | If `True`, raise on rate mismatch instead of resampling. |
-
-### Choosing `strict_sample_rate`
-
-| Mode | Behavior | Use Case |
-|------|----------|----------|
-| `strict_sample_rate=True` (default) | Raise on rate mismatch | Production pipelines with known-good input. Surfaces unexpected data formats early. |
-| `strict_sample_rate=False` | Auto-resample to `output_sample_rate` | Heterogeneous web crawls or mixed datasets where rate variation is expected. |
-
-Set `output_sample_rate=48000` for full-band audio, `16000` for narrow-band / telephony, or match your downstream model's training rate.
+| Parameter | Default | Description |
+| --- | --- | --- |
+| `allowed_sample_rates`, `min_sample_rate`, `max_sample_rate` | `None` | Keep rows whose rate is one of / at least / at most these. |
+| `allowed_channels`, `min_channels`, `max_channels` | `None` | The same for the channel count. |
+| `target_sample_rate` | `None` | Resample (torchaudio) to this rate. |
+| `target_channels` | `None` | `1` averages channels into mono; `N > 1` duplicates mono. Other layouts (e.g. 6 to 2) drop the row. |
+| `input_residency` | `"auto"` | Read a resident `waveform`/`sample_rate` first, else the file. |
+| `keep_waveform_in_task` | `True` | Keep the converted waveform in the task. |
+| `write_to_disk`, `output_dir`, `update_audio_filepath` | `False`, `None`, `False` | Write the converted audio as WAV and optionally repoint `audio_filepath`. |
 
 ## `SegmentConcatenationStage`
 
@@ -173,7 +143,7 @@ A pipeline that uses all three stages together with VAD + UTMOS in between:
 ```python
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.backends.xenna import XennaExecutor
-from nemo_curator.stages.audio.preprocessing.mono_conversion import MonoConversionStage
+from nemo_curator.stages.audio.preprocessing import AudioFormatStage
 from nemo_curator.stages.audio.segmentation.vad_segmentation import VADSegmentationStage
 from nemo_curator.stages.audio.filtering.utmos import UTMOSFilterStage
 from nemo_curator.stages.audio.preprocessing.concatenation import SegmentConcatenationStage
@@ -183,8 +153,8 @@ from nemo_curator.stages.text.io.writer import JsonlWriter
 
 pipeline = Pipeline(name="audio_preprocessing")
 
-# 1. Normalize channels and sample rate
-pipeline.add_stage(MonoConversionStage(output_sample_rate=48000))
+# 1. Keep 48 kHz rows and downmix to mono
+pipeline.add_stage(AudioFormatStage(allowed_sample_rates=[48000], target_channels=1))
 
 # 2. Segment into speech chunks
 pipeline.add_stage(VADSegmentationStage(min_duration_sec=2.0))
@@ -210,8 +180,8 @@ pipeline.run(executor)
 
 ## Best Practices
 
-- **Mono first, always**: every downstream stage assumes a consistent waveform shape. `MonoConversionStage` is mandatory at the start of any pipeline that uses VAD, UTMOS, SIGMOS, or speaker separation.
-- **Use `strict_sample_rate=True` until you have evidence it's wrong**: catching unexpected rates early is better than silently resampling and getting subtly worse results downstream.
+- **Mono first, always**: every downstream stage assumes a consistent waveform shape. Start any pipeline that uses VAD, UTMOS, SIGMOS, or speaker separation with `AudioFormatStage(target_channels=1)`.
+- **Select before you resample**: `allowed_sample_rates` catches unexpected rates early; add `target_sample_rate` only when rate variation is expected.
 - **Pass through fields explicitly**: `TimestampMapperStage` is the closing stage — list everything you want preserved in `passthrough_keys`. It's easier than adding a downstream stage to merge them back.
 - **Skip concatenation if you want individual-segment manifests**: if your downstream training pipeline reads one segment at a time, you don't need to concatenate. Run VAD → quality filters → directly to writer; skip both `SegmentConcatenationStage` and `TimestampMapperStage`.
 
@@ -219,4 +189,4 @@ pipeline.run(executor)
 
 - **[VAD Segmentation](/curate-audio/process-data/quality-filtering/vad)** — produces the segments concatenation re-merges.
 - **[Speaker Separation](/curate-audio/process-data/quality-filtering/speaker-separation)** — typical stage between concatenation and the per-speaker filters.
-- **[`AudioDataFilterStage` Composite](/curate-audio/process-data/quality-filtering/audio-data-filter-stage)** — composes mono conversion + concatenation + timestamp mapping into the standard pipeline automatically.
+- **[`AudioDataFilterStage` Composite](/curate-audio/process-data/quality-filtering/audio-data-filter-stage)** — composes the audio format stage + concatenation + timestamp mapping into the standard pipeline automatically.

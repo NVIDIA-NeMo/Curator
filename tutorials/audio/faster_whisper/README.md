@@ -2,7 +2,7 @@
 
 This tutorial reads a NeMo-style audio manifest, normalizes each file to a
 16 kHz mono WAV, transcribes it with Faster-Whisper Large-v3, and writes the
-results to JSONL. It composes `ManifestReader`, `ResampleAudioStage`, the generic
+results to JSONL. It composes `ManifestReader`, `AudioFormatStage`, the generic
 `ASRStage` configured with `FasterWhisperASR`, and `ManifestWriterStage`.
 
 The defaults reproduce the eligible-sample inference contract in
@@ -30,9 +30,10 @@ uv sync --extra audio_cpu
 source .venv/bin/activate
 ```
 
-`ResampleAudioStage` invokes `ffmpeg`, so input audio may use any format
-supported by the installed build. It writes PCM 16-bit, 16 kHz, mono WAV files
-under `resampled_audio_dir` before inference.
+`AudioFormatStage` decodes input audio with soundfile, so any format libsndfile
+reads works (WAV, FLAC, OGG/Opus, MP3). It resamples in-process and writes PCM
+16-bit, 16 kHz, mono WAV files under `${workspace_dir}/audio_resampled`
+before inference.
 
 ## Run the bundled smoke input
 

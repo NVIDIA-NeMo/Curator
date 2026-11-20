@@ -20,7 +20,7 @@
 #
 # Pipeline stages:
 #   0. ManifestReader          - Read input JSONL manifest
-#   1. ResampleAudio           - Resample audio to 16 kHz mono WAV
+#   1. AudioFormat             - Resample audio to 16 kHz mono WAV
 #   2. PyAnnoteDiarization     - Speaker diarization + overlap detection
 #   3. SplitLongAudio          - Split segments exceeding max length
 #   4. NeMoASRAligner          - Forced alignment via NeMo FastConformer
@@ -82,7 +82,6 @@ documentation: |
 input_manifest: ???
 final_manifest: ???
 workspace_dir: /tmp/tagging_workspace
-resampled_audio_dir: ${workspace_dir}/audio_resampled
 language_short: en
 hf_token: ""
 sample_rate: 16000
@@ -100,13 +99,13 @@ stages:
     manifest_path: ${input_manifest}
     files_per_partition: 1
 
-  - _target_: nemo_curator.stages.audio.tagging.ResampleAudioStage
-    name: "ResampleAudio"
-    resampled_audio_dir: ${resampled_audio_dir}
-    input_format: "wav"
+  - _target_: nemo_curator.stages.audio.preprocessing.AudioFormatStage
     target_sample_rate: ${sample_rate}
-    target_format: "wav"
-    target_nchannels: 1
+    target_channels: 1
+    write_to_disk: true
+    keep_waveform_in_task: false
+    output_dir: ${workspace_dir}/audio_resampled
+    output_audio_filepath_key: resampled_audio_filepath
 
   - _target_: nemo_curator.stages.audio.inference.speaker_diarization.pyannote.PyAnnoteDiarizationStage
     name: "PyAnnoteDiarization"

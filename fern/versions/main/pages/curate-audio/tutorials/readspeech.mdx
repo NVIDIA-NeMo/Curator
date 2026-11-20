@@ -105,8 +105,9 @@ processors:
   # Stage 1: Apply audio filtering pipeline
   - _target_: nemo_curator.stages.audio.AudioDataFilterStage
     config:
-      mono_conversion:
-        output_sample_rate: ${sample_rate}
+      audio_format:
+        allowed_sample_rates:
+          - ${sample_rate}
       vad:
         enable: ${enable_vad}
         min_duration_sec: ${vad_min_duration_sec}
@@ -146,7 +147,7 @@ The following table describes the key parameters defined in `pipeline.yaml`:
 | `output_dir` | `${raw_data_dir}/result` | Where to write the JSONL manifest. |
 | `max_samples` | `-1` | Number of files to process; `-1` processes all 14,279. |
 | `execution_mode` | `streaming` | `batch` runs stages sequentially; `streaming` runs concurrently (needs enough GPU memory for all stages at once). |
-| `sample_rate` | `48000` | Target sample rate for `MonoConversionStage`. |
+| `sample_rate` | `48000` | Sample rate `AudioFormatStage` keeps; other rates are dropped. |
 | `vad_threshold` | `0.5` | Silero VAD confidence threshold. |
 | `utmos_mos_threshold` | `3.4` | Drop segments with predicted MOS below this. |
 | `sigmos_noise_threshold` | `4.0` | Drop segments with SIGMOS noise score below this. |

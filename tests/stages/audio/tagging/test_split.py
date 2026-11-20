@@ -37,14 +37,14 @@ from nemo_curator.tasks import AudioTask
 
 
 def _patch_audio_io(monkeypatch: pytest.MonkeyPatch, saved_paths: list[str]) -> None:
-    def fake_load(_path: str) -> tuple[np.ndarray, int]:
+    def fake_load(_path: str, **_kwargs: object) -> tuple[np.ndarray, int]:
         return np.linspace(-0.5, 0.5, 80, dtype=np.float32)[None, :], 10
 
     def fake_save(path: str, waveform: np.ndarray, sample_rate: int) -> None:
         saved_paths.append(path)
         sf.write(path, waveform.T, sample_rate)
 
-    monkeypatch.setattr("nemo_curator.stages.audio.tagging.split.torchaudio.load", fake_load)
+    monkeypatch.setattr("nemo_curator.stages.audio.tagging.split.load_audio_file", fake_load)
     monkeypatch.setattr("nemo_curator.stages.audio.tagging.split.torchaudio.save", fake_save)
 
 

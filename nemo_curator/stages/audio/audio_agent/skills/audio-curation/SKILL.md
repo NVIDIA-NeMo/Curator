@@ -409,13 +409,13 @@ the source), NOT the key name.** For each such field/stage, answer five question
    per-child attribute. A whole-clip property (e.g. "single speaker") is not something
    a per-segment field can filter.
 3. **Provenance** — is it measured, a configured TARGET, or a relative label? A
-   target (`output_sample_rate`, resample `sample_rate`) verifies/produces a value;
+   target (`target_sample_rate`, `target_channels`) produces a value;
    it does not describe the input. A diarizer `speaker` is a per-recording cluster id
    (speaker_0 ≠ a person, ≠ comparable across files), not a global identity or a count.
 4. **Stage effect vs intent** — does the stage TRANSFORM what the user said stays
    fixed, or DROP rows they expected kept? Separation/resample/mono change the audio;
-   strict-rate mono DROPS rate-mismatched rows (it does not convert them); every
-   filter DROPS. If intent implies "unchanged / just measured", a transform/mixer is
+   `AudioFormatStage` with `allowed_*`/`min_*`/`max_*` DROPS off-format rows (it does
+   not convert them); every filter DROPS. If intent implies "unchanged / just measured", a transform/mixer is
    the wrong tool.
 5. **Direction** — for a metric filter, is lower or higher "better"
    (`metrics.scale.direction`)? Keep the correct side of the threshold (WER/CER are

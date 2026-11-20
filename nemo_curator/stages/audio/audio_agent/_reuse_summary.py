@@ -40,7 +40,6 @@ _SUMMARY_PATH_KEYS = frozenset(
         "output_path",
         "data_dir",
         "raw_data_dir",
-        "resampled_audio_dir",
         "audio_dir",
         "manifest_filepath",
     }

@@ -6,9 +6,9 @@
 # Set "enable: false" on any stage section to skip it entirely.
 # Each stage has resource and execution controls that can be tuned per deployment.
 
-mono_conversion:
-  output_sample_rate: 48000
-  strict_sample_rate: true
+# Downmix to mono; drop rows whose sample rate is not listed (null keeps every rate).
+audio_format:
+  allowed_sample_rates: [48000]
   cpus: 1.0
 
 vad:

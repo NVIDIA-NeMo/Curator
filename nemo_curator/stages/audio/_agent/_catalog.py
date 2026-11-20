@@ -19,7 +19,7 @@ Built on the framework's existing class-name registry
 no new registry is introduced. ``_ensure_audio_stages_imported`` triggers the
 audio stage modules so their registration is populated before discovery.
 
-    list_agent_ready_stages()         # -> ["MonoConversionStage", ...]
+    list_agent_ready_stages()         # -> ["AudioFormatStage", ...]
     describe_stage("UTMOSFilterStage")  # -> StageContract (static, instance-free)
     catalog_as_json()                 # -> JSON an agent/UI can consume
 """

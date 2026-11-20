@@ -47,19 +47,6 @@ def test_new_converter_does_not_adopt_the_source_rate(monkeypatch: pytest.Monkey
     assert FutureRateConverter().output_sample_rate == 16000
 
 
-def test_declared_verification_respects_its_configured_mode() -> None:
-    profile = {"sample_rates": {"16000": 2}}
-    assert config_strategy.resolve_from_data("MonoConversionStage", profile)["params"] == {"output_sample_rate": 16000}
-    disabled = config_strategy.resolve_from_data(
-        "MonoConversionStage", profile, configured={"strict_sample_rate": False}
-    )
-    assert disabled["params"] == {}
-    assert disabled["asks"] == []
-    explicit = config_strategy.resolve_from_data("MonoConversionStage", profile, already_set={"output_sample_rate"})
-    assert explicit["params"] == {}
-    assert explicit["strategy"] == []
-
-
 def test_new_verifier_can_bind_a_renamed_parameter_from_its_card(monkeypatch: pytest.MonkeyPatch) -> None:
     from nemo_curator.stages import base
     from nemo_curator.stages.audio._agent import _catalog
@@ -92,3 +79,6 @@ def test_new_verifier_can_bind_a_renamed_parameter_from_its_card(monkeypatch: py
     assert FutureRateGate().process(task) == []
     assert FutureRateGate(**derived["params"]).process(task) is task
     assert config_strategy.resolve_from_data("FutureRateGate", profile, configured={"enforce": False})["params"] == {}
+    explicit = config_strategy.resolve_from_data("FutureRateGate", profile, already_set={"expected_rate"})
+    assert explicit["params"] == {}
+    assert explicit["strategy"] == []

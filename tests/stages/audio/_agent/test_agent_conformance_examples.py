@@ -18,7 +18,7 @@ Each stage owner adds one ``assert_agent_ready(...)`` test for their stage (see
 ``nemo_curator/stages/audio/AGENT_READY.md``). These three cover the common
 patterns on CPU with no models:
 
-  * 1:1 transform reading a file              -> MonoConversionStage
+  * 1:1 transform reading a file              -> AudioFormatStage
   * 1:1 annotate writing one metric            -> GetAudioDurationStage
   * filter (batch-only, may drop items)        -> PreserveByValueStage
 
@@ -39,7 +39,7 @@ import torch
 
 from nemo_curator.stages.audio._agent._conformance import assert_agent_ready, assert_residency_consumption
 from nemo_curator.stages.audio.common import GetAudioDurationStage, PreserveByValueStage
-from nemo_curator.stages.audio.preprocessing.mono_conversion import MonoConversionStage
+from nemo_curator.stages.audio.preprocessing.audio_format import AudioFormatStage
 from nemo_curator.tasks import AudioTask
 
 
@@ -51,15 +51,13 @@ def _write_wav(path: Path, *, duration_sec: float = 1.0, sample_rate: int = 4800
 
 # --- TEMPLATE 1: a 1:1 transform that reads a file -------------------------- #
 def test_example_transform_stage_conformance(tmp_path: Path) -> None:
-    wav = _write_wav(tmp_path / "a.wav", sample_rate=48000)  # MonoConversion default sr
+    wav = _write_wav(tmp_path / "a.wav", sample_rate=48000)
 
     def fixture() -> AudioTask:
         return AudioTask(dataset_name="t", data={"audio_filepath": wav})
 
-    # ``strict_sample_rate`` (the default) drops rows whose rate differs, which is a
-    # filter; relaxing it gives the plain 1:1 transform this template is meant to show.
     assert_agent_ready(
-        MonoConversionStage(strict_sample_rate=False),
+        AudioFormatStage(target_channels=1),
         fixture,
         expected_cardinality="1:1",
         available_keys={"audio_filepath"},
@@ -93,7 +91,7 @@ def test_example_residency_consumption(tmp_path: Path) -> None:
         return AudioTask(dataset_name="t", data={"waveform": torch.zeros(2, 48000), "sample_rate": 48000})
 
     assert_residency_consumption(
-        lambda r: MonoConversionStage(input_residency=r),
+        lambda r: AudioFormatStage(target_channels=1, input_residency=r),
         file_fixture=file_fixture,
         waveform_fixture=waveform_fixture,
     )

@@ -39,8 +39,16 @@ from nemo_curator.stages.audio.audio_agent.diagnostics import (
 )
 from nemo_curator.stages.audio.audio_agent.index import get_index
 from nemo_curator.stages.audio.audio_agent.recipe import Recipe, build_stages
+from nemo_curator.stages.audio.io import nemo_speech_writer
 
 _MANIFEST = Path(__file__).resolve().parents[3] / "fixtures/audio/alm/sample_input.jsonl"
+
+
+@pytest.fixture
+def ffmpeg_stage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[str, dict]:
+    """The one stage that can need ffmpeg: Opus output where libsndfile cannot encode Opus."""
+    monkeypatch.setattr(nemo_speech_writer.sf, "check_format", lambda *_: False)
+    return "NeMoSpeechWriterStage", {"output_dir": str(tmp_path / "speech")}
 
 
 def _healthy_env(**updates: object) -> EnvProfile:
@@ -281,10 +289,10 @@ def test_external_ray_does_not_treat_local_cuda_mismatch_as_worker_fact() -> Non
 
 
 def test_external_ray_does_not_treat_other_driver_facts_as_worker_facts(
-    tmp_path: Path,
+    ffmpeg_stage: tuple[str, dict],
 ) -> None:
     stages = _build(
-        ("ResampleAudioStage", {"resampled_audio_dir": str(tmp_path / "rs")}),
+        ffmpeg_stage,
         (
             "PyAnnoteDiarizationStage",
             {"hf_token": "", "resources": {"cpus": 1, "gpus": 1}},
@@ -401,13 +409,10 @@ def test_ambiguous_uv_dependencies_stay_unverified_not_healthy(
     assert "worker_env_unverified" in {issue["code"] for issue in decision["issues"]}
 
 
-def test_ffmpeg_and_secret_block_only_relevant_selected_stages(tmp_path: Path) -> None:
+def test_ffmpeg_and_secret_block_only_relevant_selected_stages(ffmpeg_stage: tuple[str, dict]) -> None:
     env = _healthy_env(has_ffmpeg=False, available_secrets=[])
     duration = environment_preflight(_build(("GetAudioDurationStage", {})), env)
-    resample = environment_preflight(
-        _build(("ResampleAudioStage", {"resampled_audio_dir": str(tmp_path / "rs")})),
-        env,
-    )
+    resample = environment_preflight(_build(ffmpeg_stage), env)
     pyannote_stages = _build(
         (
             "PyAnnoteDiarizationStage",
@@ -557,13 +562,11 @@ def test_validate_keeps_non_jit_gpu_recipe_runnable_for_bounded_evidence(
 def test_validate_respects_external_ray_instead_of_local_machine_gates(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    ffmpeg_stage: tuple[str, dict],
 ) -> None:
     recipe = _recipe(
         tmp_path / "out.jsonl",
-        {
-            "ref": "ResampleAudioStage",
-            "params": {"resampled_audio_dir": str(tmp_path / "rs")},
-        },
+        {"ref": ffmpeg_stage[0], "params": ffmpeg_stage[1]},
     )
     local_env = _healthy_env(
         has_gpu=False,
@@ -597,13 +600,11 @@ def test_validate_keeps_local_gates_for_ray_discovery_and_loopback(
     address: str,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    ffmpeg_stage: tuple[str, dict],
 ) -> None:
     recipe = _recipe(
         tmp_path / "out.jsonl",
-        {
-            "ref": "ResampleAudioStage",
-            "params": {"resampled_audio_dir": str(tmp_path / "rs")},
-        },
+        {"ref": ffmpeg_stage[0], "params": ffmpeg_stage[1]},
     )
     local_env = _healthy_env(has_ffmpeg=False)
     monkeypatch.setenv("RAY_ADDRESS", address)

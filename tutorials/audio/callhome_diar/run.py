@@ -15,7 +15,7 @@
 """Speaker diarization on CallHome English using Streaming Sortformer via NeMo Curator.
 
 Four-stage pipeline via XennaExecutor:
-  CallHomeReaderStage → EnsureMonoStage → InferenceSortformerStage → DERComputationStage
+  CallHomeReaderStage → AudioFormatStage → InferenceSortformerStage → DERComputationStage
 
 Usage:
     python tutorials/audio/callhome_diar/run.py --data-dir /path/to/callhome_eng0
@@ -26,10 +26,8 @@ Usage:
 import argparse
 import hashlib
 import json
-import os
 import re
 import shutil
-import subprocess
 import time
 from collections import Counter
 from dataclasses import dataclass
@@ -41,6 +39,7 @@ from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.inference.speaker_diarization.stage import InferenceSortformerStage
+from nemo_curator.stages.audio.preprocessing import AudioFormatStage
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask, EmptyTask
@@ -202,43 +201,6 @@ class CallHomeReaderStage(ProcessingStage[EmptyTask, AudioTask]):
                 )
             )
         return tasks
-
-
-@dataclass
-class EnsureMonoStage(ProcessingStage[AudioTask, AudioTask]):
-    """Downmix stereo WAVs to mono 16 kHz via ffmpeg."""
-
-    mono_dir: str = "mono"
-    filepath_key: str = "audio_filepath"
-    name: str = "EnsureMonoStage"
-
-    def inputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], []
-
-    def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], [self.filepath_key]
-
-    def _ensure_mono(self, wav_path: str) -> str:
-        mono_path = os.path.join(self.mono_dir, os.path.basename(wav_path))
-        if os.path.exists(mono_path):
-            return mono_path
-        os.makedirs(self.mono_dir, exist_ok=True)
-        subprocess.run(  # noqa: S603
-            ["ffmpeg", "-i", wav_path, "-ac", "1", "-ar", "16000", "-y", mono_path],  # noqa: S607
-            check=True,
-            capture_output=True,
-        )
-        return mono_path
-
-    def process(self, task: AudioTask) -> AudioTask:
-        output_data = dict(task.data)
-        output_data[self.filepath_key] = self._ensure_mono(task.data[self.filepath_key])
-        return AudioTask(
-            dataset_name=task.dataset_name,
-            data=output_data,
-            _metadata=task._metadata,
-            _stage_perf=task._stage_perf,
-        )
 
 
 @dataclass
@@ -583,7 +545,14 @@ def main() -> None:
     try:
         stages: list[ProcessingStage] = [
             CallHomeReaderStage(data_dir=str(data_dir), cha_dir=str(cha_dir)),
-            EnsureMonoStage(mono_dir=str(args.output_dir / "mono")),
+            AudioFormatStage(
+                target_sample_rate=16000,
+                target_channels=1,
+                keep_waveform_in_task=False,
+                write_to_disk=True,
+                update_audio_filepath=True,
+                output_dir=str(args.output_dir / "mono"),
+            ),
             InferenceSortformerStage(
                 model_id=args.model,
                 rttm_out_dir=str(rttm_out),

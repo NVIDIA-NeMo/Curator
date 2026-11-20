@@ -60,9 +60,10 @@ the number of GPUs each worker receives.
 ## Provide Input Audio
 
 Each `AudioTask` must provide an audio path under the key configured by
-`audio_filepath_key`. The default key is `resampled_audio_filepath`, so place a
-`ResampleAudioStage` before `ASRStage`, or point the stage at an existing audio
-path. For in-memory audio, set `waveform_key` and provide the sample rate under
+`audio_filepath_key`. The default key is `resampled_audio_filepath`, so place an
+`AudioFormatStage(target_sample_rate=16000, target_channels=1, write_to_disk=True,
+keep_waveform_in_task=False, output_dir=..., output_audio_filepath_key="resampled_audio_filepath")`
+before `ASRStage`, or point the stage at an existing audio path. For in-memory audio, set `waveform_key` and provide the sample rate under
 `sample_rate_key` (default `sampling_rate`) instead. The stage normalizes either
 input to mono at `target_sample_rate` (16 kHz by default) before inference.
 

@@ -33,7 +33,7 @@ use_cases:
     - "non-English audio (trained primarily on English; accuracy drops)"
     - "when you need explicit overlap_segments or timeline gap coverage as no-speaker rows (PyAnnoteDiarizationStage)"
 composition:
-  typical_upstream: [MonoConversionStage, ResampleAudioStage]
+  typical_upstream: [AudioFormatStage]
   typical_downstream: [MergeAlignmentDiarizationStage, TimestampMapperStage, AudioToDocumentStage, ASRStage]
 params_of_note:
   session_name_key: "Explicit session identity used for resident fan-out provenance and RTTM labels."
@@ -50,7 +50,7 @@ params_of_note:
   skip_if_output_exists: Reuse complete annotation outputs, including an existing safe RTTM path when exporting. Fan-out always rebuilds children.
   model_name: "the Sortformer checkpoint id (default streaming v2.1)"
   model_path: "local .nemo checkpoint path; overrides model_name (skips the HF download)"
-  filepath_key: "file input key (default audio_filepath); set it to resampled_audio_filepath when consuming ResampleAudioStage's default disk output"
+  filepath_key: "file input key (default audio_filepath); set it to converted_audio_filepath when consuming AudioFormatStage's disk output (write_to_disk=True)"
   fanout: False annotates the recording. True emits cloned, channel-first source-audio slices and removes parent transcripts, diar_segments, and full-recording paths.
   num_speakers_key: Whole-recording count, written by default under num_speakers. Set None to disable; when enabled, every fan-out child inherits the computed recording-level count.
   input_residency: Explicit file, waveform, or auto selection. Auto prefers a complete waveform/sample_rate pair, falls back to the file only when both are absent, and rejects a partial pair.
@@ -121,7 +121,7 @@ notes:
   - "With rttm_naming=source_hash, the digest includes the session label and the full real source path for file input, or selected waveform content/shape/dtype/sample rate for resident input. Temporary paths, task IDs, shard metadata, and processing order do not affect it. Identical content and labels can share a resident export; moving a file changes its path-based name."
   - "Output key is `diar_segments`; MergeAlignmentDiarizationStage defaults to reading `segments` -- set its segments_key=diar_segments (or rename) when chaining."
   - "Fan-out children are waveform-only audio carriers: each has a cloned channel-first `waveform` slice and `sample_rate`, drops `audio_filepath`/`resampled_audio_filepath`, and retains source provenance under `original_file` (explicit session or item identity before a content identity for resident audio). File-only downstream stages are intentionally incompatible unless audio is materialized separately."
-  - "ResampleAudioStage leaves audio_filepath unchanged by default. Route the converted input through filepath_key=resampled_audio_filepath, resident waveform input, or update_audio_filepath=True on the resampler."
+  - "AudioFormatStage leaves audio_filepath unchanged by default. Route the converted input through its retained resident waveform (the default), filepath_key=converted_audio_filepath, or update_audio_filepath=True on the converter."
   - "Speech-turn-only list: silence between turns is simply absent. Window duration for consumers that use first_start→last_end still spans those gaps without needing placeholder rows."
   - "Streaming defaults (chunk_len=340, fifo_len=40, spkcache_len=188, spkcache_update_period=300, chunk_right_context=40) match the model card's recommended streaming config."
   - "GPU is reserved by default; CPU is supported by the NeMo adapter with resources.gpus=0 and fp32 precision. The default checkpoint needs internet on first use; model_path can point to a pre-cached local .nemo file."

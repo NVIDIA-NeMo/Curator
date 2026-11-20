@@ -122,7 +122,7 @@ def test_condition_schema_accepts_both_runtime_forms(conditions: dict[str, objec
 def test_optional_parameter_schema_accepts_explicit_null() -> None:
     from nemo_curator.stages.audio.agent import describe_stage, to_json_schema
 
-    schema = to_json_schema(describe_stage("SampleRateFilterStage").params)
+    schema = to_json_schema(describe_stage("AudioFormatStage").params)
     jsonschema.validate({"allowed_sample_rates": None, "min_sample_rate": None}, schema)
     with pytest.raises(jsonschema.ValidationError):
         jsonschema.validate({"allowed_sample_rates": "16000"}, schema)

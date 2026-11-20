@@ -66,7 +66,7 @@ def _hardcoded_stage_names() -> dict[str, set[str]]:
     including it turns a stale sentence into a failing test. Comments never reach the AST.
 
     Only exact ``...Stage`` identifiers count. ``index._MODULE_CATEGORY_RULES`` holds SUBSTRING
-    patterns rather than refs (``"ManifestWriter"``, ``"resample"``, ``"datasets"``); none of
+    patterns rather than refs (``"ManifestWriter"``, ``"metrics"``, ``"datasets"``); none of
     them carries the suffix, so they stay out on their own. That matters most for
     ``"ManifestWriter"``, which is a perfectly correct substring rule and is not a stage name --
     checking it would fail for no reason. (``"ManifestReader"`` appears both as a rule there and

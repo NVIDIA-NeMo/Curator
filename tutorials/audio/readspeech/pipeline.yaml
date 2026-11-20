@@ -80,8 +80,9 @@ processors:
 
   - _target_: nemo_curator.stages.audio.AudioDataFilterStage
     config:
-      mono_conversion:
-        output_sample_rate: ${sample_rate}
+      audio_format:
+        allowed_sample_rates:
+          - ${sample_rate}
       vad:
         enable: ${enable_vad}
         adapter_target: ${vad_adapter_target}

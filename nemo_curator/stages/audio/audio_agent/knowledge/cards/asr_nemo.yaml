@@ -32,7 +32,7 @@ use_cases:
     - "languages the chosen checkpoint was not trained on (pick a matching model_id)"
     - "word-level alignments/timestamps -- use NeMoASRAlignerStage instead"
 composition:
-  typical_upstream: [ResampleAudioStage, ManifestReader]
+  typical_upstream: [AudioFormatStage, ManifestReader]
   typical_downstream: [GetPairwiseWerStage, ComputeWERStage]
 params_of_note:
   adapter_target: "adapter class path -- REQUIRED, no default. One of: nemo_curator.models.asr.nemo_asr.NeMoASRAdapter (NeMo/parakeet), nemo_curator.models.asr.qwen_asr.QwenASRAdapter (Qwen3-ASR via vLLM), nemo_curator.models.asr.qwen_omni.QwenOmniASRAdapter (Qwen3-Omni thinker-only via vLLM). Prefer a preset over hand-writing this."

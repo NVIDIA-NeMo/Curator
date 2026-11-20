@@ -181,7 +181,6 @@ _PATH_PARAM_NAMES = frozenset(
         "output_manifest",
         "output_path",
         "raw_data_dir",
-        "resampled_audio_dir",
         "rttm_out_dir",
         "separated_audio_dir",
     }

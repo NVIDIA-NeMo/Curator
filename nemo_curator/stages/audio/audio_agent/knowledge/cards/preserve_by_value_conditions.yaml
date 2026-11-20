@@ -20,7 +20,7 @@ use_cases:
     - "dot-path or recursive traversal: keys such as metrics.score are treated as literal top-level/direct-child keys, not paths"
     - "directly filtering nested metrics from BandwidthEstimationStage, TorchSquimQualityMetricsStage, or ComputeWERStage without first flattening the desired scalar field"
 composition:
-  typical_upstream: [SIGMOSFilterStage, UTMOSFilterStage, BandFilterStage, ChannelCountStage, SampleRateFilterStage, InferenceSortformerStage, PyAnnoteDiarizationStage, ManifestCheckpointStage]
+  typical_upstream: [SIGMOSFilterStage, UTMOSFilterStage, BandFilterStage, AudioFormatStage, InferenceSortformerStage, PyAnnoteDiarizationStage, ManifestCheckpointStage]
   typical_downstream: [AudioToDocumentStage, ManifestWriterStage]
 params_of_note:
   conditions: "Arbitrary-length non-empty list of {input_value_key, target_value, operator} mappings, or a mapping keyed by an exact flat input field. Keys are not dot paths."

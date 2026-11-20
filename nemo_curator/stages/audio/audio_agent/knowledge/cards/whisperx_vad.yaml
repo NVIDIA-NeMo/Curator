@@ -16,7 +16,7 @@ use_cases:
   good_for: ["VAD within a WhisperX-style pipeline", "onset/offset-tunable speech detection"]
   avoid_for: ["lightweight silence removal (Silero VADSegmentationStage is cheaper / CPU-friendly)"]
 composition:
-  typical_upstream: [MonoConversionStage, ResampleAudioStage]
+  typical_upstream: [AudioFormatStage]
   typical_downstream: [BandFilterStage, UTMOSFilterStage, ASRStage]
 params_of_note:
   min_length: "minimum WHOLE-FILE duration in s to process; shorter inputs are skipped (default 0.5)"
