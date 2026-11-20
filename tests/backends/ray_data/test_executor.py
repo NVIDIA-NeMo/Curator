@@ -11,6 +11,8 @@ import ray
 from nemo_curator.backends.ray_data import executor as executor_module
 from nemo_curator.backends.ray_data.executor import RayDataExecutor
 from nemo_curator.backends.utils import RayStageSpecKeys
+from nemo_curator.backends.xenna import XennaExecutor
+from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.interleaved.io import InterleavedParquetWriterStage
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.reassembly import PDFDocumentMergeStage
@@ -49,6 +51,18 @@ def test_driver_validation_must_follow_distributed_stages(tmp_path: Path):
 def test_page_merge_cannot_execute_without_final_validation():
     with pytest.raises(ValueError, match="Required final driver validation"):
         RayDataExecutor().execute([PDFDocumentMergeStage()])
+
+
+def test_page_budget_stages_require_ray_data(tmp_path: Path):
+    stages = [
+        PDFDocumentMergeStage(),
+        PDFPageBudgetValidationStage(
+            manifest_path=str(tmp_path / "manifest.jsonl"), expected_output_version=TEST_OUTPUT_VERSION
+        ),
+    ]
+    for stage in stages:
+        with pytest.raises(ValueError, match=rf"{stage.name}.*require RayDataExecutor"):
+            Pipeline(name="test", stages=[stage]).run(XennaExecutor())
 
 
 @dataclass

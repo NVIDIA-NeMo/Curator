@@ -12,14 +12,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 from loguru import logger
 
 from nemo_curator.backends.base import BaseExecutor
+from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.base import CompositeStage, ProcessingStage, StageInputSpecs
 from nemo_curator.tasks import EmptyTask, Task
+
+
+def _requires_ray_data(stage: ProcessingStage) -> bool:
+    spec = stage.ray_stage_spec()
+    if not isinstance(spec, Mapping):
+        return False
+    group_key = spec.get(RayStageSpecKeys.GROUP_BY_METADATA)
+    return (isinstance(group_key, str) and bool(group_key)) or spec.get(RayStageSpecKeys.RUN_ON_DRIVER) is True
 
 
 def _append_input_requirements(lines: list[str], input_specs: StageInputSpecs) -> None:
@@ -287,15 +297,11 @@ class Pipeline:
 
             executor = XennaExecutor()
 
-        ray_only = [
-            stage.name
-            for stage in self.stages
-            if stage.ray_stage_spec().get("group_by_metadata") or stage.ray_stage_spec().get("run_on_driver")
-        ]
-        if ray_only:
-            from nemo_curator.backends.ray_data import RayDataExecutor
+        from nemo_curator.backends.ray_data import RayDataExecutor
 
-            if not isinstance(executor, RayDataExecutor):
+        if not isinstance(executor, RayDataExecutor):
+            ray_only = [stage.name for stage in self.stages if _requires_ray_data(stage)]
+            if ray_only:
                 msg = f"Stages {ray_only} require RayDataExecutor"
                 raise ValueError(msg)
 

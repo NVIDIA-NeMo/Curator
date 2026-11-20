@@ -17,6 +17,8 @@ from unittest.mock import Mock, patch
 
 import pytest
 
+from nemo_curator.backends.ray_data import RayDataExecutor
+from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.pipeline.pipeline import Pipeline, assign_root_task_ids
 from nemo_curator.stages.base import ProcessingStage, StageInputSpecs
 from nemo_curator.stages.resources import Resources
@@ -60,6 +62,35 @@ def test_pipeline_uses_xenna_executor_by_default():
 
         mock_xenna_class.assert_called_once_with()
         mock_xenna_instance.execute.assert_called_once()
+
+
+def test_pipeline_checks_one_ray_spec_for_xenna():
+    stage = _NoopStage()
+    with (
+        patch("nemo_curator.backends.xenna.XennaExecutor") as xenna,
+        patch.object(stage, "ray_stage_spec", wraps=stage.ray_stage_spec) as ray_spec,
+    ):
+        Pipeline(name="test", stages=[stage]).run()
+
+    ray_spec.assert_called_once_with()
+    xenna.return_value.execute.assert_called_once()
+
+
+def test_pipeline_leaves_ray_spec_to_the_ray_data_executor():
+    stage = _NoopStage()
+    executor = Mock(spec=RayDataExecutor)
+    with patch.object(stage, "ray_stage_spec", wraps=stage.ray_stage_spec) as ray_spec:
+        Pipeline(name="test", stages=[stage]).run(executor=executor)
+
+    ray_spec.assert_not_called()
+    executor.execute.assert_called_once()
+
+
+@pytest.mark.parametrize("spec", [{"group_by_metadata": "document_id"}, {"run_on_driver": True}])
+def test_pipeline_rejects_generic_ray_only_stage_on_xenna(spec: dict):
+    stage = _NoopStage().with_(ray_stage_spec=spec)
+    with pytest.raises(ValueError, match=r"noop.*require RayDataExecutor"):
+        Pipeline(name="test", stages=[stage]).run(executor=XennaExecutor())
 
 
 def test_logs_info_when_ray_serve_active_with_gpu_stages_non_xenna() -> None:
