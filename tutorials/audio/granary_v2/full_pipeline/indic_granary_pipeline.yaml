@@ -1,0 +1,223 @@
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+# Indic recording-to-transcript pipeline; see README.md. Run with: main.py -cn indic_granary_pipeline
+defaults:
+  - common
+  - prompts
+  - override hydra/job_logging: none
+  - override hydra/hydra_logging: none
+  - _self_
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+
+documentation: |
+  Extract metadata and Opus speech clips from recordings (language ID: SpeechBrain
+  + Indic Canary + Whisper), keep clips in 22 Indic languages, transcribe with Indic
+  Canary (TensorRT-LLM) and Parakeet-Riva / IndicConformer recovery, then enrich the
+  selected text.
+  metadata.jsonl retains every metadata result, including rejected/audit rows;
+  indic.jsonl contains the selected clips with ASR and text features.
+
+output_path: ${output_dir}/indic.jsonl
+regex_yaml: tutorials/audio/granary_v2/indic_asr/regex.yaml
+
+# Indic text uses Gemma-4-31B-it-FP8, as in the Granary-v2 report.
+model_identifier: RedHatAI/gemma-4-31B-it-FP8-dynamic
+
+# The Indic image keeps Torch 2.9.1 for TensorRT-LLM and carries only vLLM's CPU build for the Ray Serve
+# driver, so the text model's engine runs in the replicas' isolated environments with vLLM 0.22 (Torch 2.11).
+# One replica is up from the start. With 0, a replica started late on a GPU that a TensorRT-LLM stage was still releasing, the engine
+# failed its free-memory check, and the text stage failed on 503s while no replica was healthy (EOS, 35 h run).
+text_min_replicas: 1
+
+text_model:
+  runtime_env:
+    uv:
+      packages:
+        - vllm==0.22.0+cu129
+        - transformers==5.8.0
+      uv_pip_install_options:
+        - --torch-backend
+        - cu129
+        - --index-strategy
+        - unsafe-best-match
+        - --extra-index-url
+        - https://wheels.vllm.ai/0.22.0/cu129
+    config:
+      setup_timeout_seconds: 1800
+  engine_kwargs:
+    gpu_memory_utilization: 0.85  # 0.95 failed to start on EOS: another process held about 8 GiB of the replica's GPU
+    revision: d4ab4f579dd3516f97d8a6a4c98d0653480bad15  # pragma: allowlist secret - public model revision
+    enable_prefix_caching: true
+
+stages:
+  - ${shared.manifest_reader}
+  - ${shared.resample_audio_stage}
+  - ${shared.inference_sortformer_stage}
+  - ${shared.v_a_d_segmentation_stage}
+  - ${shared.s_e_d_inference_stage}
+  - ${shared.s_e_d_postprocessing_stage}
+  - ${shared.speech_brain_lang_i_d}
+
+  - _target_: nemo_curator.stages.audio.inference.lid.AudioLIDInferenceStage
+    name: IndicCanaryLangID
+    adapter_target: nemo_curator.models.audio.lid.indic_canary.IndicCanaryLIDAdapter
+    model_id: IndicCanaryLangID
+    tag: secondary
+    waveform_key: waveform
+    min_duration_sec: 1
+    max_duration_sec: 40
+    batch_size: 16
+    fail_on_audio_error: true
+    adapter_kwargs:
+      engine_dir: ${model_dir}/indic_canary
+      num_beams: 1
+      max_new_tokens: 1
+      model_batch_size: 16
+      min_duration_sec: 1
+      max_duration_sec: 40
+      kv_cache_free_gpu_memory_fraction: 0.1
+      cross_kv_cache_fraction: 0.1
+    resources:
+      gpu_memory_gb: 40  # the encoder's TensorRT context needs about 40 GB whatever the batch; 8 let it share a GPU with the 50 GB primary Canary and fail to create its context
+
+  - _target_: nemo_curator.stages.audio.inference.lid.AudioLIDInferenceStage
+    name: WhisperLangID
+    adapter_target: nemo_curator.models.audio.lid.whisper.WhisperLIDAdapter
+    model_id: WhisperLangID
+    tag: tertiary
+    waveform_key: waveform
+    min_duration_sec: 1
+    max_duration_sec: 30
+    batch_size: 16
+    fail_on_audio_error: true
+    adapter_kwargs:
+      model_size: medium
+      model_path: ${model_dir}/whisper.pt
+      backend: torch
+      fp16: true
+      model_batch_size: 16
+    resources:
+      gpu_memory_gb: 8
+  - ${shared.select_audio_language_stage}
+  - ${shared.audio_segment_writer_stage}
+  - ${shared.metadata_manifest_writer}
+
+  # Keep the full metadata audit above; only clips in the 22 Indic languages below reach ASR.
+  - _target_: nemo_curator.stages.audio.common.PreserveByValueConditionsStage
+    _convert_: all
+    conditions:
+      - {input_value_key: source_lang, target_value: as, operator: eq}
+      - {input_value_key: source_lang, target_value: bn, operator: eq}
+      - {input_value_key: source_lang, target_value: brx, operator: eq}
+      - {input_value_key: source_lang, target_value: doi, operator: eq}
+      - {input_value_key: source_lang, target_value: gu, operator: eq}
+      - {input_value_key: source_lang, target_value: hi, operator: eq}
+      - {input_value_key: source_lang, target_value: kn, operator: eq}
+      - {input_value_key: source_lang, target_value: kok, operator: eq}
+      - {input_value_key: source_lang, target_value: ks, operator: eq}
+      - {input_value_key: source_lang, target_value: mai, operator: eq}
+      - {input_value_key: source_lang, target_value: ml, operator: eq}
+      - {input_value_key: source_lang, target_value: mni, operator: eq}
+      - {input_value_key: source_lang, target_value: mr, operator: eq}
+      - {input_value_key: source_lang, target_value: ne, operator: eq}
+      - {input_value_key: source_lang, target_value: or, operator: eq}
+      - {input_value_key: source_lang, target_value: pa, operator: eq}
+      - {input_value_key: source_lang, target_value: sa, operator: eq}
+      - {input_value_key: source_lang, target_value: sat, operator: eq}
+      - {input_value_key: source_lang, target_value: sd, operator: eq}
+      - {input_value_key: source_lang, target_value: ta, operator: eq}
+      - {input_value_key: source_lang, target_value: te, operator: eq}
+      - {input_value_key: source_lang, target_value: ur, operator: eq}
+    condition_logic: or
+    missing_value_policy: drop
+  - ${shared.resample_english_clip}
+
+  - _target_: nemo_curator.stages.audio.inference.indic_canary.InferenceIndicCanaryStage
+    keep_waveform: true
+    name: IndicCanary_primary
+    engine_dir: ${model_dir}/indic_canary
+    num_beams: 4
+    # The decoder engine holds 384 tokens including the 10-token prompt, so 374 is its full output capacity (the
+    # reference default); the KV fractions are the reference defaults too.
+    max_new_tokens: 374
+    pnc: false
+    kv_cache_free_gpu_memory_fraction: 0.2
+    cross_kv_cache_fraction: 0.2
+    sample_rate_key: sample_rate
+    pred_text_key: primary_model_prediction
+    batch_size: 64
+    # The Canary encoder's TensorRT execution context asks for about 40 GB.
+    resources:
+      _target_: nemo_curator.stages.resources.Resources
+      gpu_memory_gb: 50
+  - ${shared.whisper_hallucination_primary}
+
+  - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
+    waveform_key: waveform
+    sample_rate_key: sample_rate
+    keep_waveform: true
+    name: ParakeetRiva_recovery
+    skip_if_output_exists: true
+    adapter_target: nemo_curator.models.asr.indic_parakeet_rnnt_tensorrt.TensorRTParakeetRNNTAdapter
+    supported_language_codes: [hi]
+    unsupported_language_marks_skip: false
+    preserve_existing_skip: true
+    max_audio_sec_per_actor: 2400.0
+    pred_text_key: fallback_model_prediction
+    model_id: ${model_dir}/indic_parakeet/model.nemo
+    batch_size: 64
+    adapter_kwargs:
+      engine_dir: ${model_dir}/indic_parakeet
+      chunking_mode: engine
+      empty_audio_marks_skip: false
+    resources:
+      _target_: nemo_curator.stages.resources.Resources
+      gpu_memory_gb: 16
+
+  - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
+    waveform_key: waveform
+    sample_rate_key: sample_rate
+    keep_waveform: false
+    name: IndicConformer_recovery
+    skip_if_output_exists: true
+    # One checkpoint per language (the Hindi checkpoint returns unusable text for other languages); each loads when its first row arrives.
+    adapter_target: nemo_curator.models.audio.indic_conformer_per_language.IndicConformerPerLanguageASR
+    supported_language_codes: [as, bn, brx, doi, gu, kn, kok, ks, mai, ml, mni, mr, ne, or, pa, sa, sat, sd, ta, te, ur]
+    unsupported_language_marks_skip: false
+    preserve_existing_skip: true
+    max_audio_sec_per_actor: 2400.0
+    pred_text_key: fallback_model_prediction
+    model_id: ai4bharat/indicconformer_stt_{lang}_hybrid_ctc_rnnt_large
+    batch_size: 64
+    adapter_kwargs:
+      languages: [as, bn, brx, doi, gu, kn, kok, ks, mai, ml, mni, mr, ne, or, pa, sa, sat, sd, ta, te, ur]
+      decode_mode: rnnt
+      rnnt_precision: fp32
+      use_cuda_graph_decoder: false  # the CUDA-graph RNNT decoder hit an illegal memory access on EOS with mixed Indic languages
+      empty_audio_marks_skip: false
+    resources:
+      _target_: nemo_curator.stages.resources.Resources
+      gpu_memory_gb: 24  # up to 21 checkpoints (about 1 GB each) stay loaded in one worker
+  - ${shared.whisper_hallucination_asr}
+
+  - _target_: nemo_curator.stages.audio.text_filtering.SelectBestPredictionStage
+    primary_text_key: primary_model_prediction
+    fallback_text_key: fallback_model_prediction
+    reference_text_key: null
+    use_reference_on_hallucination: false
+    use_ground_truth_for_short_audio: false
+    output_key: best_prediction
+    primary_model_type: indic_canary
+  - ${shared.regex_substitution_stage}
+  - ${shared.abbreviation_concat_stage}
+  - ${shared.pn_c_restoration}
+  - ${shared.text_normalization}
+  - ${shared.fused_text_l_l_m}
+  - ${shared.language_verification}
+  - ${shared.i_t_n_restoration}
+  - ${shared.disfluency_removal}
+  - ${shared.manifest_writer_stage}
