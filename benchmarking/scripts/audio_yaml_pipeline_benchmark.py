@@ -48,21 +48,15 @@ def apply_overrides(cfg: DictConfig, overrides: list[str]) -> None:
     cfg.merge_with_dotlist(overrides)
 
 
-def run_audio_yaml_pipeline_benchmark(  # noqa: PLR0913
+def run_audio_yaml_pipeline_benchmark(
     benchmark_results_path: str,
     pipeline_yaml: str,
     output_manifest: str,
     overrides: list[str],
-    executor: str | None = None,
-    execution_mode: str | None = None,
 ) -> dict[str, Any]:
     """Run the YAML with dotlist overrides and fail when it writes no rows."""
     cfg = OmegaConf.load(pipeline_yaml)
     apply_overrides(cfg, overrides)
-    if executor is not None:
-        cfg.backend = executor
-    if execution_mode is not None:
-        cfg.execution_mode = execution_mode
     pipeline = create_pipeline_from_yaml(cfg)
     executor_obj = create_executor_from_yaml(cfg)
 
@@ -99,8 +93,6 @@ def main() -> int:
     parser.add_argument(
         "--set", dest="overrides", action="append", default=[], help="OmegaConf dotlist override, key=value"
     )
-    parser.add_argument("--executor", choices=["xenna", "ray_data"], default=None)
-    parser.add_argument("--execution-mode", choices=["streaming", "batch"], default=None)
     parser.add_argument("--save-tasks", action=argparse.BooleanOptionalAction, default=False)
     args = parser.parse_args()
     save_tasks = vars(args).pop("save_tasks")

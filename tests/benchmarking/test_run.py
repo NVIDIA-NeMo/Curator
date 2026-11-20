@@ -14,6 +14,7 @@
 
 import errno
 import fcntl
+import os
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -69,22 +70,6 @@ def test_run_entry_forwards_only_resolved_configured_environment(
     assert setup.call_args.kwargs["ray_data_log_level"] == "WARNING"
 
 
-def test_data_setup_lock_uses_a_lock_file_in_datasets_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("CURATOR_BENCHMARK_PATH_MODE", "host")
-    session = Session.from_dict(
-        {
-            "paths": [
-                {"name": "results_path", "host_path": str(tmp_path / "results")},
-                {"name": "datasets_path", "host_path": str(tmp_path / "datasets")},
-            ],
-            "entries": [{"name": "test_entry", "script": "benchmark.py"}],
-        }
-    )
-
-    with benchmark_run._data_setup_lock("dataset_a", session.path_resolver):
-        assert (tmp_path / "datasets" / ".dataset_a.setup.lock").is_file()
-
-
 def _datasets_path_resolver(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> object:
     monkeypatch.setenv("CURATOR_BENCHMARK_PATH_MODE", "host")
     return Session.from_dict(
@@ -96,6 +81,11 @@ def _datasets_path_resolver(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
             "entries": [{"name": "test_entry", "script": "benchmark.py"}],
         }
     ).path_resolver
+
+
+def test_data_setup_lock_uses_a_lock_file_in_datasets_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    with benchmark_run._data_setup_lock("dataset_a", _datasets_path_resolver(tmp_path, monkeypatch)):
+        assert (tmp_path / "datasets" / ".dataset_a.setup.lock").is_file()
 
 
 def test_data_setup_lock_times_out_while_another_job_holds_it(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -127,6 +117,50 @@ def test_data_setup_lock_runs_unlocked_when_flock_is_unsupported(
         entered = True
 
     assert entered
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root can open a read-only file for writing")
+def test_data_setup_lock_runs_unlocked_when_the_lock_file_cannot_be_opened(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path_resolver = _datasets_path_resolver(tmp_path, monkeypatch)
+    lock_path = tmp_path / "datasets" / ".dataset_a.setup.lock"
+    lock_path.parent.mkdir(parents=True)
+    lock_path.touch(mode=0o444)
+    entered = False
+    with benchmark_run._data_setup_lock("dataset_a", path_resolver, timeout_s=1):
+        entered = True
+
+    assert entered
+
+
+def test_run_data_setups_keeps_files_of_concurrent_jobs_in_the_shared_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CURATOR_BENCHMARK_PATH_MODE", "host")
+    session = Session.from_dict(
+        {
+            "paths": [{"name": "results_path", "host_path": str(tmp_path / "results")}],
+            "datasets": [{"name": "dataset_a", "formats": [{"type": "jsonl", "path": "a.jsonl"}]}],
+            "data_setups": [{"name": "dataset_a", "script": "prepare_dataset.py"}],
+            "entries": [{"name": "uses_a", "script": "benchmark.py", "args": "--input {dataset:dataset_a,jsonl}"}],
+        }
+    )
+    monkeypatch.setattr(benchmark_run, "run_command_with_timeout", lambda **_: {"returncode": 0, "timed_out": False})
+    other_jobs_files = [
+        tmp_path / "data_setup" / "dataset_b" / "results.json",
+        tmp_path / "data_setup" / "dataset_a" / "logs" / "stdouterr.log",
+    ]
+    for path in other_jobs_files:
+        path.parent.mkdir(parents=True)
+        path.write_text("another job")
+
+    failed = benchmark_run.run_data_setups(
+        session.data_setups, session.path_resolver, session.dataset_resolver, tmp_path
+    )
+
+    assert failed == set()
+    assert [path.read_text() for path in other_jobs_files] == ["another job", "another job"]
 
 
 def test_run_data_setups_runs_every_setup_and_returns_the_failed_names(

@@ -904,10 +904,11 @@ versioned manifests or download and stage data into the configured paths before
 the benchmark entries start. Jobs that share `datasets_path` take a
 `.<setup name>.setup.lock` file there, so concurrent jobs wait for one staging
 run and then reuse its output. A job waits for the lock at most the setup's
-`timeout_s`. On a filesystem without `flock` support the runner warns and
-stages without a lock; across nodes, the lock only serializes jobs when the
-filesystem provides cluster-wide `flock` (for example Lustre `flock`, not
-`localflock`). The first staging run can take much longer than the entry
+`timeout_s`. When the lock file cannot be opened (read-only `datasets_path`,
+another user's lock file) or the filesystem has no `flock` support, the runner
+warns and stages without a lock; across nodes, the lock only serializes jobs
+when the filesystem provides cluster-wide `flock` (for example Lustre `flock`,
+not `localflock`). The first staging run can take much longer than the entry
 itself and is not covered by the entry's `timeout_s`.
 
 A failed setup does not stop the session: entries that reference its dataset

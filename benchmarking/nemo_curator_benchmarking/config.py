@@ -233,6 +233,8 @@ def entry_matches_filter(entry_name: str, entry_filter: str | None) -> bool:
     if entry_filter is None:
         return True
     # pytest is a benchmark-runner requirement; import it only when a filter is set.
+    # TODO: This depends on a pytest internal module. Consider vendoring the pytest code
+    #       or implementing a custom expression evaluator.
     from _pytest.mark import Expression
 
     name = entry_name.lower()

@@ -180,17 +180,25 @@ def _data_setup_lock(setup_name: str, path_resolver: PathResolver, timeout_s: fl
     """Serialize one data setup across concurrent benchmark jobs that share datasets_path.
 
     Waits at most ``timeout_s`` seconds for another job's staging run (forever when
-    ``None``) and raises ``TimeoutError`` after that. On a filesystem without ``flock``
-    support it warns and runs unlocked. Jobs on different nodes are only serialized when
-    the filesystem provides cluster-wide ``flock`` (for example Lustre ``flock``, not
-    ``localflock``).
+    ``None``) and raises ``TimeoutError`` after that. When the lock file cannot be opened
+    (read-only ``datasets_path``, another user's lock file) or the filesystem has no
+    ``flock`` support, it warns and runs unlocked, so staged data can still be reused.
+    Jobs on different nodes are only serialized when the filesystem provides cluster-wide
+    ``flock`` (for example Lustre ``flock``, not ``localflock``).
     """
     datasets_path = path_resolver.path_map.get("datasets_path")
-    if datasets_path is None:
+    lock_file = None
+    if datasets_path is not None:
+        lock_path = Path(datasets_path) / f".{setup_name}.setup.lock"
+        try:
+            lock_path.parent.mkdir(parents=True, exist_ok=True)
+            lock_file = lock_path.open("a")
+        except OSError as e:
+            logger.warning(f"\tCannot open {lock_path} ({e}); running data setup {setup_name} without a lock")
+    if lock_file is None:
         yield
         return
-    Path(datasets_path).mkdir(parents=True, exist_ok=True)
-    with (Path(datasets_path) / f".{setup_name}.setup.lock").open("a") as lock_file:
+    with lock_file:
         logger.info(f"\tWaiting for data setup lock {lock_file.name}")
         deadline = None if timeout_s is None else time.monotonic() + timeout_s
         while True:
@@ -223,7 +231,7 @@ def run_data_setup_entry(
     setup_path = (setup_root_path / setup_entry.name).absolute()
     logs_path = setup_path / "logs"
     stdouterr_path = logs_path / "stdouterr.log"
-    create_or_overwrite_dir(setup_path)
+    # Never empty this folder: concurrent nightly jobs share the session folder.
     ensure_dir(logs_path)
 
     cmd = setup_entry.get_command_to_run(setup_path, path_resolver, dataset_resolver)
@@ -293,7 +301,6 @@ def run_data_setups(
         return set()
 
     setup_root_path = session_path / "data_setup"
-    create_or_overwrite_dir(setup_root_path)
     logger.info("Data setup entries to be run before benchmarks:")
     for idx, setup_entry in enumerate(setup_entries, start=1):
         logger.info(f"\t{idx}. {setup_entry.name}")

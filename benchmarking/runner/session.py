@@ -20,10 +20,6 @@ from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-# Use pytest's expression eval code to support "-k" style matching.
-# TODO: This adds a dependency on a pytest internal module.
-#       Consider vendoring the pytest code or implementing a custom expression evaluator.
-from _pytest.mark import Expression
 from loguru import logger
 from nemo_curator_benchmarking.config import assert_valid_config_dict, entry_matches_filter
 
@@ -56,9 +52,9 @@ def _excluded_names_note(missing: list[str], excluded: set[str], install_filter:
     return f". Excluded by the config's entry_filter {install_filter!r}: {names}" if names else ""
 
 
-def _select_data_setups(data_setups: list[Entry], entries: list[Entry], datasets: object) -> list[Entry]:
+def _select_data_setups(data_setups: list[Entry], entries: list[Entry], datasets: list[dict]) -> list[Entry]:
     """Keep the data setups whose dataset (same name) a selected entry references, logging the others."""
-    known_datasets = {d.get("name") for d in datasets if isinstance(d, dict)} if isinstance(datasets, list) else set()
+    known_datasets = {d["name"] for d in datasets}
     for setup in data_setups:
         if setup.name not in known_datasets:
             logger.warning(
@@ -279,17 +275,8 @@ class Session:
                 msg = f"Unknown entry names in entries_exact: {missing}. Available entry names: {sorted(available)}"
                 raise ValueError(msg + _excluded_names_note(missing, excluded_by_install, install_filter))
             entries = [e for e in entries if e.name in requested]
-        elif entry_filter_expr is not None:
-            filtered_entries = []
-            expr = Expression.compile(entry_filter_expr)
-            for entry in entries:
-
-                def matcher(subname_in_expr: str, entry: Entry = entry) -> bool:
-                    return subname_in_expr in entry.name.lower()
-
-                if expr.evaluate(matcher):
-                    filtered_entries.append(entry)
-            entries = filtered_entries
+        else:
+            entries = [e for e in entries if entry_matches_filter(e.name, entry_filter_expr)]
 
         data_setups = _select_data_setups(data_setups, entries, data.get("datasets", []))
 
