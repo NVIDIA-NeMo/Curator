@@ -42,11 +42,11 @@ from nemo_curator.stages.audio.alm.pretrain.utils import (
     _delete_shards,
     _glob_shards,
     _make_shard_path,
-    _resolve_audio_path,
     _segment_text,
     histogram_30s,
     make_snippet_id,
 )
+from nemo_curator.stages.audio.common.manifest_reader import _resolve_audio_path
 
 # ----------------------------------------------------------------------
 # _segment_text
@@ -427,22 +427,16 @@ class TestResolveAudioPath:
     def test_relative_mode_preserves_subdirectories(self) -> None:
         # 'relative' joins audio_dir / value verbatim, so a manifest that
         # carries a relative sub-path stays under that sub-path on disk.
-        assert (
-            _resolve_audio_path("/data", "shard1/foo.wav", "relative") == "/data/shard1/foo.wav"
-        )
+        assert _resolve_audio_path("/data", "shard1/foo.wav", "relative") == "/data/shard1/foo.wav"
 
     def test_relative_mode_absolute_value_wins(self) -> None:
         # os.path.join semantics: an absolute right-hand side discards the
         # left-hand side. Documented in the docstring as the way 'relative'
         # mode handles absolute manifest paths.
-        assert (
-            _resolve_audio_path("/data", "/elsewhere/bar.wav", "relative") == "/elsewhere/bar.wav"
-        )
+        assert _resolve_audio_path("/data", "/elsewhere/bar.wav", "relative") == "/elsewhere/bar.wav"
 
     def test_as_is_mode_returns_value_unchanged(self) -> None:
-        assert (
-            _resolve_audio_path("/data", "/elsewhere/bar.wav", "as_is") == "/elsewhere/bar.wav"
-        )
+        assert _resolve_audio_path("/data", "/elsewhere/bar.wav", "as_is") == "/elsewhere/bar.wav"
         assert _resolve_audio_path("/data", "rel/foo.wav", "as_is") == "rel/foo.wav"
 
     def test_unknown_mode_raises(self) -> None:

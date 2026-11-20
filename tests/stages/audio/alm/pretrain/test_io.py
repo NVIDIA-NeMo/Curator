@@ -14,8 +14,9 @@
 
 """Stage-level tests for ``nemo_curator.stages.audio.alm.pretrain.io``.
 
-Covers the input-manifest reader and the two per-replica writer stages
-(snippet manifest, per-task metrics).
+Covers the two per-replica writer stages (snippet manifest, per-task
+metrics).  The input manifest is read by ``ManifestReader``; its long-form
+options are tested in ``tests/stages/audio/common/test_manifest_reader.py``.
 """
 
 from __future__ import annotations
@@ -24,17 +25,15 @@ import json
 from pathlib import Path
 
 import pytest
-from loguru import logger
 
 from nemo_curator.stages.audio._agent._agent_registry import build_contract, static_contract
 from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
 from nemo_curator.stages.audio.alm.pretrain import (
     PretrainMetricsAggregatorStage,
-    ReadLongFormManifestStage,
     SnippetManifestWriterStage,
 )
 from nemo_curator.stages.audio.alm.pretrain.utils import _PRETRAIN_META_KEY
-from nemo_curator.tasks import AudioTask, EmptyTask
+from nemo_curator.tasks import AudioTask
 
 
 def _make_audio_task(data: dict | None = None) -> AudioTask:
@@ -52,234 +51,9 @@ def _ts(start: float, end: float, text: str = "x", text_itn: str | None = None) 
     }
 
 
-@pytest.fixture
-def manifest_path(tmp_path: Path) -> Path:
-    """Write a small input manifest with two rows (one valid, one missing path)."""
-    p = tmp_path / "in.jsonl"
-    rows = [
-        {"id": "A", "audio_filepath": "./a.wav", "segments": [_ts(0, 5, "hi")]},
-        {"id": "B", "segments": []},  # missing audio_filepath -- should be warned & skipped
-    ]
-    with p.open("w", encoding="utf-8") as f:
-        for r in rows:
-            f.write(json.dumps(r) + "\n")
-    return p
-
-
-# ----------------------------------------------------------------------
-# ReadLongFormManifestStage
-# ----------------------------------------------------------------------
-
-
-class TestReadLongFormManifestStage:
-    def test_worker_defaults(self, tmp_path: Path, manifest_path: Path) -> None:
-        stage = ReadLongFormManifestStage(input_manifest=str(manifest_path), audio_dir=str(tmp_path))
-        assert stage.num_workers() == 1
-        assert stage.ray_stage_spec()["is_fanout_stage"] is True
-        assert stage.xenna_stage_spec() == {}
-
-    def test_emits_one_task_per_valid_row(self, tmp_path: Path, manifest_path: Path) -> None:
-        stage = ReadLongFormManifestStage(input_manifest=str(manifest_path), audio_dir=str(tmp_path))
-        out = stage.process(EmptyTask(dataset_name="empty", data=None))
-        assert len(out) == 1
-        assert out[0].data["id"] == "A"
-
-    def test_resolves_audio_path_against_audio_dir(self, tmp_path: Path, manifest_path: Path) -> None:
-        stage = ReadLongFormManifestStage(input_manifest=str(manifest_path), audio_dir="/data")
-        out = stage.process(EmptyTask(dataset_name="empty", data=None))
-        assert out[0].data["audio_filepath"] == "/data/a.wav"
-
-    def test_missing_manifest_raises(self, tmp_path: Path) -> None:
-        stage = ReadLongFormManifestStage(input_manifest=str(tmp_path / "nope.jsonl"), audio_dir=str(tmp_path))
-        with pytest.raises(FileNotFoundError):
-            stage.process(EmptyTask(dataset_name="empty", data=None))
-
-    def test_skips_rows_missing_id(self, tmp_path: Path) -> None:
-        # `id` is required: the metrics aggregator keys per-source records on
-        # it and snippet ids embed it.  Missing/empty ids must be filtered
-        # at read time rather than silently propagated as `line_N` fallbacks.
-        p = tmp_path / "in.jsonl"
-        rows = [
-            {"audio_filepath": "./a.wav", "segments": []},  # no id
-            {"id": "", "audio_filepath": "./b.wav", "segments": []},  # empty id
-            {"id": "  ", "audio_filepath": "./c.wav", "segments": []},  # whitespace id
-            {"id": "OK", "audio_filepath": "./d.wav", "segments": []},
-        ]
-        with p.open("w", encoding="utf-8") as f:
-            for r in rows:
-                f.write(json.dumps(r) + "\n")
-        stage = ReadLongFormManifestStage(input_manifest=str(p), audio_dir="/data")
-        out = stage.process(EmptyTask(dataset_name="empty", data=None))
-        assert [t.data["id"] for t in out] == ["OK"]
-
-    def test_skips_duplicate_ids(self, tmp_path: Path) -> None:
-        # Duplicate ids silently collapse per_original metrics and can
-        # collide tar member names (snippet_id embeds the source id).
-        # First occurrence wins; later duplicates are skipped with a warning.
-        p = tmp_path / "in.jsonl"
-        rows = [
-            {"id": "A", "audio_filepath": "./a.wav", "segments": []},
-            {"id": "A", "audio_filepath": "./a2.wav", "segments": []},
-            {"id": "B", "audio_filepath": "./b.wav", "segments": []},
-        ]
-        with p.open("w", encoding="utf-8") as f:
-            for r in rows:
-                f.write(json.dumps(r) + "\n")
-        stage = ReadLongFormManifestStage(input_manifest=str(p), audio_dir="/data")
-        out = stage.process(EmptyTask(dataset_name="empty", data=None))
-        assert [t.data["id"] for t in out] == ["A", "B"]
-        # The kept "A" row is the first one, not the duplicate.
-        assert out[0].data["audio_filepath"] == "/data/a.wav"
-
-    def test_basename_mode_rejects_duplicate_basenames(self, tmp_path: Path) -> None:
-        # In basename mode, two different source rows whose audio_filepath
-        # values share a basename would silently route to the same audio.
-        # Surface that as a hard error rather than corrupt outputs.
-        p = tmp_path / "in.jsonl"
-        rows = [
-            {"id": "A", "audio_filepath": "./shard1/foo.wav", "segments": []},
-            {"id": "B", "audio_filepath": "./shard2/foo.wav", "segments": []},
-        ]
-        with p.open("w", encoding="utf-8") as f:
-            for r in rows:
-                f.write(json.dumps(r) + "\n")
-        stage = ReadLongFormManifestStage(input_manifest=str(p), audio_dir="/data")
-        with pytest.raises(ValueError, match="duplicate audio basename"):
-            stage.process(EmptyTask(dataset_name="empty", data=None))
-
-    def test_relative_mode_preserves_subdirectories(self, tmp_path: Path) -> None:
-        # 'relative' joins audio_dir / audio_filepath verbatim and so does
-        # NOT trip the duplicate-basename guard.
-        p = tmp_path / "in.jsonl"
-        rows = [
-            {"id": "A", "audio_filepath": "shard1/foo.wav", "segments": []},
-            {"id": "B", "audio_filepath": "shard2/foo.wav", "segments": []},
-        ]
-        with p.open("w", encoding="utf-8") as f:
-            for r in rows:
-                f.write(json.dumps(r) + "\n")
-        stage = ReadLongFormManifestStage(input_manifest=str(p), audio_dir="/data", audio_path_resolution="relative")
-        out = stage.process(EmptyTask(dataset_name="empty", data=None))
-        assert [t.data["audio_filepath"] for t in out] == [
-            "/data/shard1/foo.wav",
-            "/data/shard2/foo.wav",
-        ]
-
-    def test_as_is_mode_returns_value_unchanged(self, tmp_path: Path) -> None:
-        p = tmp_path / "in.jsonl"
-        rows = [
-            {"id": "A", "audio_filepath": "/absolute/a.wav", "segments": []},
-            {"id": "B", "audio_filepath": "relative/b.wav", "segments": []},
-        ]
-        with p.open("w", encoding="utf-8") as f:
-            for r in rows:
-                f.write(json.dumps(r) + "\n")
-        stage = ReadLongFormManifestStage(input_manifest=str(p), audio_dir="/ignored", audio_path_resolution="as_is")
-        out = stage.process(EmptyTask(dataset_name="empty", data=None))
-        assert [t.data["audio_filepath"] for t in out] == [
-            "/absolute/a.wav",
-            "relative/b.wav",
-        ]
-
-    def test_unknown_resolution_mode_raises(self, tmp_path: Path) -> None:
-        p = tmp_path / "in.jsonl"
-        with p.open("w", encoding="utf-8") as f:
-            f.write(json.dumps({"id": "A", "audio_filepath": "./a.wav", "segments": []}) + "\n")
-        stage = ReadLongFormManifestStage(input_manifest=str(p), audio_dir="/data", audio_path_resolution="not_a_mode")
-        with pytest.raises(ValueError, match="unknown audio_path_resolution"):
-            stage.process(EmptyTask(dataset_name="empty", data=None))
-
-    def test_skips_malformed_segment_rows_before_reserving_ids(self, tmp_path: Path) -> None:
-        p = tmp_path / "mixed.jsonl"
-        rows = [
-            {"id": "A", "audio_filepath": "./a.wav", "segments": []},
-            {"id": "B", "audio_filepath": "./b.wav"},
-            {"id": "C", "audio_filepath": "./c.wav", "segments": {"start": 0}},
-            ["not", "an", "object"],
-            {"id": "D", "audio_filepath": "./bad.wav", "segments": "bad"},
-            {"id": "D", "audio_filepath": "./good.wav", "segments": []},
-        ]
-        with p.open("w", encoding="utf-8") as f:
-            for row in rows:
-                f.write(json.dumps(row) + "\n")
-
-        messages: list[str] = []
-        sink_id = logger.add(lambda message: messages.append(str(message)), format="{message}")
-        try:
-            out = ReadLongFormManifestStage(input_manifest=str(p), audio_dir="/data", strict_schema=True).process(
-                EmptyTask(dataset_name="empty", data=None)
-            )
-        finally:
-            logger.remove(sink_id)
-
-        assert [task.data["id"] for task in out] == ["A", "D"]
-        assert out[1].data["audio_filepath"] == "/data/good.wav"
-        joined = "".join(messages)
-        assert "line 2: missing 'segments' list" in joined
-        assert "line 3: 'segments' is not a list" in joined
-        assert "line 4: JSON row is not an object" in joined
-        assert "line 5: 'segments' is not a list" in joined
-
-    def test_agent_ready_manifest_reader_mixed_rows(self, tmp_path: Path) -> None:
-        p = tmp_path / "agent-ready.jsonl"
-        p.write_text(
-            "\n".join(
-                [
-                    json.dumps({"id": "A", "audio_filepath": "./a.wav", "segments": []}),
-                    json.dumps({"id": "B", "audio_filepath": "./b.wav"}),
-                    json.dumps({"id": "C", "audio_filepath": "./c.wav", "segments": [_ts(0, 1)]}),
-                ]
-            )
-            + "\n",
-            encoding="utf-8",
-        )
-        stage = ReadLongFormManifestStage(input_manifest=str(p), audio_dir="/data", strict_schema=True)
-        assert_agent_ready(
-            stage,
-            lambda: EmptyTask(dataset_name="empty", data=None),
-            expected_cardinality="1:N fan-out",
-            available_keys=set(),
-        )
-
-    def test_default_preserves_legacy_row_without_segments(self, tmp_path: Path) -> None:
-        p = tmp_path / "legacy.jsonl"
-        p.write_text(json.dumps({"id": 7, "audio_filepath": "./a.wav"}) + "\n", encoding="utf-8")
-
-        stage = ReadLongFormManifestStage(input_manifest=str(p), audio_dir="/data")
-        out = stage.process(EmptyTask(dataset_name="empty", data=None))
-
-        assert len(out) == 1
-        # ``id`` leaves the reader as a string exactly as it always has (snippet/tar names embed it).
-        assert out[0].data == {"id": "7", "audio_filepath": "/data/a.wav"}
-        assert stage.outputs()[1] == ["audio_filepath", "id", "segments"]
-        assert build_contract(stage).gates.per_row_independent is False
-        assert static_contract(ReadLongFormManifestStage).gates.per_row_independent is False
-
-
 # ----------------------------------------------------------------------
 # SnippetManifestWriterStage
 # ----------------------------------------------------------------------
-
-
-@pytest.mark.parametrize("strict_schema", [False, True])
-def test_reader_configured_outputs_match_emitted_schema(tmp_path: Path, strict_schema: bool) -> None:
-    manifest = tmp_path / "input.jsonl"
-    manifest.write_text(
-        json.dumps({"source_id": "A", "source_path": "a.wav", "turns": [_ts(0, 1)]}) + "\n",
-        encoding="utf-8",
-    )
-    stage = ReadLongFormManifestStage(
-        input_manifest=str(manifest),
-        audio_dir=str(tmp_path),
-        audio_filepath_key="source_path",
-        id_key="source_id",
-        segments_key="turns",
-        strict_schema=strict_schema,
-    )
-    expected = ["source_path", "source_id", "turns"]
-    assert stage.outputs() == ([], expected)
-    result = stage.process(EmptyTask())[0]
-    assert set(expected) == result.data.keys()
 
 
 class TestSnippetManifestWriterStage:

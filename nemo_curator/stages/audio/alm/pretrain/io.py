@@ -14,8 +14,9 @@
 
 """I/O stages for the pretrain pipeline.
 
-* :class:`ReadLongFormManifestStage` reads the input JSONL manifest and
-  fans out one ``AudioTask`` per row.
+The input manifest is read by the generic
+:class:`~nemo_curator.stages.audio.common.ManifestReader`.
+
 * :class:`SnippetManifestWriterStage` appends every non-stub snippet to
   a per-replica manifest shard for the driver to merge later.
 * :class:`PretrainMetricsAggregatorStage` writes one JSONL record per
@@ -27,284 +28,31 @@ from __future__ import annotations
 
 import json
 import os
-import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from loguru import logger
 
-from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.audio._agent._agent_ready import (
     AgentReady,
-    ConditionalWrite,
     Gates,
     IOSpec,
     StageContract,
     StaticHints,
 )
 from nemo_curator.stages.audio.alm.pretrain.utils import (
-    _AUDIO_PATH_RESOLUTION_MODES,
     _MANIFEST_SHARD_EXT,
     _METRICS_SHARD_EXT,
     _PRETRAIN_META_KEY,
-    AUDIO_PATH_RESOLUTION_BASENAME,
     _is_origin_stub,
     _make_shard_path,
-    _resolve_audio_path,
 )
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
-from nemo_curator.tasks import AudioTask, EmptyTask
+from nemo_curator.tasks import AudioTask
 
 if TYPE_CHECKING:
     from nemo_curator.backends.base import NodeInfo, WorkerMetadata
-
-
-# ----------------------------------------------------------------------
-# Stage: read JSONL manifest, fan out into AudioTasks
-# ----------------------------------------------------------------------
-
-
-def _read_manifest_row_id(
-    stage_name: str,
-    lineno: int,
-    entry: dict[str, Any],
-    seen_ids: set[str],
-    *,
-    id_key: str,
-) -> str | None:
-    # `id` is required by the pipeline contract: downstream snippet ids
-    # embed it, the metrics aggregator keys per-source records on it, and
-    # tar members are named with it. A row without a usable id can't be
-    # safely processed, and a duplicate id silently collapses per-source
-    # metrics and can produce colliding snippet/tar member names.
-    row_id = entry.get(id_key)
-    if row_id is None or (isinstance(row_id, str) and not row_id.strip()):
-        logger.warning(f"[{stage_name}] line {lineno}: missing or empty {id_key!r}; skipping")
-        return None
-
-    identity = str(row_id)
-    if identity in seen_ids:
-        logger.warning(f"[{stage_name}] line {lineno}: duplicate id {identity!r}; skipping")
-        return None
-
-    seen_ids.add(identity)
-    # Backward compatibility: the pre-agent reader always emitted ``id`` as a string (snippet
-    # ids embed it, tar members are named with it, metrics key on it), so a numeric manifest
-    # id must keep leaving this stage as ``"7"``, not ``7``.
-    entry[id_key] = identity
-    return identity
-
-
-def _check_duplicate_audio_basename(
-    stage_name: str,
-    lineno: int,
-    original_path: str,
-    row_id: str,
-    seen_basenames: dict[str, str],
-) -> None:
-    basename = os.path.basename(original_path)
-    prior_id = seen_basenames.get(basename)
-    if prior_id is not None:
-        msg = (
-            f"[{stage_name}] line {lineno}: duplicate audio basename {basename!r} "
-            f"(first seen for id {prior_id!r}, repeated for id {row_id!r}); "
-            f"two source rows would resolve to the same on-disk audio under "
-            f"audio_path_resolution={AUDIO_PATH_RESOLUTION_BASENAME!r}. Switch to "
-            f"'relative' (preserves subdirs) or 'as_is' if this is intentional."
-        )
-        raise ValueError(msg)
-    seen_basenames[basename] = row_id
-
-
-def _validate_manifest_row_shape(
-    stage_name: str,
-    lineno: int,
-    entry: Any,  # noqa: ANN401
-    *,
-    segments_key: str,
-    strict_schema: bool,
-) -> dict[str, Any] | None:
-    if not isinstance(entry, dict):
-        logger.warning(f"[{stage_name}] line {lineno}: JSON row is not an object; skipping")
-        return None
-    if not strict_schema:
-        return entry
-    if segments_key not in entry:
-        logger.warning(f"[{stage_name}] line {lineno}: missing {segments_key!r} list; skipping")
-        return None
-    if not isinstance(entry[segments_key], list):
-        logger.warning(f"[{stage_name}] line {lineno}: {segments_key!r} is not a list; skipping")
-        return None
-    return entry
-
-
-@dataclass
-class ReadLongFormManifestStage(AgentReady, ProcessingStage[EmptyTask, AudioTask]):
-    """Read a JSONL manifest of long-form audios; emit one AudioTask per row.
-
-    Each line in ``input_manifest`` is parsed as JSON and re-emitted as
-    an ``AudioTask`` whose ``data`` is the parsed dict with its audio
-    path re-anchored to ``audio_dir``.
-
-    Per the pipeline contract, every row must carry a non-empty ``id``
-    that is unique within the manifest: downstream snippet ids embed it,
-    the metrics aggregator keys per-source records on it, and tar
-    members are named with it.  Rows that are missing ``id``, have an
-    empty ``id``, or repeat an already-seen ``id`` are skipped with a
-    warning rather than silently propagated as ``line_N`` fallbacks (the
-    fallback collapsed per-source metrics and could collide tar member
-    names when source times matched).
-
-    This is the entry-point ``EmptyTask -> list[AudioTask]`` fan-out
-    stage following the same pattern as
-    ``CreateInitialManifestReadSpeechStage``.
-
-    Args:
-        input_manifest: Path to the JSONL file.
-        audio_dir: Directory containing the source audio files; the row's
-            ``audio_filepath`` value is re-anchored to this directory
-            according to ``audio_path_resolution`` (default basename).
-        audio_filepath_key: JSONL field that holds the path to the audio
-            file (default ``"audio_filepath"``).
-        audio_path_resolution: How to map ``audio_filepath`` to a usable
-            on-disk path.  ``"basename"`` (default) replaces with
-            ``audio_dir / basename(value)`` and is convenient for flat
-            staging dirs; in this mode the reader also rejects manifests
-            with duplicate basenames so a hidden collision between two
-            different source recordings can't silently route them to the
-            same audio.  ``"relative"`` joins as ``audio_dir / value``
-            (preserves subdirectories).  ``"as_is"`` uses the manifest's
-            value unchanged.
-        dataset_name: Optional dataset tag stamped on emitted tasks.
-        id_key: Manifest field used as the source identity.
-        segments_key: Manifest field containing the segment list.
-        strict_schema: If True, skip rows whose configured segment field
-            is missing or is not a list.  The standalone stage defaults to
-            the legacy permissive behavior; the standard pipeline enables
-            strict validation before the planning stages.
-    """
-
-    input_manifest: str
-    audio_dir: str
-    audio_filepath_key: str = "audio_filepath"
-    audio_path_resolution: str = AUDIO_PATH_RESOLUTION_BASENAME
-    dataset_name: str = "long_form_audio"
-
-    name: str = "ReadLongFormManifest"
-    batch_size: int = 1
-    resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
-    id_key: str = "id"
-    segments_key: str = "segments"
-    strict_schema: bool = False
-    INTERNAL_KEY_FIELDS: ClassVar[frozenset[str]] = frozenset({"id_key"})
-    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(gates=Gates(per_row_independent=False))
-
-    def inputs(self) -> tuple[list[str], list[str]]:
-        return [], []
-
-    def outputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.audio_filepath_key, self.id_key, self.segments_key]
-
-    def describe(self) -> StageContract:
-        output_keys = [self.audio_filepath_key, self.id_key]
-        conditional_writes = []
-        if self.strict_schema:
-            output_keys.append(self.segments_key)
-        else:
-            conditional_writes.append(
-                ConditionalWrite(
-                    writes=IOSpec(data_keys=[self.segments_key]),
-                    condition=f"the manifest row contains '{self.segments_key}'",
-                    value_origin="upstream_same_key",
-                )
-            )
-        return StageContract(
-            writes=IOSpec(data_keys=output_keys),
-            conditional_writes=conditional_writes,
-            cardinality="1:N fan-out",
-            gates=Gates(per_row_independent=False),
-        )
-
-    def ray_stage_spec(self) -> dict[str, Any]:
-        return {RayStageSpecKeys.IS_FANOUT_STAGE: True}
-
-    def num_workers(self) -> int | None:
-        return 1
-
-    def process(self, _: EmptyTask) -> list[AudioTask]:
-        t0 = time.perf_counter()
-        if self.audio_path_resolution not in _AUDIO_PATH_RESOLUTION_MODES:
-            msg = (
-                f"unknown audio_path_resolution {self.audio_path_resolution!r}; "
-                f"expected one of {_AUDIO_PATH_RESOLUTION_MODES}"
-            )
-            raise ValueError(msg)
-        if not os.path.isfile(self.input_manifest):
-            msg = f"Manifest not found: {self.input_manifest}"
-            raise FileNotFoundError(msg)
-
-        tasks: list[AudioTask] = []
-        seen_ids: set[str] = set()
-        # In basename mode, two source rows whose `audio_filepath` differ only
-        # by their parent directory both resolve to the same on-disk file and
-        # would silently route to the same audio.  Track the basename ->
-        # first-seen-id mapping and fail fast when a collision shows up.
-        seen_basenames: dict[str, str] = {}
-        with open(self.input_manifest, encoding="utf-8") as f:
-            for lineno, raw in enumerate(f, 1):
-                line = raw.strip()
-                if not line:
-                    continue
-                try:
-                    entry = json.loads(line)
-                except json.JSONDecodeError as e:
-                    logger.error(f"[{self.name}] line {lineno}: invalid JSON ({e}); skipping")
-                    continue
-
-                entry = _validate_manifest_row_shape(
-                    self.name,
-                    lineno,
-                    entry,
-                    segments_key=self.segments_key,
-                    strict_schema=self.strict_schema,
-                )
-                if entry is None:
-                    continue
-
-                # Validate the row shape before reserving its id. A malformed
-                # first occurrence must not suppress a later valid row with
-                # the same id as a duplicate.
-                row_id = _read_manifest_row_id(self.name, lineno, entry, seen_ids, id_key=self.id_key)
-                if row_id is None:
-                    continue
-
-                original_path = entry.get(self.audio_filepath_key)
-                if not original_path:
-                    logger.warning(f"[{self.name}] line {lineno}: missing {self.audio_filepath_key!r}; skipping")
-                    continue
-                if self.audio_path_resolution == AUDIO_PATH_RESOLUTION_BASENAME:
-                    _check_duplicate_audio_basename(self.name, lineno, original_path, row_id, seen_basenames)
-                entry[self.audio_filepath_key] = _resolve_audio_path(
-                    self.audio_dir, original_path, self.audio_path_resolution
-                )
-
-                tasks.append(
-                    AudioTask(
-                        dataset_name=self.dataset_name,
-                        data=entry,
-                        filepath_key=self.audio_filepath_key,
-                    )
-                )
-
-        self._log_metrics(
-            {
-                "manifest_load_time": time.perf_counter() - t0,
-                "manifest_rows": float(len(tasks)),
-            }
-        )
-        logger.info(f"[{self.name}] loaded {len(tasks)} rows from {self.input_manifest}")
-        return tasks
 
 
 # ----------------------------------------------------------------------
