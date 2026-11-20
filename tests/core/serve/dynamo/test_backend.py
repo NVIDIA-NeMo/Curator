@@ -649,9 +649,11 @@ def test_dynamo_preserves_callers_ray_session() -> None:
         mock.patch.object(backend, "_deploy_and_healthcheck"),
     ):
         backend.start()
-        assert ray.is_initialized() and ray.get_runtime_context().get_job_id() == job
+        assert ray.is_initialized()
+        assert ray.get_runtime_context().get_job_id() == job
         backend.stop()
-        assert ray.is_initialized() and ray.get_runtime_context().get_job_id() == job
+        assert ray.is_initialized()
+        assert ray.get_runtime_context().get_job_id() == job
 
 
 def test_same_name_dynamo_deployments_keep_independent_lifecycles() -> None:
