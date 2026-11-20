@@ -1,0 +1,27 @@
+Audit retained meaning using the evidence below. No main judgment or dedup label
+is provided. S### has text on BOTH sides; A### and B### identify core lexical
+differences. Lexical differences are not necessarily semantic losses.
+
+<semantic_diff status="{{ coverage_packet.status }}" truncated="{{ coverage_packet.truncated }}">
+counts: {{ coverage_packet.span_counts }}
+{% for span in coverage_packet.spans %}
+{% if span.kind == "SHARED" %}
+[{{ span.span_id }} SHARED: ALIGNED ON BOTH SIDES]
+A: {{ span.a_text }}
+B: {{ span.b_text }}
+{% else %}
+[{{ span.span_id }} {{ span.kind }} CORE DIFFERENCE]
+{{ span.text }}
+[READING CONTEXT FOR {{ span.span_id }}: may also contain shared text]
+{{ span.context_text }}
+{% endif %}
+{% endfor %}
+</semantic_diff>
+
+Select loss IDs only when their CORE difference carries the uncovered meaning.
+Padded reading context is not itself one-sided evidence. Shared alignment can
+normalize case or Unicode: compare both displayed originals before claiming
+their retained meaning is identical. Incomplete or truncated evidence cannot
+support a conclusive veto; use UNCERTAIN if the retained meaning is unsettled.
+Return the concrete eight-field judgment, starting with {"a_loss_span_id": ...}.
+Select a checked context ID for each side even when there is no loss.
