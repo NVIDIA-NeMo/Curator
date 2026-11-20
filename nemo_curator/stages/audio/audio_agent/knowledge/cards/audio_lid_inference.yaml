@@ -2,8 +2,8 @@ stage_id: AudioLIDInferenceStage
 category: transcribe
 summary: "Annotate one task's leading audio window with a model-specific spoken-language prediction; combine several instances for ensemble selection."
 tags: [batch_only, needs_internet_first_run]
-model_id: "Adapter-dependent: SpeechBrain VoxLingua107 ECAPA-TDNN, multilingual OpenAI Whisper, or a supplied Indic Canary TensorRT-LLM engine."
-model_version: "SpeechBrain accepts revision/cache_dir or a local source; Whisper accepts model_size or a local checkpoint; Indic Canary requires a prebuilt engine. The stage's model_id is an ensemble slot, not a revision pin."
+model_id: "Adapter-dependent: SpeechBrain VoxLingua107 ECAPA-TDNN, multilingual OpenAI Whisper, or a supplied Indic Transcribe TensorRT-LLM engine."
+model_version: "SpeechBrain accepts revision/cache_dir or a local source; Whisper accepts model_size or a local checkpoint; Indic Transcribe requires a prebuilt engine. The stage's model_id is an ensemble slot, not a revision pin."
 domain: {language: "adapter/checkpoint vocabulary; the default SpeechBrain checkpoint documents 107 languages", style: "speech, one leading window per task"}
 resource:
   cpus: 1.0
@@ -17,7 +17,7 @@ adapter_capabilities:
     supported_devices: [cpu, cuda]
     cpu_requires:
       backend: {value: torch, default: torch}
-  nemo_curator.models.audio.lid.indic_canary.IndicCanaryLIDAdapter:
+  nemo_curator.models.audio.lid.indic_transcribe.IndicTranscribeLIDAdapter:
     supported_devices: [cuda]
 use_cases:
   good_for:
@@ -33,15 +33,15 @@ composition:
   typical_downstream: [SelectAudioLanguageStage]
 params_of_note:
   adapter_target: "Required AudioLIDAdapter class path. The adapter receives sample_rate plus adapter_kwargs; it does not receive the stage's model_id."
-  model_id: "Required result-mapping slot. Use distinct identities for components; the selector defaults expect SpeechBrainLangID, IndicCanaryLangID and WhisperLangID."
+  model_id: "Required result-mapping slot. Use distinct identities for components; the selector defaults expect SpeechBrainLangID, IndicTranscribeLangID and WhisperLangID."
   tag: "Required nonempty ensemble label, conventionally primary/secondary/tertiary. Tags must be distinct when results reach the selector."
-  adapter_kwargs: "SpeechBrain: source/revision/cache_dir/savedir. Whisper: model_size/model_path/backend/fp16/model_batch_size and a TensorRT engine path for that backend. Indic Canary: engine_dir, candidate_languages, duration/model-batch bounds and runtime settings."
+  adapter_kwargs: "SpeechBrain: source/revision/cache_dir/savedir. Whisper: model_size/model_path/backend/fp16/model_batch_size and a TensorRT engine path for that backend. Indic Transcribe: engine_dir, candidate_languages, duration/model-batch bounds and runtime settings."
   waveform_key: "None by default loads audio_filepath_key. Set waveform to classify resident cut audio; this requires a valid sample_rate_key. No automatic file fallback is provided in resident mode."
   sample_rate_key: "Resident input rate in Hz, default sample_rate; it must describe the supplied waveform."
   sample_rate: "Adapter inference rate, default 16000 Hz. Input is downmixed and resampled internally; all three shipped adapters require this canonical rate."
   audio_filepath_key: "File-mode source, default audio_filepath. This path is loaded as a recording; offset/duration metadata is not used to slice it."
   min_duration_sec: "Default 1 second after normalization. Shorter audio gets a completed empty result; short duration alone never sets the terminal skip flag."
-  max_duration_sec: "Leading-window cap, default 10 seconds; zero disables the stage cap. Align with adapter limits: Whisper uses 30 seconds and Indic Canary defaults to at most 40."
+  max_duration_sec: "Leading-window cap, default 10 seconds; zero disables the stage cap. Align with adapter limits: Whisper uses 30 seconds and Indic Transcribe defaults to at most 40."
   results_key: "Shared mapping, default lid. Each instance augments only its model_id entry; unrelated component entries survive."
   skip_if_output_exists: "Default false. When true, model_id membership alone is completion, including an empty language or zero confidence; changing weights/settings does not invalidate that entry."
   fail_on_audio_error: "Default false. Caught row-local preparation errors also write audio_load_error to skip_me_key when enabled."
@@ -52,7 +52,7 @@ params_of_note:
 param_dependencies:
   waveform_key: "NeMoSpeechAudioReader needs keep_waveform=true and matching waveform/rate keys for resident LID, especially for tarred input and nonzero-offset cuts."
   model_id: "Selector component IDs and model result tags must agree with the producing instances. A fourth arbitrary result slot is rejected by the default three-component selector."
-  adapter_kwargs: "Indic Canary needs a compatible supplied engine bundle, not just a .nemo checkpoint. Keep its stage/adapter duration limits consistent; the shipped reference bundle is not a publicly downloadable model selected by this card."
+  adapter_kwargs: "Indic Transcribe needs a compatible supplied engine bundle, not just a .nemo checkpoint. Keep its stage/adapter duration limits consistent; the shipped reference bundle is not a publicly downloadable model selected by this card."
 semantic_facts:
   lid:
     meaning: "Mapping such as {SpeechBrainLangID: {language: hi, confidence: 0.8, tag: primary}}; empty language with confidence 0.0 is a completed no-language result."
@@ -64,13 +64,13 @@ semantic_facts:
       - "Increasing max_duration_sec does not create segment-level language annotations."
       - "A model_id entry can represent a completed model miss; truthy language is not the resume marker."
   confidence:
-    meaning: "Provider-specific evidence: SpeechBrain exponentiates its selected log score; Whisper uses the winning language-token probability; Indic Canary emits 1.0 when a recognized generated language token is present."
+    meaning: "Provider-specific evidence: SpeechBrain exponentiates its selected log score; Whisper uses the winning language-token probability; Indic Transcribe emits 1.0 when a recognized generated language token is present."
     unit: "float in [0, 1]; no common calibration or quality threshold"
     provenance: "Adapter output, not a probability that the ensemble or every part of the recording is correct."
     scope: "One component/window prediction."
     propagation: "Stored beside the component's language and tag; the selector can later retain the chosen component's value."
     counterexamples:
-      - "Indic Canary confidence 1.0 is a token-found sentinel; ranking it above SpeechBrain 0.9 is not justified."
+      - "Indic Transcribe confidence 1.0 is a token-found sentinel; ranking it above SpeechBrain 0.9 is not justified."
 presets:
   speechbrain_resident:
     adapter_target: nemo_curator.models.audio.lid.speechbrain.SpeechBrainLIDAdapter
@@ -89,7 +89,7 @@ comparison:
   choose_when: "Use this stage to produce a component prediction; SelectAudioLanguageStage applies the specific three-model policy. ASRStage produces transcripts instead."
   known_limitations: "No built-in non-speech rejection, cross-model confidence calibration, or automatic result invalidation after a model change."
 notes:
-  - "The default scheduler request is one CPU and 4 GB GPU memory; that is a reservation, not a measured requirement. CPU operation requires explicit CPU resources and a CPU-capable adapter. Indic Canary and Whisper TensorRT require exactly one physical GPU."
+  - "The default scheduler request is one CPU and 4 GB GPU memory; that is a reservation, not a measured requirement. CPU operation requires explicit CPU resources and a CPU-capable adapter. Indic Transcribe and Whisper TensorRT require exactly one physical GPU."
   - "Default process batch size is 16; adapter model batches have separate limits. File-mode audio is decoded/resampled before the leading-window cap, so max_duration_sec does not bound file-read memory."
   - "Only process_batch is supported. Model failures, output-count mismatches and malformed result mappings propagate; only the preparation exceptions handled by the stage produce empty results. Arbitrary adapters are not certified for per-row delta reuse."
   - "SpeechBrain's default checkpoint was trained on mono 16 kHz VoxLingua107 speech collected from YouTube. Its language coverage does not apply to a replacement source: https://huggingface.co/speechbrain/lang-id-voxlingua107-ecapa"
