@@ -97,7 +97,6 @@ class AudioTextLLMStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     user_prompt: str | None = None
     ground_truth_key: str = "granary_v1_prediction"
     operations: list[dict] | None = None
-    num_workers_override: int | None = None
     _operations: list["AudioTextLLMStage"] = field(default_factory=list, init=False, repr=False)
     text_key: str = "text"
     output_text_key: str = "processed_text"
@@ -248,13 +247,6 @@ class AudioTextLLMStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         if self.mode not in {"text", "recover_entities", "language_id"}:
             msg = "mode must be text, recover_entities, or language_id"
             raise ValueError(msg)
-        if self.num_workers_override is not None and (
-            isinstance(self.num_workers_override, bool)
-            or not isinstance(self.num_workers_override, int)
-            or self.num_workers_override < 1
-        ):
-            msg = "num_workers_override must be a positive integer"
-            raise ValueError(msg)
         if not isinstance(self.prompt, str) or (not self.operations and not self.prompt.strip()):
             msg = "prompt must be a non-empty string unless operations are configured"
             raise ValueError(msg)
@@ -376,9 +368,6 @@ class AudioTextLLMStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     def operation_stages(self) -> list["AudioTextLLMStage"]:
         """Return the independent operations executed by this worker."""
         return self._operations or [self]
-
-    def num_workers(self) -> int | None:
-        return self.num_workers_override
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], self.describe().reads.data_keys

@@ -76,7 +76,6 @@ class InferenceParakeetStage(ASRStage):
     source_lang_key: str = "source_lang"
     keep_waveform: bool = False
     skip_if_output_exists: bool = False
-    num_workers_override: int | None = None
     resources: Resources = field(default_factory=lambda: Resources(gpus=1.0))
     batch_size: int = 16
     max_audio_sec_per_actor: float = 2400.0

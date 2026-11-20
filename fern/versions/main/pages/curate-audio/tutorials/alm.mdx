@@ -34,14 +34,13 @@ The complete working code for this tutorial is located at:
 ```
 <nemo_curator_repository>/tutorials/audio/alm/
 ├── README.md           # Tutorial documentation
-├── main.py             # Hydra-based pipeline runner
 └── pipeline.yaml       # Pipeline configuration
 ```
 
 **Accessing the code:**
 ```bash
 git clone https://github.com/NVIDIA/NeMo-Curator.git
-cd NeMo-Curator/tutorials/audio/alm/
+cd NeMo-Curator  # run the commands below from the repository root
 ```
 
 ## Prerequisites
@@ -144,19 +143,19 @@ The following table describes the key parameters for each stage:
 
 ### Step 3: Run the Pipeline
 
-Run the pipeline using the Hydra-based runner:
+Run the pipeline with the generic YAML runner, `nemo_curator/config/run.py`, from the repository root:
 
 ```bash
 # Using default Xenna backend
-python main.py \
-  --config-path . \
+python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/alm \
   --config-name pipeline \
   manifest_path=/path/to/manifests \
   output_dir="${PWD}/alm_output"
 
 # Using Ray Data backend
-python main.py \
-  --config-path . \
+python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/alm \
   --config-name pipeline \
   manifest_path=/path/to/manifests \
   output_dir="${PWD}/alm_output" \
@@ -167,8 +166,8 @@ python main.py \
 
 ```bash
 # Shorter windows with stricter overlap filtering
-python main.py \
-  --config-path . \
+python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/alm \
   --config-name pipeline \
   manifest_path=/path/to/manifests \
   output_dir="${PWD}/alm_output" \
@@ -184,8 +183,8 @@ Run this command from the repository root so the fixture path matches what the i
 
 ```bash
 # From the NeMo-Curator repo root
-python tutorials/audio/alm/main.py \
-  --config-path . \
+python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/alm \
   --config-name pipeline \
   manifest_path="${PWD}/tests/fixtures/audio/alm/sample_input.jsonl" \
   output_dir="${PWD}/sample_output"
@@ -286,8 +285,8 @@ stages:
 Pass a list of paths or a directory:
 
 ```bash
-python main.py \
-  --config-path . \
+python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/alm \
   --config-name pipeline \
   manifest_path=/data/manifests/ \
   output_dir="${PWD}/alm_output"

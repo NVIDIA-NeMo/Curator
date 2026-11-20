@@ -754,7 +754,7 @@ entries is 16 × 741 B ≈ 12 KB, while even 16 large ALM entries is
 ## End-to-end `AudioTask` trace (FLEURS pipeline)
 
 Below is a single English FLEURS entry flowing through every stage in
-`tutorials/audio/fleurs/main.py`. All values are **real output** from running
+`tutorials/audio/fleurs/pipeline.yaml`. All values are **real output** from running
 `lang=en_us stages.1.model_id=nvidia/parakeet-tdt-0.6b-v2
 data_split=dev wer_threshold=75`.
 

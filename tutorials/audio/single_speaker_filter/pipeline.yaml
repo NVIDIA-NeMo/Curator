@@ -1,0 +1,55 @@
+# Keep only manifest rows in which Streaming Sortformer detects exactly one speaker.
+#
+# Usage (from the Curator repository root):
+#   python nemo_curator/config/run.py \
+#     --config-path ../../tutorials/audio/single_speaker_filter \
+#     --config-name pipeline \
+#     manifest_path=/path/to/manifest.jsonl \
+#     output_path=/path/to/output/filtered_manifest.jsonl
+
+defaults:
+  - _self_
+  - override hydra/job_logging: none
+  - override hydra/hydra_logging: none
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+
+manifest_path: ???
+output_path: ./single_speaker_manifest.jsonl
+model_id: nvidia/diar_streaming_sortformer_4spk-v2.1
+# Streaming settings, in 80 ms frames.
+chunk_len: 340
+chunk_right_context: 40
+fifo_len: 40
+spkcache_update_period: 300
+spkcache_len: 188
+backend: xenna
+execution_mode: streaming
+
+stages:
+  - _target_: nemo_curator.stages.audio.common.ManifestReader
+    manifest_path: ${manifest_path}
+
+  - _target_: nemo_curator.stages.audio.inference.speaker_diarization.stage.InferenceSortformerStage
+    model_id: ${model_id}
+    batch_size: 1
+    resources:
+      gpus: 1
+    adapter_kwargs:
+      chunk_len: ${chunk_len}
+      chunk_right_context: ${chunk_right_context}
+      fifo_len: ${fifo_len}
+      spkcache_update_period: ${spkcache_update_period}
+      spkcache_len: ${spkcache_len}
+      inference_batch_size: 1
+
+  - _target_: nemo_curator.stages.audio.common.PreserveByValueStage
+    input_value_key: num_speakers
+    target_value: 1
+    operator: eq
+
+  - _target_: nemo_curator.stages.audio.common.ManifestWriterStage
+    output_path: ${output_path}

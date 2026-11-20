@@ -47,7 +47,6 @@ params_of_note:
   fail_on_audio_error: "Default false. Caught row-local preparation errors also write audio_load_error to skip_me_key when enabled."
   skip_me_key: "Default _skipme. A truthy existing reason blocks inference unless explicitly listed in retry_skip_reasons."
   retry_skip_reasons: "Exact prior reasons this instance may clear before checking resume/inference. Leave unrelated stages' terminal reasons untouched."
-  num_workers_override: "Optional positive cluster-wide actor cap; each model instance has its own worker/model state."
   prefetch_fail_on_error: "Default true makes model-prefetch errors fail setup; false defers the error and still does not guarantee worker loading will succeed."
 param_dependencies:
   waveform_key: "NeMoSpeechAudioReader needs keep_waveform=true and matching waveform/rate keys for resident LID, especially for tarred input and nonzero-offset cuts."

@@ -85,7 +85,7 @@ stages:
     pred_text_key: primary_model_prediction
     keep_waveform: true
     batch_size: ${asr_batch_size}
-    num_workers_override: ${primary_workers}
+    num_workers: ${primary_workers}
     resources:
       gpu_memory_gb: 50
 
@@ -112,7 +112,7 @@ stages:
     pred_text_key: fallback_model_prediction
     keep_waveform: false
     batch_size: ${asr_batch_size}
-    num_workers_override: ${fallback_workers}
+    num_workers: ${fallback_workers}
     resources:
       gpu_memory_gb: 24
 

@@ -24,3 +24,26 @@ For example, to run the pipeline specified by `text/heuristic_filter_english_pip
 ```bash
 python run.py --config-path ./text --config-name heuristic_filter_english_pipeline.yaml input_path=./input_dir output_path=./output_dir
 ```
+
+## Executor and stage settings
+
+Top-level keys choose the executor; omit all of them to use the pipeline's default executor:
+
+```yaml
+backend: xenna              # xenna (default) or ray_data
+execution_mode: streaming   # Xenna only: streaming (default) or batch
+executor_kwargs:            # passed to the executor constructor
+  config: {logging_interval: 30}
+  ignore_head_node: true
+```
+
+Each entry under `stages` is a Hydra `_target_` plus constructor arguments. `resources`, `num_workers`, and `num_workers_per_node` are applied with `stage.with_(...)` instead:
+
+```yaml
+stages:
+  - _target_: nemo_curator.stages.audio.metrics.wer.GetPairwiseWerStage
+    resources: {cpus: 2.0}
+    num_workers: 4
+```
+
+Instead of `stages`, a config can define one `workflow` entry: a Hydra target whose `run(executor=...)` method is called, as in `tutorials/audio/audio_pretrain/pipeline.yaml`. After a pipeline run, `run.py` logs the number of output tasks and per-stage totals of processing time, items processed, and custom stage metrics.

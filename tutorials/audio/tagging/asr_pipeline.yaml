@@ -34,8 +34,8 @@
 #  12. ManifestWriter          - Write output JSONL manifest
 #
 # Usage (from Curator repo root):
-#   python tutorials/audio/tagging/main.py \
-#     --config-path . \
+#   python nemo_curator/config/run.py \
+#     --config-path ../../tutorials/audio/tagging \
 #     --config-name asr_pipeline \
 #     input_manifest=/data/input.jsonl \
 #     final_manifest=/data/asr_output.jsonl \

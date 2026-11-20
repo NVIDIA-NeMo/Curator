@@ -39,6 +39,7 @@ import io
 import json
 import tarfile
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
@@ -48,6 +49,7 @@ from tokenizers import Tokenizer, models, pre_tokenizers
 from nemo_curator.stages.audio._agent._agent_registry import build_contract, static_contract
 from nemo_curator.stages.audio._agent._planning import validate_pipeline
 from nemo_curator.stages.audio.alm.pretrain import (
+    AudioPretrainWorkflow,
     OverlapFilterStage,
     PretrainMetricsAggregatorStage,
     ReadLongFormManifestStage,
@@ -505,3 +507,43 @@ class TestPipelineEndToEndTarMode:
                 assert sr == _TARGET_SR
                 assert data.shape[1] == 1
                 assert data.shape[0] > 0
+
+
+@pytest.mark.parametrize("fails", [False, True])
+def test_workflow_prepares_runs_and_always_finalizes(tmp_path: Path, fails: bool) -> None:
+    output_dir = tmp_path / "out"
+    kwargs = {
+        "output_dir": str(output_dir),
+        "output_manifest_path": str(output_dir / "m" / "snippets.jsonl"),
+        "metrics_path": str(output_dir / "metrics.json"),
+        "output_audio_tar_path": str(output_dir / "snippets.tar"),
+        "id_key": "uid",
+    }
+    outputs = (kwargs["output_manifest_path"], kwargs["metrics_path"], kwargs["output_audio_tar_path"])
+    calls = MagicMock()
+    calls.build.return_value.run.side_effect = RuntimeError("boom") if fails else None
+    calls.build.return_value.run.return_value = ["task"]
+    module = "nemo_curator.stages.audio.alm.pretrain.pipeline"
+    with (
+        patch(f"{module}.build_audio_pretrain_pipeline", calls.build),
+        patch(f"{module}.prepare_audio_pretrain_outputs", calls.prepare),
+        patch(f"{module}.finalize_audio_pretrain_outputs", calls.finalize),
+    ):
+        workflow = AudioPretrainWorkflow(**kwargs)
+        if fails:
+            with pytest.raises(RuntimeError, match="boom"):
+                workflow.run("executor")
+        else:
+            result = workflow.run("executor")
+            assert result.pipeline_tasks[calls.build.return_value.name] == ["task"]
+
+    assert (output_dir / "m").is_dir()
+    assert [name for name, *_ in calls.mock_calls if "." not in name or name.endswith("run")] == [
+        "build",
+        "prepare",
+        "build().run",
+        "finalize",
+    ]
+    calls.prepare.assert_called_once_with(*outputs)
+    calls.build.return_value.run.assert_called_once_with("executor")
+    calls.finalize.assert_called_once_with(*outputs, id_key="uid")

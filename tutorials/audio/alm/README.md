@@ -47,7 +47,6 @@ tests/fixtures/audio/alm/
 └── sample_input.jsonl        # 5 sample audio manifests with diarized segments
 
 tutorials/audio/alm/
-├── main.py                   # Pipeline runner (YAML-driven)
 ├── pipeline.yaml             # Pipeline configuration
 └── README.md                 # This file
 ```
@@ -63,41 +62,28 @@ The sample input contains 5 audio manifest entries with:
 Run the pipeline on the included sample data (from Curator repo root):
 
 ```bash
-python tutorials/audio/alm/main.py \
-  --config-path . \
+python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/alm \
   --config-name pipeline \
   manifest_path=tests/fixtures/audio/alm/sample_input.jsonl
 ```
 
-Expected output:
-```
-PIPELINE COMPLETE
-==================================================
-  Output entries: 5
-  [manifest_reader]
-    process_time: mean=0.0030s, total=0.01s
-    items_processed: 0
-  [alm_data_builder]
-    process_time: mean=0.0015s, total=0.01s
-    items_processed: 5
-    windows_created: 181
-  [alm_data_overlap]
-    process_time: mean=0.0004s, total=0.00s
-    items_processed: 5
-    output_windows (after overlap): 25
-    filtered_audio_duration: 3035.5s
-  [manifest_writer]
-    process_time: mean=0.0001s, total=0.00s
-    items_processed: 5
-```
+After the run, `nemo_curator/config/run.py` logs the output task count and, per stage, the total `process_time`, `num_items_processed`, and every custom stage metric (`custom.*`). For the sample data:
+
+| Stage | Metric | Total |
+|---|---|---|
+| `alm_data_builder` | `num_items_processed` | 5 |
+| `alm_data_builder` | `custom.windows_created` | 181 |
+| `alm_data_overlap` | `custom.output_windows` | 25 |
+| `alm_data_overlap` | `custom.filtered_dur` | 3035.5 (seconds) |
 
 ## Using Custom Data
 
 With a single manifest file:
 
 ```bash
-python tutorials/audio/alm/main.py \
-  --config-path . \
+python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/alm \
   --config-name pipeline \
   manifest_path=/path/to/your/data.jsonl \
   output_dir=./my_output
@@ -106,8 +92,8 @@ python tutorials/audio/alm/main.py \
 With a directory (recursively discovers all `.jsonl` and `.json` files in subdirectories):
 
 ```bash
-python tutorials/audio/alm/main.py \
-  --config-path . \
+python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/alm \
   --config-name pipeline \
   manifest_path=/data/manifests/ \
   output_dir=./my_output
@@ -127,8 +113,8 @@ Both backends run on top of Ray. The scripts use `RayClient` to manage the Ray c
 ### Running with Xenna (default)
 
 ```bash
-python tutorials/audio/alm/main.py \
-  --config-path . \
+python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/alm \
   --config-name pipeline \
   manifest_path=tests/fixtures/audio/alm/sample_input.jsonl
 ```
@@ -136,8 +122,8 @@ python tutorials/audio/alm/main.py \
 ### Running with Ray Data
 
 ```bash
-python tutorials/audio/alm/main.py \
-  --config-path . \
+python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/alm \
   --config-name pipeline \
   manifest_path=tests/fixtures/audio/alm/sample_input.jsonl \
   backend=ray_data
@@ -148,8 +134,8 @@ python tutorials/audio/alm/main.py \
 All parameters are defined in `pipeline.yaml`. Override from command line:
 
 ```bash
-python tutorials/audio/alm/main.py \
-  --config-path . \
+python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/alm \
   --config-name pipeline \
   manifest_path=/data/input.jsonl \
   output_dir=./custom_output \
@@ -326,8 +312,8 @@ Filters windows based on overlap ratio.
 For shorter windows (e.g., 60 seconds):
 
 ```bash
-python tutorials/audio/alm/main.py \
-  --config-path . \
+python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/alm \
   --config-name pipeline \
   manifest_path=tests/fixtures/audio/alm/sample_input.jsonl \
   stages.1.target_window_duration=60 \
@@ -339,8 +325,8 @@ python tutorials/audio/alm/main.py \
 For exactly 2-3 speakers:
 
 ```bash
-python tutorials/audio/alm/main.py \
-  --config-path . \
+python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/alm \
   --config-name pipeline \
   manifest_path=tests/fixtures/audio/alm/sample_input.jsonl \
   stages.1.min_speakers=2 \
@@ -352,8 +338,8 @@ python tutorials/audio/alm/main.py \
 Remove all overlapping windows:
 
 ```bash
-python tutorials/audio/alm/main.py \
-  --config-path . \
+python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/alm \
   --config-name pipeline \
   manifest_path=tests/fixtures/audio/alm/sample_input.jsonl \
   stages.2.overlap_percentage=0
@@ -364,29 +350,13 @@ python tutorials/audio/alm/main.py \
 Process all manifests in a directory tree:
 
 ```bash
-python tutorials/audio/alm/main.py \
-  --config-path . \
+python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/alm \
   --config-name pipeline \
   manifest_path=tests/fixtures/audio/alm/nested_manifests
 ```
 
-This recursively discovers all `.jsonl` and `.json` files under `nested_manifests/` (including `subdir_a/` and `subdir_b/`), partitions them via `FilePartitioningStage`, and processes all entries through the full pipeline. Expected output with the included test fixtures (4 manifest files, 5 entries each = 20 entries):
-
-```
-PIPELINE COMPLETE
-==================================================
-  [file_partitioning]
-    items_processed: 0
-  [manifest_reader]
-    items_processed: 20
-  [alm_data_builder]
-    windows_created: 724
-  [alm_data_overlap]
-    output_windows (after overlap): 100
-    filtered_audio_duration: 12142.0s
-  [manifest_writer]
-    items_processed: 20
-```
+This recursively discovers all `.jsonl` and `.json` files under `nested_manifests/` (including `subdir_a/` and `subdir_b/`), partitions them via `FilePartitioningStage`, and processes all entries through the full pipeline. With the included test fixtures (4 manifest files, 5 entries each = 20 entries), the logged totals include `custom.windows_created=724` for `alm_data_builder` and `custom.output_windows=100` and `custom.filtered_dur=12142` for `alm_data_overlap`.
 
 ## Benchmarking
 
