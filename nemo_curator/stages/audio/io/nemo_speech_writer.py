@@ -579,7 +579,7 @@ class NeMoSpeechWriterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         return self.writer_concurrency
 
     def ray_stage_spec(self) -> dict[str, Any]:
-        return {RayStageSpecKeys.IS_ACTOR_STAGE: True}
+        return {**super().ray_stage_spec(), RayStageSpecKeys.IS_ACTOR_STAGE: True}
 
     def setup_on_node(
         self,

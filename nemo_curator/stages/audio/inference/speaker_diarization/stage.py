@@ -675,6 +675,7 @@ class InferenceSortformerStage(AgentReady, AdapterInferenceStage[DiarizationAdap
                 AudioTask(
                     dataset_name=task.dataset_name,
                     data=data,
+                    filepath_key=task.filepath_key,
                     _metadata=dict(task._metadata or {}),
                     _stage_perf=list(task._stage_perf),
                 )

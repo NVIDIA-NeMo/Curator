@@ -337,6 +337,7 @@ class SegmentConcatenationStage(AgentReady, ProcessingStage[AudioTask, AudioTask
         return AudioTask(
             data=output_data,
             dataset_name=parent_task.dataset_name,
+            filepath_key=parent_task.filepath_key,
             _metadata={**(parent_task._metadata or {}), "segment_mappings": mappings},
             _stage_perf=list(parent_task._stage_perf),
         )

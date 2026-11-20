@@ -17,7 +17,7 @@ This guide covers the `AudioTask` data structure, which serves as the core conta
 `AudioTask` is a specialized data structure that extends NeMo Curator's base `Task` class to handle audio-specific processing requirements. Each `AudioTask` holds a single manifest entry, matching the convention used by `VideoTask` and `FileGroupTask`:
 
 - **Single-Entry Model**: One manifest entry per task (`Task[dict]`), enabling straightforward per-sample processing
-- **Optional File Path Validation**: `validate()` checks file existence only when `filepath_key` is configured and that key is present in the task data
+- **File Path Validation**: every new task runs `validate()`, which checks file existence (local or fsspec URL) when `filepath_key` is configured and that key is present in the task data
 - **Metadata Handling**: Preserves audio characteristics and processing results throughout pipeline stages
 
 ## Structure and Components
@@ -64,9 +64,9 @@ audio_task.data.audio_filepath     # attribute-style
 
 ## Data Validation
 
-### Explicit Validation
+### Validation on Creation
 
-`AudioTask` provides an explicit `validate()` method. When `filepath_key` is set and that key is present in the task data, calling this method checks that the referenced local path exists. It does not reject a missing configured key. Constructing an `AudioTask` does not call `validate()` automatically, and tasks emitted by `ManifestReader` do not set `filepath_key`.
+Like other task types, `AudioTask` calls `validate()` when it is constructed. When `filepath_key` is set and that key is present in the task data, `validate()` checks that the referenced path exists, using fsspec so that both local paths and remote URLs such as `s3://` work. A missing file logs a warning and makes `validate()` return `False`; it does not raise. It does not reject a missing configured key. Stages that rebuild a task from an input task carry its `filepath_key` forward. Tasks emitted by `ManifestReader` do not set `filepath_key`.
 
 ## Metadata Management
 

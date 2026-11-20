@@ -58,12 +58,13 @@ import tempfile
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from loguru import logger
 from praatio import textgrid as praatio_textgrid
 
 from nemo_curator.backends.utils import RayStageSpecKeys
+from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, Role, StageContract
 from nemo_curator.stages.audio.common.duration import get_audio_duration
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
@@ -87,7 +88,7 @@ _MFA_CACHE_MARKER_NAME = ".mfa_cache_complete.json"
 
 
 @dataclass
-class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
+class MFAAlignmentStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """Batch forced alignment using the Montreal Forced Aligner (MFA).
 
     This stage only supports :meth:`process_batch`; calling :meth:`process`
@@ -140,6 +141,14 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
             ``Resources(cpus=num_jobs)`` so the executor reserves CPUs
             proportional to the ``-j`` jobs MFA actually forks; pass an
             explicit value to override.
+        textgrid_filepath_key: Output key for the TextGrid path (``""`` when
+            MFA produced no TextGrid).
+        rttm_filepath_key: Output key for the RTTM path, written when
+            ``create_rttm`` is set.
+        ctm_filepath_key: Output key for the CTM path, written when
+            ``create_ctm`` is set.
+        mfa_skipped_key: Output key set to ``True`` when the row was not
+            aligned and fallback (full-span) annotations were written instead.
     """
 
     output_dir: str
@@ -169,6 +178,17 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
     create_ctm: bool = True
     batch_size: int = 256
     resources: Resources | None = None
+    textgrid_filepath_key: str = "textgrid_filepath"
+    rttm_filepath_key: str = "rttm_filepath"
+    ctm_filepath_key: str = "ctm_filepath"
+    mfa_skipped_key: str = "mfa_skipped"
+
+    KEY_ROLE_OVERRIDES: ClassVar[dict[str, Role]] = {
+        "textgrid_filepath_key": "output_path",
+        "rttm_filepath_key": "output_path",
+        "ctm_filepath_key": "output_path",
+    }
+    INTERNAL_KEY_FIELDS: ClassVar[frozenset[str]] = frozenset({"mfa_skipped_key"})
 
     # Set during lifecycle hooks -- not user-configurable
     _mfa_root: str = field(default="", init=False, repr=False)
@@ -201,20 +221,34 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
         return [], [self.audio_filepath_key, self.text_key]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        data_keys = ["textgrid_filepath", "mfa_skipped", self.duration_key]
+        data_keys = [self.textgrid_filepath_key, self.mfa_skipped_key, self.duration_key]
         if self.create_rttm:
-            data_keys.append("rttm_filepath")
+            data_keys.append(self.rttm_filepath_key)
         if self.create_ctm:
-            data_keys.append("ctm_filepath")
+            data_keys.append(self.ctm_filepath_key)
         return [], data_keys
+
+    def describe(self) -> StageContract:
+        return StageContract(
+            reads=IOSpec(data_keys=[self.audio_filepath_key, self.text_key], accepts=["file"]),
+            optional_reads=IOSpec(data_keys=[self.speaker_key, self.duration_key]),
+            writes=IOSpec(data_keys=self.outputs()[1], produces=["disk"]),
+            cardinality="1:1",
+            gates=Gates(
+                writes_to_disk=True,
+                output_path_params=["output_dir"],
+                lifecycle_side_effects=True,
+                # One `mfa align` run aligns the whole batch, so a row's alignment
+                # is not guaranteed to match a run over that row alone.
+                per_row_independent=False,
+            ),
+        )
 
     def num_workers(self) -> int:
         return 1
 
     def ray_stage_spec(self) -> dict[str, Any]:
-        return {
-            RayStageSpecKeys.IS_ACTOR_STAGE: True,
-        }
+        return {**super().ray_stage_spec(), RayStageSpecKeys.IS_ACTOR_STAGE: True}
 
     def setup_on_node(
         self,
@@ -370,29 +404,29 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
         preserving cardinality and the declared output keys.
         """
         self._ensure_task_duration(task)
-        task.data["textgrid_filepath"] = ""
-        task.data["mfa_skipped"] = True
+        task.data[self.textgrid_filepath_key] = ""
+        task.data[self.mfa_skipped_key] = True
         if self.create_rttm:
-            task.data["rttm_filepath"] = ""
+            task.data[self.rttm_filepath_key] = ""
         if self.create_ctm:
-            task.data["ctm_filepath"] = ""
+            task.data[self.ctm_filepath_key] = ""
 
     def _handle_successful_textgrid(self, file_stem: str, task: AudioTask, tg_path: Path, batch_id: str) -> None:
-        task.data["textgrid_filepath"] = str(tg_path)
-        task.data["mfa_skipped"] = False
+        task.data[self.textgrid_filepath_key] = str(tg_path)
+        task.data[self.mfa_skipped_key] = False
         speaker = task.data.get(self.speaker_key, "unknown")
 
         if self.create_rttm:
             rttm_path = self._rttm_dir / batch_id / f"{file_stem}.rttm"
             rttm_path.parent.mkdir(parents=True, exist_ok=True)
             self._textgrid_to_rttm(tg_path, file_stem, speaker, rttm_path)
-            task.data["rttm_filepath"] = str(rttm_path)
+            task.data[self.rttm_filepath_key] = str(rttm_path)
 
         if self.create_ctm:
             ctm_path = self._ctm_dir / batch_id / f"{file_stem}.ctm"
             ctm_path.parent.mkdir(parents=True, exist_ok=True)
             self._textgrid_to_ctm(tg_path, file_stem, ctm_path)
-            task.data["ctm_filepath"] = str(ctm_path)
+            task.data[self.ctm_filepath_key] = str(ctm_path)
 
     def _handle_missing_textgrid(self, file_stem: str, task: AudioTask, batch_id: str) -> None:
         duration = task.data.get(self.duration_key, 0.0)
@@ -401,20 +435,20 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
 
         logger.warning(f"  MFA dropped '{file_stem}': duration={duration:.2f}s, text='{text[:120]}'")
 
-        task.data["textgrid_filepath"] = ""
-        task.data["mfa_skipped"] = True
+        task.data[self.textgrid_filepath_key] = ""
+        task.data[self.mfa_skipped_key] = True
 
         if self.create_rttm:
             rttm_path = self._rttm_dir / batch_id / f"{file_stem}.rttm"
             rttm_path.parent.mkdir(parents=True, exist_ok=True)
             self._create_duration_fallback_rttm(file_stem, speaker, duration, rttm_path)
-            task.data["rttm_filepath"] = str(rttm_path)
+            task.data[self.rttm_filepath_key] = str(rttm_path)
 
         if self.create_ctm:
             ctm_path = self._ctm_dir / batch_id / f"{file_stem}.ctm"
             ctm_path.parent.mkdir(parents=True, exist_ok=True)
             self._create_duration_fallback_ctm(file_stem, text, duration, ctm_path)
-            task.data["ctm_filepath"] = str(ctm_path)
+            task.data[self.ctm_filepath_key] = str(ctm_path)
 
     def _run_mfa_align(  # noqa: C901, PLR0912
         self, corpus_dir: Path, textgrid_output_dir: Path

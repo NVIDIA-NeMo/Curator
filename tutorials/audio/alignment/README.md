@@ -208,6 +208,8 @@ The output manifest JSONL contains all original fields plus:
 | `mfa_skipped` | bool | `true` if input validation failed or MFA produced no alignment (see below) |
 | `duration` | float | Audio duration in seconds; computed if missing, or `-1.0` when unavailable |
 
+The output key names are configurable via `textgrid_filepath_key`, `rttm_filepath_key`, `ctm_filepath_key`, `mfa_skipped_key`, and `duration_key`.
+
 ### Output directory structure
 
 ```

@@ -46,18 +46,12 @@ _NON_SERIALIZABLE_KEYS = frozenset(
 _DROP_VALUE = object()
 
 
-class _DefaultBatchSize(int):
-    """Sentinel that remains an ordinary integer to signature/card consumers."""
-
-
-_DEFAULT_BATCH_SIZE = _DefaultBatchSize(64)
-
-
 def _is_tensor(v: object) -> bool:
     """Check if a value is a torch.Tensor without importing torch at module level."""
     return type(v).__name__ == "Tensor" and type(v).__module__.startswith("torch")
 
 
+@dataclass
 class AudioToDocumentStage(AgentReady, ProcessingStage[AudioTask, DocumentBatch]):
     """Convert AudioTask entries into DocumentBatch DataFrames.
 
@@ -72,7 +66,7 @@ class AudioToDocumentStage(AgentReady, ProcessingStage[AudioTask, DocumentBatch]
     upstream stages failed to clean them up.
 
     Args:
-        batch_size: Optional instance override for the inherited batch size.
+        batch_size: Number of AudioTasks aggregated into one DocumentBatch.
         keep_keys: Optional allowlist of task-data keys to retain. Selected columns
             remain present with null values when missing or rejected by sanitization;
             drop_keys and excluded audio carriers are still omitted.
@@ -84,31 +78,14 @@ class AudioToDocumentStage(AgentReady, ProcessingStage[AudioTask, DocumentBatch]
             for datetime, Decimal, pathlib paths, tuples, and custom scalars.
     """
 
-    name = "AudioToDocumentStage"
-    BATCH_ONLY = True  # process() raises; only process_batch is implemented (agent-discovery hint)
     batch_size: int = 64
     keep_keys: list[str] | None = None
     drop_keys: tuple[str, ...] = ()
     serialize_segments: bool = False
     segments_key: str = "segments"
     strict_json: bool = False
-
-    def __init__(  # noqa: PLR0913
-        self,
-        batch_size: int = _DEFAULT_BATCH_SIZE,
-        keep_keys: list[str] | None = None,
-        drop_keys: tuple[str, ...] = (),
-        serialize_segments: bool = False,
-        segments_key: str = "segments",
-        strict_json: bool = False,
-    ) -> None:
-        if batch_size is not _DEFAULT_BATCH_SIZE:
-            self.batch_size = batch_size
-        self.keep_keys = keep_keys
-        self.drop_keys = drop_keys
-        self.serialize_segments = serialize_segments
-        self.segments_key = segments_key
-        self.strict_json = strict_json
+    name: str = "AudioToDocumentStage"
+    BATCH_ONLY: ClassVar[bool] = True  # process() raises; only process_batch is implemented (agent-discovery hint)
 
     def process(self, task: AudioTask) -> DocumentBatch:
         msg = "AudioToDocumentStage only supports process_batch"

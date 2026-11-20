@@ -86,7 +86,7 @@ class ManifestReaderStage(AgentReady, ProcessingStage[FileGroupTask, AudioTask])
                             AudioTask(
                                 dataset_name=task.dataset_name,
                                 data=row,
-                                _metadata=task._metadata,
+                                _metadata=dict(task._metadata),
                                 _stage_perf=list(task._stage_perf),
                             )
                         )

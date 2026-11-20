@@ -18,7 +18,6 @@
 from __future__ import annotations
 
 import argparse
-import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -108,5 +107,4 @@ def parse_args() -> argparse.Namespace:
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO, format="%(message)s")
     build_bundle(parse_args())

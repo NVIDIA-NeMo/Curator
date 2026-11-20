@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, cast
 import numpy as np
 from loguru import logger
 
+from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.models.audio.vad.base import VADAdapter, _validate_detection_options
 from nemo_curator.stages.audio._agent._agent_ready import (
     AgentReady,
@@ -592,9 +593,7 @@ class VADSegmentationStage(AgentReady, AdapterInferenceStage[VADAdapter]):
         )
 
     def ray_stage_spec(self) -> dict[str, Any]:
-        if self.nested:
-            return {}
-        return super().ray_stage_spec()
+        return {**super().ray_stage_spec(), RayStageSpecKeys.IS_FANOUT_STAGE: not self.nested}
 
     def _resolve_audio(self, task: AudioTask) -> tuple[torch.Tensor, int]:  # noqa: C901
         waveform = None if self.input_residency == "file" else task.data.get(self.waveform_key)
@@ -811,6 +810,7 @@ class VADSegmentationStage(AgentReady, AdapterInferenceStage[VADAdapter]):
                 AudioTask(
                     data=segment_data,
                     dataset_name=task.dataset_name,
+                    filepath_key=task.filepath_key,
                     _metadata=dict(task._metadata),
                     _stage_perf=list(task._stage_perf),
                 )

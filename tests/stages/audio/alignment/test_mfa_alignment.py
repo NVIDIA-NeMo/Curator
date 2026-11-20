@@ -35,6 +35,7 @@ from praatio import textgrid
 from nemo_curator.backends.ray_actor_pool.utils import calculate_optimal_actors_for_resources
 from nemo_curator.backends.ray_data.adapter import RayDataStageAdapter
 from nemo_curator.backends.xenna import XennaExecutor
+from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
 from nemo_curator.stages.audio.alignment.mfa_alignment import (
     _MFA_CACHE_MARKER_NAME,
     MFAAlignmentStage,
@@ -149,6 +150,22 @@ def _patch_mfa_subprocess(stage: MFAAlignmentStage, **kwargs: object):  # noqa: 
     ``Popen`` (with its own process group) to support timeout + killpg.
     """
     return patch.object(stage, "_run_mfa_subprocess", **kwargs)
+
+
+def test_ray_stage_spec_keeps_base_keys(tmp_path: Path) -> None:
+    assert _make_stage(tmp_path).ray_stage_spec() == {"is_fanout_stage": False, "is_actor_stage": True}
+
+
+def test_mfa_alignment_is_agent_ready(tmp_path: Path) -> None:
+    stage = _make_stage(tmp_path)
+    stage.setup()
+    with _patch_mfa_subprocess(stage, return_value=subprocess.CompletedProcess([], 0, "", "")):
+        assert_agent_ready(
+            stage,
+            lambda: _make_task(_make_wav(tmp_path)),
+            expected_cardinality="1:1",
+            available_keys={"audio_filepath", "text", "speaker", "duration"},
+        )
 
 
 class TestMFAAlignmentStage:

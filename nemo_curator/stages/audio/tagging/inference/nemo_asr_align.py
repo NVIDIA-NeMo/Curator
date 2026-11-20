@@ -87,7 +87,7 @@ class BaseASRProcessorStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
 
     # Stage metadata (subclasses can override)
     name: str = "BaseASRProcessor"
-    resources: Resources = field(default_factory=lambda: Resources(gpus=1))
+    resources: Resources = field(default_factory=lambda: Resources(gpus=1.0))
 
     # Agent-added knobs are keyword-only (KW_ONLY sentinel) so the legacy positional slots
     # above keep their historical order and meaning.

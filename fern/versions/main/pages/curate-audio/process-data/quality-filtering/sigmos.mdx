@@ -108,7 +108,7 @@ A segment is dropped if **any** active threshold fails. Setting any threshold to
 | `loud_threshold` | float \| None | `None` | Minimum loudness score; `None` disables. |
 | `reverb_threshold` | float \| None | `None` | Minimum reverb score; `None` disables. |
 
-The default resource allocation is `Resources(cpus=1.0, gpus=0.5)`.
+The default resource allocation is `Resources(cpus=1.0, gpu_memory_gb=1.5)` (about 1.4 GB of VRAM), so it can share a device with other inference stages.
 
 ## Domain-Specific Tuning
 

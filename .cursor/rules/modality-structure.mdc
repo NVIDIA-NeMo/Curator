@@ -50,7 +50,8 @@ Common operations:
 - Duration analysis
 - Quality filtering
 
-Task type: `AudioBatch`
+Task type: `AudioTask` (one manifest entry per task). New audio stages follow
+`stages/audio/AGENT_READY.md`.
 
 ## Video Processing (`stages/video/`)
 

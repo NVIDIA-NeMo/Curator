@@ -39,7 +39,8 @@ Usage::
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, ClassVar
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -58,6 +59,7 @@ from nemo_curator.tasks import AudioTask
 from .config import _deep_merge, _validate, get_enabled_stages, load_config
 
 
+@dataclass
 class AudioDataFilterStage(AgentReady, CompositeStage[AudioTask, AudioTask]):
     """Complete audio data filtering and curation pipeline (CompositeStage).
 
@@ -81,19 +83,17 @@ class AudioDataFilterStage(AgentReady, CompositeStage[AudioTask, AudioTask]):
     """
 
     # A configurable VAD adapter may depend on other rows; only an instance can resolve this.
-    AGENT_STATIC = StaticHints(gates=Gates(per_row_independent=False))
+    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(gates=Gates(per_row_independent=False))
 
-    def __init__(
-        self,
-        config_path: str | Path | None = None,
-        config: dict[str, Any] | None = None,
-        name: str = "AudioDataFilter",
-    ) -> None:
+    config_path: str | Path | None = None
+    config: dict[str, Any] | None = None
+    name: str = "AudioDataFilter"
+
+    def __post_init__(self) -> None:
         super().__init__()
-        self.name = name
-        self._cfg = load_config(config_path)
-        if config:
-            self._cfg = _deep_merge(self._cfg, config)
+        self._cfg = load_config(self.config_path)
+        if self.config:
+            self._cfg = _deep_merge(self._cfg, self.config)
         _validate(self._cfg)
 
     def describe(self) -> StageContract:

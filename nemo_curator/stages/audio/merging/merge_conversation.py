@@ -21,12 +21,13 @@ import math
 import random
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import numpy as np
 import soundfile as sf
 from loguru import logger
 
+from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, Role, StageContract
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask
 from nemo_curator.utils.operation_utils import make_temporary_dir
@@ -54,7 +55,8 @@ class _PreparedTurn:
     start: int = 0
 
 
-class MergeConversationSDPStage(ProcessingStage[AudioTask, AudioTask]):
+@dataclass
+class MergeConversationSDPStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """Merge nested conversation turns into audio and matching annotations.
 
     Each input ``AudioTask`` must contain ``conversation_id`` and a ``turns``
@@ -98,51 +100,97 @@ class MergeConversationSDPStage(ProcessingStage[AudioTask, AudioTask]):
         max_intra_turn_pause: Maximum source pause retained between speech segments.
         randomize_pauses: Randomize capped inter-turn pauses longer than 0.5 seconds.
         seglst_offset: Nonnegative padding around turn bounds in the segment list.
+        conversation_id_key: Input and output conversation id.
+        turns_key: Input list of turn dictionaries (removed from the output).
+        audio_filepath_key: Output path of ``mixed.wav``.
+        rttm_filepath_key: Output path of ``all.rttm``.
+        ctm_filepath_key: Output path of ``all.ctm`` (``""`` when no turn had a CTM).
+        seglst_filepath_key: Output path of ``segments.seglst.json``.
+        duration_key: Output conversation length in seconds.
+        num_speakers_key: Output number of distinct speakers.
+        offset_key: Output offset, always zero.
+        mfa_fallback_key: Output flag, ``True`` when any turn kept full audio
+            because its RTTM was missing/unusable or MFA skipped it.
+        speaker_references_key: Output reference metadata by speaker label.
+        speaker_artifacts_key: Output per-speaker channel index and file paths.
     """
 
-    name = "MergeConversationSDPStage"
+    output_conversations_dir: str
+    max_pause_duration: float = 2.0
+    max_intra_turn_pause: float = 1.0
+    randomize_pauses: bool = False
+    seglst_offset: float = 0.1
+    name: str = "MergeConversationSDPStage"
+    conversation_id_key: str = "conversation_id"
+    turns_key: str = "turns"
+    audio_filepath_key: str = "audio_filepath"
+    rttm_filepath_key: str = "rttm_filepath"
+    ctm_filepath_key: str = "ctm_filepath"
+    seglst_filepath_key: str = "seglst_filepath"
+    duration_key: str = "duration"
+    num_speakers_key: str = "num_speakers"
+    offset_key: str = "offset"
+    mfa_fallback_key: str = "mfa_fallback"
+    speaker_references_key: str = "speaker_references"
+    speaker_artifacts_key: str = "speaker_artifacts"
 
-    def __init__(
-        self,
-        output_conversations_dir: str,
-        max_pause_duration: float = 2.0,
-        max_intra_turn_pause: float = 1.0,
-        randomize_pauses: bool = False,
-        seglst_offset: float = 0.1,
-    ):
-        super().__init__()
-        for key, value in (
-            ("max_pause_duration", max_pause_duration),
-            ("max_intra_turn_pause", max_intra_turn_pause),
-            ("seglst_offset", seglst_offset),
-        ):
+    KEY_ROLE_OVERRIDES: ClassVar[dict[str, Role]] = {
+        "rttm_filepath_key": "output_path",
+        "ctm_filepath_key": "output_path",
+        "seglst_filepath_key": "output_path",
+    }
+    INTERNAL_KEY_FIELDS: ClassVar[frozenset[str]] = frozenset(
+        {
+            "conversation_id_key",
+            "turns_key",
+            "offset_key",
+            "mfa_fallback_key",
+            "speaker_references_key",
+            "speaker_artifacts_key",
+        }
+    )
+
+    def __post_init__(self) -> None:
+        for key in ("max_pause_duration", "max_intra_turn_pause", "seglst_offset"):
+            value = getattr(self, key)
             if not math.isfinite(value) or value < 0:
                 msg = f"{key} must be finite and nonnegative"
                 raise ValueError(msg)
-        self.output_conversations_dir = Path(output_conversations_dir).expanduser().resolve()
-        self.max_pause_duration = max_pause_duration
-        self.max_intra_turn_pause = max_intra_turn_pause
-        self.randomize_pauses = randomize_pauses
-        self.seglst_offset = seglst_offset
+        self.output_conversations_dir = Path(self.output_conversations_dir).expanduser().resolve()
         self._rng = random.Random()  # noqa: S311
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return [], ["conversation_id", "turns"]
+        return [], [self.conversation_id_key, self.turns_key]
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [
-            "conversation_id",
-            "audio_filepath",
-            "rttm_filepath",
-            "ctm_filepath",
-            "seglst_filepath",
-            "duration",
-            "num_speakers",
-            "offset",
-            "mfa_fallback",
-            "speaker_references",
-            "speaker_artifacts",
+            self.conversation_id_key,
+            self.audio_filepath_key,
+            self.rttm_filepath_key,
+            self.ctm_filepath_key,
+            self.seglst_filepath_key,
+            self.duration_key,
+            self.num_speakers_key,
+            self.offset_key,
+            self.mfa_fallback_key,
+            self.speaker_references_key,
+            self.speaker_artifacts_key,
         ]
+
+    def describe(self) -> StageContract:
+        return StageContract(
+            reads=IOSpec(data_keys=self.inputs()[1]),
+            writes=IOSpec(data_keys=self.outputs()[1], produces=["disk"]),
+            # The output row holds only the merged conversation's fields.
+            preserves_upstream_keys=False,
+            cardinality="filter",
+            gates=Gates(
+                writes_to_disk=True,
+                output_path_params=["output_conversations_dir"],
+                # Randomized pauses draw from one unseeded per-stage RNG shared across rows.
+                per_row_independent=not self.randomize_pauses,
+            ),
+        )
 
     def process(self, task: AudioTask) -> AudioTask | list[AudioTask]:
         conversation_id, entries = self._validate_conversation(task.data)
@@ -182,13 +230,12 @@ class MergeConversationSDPStage(ProcessingStage[AudioTask, AudioTask]):
             msg = f"Conversation destination already exists: {destination}"
             raise FileExistsError(msg)
 
-    @staticmethod
-    def _validate_conversation(data: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
-        entries = data.get("turns")
+    def _validate_conversation(self, data: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
+        entries = data.get(self.turns_key)
         if not isinstance(entries, list) or any(not isinstance(entry, dict) for entry in entries):
             msg = "Expected a turns list containing all turns of one conversation"
             raise ValueError(msg)
-        conversation_id = data.get("conversation_id")
+        conversation_id = data.get(self.conversation_id_key)
         if (
             not isinstance(conversation_id, str)
             or not conversation_id
@@ -428,8 +475,8 @@ class MergeConversationSDPStage(ProcessingStage[AudioTask, AudioTask]):
             )
         path.write_text(json.dumps(segments, indent=2, ensure_ascii=False), encoding="utf-8")
 
-    @staticmethod
     def _result(  # noqa: PLR0913
+        self,
         directory: Path,
         conversation_id: str,
         turns: list[_PreparedTurn],
@@ -457,15 +504,15 @@ class MergeConversationSDPStage(ProcessingStage[AudioTask, AudioTask]):
             for i, (speaker, stem) in enumerate(stems.items())
         }
         return {
-            "conversation_id": conversation_id,
-            "audio_filepath": str(directory / "mixed.wav"),
-            "rttm_filepath": str(directory / "all.rttm"),
-            "ctm_filepath": str(directory / "all.ctm") if with_ctm else "",
-            "seglst_filepath": str(directory / "segments.seglst.json"),
-            "duration": total_samples / turns[0].sample_rate,
-            "num_speakers": len(stems),
-            "offset": 0,
-            "mfa_fallback": any(turn.fallback or turn.entry.get("mfa_skipped", False) for turn in turns),
-            "speaker_references": references,
-            "speaker_artifacts": artifacts,
+            self.conversation_id_key: conversation_id,
+            self.audio_filepath_key: str(directory / "mixed.wav"),
+            self.rttm_filepath_key: str(directory / "all.rttm"),
+            self.ctm_filepath_key: str(directory / "all.ctm") if with_ctm else "",
+            self.seglst_filepath_key: str(directory / "segments.seglst.json"),
+            self.duration_key: total_samples / turns[0].sample_rate,
+            self.num_speakers_key: len(stems),
+            self.offset_key: 0,
+            self.mfa_fallback_key: any(turn.fallback or turn.entry.get("mfa_skipped", False) for turn in turns),
+            self.speaker_references_key: references,
+            self.speaker_artifacts_key: artifacts,
         }

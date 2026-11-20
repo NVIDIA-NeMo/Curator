@@ -17,18 +17,17 @@
 from __future__ import annotations
 
 import json
-import logging
 import shutil
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from loguru import logger
+
 if TYPE_CHECKING:
     import argparse
 
     import torch
-
-logger = logging.getLogger(__name__)
 
 
 def export_encoder(
@@ -75,10 +74,10 @@ def build_engine(
         msg = "TensorRT Python bindings are required to build the encoder engine"
         raise RuntimeError(msg) from error
 
-    logger = trt.Logger(trt.Logger.INFO if args.verbose else trt.Logger.WARNING)
-    builder = trt.Builder(logger)
+    trt_logger = trt.Logger(trt.Logger.INFO if args.verbose else trt.Logger.WARNING)
+    builder = trt.Builder(trt_logger)
     network = builder.create_network(1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH))
-    parser = trt.OnnxParser(network, logger)
+    parser = trt.OnnxParser(network, trt_logger)
     if not parser.parse_from_file(str(onnx_path)):
         errors = "\n".join(str(parser.get_error(index)) for index in range(parser.num_errors))
         msg = f"Failed to parse {onnx_path}:\n{errors}"
@@ -242,4 +241,4 @@ def build_encoder_bundle(  # noqa: PLR0913
         bundle_dir.replace(output_dir)
 
     logger.info(parity_message)
-    logger.info("Wrote TensorRT encoder bundle to %s", output_dir)
+    logger.info(f"Wrote TensorRT encoder bundle to {output_dir}")
