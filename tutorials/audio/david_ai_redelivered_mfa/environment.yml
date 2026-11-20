@@ -1,0 +1,12 @@
+name: david-ai-mfa
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - ffmpeg
+  - montreal-forced-aligner=3.3.9
+  - pip
+  - pip:
+      - numpy
+      - num2words>=0.5.12
+      - textgrid
