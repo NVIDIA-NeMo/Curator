@@ -390,7 +390,12 @@ caller-declared provenance, not automatic PDF-hash verification; keep inputs
 immutable throughout every chunk read. Duplicate document identities, ambiguous
 sample IDs, and grouped filename lists are rejected.
 
-It also requires `--page-budget-extraction-config extraction.json`, containing a
+For Python callers, `NemotronParsePDFReader.file_name_field` selects the PDF
+path relative to `pdf_dir`, and `url_field` selects the source URL retained in
+the output. The configured fields take precedence when a record also contains
+`file_name` or `url`.
+
+Page mode also requires `--page-budget-extraction-config extraction.json`, containing a
 resolved `pdf-page-extraction.v1` contract for parser identity, model artifacts,
 requests, rendering/recovery, transport, and output projection. This records
 settings rather than overriding them. Prepare it from the installed parser and

@@ -636,6 +636,11 @@ Use one versioned PDF per manifest record:
 {"file_name": "document.pdf", "num_pages": 120, "source_locator": "corpus/document.pdf", "source_version": "sha256:<actual-pdf-digest>"}
 ```
 
+For Python callers, `NemotronParsePDFReader.file_name_field` selects the PDF
+path relative to `pdf_dir`, and `url_field` selects the source URL retained in
+the output. The configured fields take precedence when a record also contains
+`file_name` or `url`.
+
 Replace the example source version with an immutable identity for the actual PDF
 bytes. `source_version` is caller-declared provenance; Curator does not automatically
 verify the PDF hash. Keep each input file immutable throughout all chunk reads.

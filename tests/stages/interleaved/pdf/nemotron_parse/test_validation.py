@@ -79,6 +79,23 @@ def test_duplicate_delivered_documents_fail(tmp_path: Path):
         )
 
 
+def test_readback_resolves_configured_columns_from_the_original_record(tmp_path: Path):
+    manifest, _, _, files = outputs(tmp_path)
+    records = [json.loads(line) for line in manifest.read_text().splitlines()]
+    for record in records:
+        record["local_name"] = record["file_name"]
+        record["file_name"] = record.pop("url")
+    manifest.write_text("".join(json.dumps(record) + "\n" for record in records))
+    result = validate_page_budget_outputs(
+        str(manifest),
+        [task.data[0] for task in files],
+        expected_output_version=TEST_OUTPUT_VERSION,
+        file_name_field="local_name",
+        url_field="file_name",
+    )
+    assert result["coverage_passed"]
+
+
 def test_persisted_page_omission_is_rejected_independently(tmp_path: Path):
     manifest, writer, documents, files = outputs(tmp_path)
     rows = documents[0].to_pyarrow().to_pylist()

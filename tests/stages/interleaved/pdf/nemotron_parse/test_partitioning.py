@@ -69,6 +69,26 @@ def test_page_mode_does_not_silently_skip_malformed_manifest_records(tmp_path: P
         PDFPartitioningStage(manifest_path=str(manifest), pages_per_task=64).process(EmptyTask())
 
 
+@pytest.mark.parametrize("page_budget", [None, 64])
+def test_configured_fields_take_precedence_over_manifest_metadata(tmp_path: Path, page_budget: int | None):
+    entry = {
+        "file_name": "legacy.pdf",
+        "local_name": "selected.pdf",
+        "original_url": "https://example.test/selected",
+        "num_pages": 1,
+        "byte_offset": 100,
+    }
+    stage = PDFPartitioningStage(
+        manifest_path=str(write_manifest(tmp_path, [entry])),
+        file_name_field="local_name",
+        url_field="original_url",
+        pages_per_task=page_budget,
+    )
+    (task,) = stage.process(EmptyTask())
+    row = json.loads(task.data[0])
+    assert (row["file_name"], row["url"], row["byte_offset"]) == ("selected.pdf", entry["original_url"], 100)
+
+
 def test_page_budget_does_not_rebind_legacy_positional_partitioner_arguments():
     from nemo_curator.stages.resources import Resources
 

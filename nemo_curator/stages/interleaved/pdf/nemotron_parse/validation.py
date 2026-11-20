@@ -39,10 +39,9 @@ def _expected_documents(manifest_path: str, max_pdfs: int | None, file_name_fiel
             if not line.strip():
                 continue
             entry = json.loads(line)
-            entry["file_name"] = entry[file_name_field]
             identity = document_identity(entry)
             key = identity["document_id"]
-            sample = entry["file_name"].rsplit(".", 1)[0]
+            sample = entry[file_name_field].rsplit(".", 1)[0]
             if key in expected or sample in samples:
                 msg = "Duplicate document or ambiguous sample_id in expected inventory"
                 raise ValueError(msg)
@@ -102,7 +101,7 @@ def validate_page_budget_outputs(  # noqa: PLR0913
             or provenance["selection_sha256"] != identity_digest(wanted["pages"])
             or [outcome["page_number"] for outcome in info["page_outcomes"]] != wanted["pages"]
             or rows[0]["sample_id"] != wanted["sample"]
-            or rows[0]["pdf_name"] != wanted["entry"]["file_name"]
+            or rows[0]["pdf_name"] != wanted["entry"][file_name_field]
             or info["url"] != wanted["entry"].get(url_field, "")
             or any(row["url"] != wanted["entry"].get(url_field, "") for row in rows)
         ):

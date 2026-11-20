@@ -125,7 +125,7 @@ class PDFPartitioningStage(ProcessingStage[EmptyTask, FileGroupTask]):
                     extra = {
                         k: v
                         for k, v in record.items()
-                        if k not in (self.file_name_field, self.url_field, self.file_names_field)
+                        if k not in (self.file_name_field, self.url_field, self.file_names_field, "file_name", "url")
                     }
                 else:
                     if self.pages_per_task is not None:
