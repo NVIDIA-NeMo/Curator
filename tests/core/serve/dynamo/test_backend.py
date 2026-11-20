@@ -243,20 +243,9 @@ class TestResolveEffectiveRouter:
         assert kv_events is False
 
 
-# ---------------------------------------------------------------------------
-# Backend ``start()`` teardown ordering (locked in by eb6416d8 — the
-# killpg-only subprocess_mgr rewrite depends on this order).
-# ---------------------------------------------------------------------------
-
-
 class TestDynamoBackendStart:
-    def test_sweeps_orphan_actors_before_removing_placement_groups(self) -> None:
-        """``remove_named_pgs_with_prefix`` force-kills actors scheduled into
-        the reaped PGs; sweeping named actors first lets ``graceful_stop_actors``
-        ``killpg`` each process group cleanly. Also asserts the override
-        fan-out runs *before* any worker-spawning step — the actor venv
-        install on each worker reads the file from the local filesystem,
-        so it must exist by the time the first actor lands."""
+    def test_installs_runtime_overrides_before_deploying_workers(self) -> None:
+        """Actor environment setup reads the override file from the worker node."""
         server = InferenceServer(
             models=[DynamoVLLMModelConfig(model_identifier="m")],
             backend=DynamoServerConfig(
@@ -280,17 +269,11 @@ class TestDynamoBackendStart:
                 "ensure_actor_overrides_on_all_nodes",
                 side_effect=lambda **_kw: order.append("overrides"),
             ),
-            mock.patch.object(backend, "_sweep_orphan_actors", side_effect=lambda: order.append("actors")),
-            mock.patch.object(
-                dynamo_backend,
-                "remove_named_pgs_with_prefix",
-                side_effect=lambda _prefix: order.append("pgs"),
-            ),
             mock.patch.object(backend, "_deploy_and_healthcheck", side_effect=lambda *_a: order.append("deploy")),
         ):
             backend.start()
 
-        assert order == ["overrides", "actors", "pgs", "deploy"]
+        assert order == ["overrides", "deploy"]
 
 
 class TestDynamoBackendDeploy:
@@ -641,7 +624,7 @@ def test_failed_dynamo_deploy_stops_children_before_removing_pg(ambient_namespac
         mock.patch.object(module, "remove_named_pgs_with_prefix"),
         mock.patch.object(module, "_wait_for_port"),
         mock.patch.object(subprocess_mgr, "_define_subprocess_actor", side_effect=factory),
-        mock.patch.object(backend, "_sweep_orphan_actors"),
+        mock.patch.object(module, "sweep_orphan_actors_by_prefix"),
         mock.patch.object(backend, "_deploy_and_healthcheck", side_effect=deploy),
         pytest.raises(TypeError, match="worker runtime serialization"),
     ):
@@ -649,6 +632,70 @@ def test_failed_dynamo_deploy_stops_children_before_removing_pg(ambient_namespac
     assert not any(children_alive.values()), {"alive": children_alive, "events": events}
     assert events[-1] == ("remove-pg", 0)
     assert all(options.get("namespace") == NEMO_CURATOR_DYNAMO_NAMESPACE for options in spawn_options)
+
+
+def test_same_name_dynamo_deployments_keep_independent_lifecycles() -> None:
+    def make_backend() -> DynamoBackend:
+        return DynamoBackend(
+            InferenceServer(
+                models=[DynamoVLLMModelConfig(model_identifier="m")],
+                backend=DynamoServerConfig(etcd_endpoint="http://etcd:2379", nats_url="nats://nats:4222"),
+            )
+        )
+
+    first, second = make_backend(), make_backend()
+    actor_names: set[str] = set()
+    pg_names: set[str] = set()
+    cleanup: list[tuple[str, str]] = []
+
+    def create(backend: DynamoBackend) -> None:
+        actor_names.add(f"{backend._actor_name_prefix}_Dynamo_Frontend")
+        pg_names.add(f"{backend._actor_name_prefix}_pg_infra")
+
+    def fail_after_creating(*_: object) -> None:
+        create(second)
+        msg = "second deployment interrupted"
+        raise KeyboardInterrupt(msg)
+
+    def sweep(*, prefix: str, namespace: str) -> None:
+        assert namespace == NEMO_CURATOR_DYNAMO_NAMESPACE
+        cleanup.append(("actors", prefix))
+        actor_names.difference_update({name for name in actor_names if name.startswith(prefix)})
+
+    def remove(prefix: str) -> None:
+        cleanup.append(("pgs", prefix))
+        pg_names.difference_update({name for name in pg_names if name.startswith(prefix)})
+
+    context = mock.Mock()
+    context.get_temp_dir.return_value = "/unused"
+    context.get_session_name.return_value = "no-runtime-created"
+    with (
+        mock.patch.object(dynamo_backend.ray, "init", return_value=contextlib.nullcontext()),
+        mock.patch.object(dynamo_backend.ray, "get_runtime_context", return_value=context),
+        mock.patch.object(dynamo_backend.os, "makedirs"),
+        mock.patch.object(dynamo_backend, "ensure_actor_overrides_on_all_nodes"),
+        mock.patch.object(dynamo_backend, "sweep_orphan_actors_by_prefix", side_effect=sweep),
+        mock.patch.object(dynamo_backend, "remove_named_pgs_with_prefix", side_effect=remove),
+        mock.patch.object(first, "_deploy_and_healthcheck", side_effect=lambda *_: create(first)),
+        mock.patch.object(second, "_deploy_and_healthcheck", side_effect=fail_after_creating),
+    ):
+        first.start()
+        assert not cleanup
+        with pytest.raises(KeyboardInterrupt, match="second deployment interrupted"):
+            second.start()
+        first_prefix = f"{first._actor_name_prefix}_"
+        second_prefix = f"{second._actor_name_prefix}_"
+        assert first_prefix != second_prefix
+        for prefix in (first_prefix, second_prefix):
+            assert prefix.endswith("_default_")
+            assert len(prefix.split("_")[1]) == 32
+        assert actor_names == {f"{first_prefix}Dynamo_Frontend"}
+        assert pg_names == {f"{first_prefix}pg_infra"}
+        assert cleanup == [("actors", second_prefix), ("pgs", second_prefix)]
+        first.stop()
+        assert not actor_names
+        assert not pg_names
+        assert cleanup[-2:] == [("actors", first_prefix), ("pgs", first_prefix)]
 
 
 @pytest.mark.parametrize("cleanup_raises", [False, True])

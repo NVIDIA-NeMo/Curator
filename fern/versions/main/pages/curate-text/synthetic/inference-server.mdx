@@ -431,7 +431,21 @@ Before starting Dynamo, NeMo Curator checks aggregate GPU demand and rejects it 
 - Each disaggregated role must fit on one node.
 - Set `CURATOR_IGNORE_RAY_HEAD_NODE=1` to keep model placement off the Ray head node when worker nodes are labeled for that policy.
 
-Dynamo creates detached, named placement groups and actors. On startup, it removes stale resources with the same server-name prefix. On shutdown, it reacquires actor handles by name, terminates the subprocess groups, and removes the placement groups.
+Dynamo names its detached placement groups and actors with the prefix
+`dynamo_<deployment-id>_<server-name>_`. Startup leaves earlier deployments in
+place. On shutdown or a failed startup, Curator uses that deployment's handles
+and prefix to stop its subprocesses before removing its placement groups.
+
+If a driver exits before cleanup runs, use the deployment prefix in its startup
+log or runtime `manifest.json` to identify its resources. A cluster operator can
+verify that the owner has exited and the deployment is out of use, then stop
+its detached actors through their managed subprocess shutdown before removing
+its placement groups.
+
+When running separate deployments with shared external etcd or NATS, configure
+a distinct Dynamo discovery `namespace` for each deployment. On the same host,
+choose different preferred frontend ports for simultaneous startups. The port
+check can select the next available port when a service is already listening.
 
 ## HAProxy Ingress
 
