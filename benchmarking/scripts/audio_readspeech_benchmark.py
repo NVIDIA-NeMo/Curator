@@ -193,7 +193,9 @@ def run_readspeech_benchmark(  # noqa: PLR0913, PLR0915
         logger.success(f"Output segments: {num_output_segments}")
 
         throughput = num_output_segments / run_time_s if run_time_s > 0 else 0
-        success = True
+        success = num_output_segments > 0
+        if not success:
+            logger.error("ReadSpeech pipeline wrote no output segments")
 
     except Exception as e:
         error_traceback = traceback.format_exc()

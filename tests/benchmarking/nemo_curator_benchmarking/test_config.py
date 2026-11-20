@@ -19,7 +19,12 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "benchmarking"))
 
-from nemo_curator_benchmarking.config import SlurmTimeoutPlan, build_benchmark_config_plan, plan_entry_slurm_timeout
+from nemo_curator_benchmarking.config import (
+    SlurmTimeoutPlan,
+    assert_valid_config_dict,
+    build_benchmark_config_plan,
+    plan_entry_slurm_timeout,
+)
 
 
 @pytest.mark.parametrize(
@@ -45,3 +50,26 @@ def test_missing_or_null_entry_timeout_uses_session_default(entry_config: dict) 
 def test_zero_entry_timeout_is_not_replaced_by_default() -> None:
     plan = build_benchmark_config_plan({"entries": [{"name": "benchmark", "timeout_s": 0}]})
     assert plan.entries[0].timeout_s == 0
+
+
+def test_entry_filter_limits_planned_entries() -> None:
+    plan = build_benchmark_config_plan(
+        {
+            "entry_filter": "alm_pipeline or whisper_hallucination",
+            "entries": [
+                {"name": "alm_pipeline_xenna"},
+                {"name": "audio_sortformer_xenna"},
+                {"name": "audio_whisper_hallucination_raydata"},
+            ],
+        }
+    )
+
+    assert [entry.name for entry in plan.entries] == ["alm_pipeline_xenna", "audio_whisper_hallucination_raydata"]
+
+
+@pytest.mark.parametrize("entry_filter", ["", "  ", 3])
+def test_invalid_entry_filter_is_rejected(entry_filter: object) -> None:
+    config = {"paths": [{"name": "results_path", "host_path": "results"}], "entries": [], "entry_filter": entry_filter}
+
+    with pytest.raises(ValueError, match="entry_filter"):
+        assert_valid_config_dict(config)

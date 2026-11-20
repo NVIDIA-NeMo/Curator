@@ -1,0 +1,33 @@
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Whisper hallucination text filter on a staged ASR manifest.
+#
+# The tutorial pipeline (tutorials/audio/whisper_hallucination/pipeline.yaml)
+# expects rows that already carry pred_text and duration. The staged LibriSpeech
+# benchmark manifest has only audio_filepath and text, so this graph reads each
+# file's duration from its header first and filters the reference transcript.
+# Everything runs on CPU, so the same entry is valid on the audio_cpu install.
+
+manifest_path: ???
+output_path: ???
+common_hall_file: ???
+backend: ray_data
+execution_mode: streaming
+
+stages:
+  - _target_: nemo_curator.stages.audio.common.ManifestReader
+    manifest_path: ${manifest_path}
+    files_per_partition: 1
+
+  - _target_: nemo_curator.stages.audio.common.GetAudioDurationStage
+    audio_filepath_key: audio_filepath
+    duration_key: duration
+
+  - _target_: nemo_curator.stages.audio.text_filtering.WhisperHallucinationStage
+    common_hall_file: ${common_hall_file}
+    text_key: text
+    duration_key: duration
+
+  - _target_: nemo_curator.stages.audio.common.ManifestWriterStage
+    output_path: ${output_path}

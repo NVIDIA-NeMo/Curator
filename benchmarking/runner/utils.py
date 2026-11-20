@@ -160,7 +160,12 @@ def get_gpu_stats() -> dict:
     # environment is set up, so import gpustat lazily.
     import gpustat
 
-    query = gpustat.new_query()
+    try:
+        query = gpustat.new_query()
+    except Exception as e:
+        # NVML is absent in CPU-only containers (e.g. docker run --gpus none).
+        logger.warning(f"Failed to query GPU stats: {e}")
+        return {}
     query_data = {}
     for gpu in query:
         # Only include certain fields from the process data.

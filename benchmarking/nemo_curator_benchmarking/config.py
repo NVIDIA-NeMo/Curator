@@ -213,8 +213,32 @@ def assert_valid_config_dict(data: dict[str, Any]) -> None:  # noqa: C901, PLR09
             msg = "Invalid configuration: 'paths' section must include an entry with name 'results_path'"
             raise ValueError(msg)
 
+    entry_filter = data.get("entry_filter")
+    if entry_filter is not None and (not isinstance(entry_filter, str) or not entry_filter.strip()):
+        msg = "Invalid configuration: 'entry_filter' must be a non-empty string"
+        raise ValueError(msg)
+
     if "entries" not in data:
         logger.warning("Configuration is missing 'entries' field; no benchmarks will run.")
+
+
+def entry_matches_filter(entry_name: str, entry_filter: str | None) -> bool:
+    """Return whether ``entry_name`` matches a pytest ``-k`` style ``entry_filter``.
+
+    ``None`` matches every entry. Matching uses the same substring rule as
+    ``benchmarking/run.py --entries``. An install override (for example
+    ``audio-cpu.yaml``) sets the top-level ``entry_filter`` key so that both the
+    runner and external job generators only select entries valid on that install.
+    """
+    if entry_filter is None:
+        return True
+    # pytest is a benchmark-runner requirement; import it only when a filter is set.
+    # TODO: This depends on a pytest internal module. Consider vendoring the pytest code
+    #       or implementing a custom expression evaluator.
+    from _pytest.mark import Expression
+
+    name = entry_name.lower()
+    return Expression.compile(entry_filter).evaluate(lambda subname: subname in name)
 
 
 def load_benchmark_config(config_files: list[str | Path], **_: object) -> dict[str, Any]:
@@ -224,13 +248,20 @@ def load_benchmark_config(config_files: list[str | Path], **_: object) -> dict[s
 
 
 def build_benchmark_config_plan(config: dict[str, Any], *, enabled_only: bool = True) -> ConfigPlan:
-    """Return scheduler-facing entry and timeout data from a merged config."""
+    """Return scheduler-facing entry and timeout data from a merged config.
+
+    Entries excluded by the config's top-level ``entry_filter`` are left out, so a
+    generator that merges an install override only schedules entries valid there.
+    """
 
     default_timeout_s = config.get("default_timeout_s", 7200)
     global_ray = config.get("ray", {})
+    entry_filter = config.get("entry_filter")
     entries = []
     for entry in config.get("entries", []):
         if enabled_only and entry.get("enabled", True) is False:
+            continue
+        if not entry_matches_filter(entry["name"], entry_filter):
             continue
         entries.append(
             EntryPlan(

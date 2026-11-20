@@ -1,0 +1,59 @@
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Sortformer diarization, Silero VAD and PANNs sound-event detection on one
+# manifest. Each model's adapter is a top-level key, so the same graph
+# benchmarks the PyTorch defaults below and the TensorRT adapters
+# (see the audio_model_stages_* entries in benchmarks.yaml).
+#
+# Keep stage-level settings adapter-neutral: the TensorRT entries swap only the
+# *_adapter and *_adapter_kwargs keys, so anything set on a stage here reaches
+# both adapters. The Sortformer checkpoint is passed as model_id (a local .nemo
+# path), not the legacy model_path, which the stage would forward to the
+# TensorRT adapter as an unknown argument. VAD reserves a GPU in both variants
+# so the PyTorch and TensorRT runs compare like for like.
+
+manifest_path: ???
+model_dir: ???
+output_dir: ???
+backend: xenna
+execution_mode: streaming
+
+sortformer_adapter: nemo_curator.models.audio.speaker_diarization.sortformer.NeMoSortformerAdapter
+sortformer_adapter_kwargs: {}
+vad_adapter: nemo_curator.models.audio.vad.silero.SileroVADAdapter
+vad_adapter_kwargs: {}
+sed_adapter: nemo_curator.models.audio.sed.panns.PANNsSEDAdapter
+sed_adapter_kwargs: {}
+
+stages:
+  - _target_: nemo_curator.stages.audio.common.ManifestReader
+    manifest_path: ${manifest_path}
+
+  - _target_: nemo_curator.stages.audio.inference.speaker_diarization.stage.InferenceSortformerStage
+    adapter_target: ${sortformer_adapter}
+    adapter_kwargs: ${sortformer_adapter_kwargs}
+    model_id: ${model_dir}/sortformer.nemo
+    rttm_out_dir: ${output_dir}/rttm
+    fail_on_audio_error: true
+
+  - _target_: nemo_curator.stages.audio.segmentation.VADSegmentationStage
+    adapter_target: ${vad_adapter}
+    adapter_kwargs: ${vad_adapter_kwargs}
+    input_residency: file
+    nested: true
+    fail_on_audio_error: true
+    resources:
+      gpu_memory_gb: 4
+
+  - _target_: nemo_curator.stages.audio.inference.sed.stage.SEDInferenceStage
+    adapter_target: ${sed_adapter}
+    adapter_kwargs: ${sed_adapter_kwargs}
+    checkpoint_path: ${model_dir}/sed.pth
+    output_dir: ${output_dir}/sed
+
+  - _target_: nemo_curator.stages.audio.postprocessing.sed_postprocessing.SEDPostprocessingStage
+    threshold: 0.5
+
+  - _target_: nemo_curator.stages.audio.common.ManifestWriterStage
+    output_path: ${output_dir}/manifest.jsonl

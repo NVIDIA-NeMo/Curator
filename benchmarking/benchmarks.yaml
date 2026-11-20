@@ -151,6 +151,104 @@ datasets:
     formats:
     - type: "files"
       path: "{datasets_path}/audio_sortformer_librispeech_450h_1800x15m_71cacbfb"
+  # Pinned Hindi cohort: 216,164 clips / 531.76h (see README "Audio Benchmark Data Setup").
+  - name: "audio_indic_asr_hindi_531h"
+    formats:
+    - type: "jsonl"
+      path: "{datasets_path}/audio_indic_asr_parakeet_hindi_531h_35376a11/manifest.jsonl"
+  # Five-hour LibriSpeech train.clean.100 sample for Qwen Omni ASR.
+  - name: "qwen_omni_asr_librispeech_5h"
+    formats:
+    - type: "jsonl"
+      path: "{datasets_path}/qwen_omni_asr_librispeech_clean_5h_71cacbfb/manifest.jsonl"
+  # Site-staged inputs with no data_prep script yet; see the Granary metadata and
+  # audio text pipeline sections of the README for the required row format.
+  - name: "granary_metadata_input"
+    formats:
+    - type: "jsonl"
+      path: "{datasets_path}/granary_metadata_input/manifest.jsonl"
+  - name: "audio_text_llm_english"
+    formats:
+    - type: "jsonl"
+      path: "{datasets_path}/audio_text_llm_english/manifest.jsonl"
+# Data staging run before the benchmark entries. Each setup stages the dataset
+# with the same name and runs only when a selected entry references that dataset,
+# so a single-entry job prepares (or reuses) just its own input. Setups sharing
+# datasets_path are serialized with a lock file, so concurrent jobs can share it.
+data_setups:
+  - name: librispeech_all_750h
+    enabled: true
+    script: prepare_librispeech_data.py
+    args: >-
+      --output-path {datasets_path}/librispeech_all_train_750h_71cacbfb
+      --cache-dir {datasets_path}/_hf_cache/librispeech
+      --hf-repo-id openslr/librispeech_asr
+      --hf-revision 71cacbfb7e2354c4226d01e70d77d5fca3d04ba1
+      --hf-config all
+      --hf-split train.clean.100+train.clean.360+train.other.500
+      --target-audio-hours 750.0
+
+  - name: qwen_omni_asr_librispeech_5h
+    enabled: true
+    script: prepare_librispeech_data.py
+    args: >-
+      --output-path {datasets_path}/qwen_omni_asr_librispeech_clean_5h_71cacbfb
+      --cache-dir {datasets_path}/_hf_cache/librispeech
+      --hf-repo-id openslr/librispeech_asr
+      --hf-revision 71cacbfb7e2354c4226d01e70d77d5fca3d04ba1
+      --hf-config all
+      --hf-split train.clean.100
+      --target-audio-hours 5.0
+
+  - name: audio_tagging_ami_sdm
+    enabled: true
+    script: prepare_audio_tagging_data.py
+    args: >-
+      --output-path {datasets_path}/audio_tagging_ami_sdm_8cdaae2_30h_max60m
+      --cache-dir {datasets_path}/_hf_cache/audio_tagging
+      --hf-repo-id diarizers-community/ami
+      --hf-revision 8cdaae2eaf968f3b000b6eb1204ab9b8db006ed0
+      --min-audio-hours 30
+      --max-meeting-duration-minutes 60
+      --model-output-path {model_weights_path}/audio_tagging/pyannote-speaker-diarization-community-1_8a52737
+      --model-hf-repo-id pyannote-community/speaker-diarization-community-1
+      --model-hf-revision 8a527374977391da736e0daaef26855d949d9685
+
+  - name: alm_ami_sdm
+    enabled: true
+    script: prepare_alm_data.py
+    args: >-
+      --output-path {datasets_path}/alm_ami_sdm_8cdaae2
+      --cache-dir {datasets_path}/_hf_cache/alm_ami
+      --hf-repo-id diarizers-community/ami
+      --hf-config sdm
+      --hf-revision 8cdaae2eaf968f3b000b6eb1204ab9b8db006ed0
+
+  - name: audio_sortformer_librispeech_450h
+    enabled: true
+    script: prepare_audio_sortformer_data.py
+    args: >-
+      --output-path {datasets_path}/audio_sortformer_librispeech_450h_1800x15m_71cacbfb
+      --cache-dir {datasets_path}/_hf_cache/audio_sortformer
+      --model-output-path {model_weights_path}/audio_sortformer/diar_streaming_sortformer_4spk-v2.1.nemo
+
+  - name: audio_indic_asr_hindi_531h
+    enabled: true
+    script: prepare_audio_indic_asr_data.py
+    args: >-
+      --output-path {datasets_path}/audio_indic_asr_parakeet_hindi_531h_35376a11
+      --cache-dir {datasets_path}/_hf_cache/audio_indic_asr
+
+  - name: read_speech
+    enabled: true
+    script: prepare_readspeech_data.py
+    args: >-
+      --output-path {datasets_path}/read_speech
+      --num-parts 3
+      --expected-wav-count 43354
+      --expected-wav-bytes 20011661694
+      --expected-inventory-sha256 ac097a3d4187d8e0e82fab14c8d0a59c0ab6f9de47f8784f2638054580232c20
+
 # Timeout knobs used by the benchmark runner and by external benchmark job generators:
 #   max(entry.timeout_s (or default_timeout_s) + cleanup_timeout_s, min_timeout_s)
 # default_timeout_s: per-entry default; max_timeout_s: per-entry ceiling after config merging;
@@ -1058,6 +1156,9 @@ entries:
         min_value: 1.0
 
   # Shared 750-hour workload; the executor selects workers.
+  # --wer-threshold=1000 keeps every row: the filter sees raw WER (cased,
+  # punctuated predictions against upper-case references). The script reports
+  # normalized_corpus_wer_pct, computed after ComputeWERStage.clean_text (lower case, no punctuation).
   - name: audio_librispeech_xenna
     enabled: true
     script: audio_librispeech_benchmark.py
@@ -1074,6 +1175,7 @@ entries:
         additional_metrics:
           - throughput_tasks_per_sec
           - num_tasks_processed
+          - normalized_corpus_wer_pct
         ping_on_failure:
           - U03C41SNADV  # Aaftab V
     requirements:
@@ -1084,8 +1186,10 @@ entries:
         max_value: 750.02
       - metric: wer_output_coverage_ratio
         exact_value: 1.0
+      # TODO: add normalized_corpus_wer_pct max_value once a baseline is measured.
 
-  # Same real input as Xenna.
+  # Same real input as Xenna. Disabled in #2389 without a recorded reason;
+  # re-enable only after a GPU run confirms it finishes within the 13740s timeout.
   - name: audio_librispeech_raydata
     enabled: false
     script: audio_librispeech_benchmark.py
@@ -1101,6 +1205,7 @@ entries:
         additional_metrics:
           - throughput_tasks_per_sec
           - num_tasks_processed
+          - normalized_corpus_wer_pct
         ping_on_failure:
           - U03C41SNADV  # Aaftab V
     requirements:
@@ -1111,6 +1216,7 @@ entries:
         max_value: 750.02
       - metric: wer_output_coverage_ratio
         exact_value: 1.0
+      # TODO: add normalized_corpus_wer_pct max_value once a baseline is measured.
 
   - name: audio_readspeech_xenna
     enabled: true
@@ -1140,6 +1246,10 @@ entries:
           - time_taken_s
         ping_on_failure:
           - U07EVDG9FBK  # Shubham Bhawsar
+    requirements:
+      - metric: num_output_segments
+        min_value: 1
+      # TODO: add a throughput_segments_per_sec min_value once a baseline is measured.
 
   - name: audio_readspeech_raydata
     enabled: true
@@ -1168,6 +1278,10 @@ entries:
           - time_taken_s
         ping_on_failure:
           - U07EVDG9FBK  # Shubham Bhawsar
+    requirements:
+      - metric: num_output_segments
+        min_value: 1
+      # TODO: add a throughput_segments_per_sec min_value once a baseline is measured.
 
   - name: arxiv_e2e_pipeline_raydata
     enabled: true
@@ -1584,6 +1698,399 @@ entries:
       - metric: throughput_audio_hours_per_hour
         min_value: 1.0
 
+  # Granary v2 tutorial benchmarks. Registered but disabled: each needs its
+  # tutorial's dedicated image, an 8xH100 node and model artifacts the default
+  # nightly environment does not provide (see the matching README sections).
+  # Enable them from a site override that supplies that image and those paths.
+  # Timeouts are about 2x, and throughput floors about half, of the 2026-10-20
+  # EOS 8xH100 results in the README. Each floor names the input it was measured
+  # on and only holds for that input; entries without a baseline on their own
+  # input (Qwen Omni on the 5 h setup, text_llm) have a TODO instead of a floor.
+  - name: audio_granary_metadata_xenna
+    enabled: false
+    script: audio_granary_metadata_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-manifest={dataset:granary_metadata_input,jsonl}
+      --model-dir={model_weights_path}/granary_metadata
+      --executor=xenna
+      --execution-mode=streaming
+    timeout_s: 1800
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_speech_segments
+          - throughput_audio_hours_per_hour
+        ping_on_failure:
+          - U03C41SNADV  # Aaftab V
+    requirements:
+      - metric: num_tasks_processed
+        min_value: 1
+      # ~1/2 of 472.3 audio-hours/hour (Xenna) measured on the 107.76 h, 30,631-recording
+      # LibriSpeech cohort (manifest SHA-256 9c6f7d8f...e99e). Only valid when
+      # granary_metadata_input is that cohort.
+      - metric: throughput_audio_hours_per_hour
+        min_value: 230
+
+  - name: audio_granary_metadata_raydata
+    enabled: false
+    script: audio_granary_metadata_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-manifest={dataset:granary_metadata_input,jsonl}
+      --model-dir={model_weights_path}/granary_metadata
+      --executor=ray_data
+    timeout_s: 4800
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_speech_segments
+          - throughput_audio_hours_per_hour
+        ping_on_failure:
+          - U03C41SNADV  # Aaftab V
+    requirements:
+      - metric: num_tasks_processed
+        min_value: 1
+      # ~1/2 of 166.3 audio-hours/hour (Ray Data) on the same 107.76 h cohort as the Xenna entry.
+      - metric: throughput_audio_hours_per_hour
+        min_value: 80
+
+  - name: audio_indic_asr_xenna
+    enabled: false
+    script: audio_indic_asr_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-manifest={dataset:audio_indic_asr_hindi_531h,jsonl}
+      --indic-canary-engine-dir={model_weights_path}/audio_indic_asr/indic_canary_trtllm/engine_bfloat16_64_new
+      --parakeet-tensorrt-engine-dir={model_weights_path}/audio_indic_asr/parakeet_indic_trt/encoder_fp16_b1_o8_m16_f8_o800_m4001
+      --regex-yaml={curator_repo_dir}/tutorials/audio/granary_v2/indic_asr/regex.yaml
+      --hall-phrases={curator_repo_dir}/tutorials/audio/whisper_hallucination/phrases.txt
+      --executor=xenna
+    timeout_s: 1800
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_output_rows
+          - throughput_audio_hours_per_hour
+        ping_on_failure:
+          - U03C41SNADV  # Aaftab V
+    requirements:
+      - metric: num_output_rows
+        exact_value: 216164
+      # ~1/2 of 3,604 audio-hours/hour (Xenna) measured on this entry's input, audio_indic_asr_hindi_531h.
+      - metric: throughput_audio_hours_per_hour
+        min_value: 1800
+
+  - name: audio_indic_asr_raydata
+    enabled: false
+    script: audio_indic_asr_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-manifest={dataset:audio_indic_asr_hindi_531h,jsonl}
+      --indic-canary-engine-dir={model_weights_path}/audio_indic_asr/indic_canary_trtllm/engine_bfloat16_64_new
+      --parakeet-tensorrt-engine-dir={model_weights_path}/audio_indic_asr/parakeet_indic_trt/encoder_fp16_b1_o8_m16_f8_o800_m4001
+      --regex-yaml={curator_repo_dir}/tutorials/audio/granary_v2/indic_asr/regex.yaml
+      --hall-phrases={curator_repo_dir}/tutorials/audio/whisper_hallucination/phrases.txt
+      --executor=ray_data
+    timeout_s: 10800
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_output_rows
+          - throughput_audio_hours_per_hour
+        ping_on_failure:
+          - U03C41SNADV  # Aaftab V
+    requirements:
+      - metric: num_output_rows
+        exact_value: 216164
+      # ~1/2 of 387.6 audio-hours/hour (Ray Data) measured on this entry's input, audio_indic_asr_hindi_531h.
+      - metric: throughput_audio_hours_per_hour
+        min_value: 190
+
+  - name: audio_qwen_omni_asr_xenna
+    enabled: false
+    script: audio_qwen_omni_asr_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-manifest={dataset:qwen_omni_asr_librispeech_5h,jsonl}
+      --model-id={model_weights_path}/qwen_omni_asr/Qwen3-Omni-30B-A3B-Instruct_26291f7
+      --executor=xenna
+      --execution-mode=streaming
+    timeout_s: 1800
+    environment:
+      VLLM_WORKER_MULTIPROC_METHOD: spawn
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_tasks_processed
+          - throughput_audio_hours_per_hour
+        ping_on_failure:
+          - U03C41SNADV  # Aaftab V
+    requirements:
+      - metric: num_tasks_processed
+        min_value: 1
+      # TODO: add a throughput_audio_hours_per_hour min_value once a baseline is measured on
+      # qwen_omni_asr_librispeech_5h. The README's 406.6 audio-hours/hour was measured on
+      # 80.6 h; on 5 h the 30B model startup inside time_taken_s dominates.
+
+  - name: audio_qwen_omni_asr_raydata
+    enabled: false
+    script: audio_qwen_omni_asr_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-manifest={dataset:qwen_omni_asr_librispeech_5h,jsonl}
+      --model-id={model_weights_path}/qwen_omni_asr/Qwen3-Omni-30B-A3B-Instruct_26291f7
+      --executor=ray_data
+    timeout_s: 3600
+    environment:
+      VLLM_WORKER_MULTIPROC_METHOD: spawn
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_tasks_processed
+          - throughput_audio_hours_per_hour
+        ping_on_failure:
+          - U03C41SNADV  # Aaftab V
+    requirements:
+      - metric: num_tasks_processed
+        min_value: 1
+      # TODO: add a throughput_audio_hours_per_hour min_value once a baseline is measured on
+      # qwen_omni_asr_librispeech_5h. The README's 228.4 audio-hours/hour was measured on
+      # 80.6 h; on 5 h the 30B model startup inside time_taken_s dominates.
+
+  - name: audio_text_llm_xenna
+    enabled: false
+    script: audio_text_llm_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-manifest={dataset:audio_text_llm_english,jsonl}
+      --output-dir={session_entry_dir}/output
+      --cache-root={model_weights_path}/audio_text_llm/compilation_cache
+      --executor=xenna
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_output_rows
+          - throughput_rows_per_sec
+        ping_on_failure:
+          - U03C41SNADV  # Aaftab V
+    requirements:
+      - metric: num_output_rows
+        min_value: 1
+      # TODO: add a throughput_rows_per_sec min_value once a baseline is measured.
+
+  - name: audio_text_llm_raydata
+    enabled: false
+    script: audio_text_llm_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-manifest={dataset:audio_text_llm_english,jsonl}
+      --output-dir={session_entry_dir}/output
+      --cache-root={model_weights_path}/audio_text_llm/compilation_cache
+      --executor=ray_data
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_output_rows
+          - throughput_rows_per_sec
+        ping_on_failure:
+          - U03C41SNADV  # Aaftab V
+    requirements:
+      - metric: num_output_rows
+        min_value: 1
+      # TODO: add a throughput_rows_per_sec min_value once a baseline is measured.
+
+  # Processor families with no dedicated script run their YAML through config/run.py.
+  # The text filter is CPU-only; it reads LibriSpeech reference text as the transcript.
+  # The entries below it are registered disabled until a first GPU run in an image
+  # with their models staged confirms them.
+  - name: audio_whisper_hallucination_raydata
+    enabled: true
+    script: audio_yaml_pipeline_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --pipeline-yaml={curator_repo_dir}/benchmarking/audio_pipelines/whisper_hallucination.yaml
+      --output-manifest={session_entry_dir}/output/manifest.jsonl
+      --set=manifest_path={dataset:qwen_omni_asr_librispeech_5h,jsonl}
+      --set=output_path={session_entry_dir}/output/manifest.jsonl
+      --set=common_hall_file={curator_repo_dir}/tutorials/audio/whisper_hallucination/phrases.txt
+    timeout_s: 1800
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_output_rows
+          - throughput_rows_per_sec
+        ping_on_failure:
+          - U03C41SNADV  # Aaftab V
+    requirements:
+      - metric: num_output_rows
+        min_value: 1
+      # TODO: add a throughput_rows_per_sec min_value once a baseline is measured.
+
+  # Sortformer, Silero VAD and PANNs SED with PyTorch adapters; compare with the TensorRT entry.
+  - name: audio_model_stages_pytorch_xenna
+    enabled: false
+    script: audio_yaml_pipeline_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --pipeline-yaml={curator_repo_dir}/benchmarking/audio_pipelines/model_stages.yaml
+      --output-manifest={session_entry_dir}/output/manifest.jsonl
+      --set=manifest_path={dataset:qwen_omni_asr_librispeech_5h,jsonl}
+      --set=model_dir={model_weights_path}/granary_metadata
+      --set=output_dir={session_entry_dir}/output
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_output_rows
+          - throughput_rows_per_sec
+        ping_on_failure:
+          - U03C41SNADV  # Aaftab V
+    requirements:
+      - metric: num_output_rows
+        min_value: 1
+      # TODO: add a throughput_rows_per_sec min_value once a baseline is measured.
+
+  - name: audio_model_stages_tensorrt_xenna
+    enabled: false
+    script: audio_yaml_pipeline_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --pipeline-yaml={curator_repo_dir}/benchmarking/audio_pipelines/model_stages.yaml
+      --output-manifest={session_entry_dir}/output/manifest.jsonl
+      --set=manifest_path={dataset:qwen_omni_asr_librispeech_5h,jsonl}
+      --set=model_dir={model_weights_path}/granary_metadata
+      --set=output_dir={session_entry_dir}/output
+      --set=sortformer_adapter=nemo_curator.models.audio.speaker_diarization.sortformer_tensorrt.TensorRTSortformerAdapter
+      --set=sortformer_adapter_kwargs.engine_path={model_weights_path}/granary_metadata/sortformer_trt/sortformer.plan
+      --set=sortformer_adapter_kwargs.config_path={model_weights_path}/granary_metadata/sortformer_trt/sortformer.json
+      --set=sortformer_adapter_kwargs.runtime_module_path={model_weights_path}/granary_metadata/sortformer_trt/sortformer.sortformer_modules.py
+      --set=vad_adapter=nemo_curator.models.audio.vad.silero_tensorrt.TensorRTSileroVADAdapter
+      --set=vad_adapter_kwargs.engine_path={model_weights_path}/granary_metadata/silero.plan
+      --set=sed_adapter=nemo_curator.models.audio.sed.tensorrt.TensorRTPANNsSEDAdapter
+      --set=sed_adapter_kwargs.tensorrt_engine_path={model_weights_path}/granary_metadata/sed.plan
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_output_rows
+          - throughput_rows_per_sec
+        ping_on_failure:
+          - U03C41SNADV  # Aaftab V
+    requirements:
+      - metric: num_output_rows
+        min_value: 1
+      # TODO: add a throughput_rows_per_sec min_value once a baseline is measured.
+
+  - name: audio_lid_whisperx_vad_xenna
+    enabled: false
+    script: audio_yaml_pipeline_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --pipeline-yaml={curator_repo_dir}/benchmarking/audio_pipelines/lid_whisperx_vad.yaml
+      --output-manifest={session_entry_dir}/output/manifest.jsonl
+      --set=manifest_path={dataset:qwen_omni_asr_librispeech_5h,jsonl}
+      --set=model_dir={model_weights_path}/granary_metadata
+      --set=output_dir={session_entry_dir}/output
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_output_rows
+          - throughput_rows_per_sec
+        ping_on_failure:
+          - U03C41SNADV  # Aaftab V
+    requirements:
+      - metric: num_output_rows
+        min_value: 1
+      # TODO: add a throughput_rows_per_sec min_value once a baseline is measured.
+
+  - name: audio_faster_whisper_raydata
+    enabled: false
+    script: audio_yaml_pipeline_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --pipeline-yaml={curator_repo_dir}/tutorials/audio/faster_whisper/pipeline.yaml
+      --output-manifest={session_entry_dir}/output/manifest.jsonl
+      --set=manifest_path={dataset:qwen_omni_asr_librispeech_5h,jsonl}
+      --set=output_path={session_entry_dir}/output/manifest.jsonl
+      --set=workspace_dir={session_entry_dir}/scratch
+      --set=model_id={model_weights_path}/faster_whisper/large-v3
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_output_rows
+          - throughput_rows_per_sec
+        ping_on_failure:
+          - U03C41SNADV  # Aaftab V
+    requirements:
+      - metric: num_output_rows
+        min_value: 1
+      # TODO: add a throughput_rows_per_sec min_value once a baseline is measured.
+
+  - name: audio_qwen3_asr_raydata
+    enabled: false
+    script: audio_yaml_pipeline_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --pipeline-yaml={curator_repo_dir}/tutorials/audio/qwen_asr/pipeline.yaml
+      --output-manifest={session_entry_dir}/output/manifest.jsonl
+      --set=manifest_path={dataset:qwen_omni_asr_librispeech_5h,jsonl}
+      --set=output_path={session_entry_dir}/output/manifest.jsonl
+      --set=workspace_dir={session_entry_dir}/scratch
+      --set=model_id={model_weights_path}/qwen_asr/Qwen3-ASR-0.6B
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_output_rows
+          - throughput_rows_per_sec
+        ping_on_failure:
+          - U03C41SNADV  # Aaftab V
+    requirements:
+      - metric: num_output_rows
+        min_value: 1
+      # TODO: add a throughput_rows_per_sec min_value once a baseline is measured.
+
+  - name: audio_mfa_alignment_raydata
+    enabled: false
+    script: audio_yaml_pipeline_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --pipeline-yaml={curator_repo_dir}/tutorials/audio/alignment/pipeline.yaml
+      --output-manifest={session_entry_dir}/output/result.jsonl
+      --set=input_manifest={dataset:qwen_omni_asr_librispeech_5h,jsonl}
+      --set=output_dir={session_entry_dir}/output
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_output_rows
+          - throughput_rows_per_sec
+        ping_on_failure:
+          - U03C41SNADV  # Aaftab V
+    requirements:
+      - metric: num_output_rows
+        min_value: 1
+      # TODO: add a throughput_rows_per_sec min_value once a baseline is measured.
+
+  - name: audio_chatterbox_tts_raydata
+    enabled: false
+    script: audio_yaml_pipeline_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --pipeline-yaml={curator_repo_dir}/tutorials/audio/tts/pipeline.yaml
+      --output-manifest={session_entry_dir}/output/result.jsonl
+      --set=input_manifest={datasets_path}/chatterbox_tts/turns.jsonl
+      --set=reference_voices_dataset={datasets_path}/chatterbox_tts/reference_voices
+      --set=output_dir={session_entry_dir}/output
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_output_rows
+          - throughput_rows_per_sec
+        ping_on_failure:
+          - U03C41SNADV  # Aaftab V
+    requirements:
+      - metric: num_output_rows
+        min_value: 1
+      # TODO: add a throughput_rows_per_sec min_value once a baseline is measured.
+
   - name: interleaved_filter_raydata_materialize
     enabled: true
     script: interleaved_filter_benchmark.py
@@ -1853,6 +2360,7 @@ entries:
         min_value: 1
       - metric: total_filtered_windows
         min_value: 1
+      # TODO: add a throughput_entries_per_sec min_value once a baseline is measured.
 
   - name: alm_pipeline_ray_data
     enabled: true
@@ -1887,6 +2395,7 @@ entries:
         min_value: 1
       - metric: total_filtered_windows
         min_value: 1
+      # TODO: add a throughput_entries_per_sec min_value once a baseline is measured.
 
   # Keep this executor comparison focused on the streaming-only pipeline:
   # ParquetReader -> MathExtractStage -> JsonlWriter.

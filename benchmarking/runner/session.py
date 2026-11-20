@@ -15,16 +15,13 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-# Use pytest's expression eval code to support "-k" style matching.
-# TODO: This adds a dependency on a pytest internal module.
-#       Consider vendoring the pytest code or implementing a custom expression evaluator.
-from _pytest.mark import Expression
 from loguru import logger
-from nemo_curator_benchmarking.config import assert_valid_config_dict
+from nemo_curator_benchmarking.config import assert_valid_config_dict, entry_matches_filter
 
 if TYPE_CHECKING:
     from runner.sinks.sink import Sink
@@ -34,6 +31,40 @@ from runner.path_resolver import PathResolver
 from runner.utils import get_total_memory_bytes
 
 _data_setup_script_base_path = Path(__file__).resolve().parent.parent / "data_prep"
+_DATASET_REF = re.compile(r"\{dataset:([^,}]+),")
+
+
+def referenced_datasets(entry: Entry) -> set[str]:
+    """Names of the datasets an entry references with ``{dataset:<name>,<format>}``."""
+    return {name.strip() for name in _DATASET_REF.findall(entry.args or "")}
+
+
+def _apply_install_entry_filter(entries: list[Entry], install_filter: str | None) -> tuple[list[Entry], set[str]]:
+    """Keep the entries an install override's top-level ``entry_filter`` allows; return them and the excluded names."""
+    excluded = {e.name for e in entries if not entry_matches_filter(e.name, install_filter)}
+    if excluded:
+        logger.info(f"entry_filter {install_filter!r} excludes {len(excluded)} entries not valid on this install")
+    return [e for e in entries if e.name not in excluded], excluded
+
+
+def _excluded_names_note(missing: list[str], excluded: set[str], install_filter: str | None) -> str:
+    names = sorted(set(missing) & excluded)
+    return f". Excluded by the config's entry_filter {install_filter!r}: {names}" if names else ""
+
+
+def _select_data_setups(data_setups: list[Entry], entries: list[Entry], datasets: list[dict]) -> list[Entry]:
+    """Keep the data setups whose dataset (same name) a selected entry references, logging the others."""
+    known_datasets = {d["name"] for d in datasets}
+    for setup in data_setups:
+        if setup.name not in known_datasets:
+            logger.warning(
+                f"Data setup {setup.name!r} matches no dataset in 'datasets', so no entry can select it "
+                "and it never runs. Name each data setup after the dataset it stages."
+            )
+    used_datasets = {name for e in entries for name in referenced_datasets(e)}
+    if skipped := [setup.name for setup in data_setups if setup.name not in used_datasets]:
+        logger.info(f"Skipping data setups no selected entry uses: {', '.join(skipped)}")
+    return [setup for setup in data_setups if setup.name in used_datasets]
 
 
 def _create_data_setup_entries(setup_configs: object) -> list[Entry]:
@@ -224,6 +255,10 @@ class Session:
         entries = [Entry.from_dict(e) for e in sess_data["entries"]]
         data_setups = _create_data_setup_entries(sess_data.get("data_setups", []))
 
+        # The config's entry_filter applies before, and in addition to, the CLI selection.
+        install_filter = data.get("entry_filter")
+        entries, excluded_by_install = _apply_install_entry_filter(entries, install_filter)
+
         # Filter entries:
         # - entries_exact takes precedence and selects entries whose names appear in the
         #   provided list, with strict exact-name matching. Every requested name must
@@ -238,19 +273,12 @@ class Session:
             missing = sorted(requested - available)
             if missing:
                 msg = f"Unknown entry names in entries_exact: {missing}. Available entry names: {sorted(available)}"
-                raise ValueError(msg)
+                raise ValueError(msg + _excluded_names_note(missing, excluded_by_install, install_filter))
             entries = [e for e in entries if e.name in requested]
-        elif entry_filter_expr is not None:
-            filtered_entries = []
-            expr = Expression.compile(entry_filter_expr)
-            for entry in entries:
+        else:
+            entries = [e for e in entries if entry_matches_filter(e.name, entry_filter_expr)]
 
-                def matcher(subname_in_expr: str, entry: Entry = entry) -> bool:
-                    return subname_in_expr in entry.name.lower()
-
-                if expr.evaluate(matcher):
-                    filtered_entries.append(entry)
-            entries = filtered_entries
+        data_setups = _select_data_setups(data_setups, entries, data.get("datasets", []))
 
         sess_data["results_path"] = path_resolver.resolve("results_path")
         sess_data["entries"] = entries

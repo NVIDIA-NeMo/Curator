@@ -14,6 +14,8 @@
 
 
 import argparse
+import errno
+import fcntl
 import json
 import os
 import pickle
@@ -21,8 +23,8 @@ import shutil
 import sys
 import time
 import traceback
-from collections.abc import Mapping
-from contextlib import nullcontext
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from typing import Any
 
@@ -58,7 +60,7 @@ from runner.ray_cluster import (
     setup_ray_cluster_and_env,
     teardown_ray_cluster_and_env,
 )
-from runner.session import Session
+from runner.session import Session, referenced_datasets
 from runner.sinks.sink import call_sink_hook, initialize_sinks
 from runner.utils import find_result, get_gpu_stats, get_obj_for_json, log_gpu_stats
 from runner.viewer_url import resolve_viewer_url
@@ -167,6 +169,58 @@ def build_subprocess_environment(
     return merge_subprocess_environment(entry_environment), set(entry_environment)
 
 
+_DATA_SETUP_LOCK_POLL_S = 5.0
+# flock errors that mean "this filesystem cannot lock" (e.g. Lustre or NFS mounted without
+# flock support) rather than "another job holds the lock".
+_FLOCK_UNSUPPORTED_ERRNOS = {errno.ENOSYS, errno.EOPNOTSUPP, errno.ENOLCK}
+
+
+@contextmanager
+def _data_setup_lock(setup_name: str, path_resolver: PathResolver, timeout_s: float | None = None) -> Iterator[None]:
+    """Serialize one data setup across concurrent benchmark jobs that share datasets_path.
+
+    Waits at most ``timeout_s`` seconds for another job's staging run (forever when
+    ``None``) and raises ``TimeoutError`` after that. When the lock file cannot be opened
+    (read-only ``datasets_path``, another user's lock file) or the filesystem has no
+    ``flock`` support, it warns and runs unlocked, so staged data can still be reused.
+    Jobs on different nodes are only serialized when the filesystem provides cluster-wide
+    ``flock`` (for example Lustre ``flock``, not ``localflock``).
+    """
+    datasets_path = path_resolver.path_map.get("datasets_path")
+    lock_file = None
+    if datasets_path is not None:
+        lock_path = Path(datasets_path) / f".{setup_name}.setup.lock"
+        try:
+            lock_path.parent.mkdir(parents=True, exist_ok=True)
+            lock_file = lock_path.open("a")
+        except OSError as e:
+            logger.warning(f"\tCannot open {lock_path} ({e}); running data setup {setup_name} without a lock")
+    if lock_file is None:
+        yield
+        return
+    with lock_file:
+        logger.info(f"\tWaiting for data setup lock {lock_file.name}")
+        deadline = None if timeout_s is None else time.monotonic() + timeout_s
+        while True:
+            try:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if deadline is not None and time.monotonic() >= deadline:
+                    msg = f"Timed out after {timeout_s}s waiting for data setup lock {lock_file.name}"
+                    raise TimeoutError(msg) from None
+                time.sleep(_DATA_SETUP_LOCK_POLL_S)
+            except OSError as e:
+                if e.errno not in _FLOCK_UNSUPPORTED_ERRNOS:
+                    raise
+                logger.warning(
+                    f"\tflock is not supported under {datasets_path} ({e}); running data setup "
+                    f"{setup_name} without a lock, so concurrent jobs may stage it twice"
+                )
+                break
+        yield
+
+
 def run_data_setup_entry(
     setup_entry: Entry,
     path_resolver: PathResolver,
@@ -177,7 +231,7 @@ def run_data_setup_entry(
     setup_path = (setup_root_path / setup_entry.name).absolute()
     logs_path = setup_path / "logs"
     stdouterr_path = logs_path / "stdouterr.log"
-    create_or_overwrite_dir(setup_path)
+    # Never empty this folder: concurrent nightly jobs share the session folder.
     ensure_dir(logs_path)
 
     cmd = setup_entry.get_command_to_run(setup_path, path_resolver, dataset_resolver)
@@ -195,15 +249,21 @@ def run_data_setup_entry(
         subprocess_env, configured_env_names = build_subprocess_environment(
             setup_entry, setup_path, path_resolver, dataset_resolver
         )
-        run_data = run_command_with_timeout(
-            command=cmd,
-            timeout=setup_entry.timeout_s,
-            stdouterr_path=stdouterr_path,
-            env=subprocess_env,
-            env_value_allowlist=configured_env_names,
-            run_id=f"data_setup-{setup_entry.name}-{int(started_exec)}",
-            fancy=os.environ.get("CURATOR_BENCHMARKING_DEBUG", "0") == "0",
-        )
+        try:
+            with _data_setup_lock(setup_entry.name, path_resolver, timeout_s=setup_entry.timeout_s):
+                run_data = run_command_with_timeout(
+                    command=cmd,
+                    timeout=setup_entry.timeout_s,
+                    stdouterr_path=stdouterr_path,
+                    env=subprocess_env,
+                    env_value_allowlist=configured_env_names,
+                    run_id=f"data_setup-{setup_entry.name}-{int(started_exec)}",
+                    fancy=os.environ.get("CURATOR_BENCHMARKING_DEBUG", "0") == "0",
+                )
+        except TimeoutError as e:
+            logger.error(f"\tData setup {setup_entry.name} not run: {e}")
+            result_data["error"] = str(e)
+            return False
         duration = time.time() - started_exec
         success = run_data["returncode"] == 0 and not run_data["timed_out"]
         result_data.update(
@@ -231,28 +291,30 @@ def run_data_setups(
     path_resolver: PathResolver,
     dataset_resolver: DatasetResolver,
     session_path: Path,
-) -> bool:
-    """Run all configured data setup entries before benchmark execution."""
+) -> set[str]:
+    """Run every selected data setup before benchmark execution and return the names that failed.
+
+    A failed setup only blocks the entries that use its dataset, so it does not stop
+    unrelated entries in the same session.
+    """
     if not setup_entries:
-        return True
+        return set()
 
     setup_root_path = session_path / "data_setup"
-    create_or_overwrite_dir(setup_root_path)
     logger.info("Data setup entries to be run before benchmarks:")
     for idx, setup_entry in enumerate(setup_entries, start=1):
         logger.info(f"\t{idx}. {setup_entry.name}")
 
-    overall_success = True
-    for setup_entry in setup_entries:
-        overall_success &= run_data_setup_entry(
+    return {
+        setup_entry.name
+        for setup_entry in setup_entries
+        if not run_data_setup_entry(
             setup_entry=setup_entry,
             path_resolver=path_resolver,
             dataset_resolver=dataset_resolver,
             setup_root_path=setup_root_path,
         )
-        if not overall_success:
-            break
-    return overall_success
+    }
 
 
 def run_entry(  # noqa: PLR0913
@@ -565,16 +627,19 @@ def main() -> int:  # noqa: C901, PLR0911, PLR0912, PLR0915
     logger.info(f"Started session {session_name}...")
     env_dict = dump_env(session_obj=session, output_path=session_path)
 
-    if not run_data_setups(
+    # Sinks start before data setup so a failed setup still reaches them through the blocked entries.
+    active_sinks = initialize_sinks(session.sinks, session_name=session_name, session=session, env_dict=env_dict)
+
+    failed_data_setups = run_data_setups(
         setup_entries=session.data_setups,
         path_resolver=session.path_resolver,
         dataset_resolver=session.dataset_resolver,
         session_path=session_path,
-    ):
-        logger.error("Data setup failed; benchmark entries will not be run.")
-        return 1
-
-    active_sinks = initialize_sinks(session.sinks, session_name=session_name, session=session, env_dict=env_dict)
+    )
+    if failed_data_setups:
+        logger.error(
+            f"Data setup failed for {', '.join(sorted(failed_data_setups))}; entries that use those datasets will not run."
+        )
 
     # Print a summary of the entries that will be run in the for loop below
     # Disabled entries will not be printed
@@ -609,14 +674,19 @@ def main() -> int:  # noqa: C901, PLR0911, PLR0912, PLR0915
             )
 
         try:
-            run_success = run_entry(
-                entry=entry,
-                path_resolver=session.path_resolver,
-                dataset_resolver=session.dataset_resolver,
-                session_entry_path=session_entry_path,
-                result_data=result_data,
-                gpu_stats_recorder_interval_s=gpu_stats_recorder_interval_s,
-            )
+            if blocked_by := sorted(referenced_datasets(entry) & failed_data_setups):
+                error = f"Data setup failed for {', '.join(blocked_by)}; entry not run."
+                logger.error(f"\t\t❌ {error}")
+                result_data["error"] = error
+            else:
+                run_success = run_entry(
+                    entry=entry,
+                    path_resolver=session.path_resolver,
+                    dataset_resolver=session.dataset_resolver,
+                    session_entry_path=session_entry_path,
+                    result_data=result_data,
+                    gpu_stats_recorder_interval_s=gpu_stats_recorder_interval_s,
+                )
 
         except Exception as e:
             run_success = False

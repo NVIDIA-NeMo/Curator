@@ -20,6 +20,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "benchmarking"))
 
+from nemo_curator_benchmarking.config import build_benchmark_config_plan
 from runner.utils import merge_config_files
 
 _CONFIG_DIR = Path(__file__).resolve().parents[3] / "benchmarking"
@@ -100,3 +101,52 @@ def test_4xgb200_64cpu_override_sets_known_video_performance_baselines() -> None
     # Correctness/count requirements remain inherited from benchmarks.yaml.
     assert _requirement(entries["video_embedding_xenna"], "num_clips_generated")["exact_value"] == 7600
     assert _requirement(entries["video_captioning_xenna"], "num_clips_generated")["exact_value"] == 1013
+
+
+def test_audio_cpu_override_runs_alm_entries_without_gpus() -> None:
+    config = merge_config_files([_CONFIG_DIR / "benchmarks.yaml", _CONFIG_DIR / "audio-cpu.yaml"])
+    entries = _entries(config)
+
+    assert config["ray"]["num_gpus"] == 0
+    assert config["gpu_stats_recorder"]["interval_s"] == 0
+    for entry_name in ("alm_pipeline_xenna", "alm_pipeline_ray_data"):
+        assert entries[entry_name]["ray"]["num_gpus"] == 0
+    assert {entry.name for entry in build_benchmark_config_plan(config).entries} == {
+        "alm_pipeline_xenna",
+        "alm_pipeline_ray_data",
+        "audio_whisper_hallucination_raydata",
+    }
+
+
+def test_every_audio_benchmark_script_has_an_entry() -> None:
+    config = merge_config_files([_CONFIG_DIR / "benchmarks.yaml"])
+    registered = {entry["script"] for entry in config["entries"]}
+    audio_scripts = {path.name for path in (_CONFIG_DIR / "scripts").glob("audio_*_benchmark.py")}
+
+    assert audio_scripts
+    assert audio_scripts <= registered
+
+
+def test_audio_tensorrt_override_enables_tensorrt_entries() -> None:
+    base = _entries(merge_config_files([_CONFIG_DIR / "benchmarks.yaml"]))
+
+    tensorrt_entries = {
+        "audio_model_stages_pytorch_xenna",
+        "audio_model_stages_tensorrt_xenna",
+        "audio_indic_asr_xenna",
+        "audio_indic_asr_raydata",
+        "audio_granary_metadata_xenna",
+        "audio_granary_metadata_raydata",
+    }
+    config = merge_config_files([_CONFIG_DIR / "benchmarks.yaml", _CONFIG_DIR / "audio-tensorrt.yaml"])
+    merged = _entries(config)
+
+    assert all(base[entry_name]["enabled"] is False for entry_name in tensorrt_entries)
+    assert all(merged[entry_name]["enabled"] is True for entry_name in tensorrt_entries)
+    assert {entry.name for entry in build_benchmark_config_plan(config).entries} == tensorrt_entries
+
+
+def test_nightly_data_setup_stub_still_merges() -> None:
+    config = merge_config_files([_CONFIG_DIR / "benchmarks.yaml", _CONFIG_DIR / "nightly-data-setup.yaml"])
+
+    assert config == merge_config_files([_CONFIG_DIR / "benchmarks.yaml"])
