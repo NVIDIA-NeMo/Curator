@@ -147,6 +147,14 @@ CI infrastructure. That pipeline reads Curator's
 one scheduler job per enabled entry from the merged config, and starts each job
 in a benchmark runtime environment.
 
+An install override can also set a top-level `entry_filter` (a `--entries`
+style expression). `build_benchmark_config_plan` in
+`nemo_curator_benchmarking/config.py` and `benchmarking/run.py` both apply it,
+so a generator that merges `audio-cpu.yaml` or `audio-tensorrt.yaml` schedules
+only the entries valid on that install. Adding the CPU and TensorRT installs to
+the nightly schedule (their images and override files) is configured in the CI
+orchestration repository.
+
 Each generated job invokes Curator's `benchmarking/run.py` for its assigned
 entry. The jobs share a session name and results root so their per-entry outputs
 are collected as one logical nightly benchmark session. The CI layer also
@@ -664,19 +672,20 @@ python benchmarking/tools/container.py run \
   --container curator-audio-cpu \
   --config benchmarking/benchmarks.yaml \
   --config benchmarking/audio-cpu.yaml \
-  --config /path/to/paths.yaml \
-  -- --entries "alm_pipeline or whisper_hallucination"
+  --config /path/to/paths.yaml
 ```
 
-The override sets Ray GPUs to zero and disables the GPU stats recorder. Only the
-`alm_pipeline_*` and `audio_whisper_hallucination_raydata` entries are valid on
-this install; the other audio entries run GPU stages, so always pass that
-`--entries` filter.
+The override sets Ray GPUs to zero, disables the GPU stats recorder and sets
+`entry_filter: "alm_pipeline or whisper_hallucination"`, so only the
+`alm_pipeline_*` and `audio_whisper_hallucination_raydata` entries run; the
+other audio entries run GPU stages. `--entries` and `--entries-exact` still
+narrow the selection further.
 
 ### TensorRT audio (`audio_tensorrt`)
 
 `benchmarking/audio-tensorrt.yaml` enables the entries that exercise TensorRT
-paths. Run it in the Granary tutorial image (see
+paths and sets `entry_filter` so only those entries run. Run it in the Granary
+tutorial image (see
 [Granary metadata extraction](#granary-metadata-extraction)) with the engines
 staged under `{model_weights_path}/granary_metadata` and
 `{model_weights_path}/audio_indic_asr`:
@@ -685,16 +694,21 @@ staged under `{model_weights_path}/granary_metadata` and
 python benchmarking/run.py \
   --config benchmarking/benchmarks.yaml \
   --config benchmarking/audio-tensorrt.yaml \
-  --config /path/to/paths.yaml \
-  --entries "model_stages or indic_asr or granary_metadata"
+  --config /path/to/paths.yaml
 ```
+
+The packaged `audio_tensorrt` extra alone is not enough for these entries: the
+Indic ASR TensorRT-LLM runtime comes only with the Granary tutorial image.
 
 `audio_model_stages_tensorrt_xenna` and `audio_model_stages_pytorch_xenna` run
 the same Sortformer, Silero VAD and PANNs SED graph
 (`benchmarking/audio_pipelines/model_stages.yaml`) on the same input with
-TensorRT and PyTorch adapters, so their throughputs compare directly. The
-Sortformer engine is expected at `granary_metadata/sortformer_trt/` as
-`sortformer.plan` and `config.json`.
+TensorRT and PyTorch adapters and the same GPU reservations, so their
+throughputs compare directly. Build the Sortformer bundle with
+`build_sortformer_tensorrt_engine --output .../granary_metadata/sortformer_trt/sortformer.plan`
+(see `tutorials/audio/sortformer/README.md`); the entry reads its
+`sortformer.plan`, `sortformer.json` and `sortformer.sortformer_modules.py`.
+The PyTorch entry loads `granary_metadata/sortformer.nemo`.
 
 The CUDA install needs no override: `benchmarks.yaml` already targets the
 default CUDA nightly image.
@@ -822,13 +836,24 @@ code owner in `.github/CODEOWNERS`.
 | `audio_indic_asr_*` | Indic Canary TensorRT-LLM, Parakeet TensorRT | Granary tutorial image (`audio_tensorrt`) | Xenna, Ray Data | 8 | No: `tensorrt`, `nemo_text_processing` | Disabled | Aaftab V |
 | `audio_qwen_omni_asr_*` | Qwen3-Omni ASR (vLLM) | Qwen Omni tutorial environment | Xenna, Ray Data | 8 | No: `qwen-asr` is x86_64-only | Disabled | Aaftab V |
 | `audio_text_llm_*` | Audio text LLM stages (Dynamo server) | Text pipeline tutorial image | Xenna, Ray Data | 8 | Not checked | Disabled | Aaftab V |
-| `audio_whisper_hallucination_raydata` | Whisper hallucination text filter | `audio_cpu` or `audio_cuda12` | Ray Data | 0 | Yes (pure Python) | Enabled; CPU run via `audio-cpu.yaml` | Aaftab V |
-| `audio_model_stages_{pytorch,tensorrt}_xenna` | Sortformer, Silero VAD, PANNs SED: PyTorch vs TensorRT | Granary tutorial image (`audio_tensorrt`) | Xenna | 1 per model | No: `nemo_toolkit`, `tensorrt` | Disabled; enabled by `audio-tensorrt.yaml` | Aaftab V |
+| `audio_whisper_hallucination_raydata` | Whisper hallucination text filter (after reading durations from file headers) | `audio_cpu` or `audio_cuda12` | Ray Data | 0 | Yes (pure Python) | Enabled; CPU run via `audio-cpu.yaml` | Aaftab V |
+| `audio_model_stages_{pytorch,tensorrt}_xenna` | Sortformer, Silero VAD, PANNs SED: PyTorch vs TensorRT | Granary tutorial image | Xenna | 1 per model (VAD reserves 4 GB) | No: `nemo_toolkit`, `tensorrt` | Disabled; enabled by `audio-tensorrt.yaml` | Aaftab V |
 | `audio_lid_whisperx_vad_xenna` | WhisperX VAD, SpeechBrain language identification | `audio_cuda12` | Xenna | 1 per model | No: `whisperx`, `speechbrain` | Disabled | Aaftab V |
 | `audio_faster_whisper_raydata` | Faster-Whisper ASR | `audio_cuda12` | Ray Data | 1 | Not checked | Disabled | Aaftab V |
 | `audio_qwen3_asr_raydata` | Qwen3-ASR | `audio_cuda12` | Ray Data | 1 | No: `qwen-asr` | Disabled | Aaftab V |
 | `audio_mfa_alignment_raydata` | MFA forced alignment | `audio_cpu` plus the `mfa` binary | Ray Data | 0 | Not checked | Disabled | Aaftab V |
 | `audio_chatterbox_tts_raydata` | Chatterbox TTS | `audio_cuda12` | Ray Data | 1 | Not checked | Disabled | Aaftab V |
+| None | Disfluency WER guard (`DisfluencyWerGuardStage`) | `audio_cpu` | - | 0 | - | No benchmark yet | - |
+| None | Conversation merging (`MergeConversationSDPStage`) | `audio_cpu` | - | 0 | - | No benchmark yet | - |
+| None | NeMo speech tarred I/O (`NeMoSpeechReaderStage`, `NeMoSpeechWriterStage`, `NeMoSpeechDiscoveryStage`) | `audio_cpu` | - | 0 | - | No benchmark yet | - |
+| None | Manifest group export (`ManifestGroupExportStage`) | `audio_cpu` | - | 0 | - | No benchmark yet | - |
+| None | Segment extraction (`SegmentExtractionStage`) | `audio_cpu` | - | 0 | - | No benchmark yet | - |
+| None | Text normalization (`InverseTextNormalizationStage`, `ChineseConversionStage`) | `audio_cpu` | - | 0 | - | No benchmark yet | - |
+| None | Indic Conformer hybrid ASR, PyTorch and TensorRT (`InferenceIndicConformerHybridStage`) | `audio_cuda12` / `audio_tensorrt` | - | 1 | - | No benchmark yet | - |
+| None | ALM pretraining data (`nemo_curator/stages/audio/alm/pretrain`) | `audio_cpu` | - | 0 | - | No benchmark yet | - |
+| None | Audio folder source (`CreateInitialManifestAudioFolderStage`) | `audio_cpu` | - | 0 | - | No benchmark yet | - |
+| None | Channel count and sample-rate filters (`ChannelCountStage`, `SampleRateFilterStage`) | `audio_cpu` | - | 0 | - | No benchmark yet | - |
+| None | FLEURS manifest creation (`CreateInitialManifestFleursStage`, data preparation) | `audio_cpu` | - | 0 | - | No benchmark yet | - |
 
 The aarch64 column follows the `platform_machine == 'x86_64'` markers in
 `pyproject.toml`; it has not been confirmed with a GB200 run. Entries marked
@@ -843,9 +868,12 @@ when the output manifest has no rows. Entries registered disabled have not had
 a GPU run yet; enable them once one confirms their inputs and models.
 
 Throughput limits are ordinary `requirements` with a `min_value` on a
-`throughput_*` metric. Set them at about half of a measured baseline, override
-them per SKU in an override file, and leave a `TODO` comment where no
-baseline exists yet.
+`throughput_*` metric. Set them at about half of a baseline measured on the
+entry's own input and timer, say in a comment which input that was, override
+them per SKU in an override file, and leave a `TODO` comment where no such
+baseline exists yet. The Qwen Omni entries have no floor: their README
+baseline was measured on 80.6 hours, while the entries run the 5-hour setup,
+where 30B model startup inside `time_taken_s` dominates.
 
 ## Audio Benchmark Data Setup
 
@@ -868,12 +896,23 @@ The `data_setups` section of `benchmarks.yaml` holds the checked-in audio
 setup, so every `benchmarking/run.py` invocation, including each per-entry
 nightly job, loads it without an extra config. A setup stages the dataset of the
 same name and runs only when a selected entry references that dataset with
-`{dataset:<name>,<format>}`; other setups are skipped. Setups reuse existing
+`{dataset:<name>,<format>}`; the runner logs the setups it skips and warns
+about any setup whose name matches no dataset, since no entry can select it.
+`benchmarking/nightly-data-setup.yaml` is kept as an empty stub so older
+command lines that still pass it keep working. Setups reuse existing
 versioned manifests or download and stage data into the configured paths before
 the benchmark entries start. Jobs that share `datasets_path` take a
 `.<setup name>.setup.lock` file there, so concurrent jobs wait for one staging
-run and then reuse its output. The first staging run can take much longer than
-the entry itself and is not covered by the entry's `timeout_s`.
+run and then reuse its output. A job waits for the lock at most the setup's
+`timeout_s`. On a filesystem without `flock` support the runner warns and
+stages without a lock; across nodes, the lock only serializes jobs when the
+filesystem provides cluster-wide `flock` (for example Lustre `flock`, not
+`localflock`). The first staging run can take much longer than the entry
+itself and is not covered by the entry's `timeout_s`.
+
+A failed setup does not stop the session: entries that reference its dataset
+are reported to the sinks as failed without running, and the other entries
+still run.
 
 Current audio setup commands:
 

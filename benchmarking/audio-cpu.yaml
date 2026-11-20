@@ -1,14 +1,15 @@
 # audio_cpu benchmark overrides.
 #
 # Layer this file after benchmarks.yaml in an image built with
-# CURATOR_EXTRA=audio_cpu and started without GPUs, and select the
-# CPU-only entries:
+# CURATOR_EXTRA=audio_cpu and started without GPUs:
 #   --config benchmarking/benchmarks.yaml --config benchmarking/audio-cpu.yaml
-#   --entries "alm_pipeline or whisper_hallucination"
 #
-# Only these entries are valid here: their stages request no GPUs (ALM builder
-# and overlap, the Whisper hallucination text filter, manifest I/O). The other
-# audio entries run GPU stages and are not valid on this install.
+# entry_filter keeps only the entries whose stages request no GPUs (ALM builder
+# and overlap, the Whisper hallucination text filter, manifest I/O). The runner
+# and build_benchmark_config_plan both apply it, so a nightly job generator that
+# merges this file schedules only those entries.
+
+entry_filter: "alm_pipeline or whisper_hallucination"
 
 ray:
   num_gpus: 0

@@ -5,6 +5,13 @@
 # manifest. Each model's adapter is a top-level key, so the same graph
 # benchmarks the PyTorch defaults below and the TensorRT adapters
 # (see the audio_model_stages_* entries in benchmarks.yaml).
+#
+# Keep stage-level settings adapter-neutral: the TensorRT entries swap only the
+# *_adapter and *_adapter_kwargs keys, so anything set on a stage here reaches
+# both adapters. The Sortformer checkpoint is passed as model_id (a local .nemo
+# path), not the legacy model_path, which the stage would forward to the
+# TensorRT adapter as an unknown argument. VAD reserves a GPU in both variants
+# so the PyTorch and TensorRT runs compare like for like.
 
 manifest_path: ???
 model_dir: ???
@@ -27,7 +34,6 @@ stages:
     adapter_target: ${sortformer_adapter}
     adapter_kwargs: ${sortformer_adapter_kwargs}
     model_id: ${model_dir}/sortformer.nemo
-    model_path: ${model_dir}/sortformer.nemo
     rttm_out_dir: ${output_dir}/rttm
     fail_on_audio_error: true
 
@@ -37,6 +43,8 @@ stages:
     input_residency: file
     nested: true
     fail_on_audio_error: true
+    resources:
+      gpu_memory_gb: 4
 
   - _target_: nemo_curator.stages.audio.inference.sed.stage.SEDInferenceStage
     adapter_target: ${sed_adapter}

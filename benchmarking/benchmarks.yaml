@@ -1703,7 +1703,9 @@ entries:
   # nightly environment does not provide (see the matching README sections).
   # Enable them from a site override that supplies that image and those paths.
   # Timeouts are about 2x, and throughput floors about half, of the 2026-10-20
-  # EOS 8xH100 results in the README; text_llm has no baseline yet.
+  # EOS 8xH100 results in the README. Each floor names the input it was measured
+  # on and only holds for that input; entries without a baseline on their own
+  # input (Qwen Omni on the 5 h setup, text_llm) have a TODO instead of a floor.
   - name: audio_granary_metadata_xenna
     enabled: false
     script: audio_granary_metadata_benchmark.py
@@ -1724,6 +1726,9 @@ entries:
     requirements:
       - metric: num_tasks_processed
         min_value: 1
+      # ~1/2 of 472.3 audio-hours/hour (Xenna) measured on the 107.76 h, 30,631-recording
+      # LibriSpeech cohort (manifest SHA-256 9c6f7d8f...e99e). Only valid when
+      # granary_metadata_input is that cohort.
       - metric: throughput_audio_hours_per_hour
         min_value: 230
 
@@ -1746,6 +1751,7 @@ entries:
     requirements:
       - metric: num_tasks_processed
         min_value: 1
+      # ~1/2 of 166.3 audio-hours/hour (Ray Data) on the same 107.76 h cohort as the Xenna entry.
       - metric: throughput_audio_hours_per_hour
         min_value: 80
 
@@ -1771,6 +1777,7 @@ entries:
     requirements:
       - metric: num_output_rows
         exact_value: 216164
+      # ~1/2 of 3,604 audio-hours/hour (Xenna) measured on this entry's input, audio_indic_asr_hindi_531h.
       - metric: throughput_audio_hours_per_hour
         min_value: 1800
 
@@ -1796,6 +1803,7 @@ entries:
     requirements:
       - metric: num_output_rows
         exact_value: 216164
+      # ~1/2 of 387.6 audio-hours/hour (Ray Data) measured on this entry's input, audio_indic_asr_hindi_531h.
       - metric: throughput_audio_hours_per_hour
         min_value: 190
 
@@ -1821,8 +1829,9 @@ entries:
     requirements:
       - metric: num_tasks_processed
         min_value: 1
-      - metric: throughput_audio_hours_per_hour
-        min_value: 200
+      # TODO: add a throughput_audio_hours_per_hour min_value once a baseline is measured on
+      # qwen_omni_asr_librispeech_5h. The README's 406.6 audio-hours/hour was measured on
+      # 80.6 h; on 5 h the 30B model startup inside time_taken_s dominates.
 
   - name: audio_qwen_omni_asr_raydata
     enabled: false
@@ -1845,8 +1854,9 @@ entries:
     requirements:
       - metric: num_tasks_processed
         min_value: 1
-      - metric: throughput_audio_hours_per_hour
-        min_value: 110
+      # TODO: add a throughput_audio_hours_per_hour min_value once a baseline is measured on
+      # qwen_omni_asr_librispeech_5h. The README's 228.4 audio-hours/hour was measured on
+      # 80.6 h; on 5 h the 30B model startup inside time_taken_s dominates.
 
   - name: audio_text_llm_xenna
     enabled: false
@@ -1899,12 +1909,11 @@ entries:
     script: audio_yaml_pipeline_benchmark.py
     args: >-
       --benchmark-results-path={session_entry_dir}
-      --pipeline-yaml={curator_repo_dir}/tutorials/audio/whisper_hallucination/pipeline.yaml
+      --pipeline-yaml={curator_repo_dir}/benchmarking/audio_pipelines/whisper_hallucination.yaml
       --output-manifest={session_entry_dir}/output/manifest.jsonl
       --set=manifest_path={dataset:qwen_omni_asr_librispeech_5h,jsonl}
       --set=output_path={session_entry_dir}/output/manifest.jsonl
       --set=common_hall_file={curator_repo_dir}/tutorials/audio/whisper_hallucination/phrases.txt
-      --set=stages.1.text_key=text
     timeout_s: 1800
     sink_data:
       - name: slack
@@ -1953,7 +1962,8 @@ entries:
       --set=output_dir={session_entry_dir}/output
       --set=sortformer_adapter=nemo_curator.models.audio.speaker_diarization.sortformer_tensorrt.TensorRTSortformerAdapter
       --set=sortformer_adapter_kwargs.engine_path={model_weights_path}/granary_metadata/sortformer_trt/sortformer.plan
-      --set=sortformer_adapter_kwargs.config_path={model_weights_path}/granary_metadata/sortformer_trt/config.json
+      --set=sortformer_adapter_kwargs.config_path={model_weights_path}/granary_metadata/sortformer_trt/sortformer.json
+      --set=sortformer_adapter_kwargs.runtime_module_path={model_weights_path}/granary_metadata/sortformer_trt/sortformer.sortformer_modules.py
       --set=vad_adapter=nemo_curator.models.audio.vad.silero_tensorrt.TensorRTSileroVADAdapter
       --set=vad_adapter_kwargs.engine_path={model_weights_path}/granary_metadata/silero.plan
       --set=sed_adapter=nemo_curator.models.audio.sed.tensorrt.TensorRTPANNsSEDAdapter
@@ -2157,7 +2167,7 @@ entries:
       --executor=xenna
       --manifest={dataset:nemotron_parse_pdf,manifest}
       --pdf-dir={dataset:nemotron_parse_pdf,pdf_dir}
-      --output-dir={session_entry_dir}/output
+      --output-dir={session_entry_dir}/scratch/output
       --model-path={dataset:nemotron_parse_pdf_model,files}
       --backend=vllm
       --enforce-eager
@@ -2208,7 +2218,7 @@ entries:
       --executor=ray_data
       --manifest={dataset:nemotron_parse_pdf,manifest}
       --pdf-dir={dataset:nemotron_parse_pdf,pdf_dir}
-      --output-dir={session_entry_dir}/output
+      --output-dir={session_entry_dir}/scratch/output
       --model-path={dataset:nemotron_parse_pdf_model,files}
       --backend=vllm
       --enforce-eager
@@ -2259,7 +2269,7 @@ entries:
       --executor=ray_data
       --manifest={dataset:nemotron_parse_pdf,manifest}
       --pdf-dir={dataset:nemotron_parse_pdf,pdf_dir}
-      --output-dir={session_entry_dir}/output
+      --output-dir={session_entry_dir}/scratch/output
       --model-path={dataset:nemotron_parse_pdf_model,files}
       --model-id=nvidia/NVIDIA-Nemotron-Parse-v1.2
       --backend=vllm
@@ -2292,7 +2302,7 @@ entries:
       --executor=ray_data
       --manifest={dataset:nemotron_parse_pdf,manifest}
       --pdf-dir={dataset:nemotron_parse_pdf,pdf_dir}
-      --output-dir={session_entry_dir}/output
+      --output-dir={session_entry_dir}/scratch/output
       --model-path={dataset:nemotron_parse_pdf_model,files}
       --model-id=nvidia/NVIDIA-Nemotron-Parse-v1.2
       --backend=vllm

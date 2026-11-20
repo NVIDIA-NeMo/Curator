@@ -295,3 +295,17 @@ def test_session_rejects_duplicate_data_setup_names() -> None:
                 data_setups=[setup, setup],
             )
         )
+
+
+def test_config_entry_filter_applies_before_cli_selection() -> None:
+    entries = [
+        {"name": "alm_pipeline_xenna", "script": "benchmark.py"},
+        {"name": "alm_pipeline_ray_data", "script": "benchmark.py"},
+        {"name": "audio_sortformer_xenna", "script": "benchmark.py"},
+    ]
+    config = _config(entries, entry_filter="alm_pipeline")
+
+    assert [e.name for e in Session.from_dict(config).entries] == ["alm_pipeline_xenna", "alm_pipeline_ray_data"]
+    assert [e.name for e in Session.from_dict(config, entry_filter_expr="xenna").entries] == ["alm_pipeline_xenna"]
+    with pytest.raises(ValueError, match="Excluded by the config's entry_filter 'alm_pipeline'"):
+        Session.from_dict(config, entries_exact=["audio_sortformer_xenna"])

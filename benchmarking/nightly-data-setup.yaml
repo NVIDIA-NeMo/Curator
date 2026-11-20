@@ -1,0 +1,4 @@
+# Deprecated: kept empty so existing `--config benchmarking/nightly-data-setup.yaml`
+# invocations keep working. The data setups now live in the `data_setups` section of
+# benchmarks.yaml, which every run loads; a setup runs only when a selected entry
+# references the dataset of the same name. Remove this file from your command lines.

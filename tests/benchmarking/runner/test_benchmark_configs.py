@@ -20,6 +20,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "benchmarking"))
 
+from nemo_curator_benchmarking.config import build_benchmark_config_plan
 from runner.utils import merge_config_files
 
 _CONFIG_DIR = Path(__file__).resolve().parents[3] / "benchmarking"
@@ -110,6 +111,11 @@ def test_audio_cpu_override_runs_alm_entries_without_gpus() -> None:
     assert config["gpu_stats_recorder"]["interval_s"] == 0
     for entry_name in ("alm_pipeline_xenna", "alm_pipeline_ray_data"):
         assert entries[entry_name]["ray"]["num_gpus"] == 0
+    assert {entry.name for entry in build_benchmark_config_plan(config).entries} == {
+        "alm_pipeline_xenna",
+        "alm_pipeline_ray_data",
+        "audio_whisper_hallucination_raydata",
+    }
 
 
 def test_every_audio_benchmark_script_has_an_entry() -> None:
@@ -123,12 +129,24 @@ def test_every_audio_benchmark_script_has_an_entry() -> None:
 
 def test_audio_tensorrt_override_enables_tensorrt_entries() -> None:
     base = _entries(merge_config_files([_CONFIG_DIR / "benchmarks.yaml"]))
-    merged = _entries(merge_config_files([_CONFIG_DIR / "benchmarks.yaml", _CONFIG_DIR / "audio-tensorrt.yaml"]))
 
-    assert base["audio_model_stages_tensorrt_xenna"]["enabled"] is False
-    for entry_name in (
+    tensorrt_entries = {
         "audio_model_stages_pytorch_xenna",
         "audio_model_stages_tensorrt_xenna",
         "audio_indic_asr_xenna",
-    ):
-        assert merged[entry_name]["enabled"] is True
+        "audio_indic_asr_raydata",
+        "audio_granary_metadata_xenna",
+        "audio_granary_metadata_raydata",
+    }
+    config = merge_config_files([_CONFIG_DIR / "benchmarks.yaml", _CONFIG_DIR / "audio-tensorrt.yaml"])
+    merged = _entries(config)
+
+    assert all(base[entry_name]["enabled"] is False for entry_name in tensorrt_entries)
+    assert all(merged[entry_name]["enabled"] is True for entry_name in tensorrt_entries)
+    assert {entry.name for entry in build_benchmark_config_plan(config).entries} == tensorrt_entries
+
+
+def test_nightly_data_setup_stub_still_merges() -> None:
+    config = merge_config_files([_CONFIG_DIR / "benchmarks.yaml", _CONFIG_DIR / "nightly-data-setup.yaml"])
+
+    assert config == merge_config_files([_CONFIG_DIR / "benchmarks.yaml"])

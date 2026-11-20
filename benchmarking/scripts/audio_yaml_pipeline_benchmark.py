@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from loguru import logger
-from omegaconf import OmegaConf
+from omegaconf import DictConfig, OmegaConf
 from utils import write_benchmark_results
 
 from nemo_curator.config.run import create_executor_from_yaml, create_pipeline_from_yaml
@@ -35,6 +35,19 @@ def count_output_rows(output_manifest: Path) -> int:
         return sum(1 for line in manifest if line.strip())
 
 
+def apply_overrides(cfg: DictConfig, overrides: list[str]) -> None:
+    """Merge ``key=value`` dotlist overrides into ``cfg``.
+
+    OmegaConf silently adds keys it does not know, so an override aimed at a key the
+    YAML has renamed would be ignored. Reject overrides whose top-level key is missing.
+    """
+    unknown = sorted({override.split("=", 1)[0].split(".", 1)[0] for override in overrides} - set(cfg.keys()))
+    if unknown:
+        msg = f"Overrides set top-level keys the pipeline YAML does not define: {unknown}"
+        raise ValueError(msg)
+    cfg.merge_with_dotlist(overrides)
+
+
 def run_audio_yaml_pipeline_benchmark(  # noqa: PLR0913
     benchmark_results_path: str,
     pipeline_yaml: str,
@@ -45,7 +58,7 @@ def run_audio_yaml_pipeline_benchmark(  # noqa: PLR0913
 ) -> dict[str, Any]:
     """Run the YAML with dotlist overrides and fail when it writes no rows."""
     cfg = OmegaConf.load(pipeline_yaml)
-    cfg.merge_with_dotlist(overrides)
+    apply_overrides(cfg, overrides)
     if executor is not None:
         cfg.backend = executor
     if execution_mode is not None:
