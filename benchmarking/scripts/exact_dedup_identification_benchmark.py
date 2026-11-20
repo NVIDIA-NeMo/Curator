@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from loguru import logger
+from text_metrics import count_registry_documents
 from utils import parse_memory_size, write_benchmark_results
 
 from nemo_curator.stages.deduplication.exact.workflow import ExactDeduplicationWorkflow
@@ -74,6 +75,8 @@ def run_exact_duplicate_identification_benchmark(  # noqa: PLR0913
         run_time_taken = time.perf_counter() - run_start_time
 
         # Extract metrics from workflow result metadata
+        registry_path = workflow_result.metadata.get("id_generator_path")
+        num_input_documents = count_registry_documents(registry_path)
         num_duplicates = workflow_result.metadata.get("num_duplicates", 0)
         identification_time = workflow_result.metadata.get("identification_time", 0.0)
         input_filegroups_time = workflow_result.metadata.get("input_filegroups_time", 0.0)
@@ -87,6 +90,8 @@ def run_exact_duplicate_identification_benchmark(  # noqa: PLR0913
         success = False
         run_time_taken = time.perf_counter() - run_start_time
         num_duplicates = 0
+        registry_path = None
+        num_input_documents = None
         identification_time = 0.0
         input_filegroups_time = 0.0
 
@@ -105,11 +110,16 @@ def run_exact_duplicate_identification_benchmark(  # noqa: PLR0913
             "spill_memory_limit": spill_memory_limit,
             "use_async_memory": use_async_memory,
             "normalize_text": normalize_text,
+            "input_denominator_source": registry_path,
+            "input_denominator_basis": "inclusive document-ID ranges allocated by successful workflow; text bytes unmeasured",
+            "timing_boundary": "workflow construction and run; excludes registry-count aggregation and result serialization",
         },
         "metrics": {
             "is_success": success,
             "time_taken_s": run_time_taken,
             "num_duplicates": num_duplicates,
+            "num_input_documents": num_input_documents,
+            "input_text_bytes": None,
             "identification_time_s": identification_time,
             "input_filegroups_time_s": input_filegroups_time,
         },

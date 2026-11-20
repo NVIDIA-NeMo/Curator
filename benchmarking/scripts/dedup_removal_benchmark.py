@@ -20,12 +20,21 @@ from pathlib import Path
 from typing import Any
 
 from loguru import logger
+from text_metrics import MeasureText, collect_text_metrics
 from utils import write_benchmark_results
 
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
 from nemo_curator.stages.text.deduplication.removal_workflow import TextDuplicatesRemovalWorkflow
 from nemo_curator.tasks import EmptyTask
 from nemo_curator.tasks.utils import TaskPerfUtils
+
+
+class MeasuredRemovalWorkflow(TextDuplicatesRemovalWorkflow):
+    def _generate_stages(self, initial_tasks: list | None = None) -> list:
+        stages = super()._generate_stages(initial_tasks)
+        stages.insert(-2, MeasureText("input"))
+        stages.insert(-1, MeasureText("output"))
+        return stages
 
 
 def run_removal_benchmark(  # noqa: PLR0913
@@ -78,7 +87,7 @@ def run_removal_benchmark(  # noqa: PLR0913
         raise ValueError(msg)
 
     # Create and run workflow-backed pipeline
-    workflow = TextDuplicatesRemovalWorkflow(
+    workflow = MeasuredRemovalWorkflow(
         input_path=input_path,
         ids_to_remove_path=ids_to_remove_path,
         output_path=output_path,
@@ -116,6 +125,8 @@ def run_removal_benchmark(  # noqa: PLR0913
 
     run_time_taken = time.perf_counter() - run_start_time
     num_duplicates_removed = workflow_run_result.get_metadata("num_duplicates_removed") or 0
+    text_metrics = collect_text_metrics(workflow_run_result.pipeline_tasks["removal"])
+    removed_documents = text_metrics["num_input_documents"] - text_metrics["num_output_documents"]
 
     logger.success(f"Benchmark completed in {run_time_taken:.2f}s, removed {num_duplicates_removed} duplicates")
     # Measuring I/O time
@@ -127,12 +138,28 @@ def run_removal_benchmark(  # noqa: PLR0913
     reader_key = f"{input_filetype}_reader"
     writer_key = f"{output_filetype}_writer"
     io_time = task_metrics.get(reader_key, 0) + task_metrics.get(writer_key, 0)
-    total_time = sum(task_metrics.values())
+    # Keep the legacy I/O ratio independent of the added measurement stages.
+    total_time = sum(v for k, v in task_metrics.items() if k not in {"measure_input_text", "measure_output_text"})
     io_percentage = round(io_time * 100 / total_time, 2) if total_time > 0 else 0
 
     return {
+        "params": {
+            "input_path": input_path,
+            "ids_to_remove_path": ids_to_remove_path,
+            "id_generator_path": id_generator_path,
+            "input_filetype": input_filetype,
+            "output_filetype": output_filetype,
+            "text_field": "text",
+            "timing_boundary": "workflow construction and run including read/measure/remove/write; excludes result aggregation/serialization",
+            "fixture_semantics": "IDs/registry supplied by caller; exact-vs-fuzzy lineage must be verified externally",
+        },
         "metrics": {
             "is_success": True,
+            **text_metrics,
+            "num_removed_documents": removed_documents,
+            "removal_fraction": removed_documents / text_metrics["num_input_documents"]
+            if text_metrics["num_input_documents"]
+            else None,
             "time_taken_s": run_time_taken,
             "num_duplicates_removed": num_duplicates_removed,
             "io_percentage": io_percentage,
@@ -195,7 +222,9 @@ def main() -> int:
         "tasks": [],
     }
     try:
-        result_dict.update(run_removal_benchmark(**vars(args)))
+        measured = run_removal_benchmark(**vars(args))
+        measured["params"] = {**result_dict["params"], **measured["params"]}
+        result_dict.update(measured)
         success_code = 0 if result_dict["metrics"]["is_success"] else 1
     finally:
         write_benchmark_results(result_dict, args.benchmark_results_path, save_tasks=save_tasks)

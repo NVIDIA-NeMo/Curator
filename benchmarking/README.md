@@ -1287,6 +1287,128 @@ All eight GPUs recorded sustained work in both benchmark process windows;
 this does not establish scaling efficiency or isolate individual operation
 throughput.
 
+## Text normalization measurements
+
+`scripts/modifier_benchmark.py` reads JSONL or Parquet, applies the existing
+boilerplate, Markdown, newline, quotation, Unicode and URL modifiers in that
+order, and writes Parquet. It does not filter rows: even text changed to an
+empty string remains a document. This is a candidate normalization component
+of a Common Crawl cleaning workflow, not a WARC download/extraction benchmark.
+The configured commoncrawl corpus is already prepared; its suitability as
+freshly extracted text must be established separately.
+
+The benchmark records `num_input_documents` immediately after reading and
+`num_output_documents` immediately before writing, and fails if those counts
+differ in any returned batch. `num_documents_processed` remains the input count;
+`throughput_docs_per_sec` remains that count divided by `time_taken_s`.
+`input_text_bytes` and `output_text_bytes` sum the UTF-8 encoded lengths of the
+`text` column at the same boundaries. Empty strings contribute zero bytes;
+missing columns, null/non-string values and unencodable text fail the run.
+These are text payload bytes, not JSONL/Parquet file sizes, compressed sizes,
+Arrow buffer sizes, or generic `task_*_input_data_size_mb` telemetry.
+
+`time_taken_s` retains the existing wall-time boundary around `Pipeline.run`:
+it includes reading, all modifiers, both measurement stages, writing, and
+executor setup/cleanup performed by that call. It excludes executor construction,
+file selection, stage construction, result aggregation/validation and result
+serialization. Measurement overhead is included and has not been calibrated;
+do not subtract summed worker times from pipeline wall time or assume timings
+are interchangeable with uninstrumented historical results.
+
+`params.json` retains the effective input format, text field, ordered modifier
+constructor settings, requested dataset cap, timing definition and
+`text_measurement_version: 1`. Despite its name, `dataset_size_gb` is a GiB-sized
+file-selection cap, not a measured workload. Pair these parameters with runner
+resource/environment artifacts; benchmark/library revisions and dataset lineage
+must be verified independently when unknown. No hardware scaling is implied.
+
+For example, an **illustrative, unmeasured** result could contain:
+
+```json
+{
+  "is_success": true,
+  "time_taken_s": 4.0,
+  "num_documents_processed": 6,
+  "throughput_docs_per_sec": 1.5,
+  "num_input_documents": 6,
+  "num_output_documents": 6,
+  "input_text_bytes": 59,
+  "output_text_bytes": 20
+}
+```
+
+The byte/count ratios describe mean text length and normalization's size change;
+they do not characterize a full length distribution or validate extrapolation.
+Pipeline execution or measurement failures emit `is_success: false` and null
+values for the four new volume metrics, retaining legacy zero
+processed-count/throughput failure values. Metrics
+are written with `--no-save-tasks` as well. Counters travel with each batch through
+the current one-to-one modifier/writer graph; this approach must be revisited
+before adding stages that discard tasks, split or merge batches, or duplicate
+retry outputs. The current score filters preserve empty batches as tasks.
+
+The score-filter and combined FastText benchmarks use the same input/output
+counters around their configured filters and retain their existing recipes.
+Fully rejected batches still contribute their input documents and UTF-8 bytes;
+their output counts and bytes are zero. `num_rejected_documents` is the difference
+between input and output counts. Parameters include the resolved YAML settings.
+The default FastText result remains a combined language-plus-quality measurement:
+neither its elapsed time nor throughput is attributed to either filter independently.
+`--filter-mode=language` or `--filter-mode=quality` selects exactly one existing
+FastText filter from that recipe, retaining its settings and the reader/writer.
+Unrecognized intermediate stages are rejected rather than silently omitted.
+`fasttext_language_xenna` and `fasttext_quality_xenna` measure these standalone
+pipelines on the same 300 GiB file-cap workload. The language recipe retains
+confidence >= 0.3 with no requested language; it is not English-only selection.
+The quality recipe retains label `__label__hq`, Pareto alpha 3 and seed 42.
+Its sampling means output counts need not be identical across actor schedules.
+Standalone timings include reading, measurement, one filter and writing; they
+are independent workloads, not a connected language-then-quality execution.
+
+`common_crawl_2024_18_warc_sample_xenna` uses the checked-in two-object
+`fixtures/cc-main-2024-18-two-warcs.json` manifest (1,924,426,402 compressed bytes).
+Manifest mode rechecks sizes/ETags, limits the sample to 1–3 complete files and
+5 GiB, bounds HTTP writes, requires fresh local directories and verifies full
+iteration receipts. It records sequential acquisition time separately from
+full-file extraction/measurement/output-write time, compressed object bytes,
+response records, output documents/UTF-8 payload/file bytes and HTTP cache
+headers. Completed object-body bytes are not total wire/retry traffic. Fresh
+local paths do not imply a cold upstream CDN or storage cache. This convenience
+sample is not representative of the full snapshot. The older snapshot-range
+mode is unchanged.
+
+`exact_dedup_removal_sample_xenna` prepares at most 256 MiB of distinct
+prepared-CC text, writes every selected text twice, runs exact identification,
+validates its counts/registry, then calls `dedup_removal_benchmark.py`. That
+dependency is enforced sequentially by the script, not YAML list order. Its
+primary elapsed time is removal-only; fixture generation, identification and
+post-run validation are separate. Counts/bytes must match the paired fixture,
+and written Parquet must contain exactly one copy of every original text.
+Corpus hashes, source selection, exact IDs and registry are retained with the
+entry (`delete_scratch: false`), as are the WARC sample artifacts. Budget this
+entry as fixture/identification plus removal work, even though it is one CI job.
+It has controlled 50% duplicate prevalence and a small workload; startup,
+partitioning, cache and retention effects limit linear extrapolation. The job
+retains the existing 8-GPU allocation for identification; removal uses CPU
+stages on that same allocation.
+
+The removal benchmark similarly records explicit input/output counts and text
+bytes around removal, `num_removed_documents` as their count difference, and
+`removal_fraction` against input documents. The existing legacy removal count is
+retained. Corpus, removal-ID and registry paths record lineage inputs; they do not
+prove that a fixture represents exact or fuzzy removal. The existing nightly
+fixture remains fuzzy removal.
+
+Exact and fuzzy identification report `num_input_documents` from the inclusive
+document-ID ranges allocated in their completed workflow's ID registry. File
+counts and duplicate counts are not used as input denominators. These counters
+describe allocated document rows, deduplicating repeated registrations of the
+same file group. Registry aggregation is outside the existing workflow timer;
+the registry path and measurement basis are recorded. Without a registry the
+count is null, not zero. Identification `input_text_bytes` remains null until
+text-volume instrumentation is available at the GPU read boundary. Identification
+emits IDs and does not itself produce a retained corpus or a removal yield.
+
 ## Writing Benchmark Scripts
 
 ### Script Location

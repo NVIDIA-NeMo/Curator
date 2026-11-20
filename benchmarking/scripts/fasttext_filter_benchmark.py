@@ -27,7 +27,8 @@ from typing import Any
 import hydra
 from hydra import compose, initialize_config_dir
 from loguru import logger
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
+from text_metrics import VOLUME_KEYS, MeasureText, collect_text_metrics
 from utils import load_dataset_files, setup_executor, write_benchmark_results
 
 from nemo_curator.pipeline import Pipeline
@@ -49,8 +50,37 @@ def create_pipeline_from_yaml(cfg: DictConfig, file_paths: list[str] | None = No
         stage = hydra.utils.instantiate(stage_cfg)
         if i == 0 and file_paths is not None:
             stage.file_paths = file_paths
+        if i == len(cfg.stages) - 1:
+            pipeline.add_stage(MeasureText("output", text_field=cfg.get("text_field", "text")))
         pipeline.add_stage(stage)
+        if i == 0:
+            pipeline.add_stage(MeasureText("input", text_field=cfg.get("text_field", "text")))
     return pipeline
+
+
+def select_filter_mode(cfg: DictConfig, filter_mode: str) -> DictConfig:
+    if filter_mode == "combined":
+        return cfg
+    targets = {
+        "language": "nemo_curator.stages.text.filters.fasttext.fasttext_filters.FastTextLangId",
+        "quality": "nemo_curator.stages.text.filters.fasttext.fasttext_filters.FastTextQualityFilter",
+    }
+    if filter_mode not in targets:
+        msg = f"Unknown FastText filter mode: {filter_mode}"
+        raise ValueError(msg)
+    selected = []
+    for stage in cfg.stages[1:-1]:
+        target = stage.get("filter_obj", {}).get("_target_")
+        if target not in targets.values():
+            msg = f"Standalone FastText mode cannot omit an unrecognized stage: {target}"
+            raise ValueError(msg)
+        if target == targets[filter_mode]:
+            selected.append(stage)
+    if len(selected) != 1:
+        msg = f"Expected exactly one configured {filter_mode} filter, found {len(selected)}"
+        raise ValueError(msg)
+    cfg.stages = [cfg.stages[0], *selected, cfg.stages[-1]]
+    return cfg
 
 
 def run_fasttext_filter_benchmark(  # noqa: PLR0913
@@ -63,6 +93,7 @@ def run_fasttext_filter_benchmark(  # noqa: PLR0913
     fasttext_quality_model_path: Path,
     overrides: str | None = None,
     dataset_size_gb: float | None = None,
+    filter_mode: str = "combined",
 ) -> dict[str, Any]:
     executor = setup_executor(executor_name)
 
@@ -86,7 +117,7 @@ def run_fasttext_filter_benchmark(  # noqa: PLR0913
     if overrides:
         overrides_list.extend(overrides.split(","))
 
-    cfg = load_hydra_yaml(yaml_config, overrides_list)
+    cfg = select_filter_mode(load_hydra_yaml(yaml_config, overrides_list), filter_mode)
 
     file_paths = None
     if dataset_size_gb is not None:
@@ -104,12 +135,9 @@ def run_fasttext_filter_benchmark(  # noqa: PLR0913
         output_tasks = pipeline.run(executor)
         run_time_taken = time.perf_counter() - run_start_time
 
-        # Stage assumptions:
-        # 0 = partitioning (if any)
-        # 1 = reader
-        # -1 = writer (num_items_processed equals documents kept after all filters)
-        num_documents_processed = sum(task._stage_perf[1].num_items_processed for task in output_tasks)
-        num_kept_documents = sum(task._stage_perf[-1].num_items_processed for task in output_tasks)
+        text_metrics = collect_text_metrics(output_tasks)
+        num_documents_processed = text_metrics["num_input_documents"]
+        num_kept_documents = text_metrics["num_output_documents"]
 
         logger.success(f"Benchmark completed in {run_time_taken:.2f}s")
         logger.success(f"Processed {num_documents_processed} documents")
@@ -124,6 +152,7 @@ def run_fasttext_filter_benchmark(  # noqa: PLR0913
         run_time_taken = time.perf_counter() - run_start_time
         num_documents_processed = 0
         num_kept_documents = 0
+        text_metrics = dict.fromkeys(VOLUME_KEYS)
         success = False
 
     return {
@@ -132,6 +161,16 @@ def run_fasttext_filter_benchmark(  # noqa: PLR0913
             "input_path": str(input_path),
             "output_path": str(output_path),
             "benchmark_results_path": str(benchmark_results_path),
+            "dataset_size_gb": dataset_size_gb,
+            "dataset_size_unit": "GiB file cap; not measured text bytes",
+            "resolved_pipeline": OmegaConf.to_container(cfg, resolve=True),
+            "timing_boundary": "Pipeline.run including measurement, read/filter/write; excludes construction, selection and result aggregation/serialization",
+            "filter_mode": filter_mode,
+            "measurement_semantics": {
+                "combined": "combined language and quality filtering",
+                "language": "standalone language confidence filtering; configured language policy retained",
+                "quality": "standalone quality filtering; configured label, Pareto alpha and seed retained",
+            }[filter_mode],
             "yaml_config": str(yaml_config),
             "fasttext_langid_model_path": str(fasttext_langid_model_path),
             "fasttext_quality_model_path": str(fasttext_quality_model_path),
@@ -141,6 +180,8 @@ def run_fasttext_filter_benchmark(  # noqa: PLR0913
             "time_taken_s": run_time_taken,
             "num_documents_processed": num_documents_processed,
             "num_kept_documents": num_kept_documents,
+            "num_rejected_documents": num_documents_processed - num_kept_documents if success else None,
+            **text_metrics,
             "num_output_tasks": len(output_tasks),
             "throughput_docs_per_sec": (num_documents_processed / run_time_taken if run_time_taken > 0 else 0),
         },
@@ -170,6 +211,7 @@ def main() -> int:
         "--fasttext-quality-model-path", type=Path, required=True, help="Path to FastText quality model"
     )
     parser.add_argument("--overrides", type=str)
+    parser.add_argument("--filter-mode", choices=["combined", "language", "quality"], default="combined")
     parser.add_argument(
         "--dataset-size-gb", type=float, default=None, help="Limit input to approximately this many GB of files"
     )
@@ -199,6 +241,7 @@ def main() -> int:
             fasttext_quality_model_path=args.fasttext_quality_model_path,
             overrides=args.overrides,
             dataset_size_gb=args.dataset_size_gb,
+            filter_mode=args.filter_mode,
         )
     finally:
         write_benchmark_results(results, args.benchmark_results_path, save_tasks=save_tasks)

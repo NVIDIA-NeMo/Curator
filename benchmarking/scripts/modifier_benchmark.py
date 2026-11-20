@@ -19,12 +19,14 @@ with comprehensive metrics collection using various executors and logs results t
 """
 
 import argparse
+import inspect
 import time
 import traceback
 from pathlib import Path
 from typing import Any
 
 from loguru import logger
+from text_metrics import MeasureText, collect_text_metrics
 from utils import load_dataset_files, setup_executor, write_benchmark_results
 
 from nemo_curator.pipeline import Pipeline
@@ -75,15 +77,26 @@ def run_modify_benchmark(  # noqa: PLR0913
     else:
         reader = JsonlReader(input_path) if input_filetype == "jsonl" else ParquetReader(input_path)
     pipeline.add_stage(reader)
+    pipeline.add_stage(MeasureText("input"))
 
-    # Add modify stages
-    pipeline.add_stage(Modify(BoilerPlateStringModifier()))
-    pipeline.add_stage(Modify(MarkdownRemover()))
-    pipeline.add_stage(Modify(NewlineNormalizer()))
-    pipeline.add_stage(Modify(QuotationRemover()))
-    pipeline.add_stage(Modify(UnicodeReformatter()))
-    pipeline.add_stage(Modify(UrlRemover()))
+    modifier_classes = (
+        BoilerPlateStringModifier,
+        MarkdownRemover,
+        NewlineNormalizer,
+        QuotationRemover,
+        UnicodeReformatter,
+        UrlRemover,
+    )
+    recipe = []
+    for modifier_class in modifier_classes:
+        settings = inspect.signature(modifier_class).bind()
+        settings.apply_defaults()
+        recipe.append(
+            {"class": f"{modifier_class.__module__}.{modifier_class.__name__}", "settings": settings.arguments}
+        )
+        pipeline.add_stage(Modify(modifier_class(**settings.arguments)))
 
+    pipeline.add_stage(MeasureText("output"))
     pipeline.add_stage(ParquetWriter(output_path))
 
     run_start_time = time.perf_counter()
@@ -94,7 +107,8 @@ def run_modify_benchmark(  # noqa: PLR0913
         output_tasks = pipeline.run(executor)
         run_time_taken = time.perf_counter() - run_start_time
 
-        num_documents_processed = sum(task._stage_perf[1].num_items_processed for task in output_tasks)
+        text_metrics = collect_text_metrics(output_tasks, preserve_document_count=True)
+        num_documents_processed = text_metrics["num_input_documents"]
 
         logger.success(f"Benchmark completed in {run_time_taken:.2f}s")
         logger.success(f"Processed {num_documents_processed} documents")
@@ -107,6 +121,9 @@ def run_modify_benchmark(  # noqa: PLR0913
         output_tasks = []
         run_time_taken = time.perf_counter() - run_start_time
         num_documents_processed = 0
+        text_metrics = dict.fromkeys(
+            ("num_input_documents", "num_output_documents", "input_text_bytes", "output_text_bytes")
+        )
         success = False
 
     return {
@@ -115,6 +132,16 @@ def run_modify_benchmark(  # noqa: PLR0913
             "input_path": str(input_path),
             "output_path": str(output_path),
             "benchmark_results_path": str(benchmark_results_path),
+            "input_filetype": input_filetype,
+            "dataset_size_gb": dataset_size_gb,
+            "dataset_size_unit": "GiB cap on selected files, not measured text bytes",
+            "text_field": "text",
+            "modifier_recipe": recipe,
+            "timing_boundary": (
+                "Pipeline.run including text measurement; excludes executor/stage construction, "
+                "file selection and result aggregation/serialization"
+            ),
+            "text_measurement_version": 1,
         },
         "metrics": {
             "is_success": success,
@@ -122,6 +149,7 @@ def run_modify_benchmark(  # noqa: PLR0913
             "num_documents_processed": num_documents_processed,
             "num_output_tasks": len(output_tasks),
             "throughput_docs_per_sec": num_documents_processed / run_time_taken if run_time_taken > 0 else 0,
+            **text_metrics,
         },
         "tasks": output_tasks,
     }
