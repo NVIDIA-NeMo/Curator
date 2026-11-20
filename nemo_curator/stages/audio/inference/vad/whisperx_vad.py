@@ -57,10 +57,6 @@ from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
-# whisperx.audio.SAMPLE_RATE; WhisperX itself is imported only when a model is built,
-# so importing this module (or PyAnnoteDiarizationStage, which uses it) stays light.
-SAMPLE_RATE = 16000
-
 
 class WhisperXVADModel:
     """Shared VAD model and get_vad_segments logic for PyAnnote and standalone VAD.
@@ -107,7 +103,7 @@ class WhisperXVADModel:
         self,
         audio: "np.ndarray",
         merge_max_length: float,
-        sample_rate: int = SAMPLE_RATE,
+        sample_rate: int = 16000,
     ) -> list[dict]:
         """Get voice activity detection segments for the given audio.
 

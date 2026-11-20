@@ -12,30 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Voice Activity Detection inference stages.
+"""Voice Activity Detection inference stages."""
 
-Importing this package must not import WhisperX. Concrete stages are therefore resolved only when requested.
-"""
-
-from __future__ import annotations
-
-from importlib import import_module
-
-_LAZY = {
-    "WhisperXVADModel": "nemo_curator.stages.audio.inference.vad.whisperx_vad",
-    "WhisperXVADStage": "nemo_curator.stages.audio.inference.vad.whisperx_vad",
-}
+from nemo_curator.stages.audio.inference.vad.whisperx_vad import WhisperXVADModel, WhisperXVADStage
 
 __all__ = ["WhisperXVADModel", "WhisperXVADStage"]
-
-
-def __getattr__(name: str) -> object:
-    target = _LAZY.get(name)
-    if target is None:
-        msg = f"module {__name__!r} has no attribute {name!r}"
-        raise AttributeError(msg)
-    return getattr(import_module(target), name)
-
-
-def __dir__() -> list[str]:
-    return __all__
