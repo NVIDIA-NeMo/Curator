@@ -68,5 +68,6 @@ def test_audio_task_validates_on_creation(monkeypatch: pytest.MonkeyPatch) -> No
     assert calls == [task]
 
 
-def test_audio_task_validation_rejects_non_path_value() -> None:
-    assert AudioTask(data={"audio_filepath": None}, filepath_key="audio_filepath").validate() is False
+@pytest.mark.parametrize("value", [None, ""])
+def test_audio_task_validation_rejects_non_path_value(value: object) -> None:
+    assert AudioTask(data={"audio_filepath": value}, filepath_key="audio_filepath").validate() is False

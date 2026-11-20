@@ -75,7 +75,12 @@ class AudioTask(Task[dict]):
         """Validate the task data."""
         if self.filepath_key and self.filepath_key in self.data:
             path = self.data[self.filepath_key]
-            if not isinstance(path, (str, os.PathLike)) or not get_fs(os.fspath(path)).exists(os.fspath(path)):
+            # fsspec resolves "" to the working directory, so reject empty values first.
+            if (
+                not path
+                or not isinstance(path, (str, os.PathLike))
+                or not get_fs(os.fspath(path)).exists(os.fspath(path))
+            ):
                 logger.warning(f"File {path} does not exist")
                 return False
         return True

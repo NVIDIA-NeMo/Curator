@@ -242,6 +242,7 @@ class TestSnippetExtractionStageReal:
         assert len(out) == 1
         # Manifest entry uses tar-internal basename even in dry-run
         assert out[0].data["audio_filepath"] == "X-0_000-1_000.flac"
+        assert out[0].filepath_key is None
         # No tar file or tar shards on disk
         assert not (tmp_path / "snips.tar").exists()
         assert sorted(tmp_path.glob("snips.tar.shard-*.tar")) == []
