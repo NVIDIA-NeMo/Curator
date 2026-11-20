@@ -54,6 +54,7 @@ from nemo_curator.stages.audio._agent._residency import (
     validate_audio_key_configuration,
 )
 from nemo_curator.stages.audio.common import ensure_mono, ensure_waveform_2d
+from nemo_curator.stages.audio.common.helpers import set_note
 from nemo_curator.stages.audio.inference.base import (
     AdapterInferenceStage,
     _channel_first_waveform,
@@ -800,11 +801,7 @@ class InferenceSortformerStage(AgentReady, AdapterInferenceStage[DiarizationAdap
             task.data[self.diar_segments_key] = []
         if self.overlap_segments_key is not None:
             task.data[self.overlap_segments_key] = []
-        notes = task.data.get(self.notes_key)
-        if not isinstance(notes, dict):
-            notes = {}
-            task.data[self.notes_key] = notes
-        notes[self.name] = reason
+        set_note(task.data, self.name, reason, self.notes_key)
 
     def _recording_identity(self, task: AudioTask) -> str:
         """Identity used to make speaker labels unique across recordings."""

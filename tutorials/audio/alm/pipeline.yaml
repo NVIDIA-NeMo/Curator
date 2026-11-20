@@ -99,7 +99,7 @@ stages:
     # Truncation behavior
     truncation: true
 
-    # Fields to drop (comma-separated strings)
+    # Fields to drop (lists of field names)
     drop_fields: [words]
     drop_fields_top_level: [words, segments]
 

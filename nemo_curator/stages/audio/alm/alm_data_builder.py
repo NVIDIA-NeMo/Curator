@@ -163,6 +163,9 @@ class ALMDataBuilderStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         tol = self.target_window_duration * self.tolerance
         self.min_duration = self.target_window_duration - tol
         self.max_duration = self.target_window_duration + tol
+        if isinstance(self.drop_fields, str) or isinstance(self.drop_fields_top_level, str):
+            msg = "drop_fields and drop_fields_top_level take lists of field names, not comma-separated strings"
+            raise TypeError(msg)
         self._drop_fields_set = set(self.drop_fields)
         self._drop_fields_top_level_set = set(self.drop_fields_top_level)
         if self.segments_key != "segments" and "segments" in self._drop_fields_top_level_set:

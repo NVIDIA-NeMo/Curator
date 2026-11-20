@@ -452,7 +452,7 @@ def _cuda_driver_toolkit(env: EnvProfile) -> HealthCheck:
         fix=[
             f"upgrade the NVIDIA driver to one supporting CUDA >= {env.cuda_runtime_version}",
             f"or install a torch built for CUDA <= {env.cuda_driver_max_version} (e.g. a matching +cuXXX wheel)",
-            "or, for ASR alignment only, set decoder_type='ctc' (hybrid tdt_ctc checkpoint, no CUDA graphs)",
+            "or, for ASR alignment only, set adapter_kwargs.decoder_type='ctc' (hybrid tdt_ctc checkpoint, no CUDA graphs)",
         ],
         capabilities=["gpu"],
         options=[

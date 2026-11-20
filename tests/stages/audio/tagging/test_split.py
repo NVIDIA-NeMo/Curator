@@ -429,6 +429,12 @@ def test_split_asr_align_join_forwards_output_dir(tmp_path: Path) -> None:
     assert default_splitter.output_dir is None
 
 
+def test_split_asr_align_join_partial_adapter_kwargs_keep_timestamps() -> None:
+    asr = SplitASRAlignJoinStage(adapter_kwargs={"decoder_type": "ctc"}).decompose()[1]
+
+    assert asr.adapter_kwargs == {"enable_local_attention": True, "decoder_type": "ctc", "timestamps": True}
+
+
 class TestJoinSplitAudioMetadataStage:
     """Tests for JoinSplitAudioMetadataStage."""
 

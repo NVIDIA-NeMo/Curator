@@ -92,7 +92,7 @@ failures:
     likely_cause: "a runtime kernel-compilation or CUDA-graph failure; unsupported PTX can indicate a driver/toolkit incompatibility, while other capture errors need their own evidence"
     layer: env
     auto_fix: null
-    user_guidance: "run doctor and inspect the exact stage/checkpoint/error before choosing a fix. For ASRStage with a configurable NeMo RNNT decoder, adapter_kwargs.use_cuda_graph_decoder=False is a candidate; hybrid alignment checkpoints may support decoder_type='ctc'. Neither applies universally. Recipe changes require fresh validation and smoke"
+    user_guidance: "run doctor and inspect the exact stage/checkpoint/error before choosing a fix. For ASRStage with a configurable NeMo RNNT decoder, adapter_kwargs.use_cuda_graph_decoder=False is a candidate; hybrid alignment checkpoints may support adapter_kwargs.decoder_type='ctc'. Neither applies universally. Recipe changes require fresh validation and smoke"
 
   - code: worker_env_mismatch
     symptom_signature: ['(?s)(?=.*(?:node setup failed for stage|working_dir_files|_ray_pkg_|runtime_resources))(?=.*(?:modulenotfounderror|no module named|importerror|cannot import name))']

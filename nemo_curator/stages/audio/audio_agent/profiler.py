@@ -809,7 +809,7 @@ def _probe_cuda_compat(env: EnvProfile) -> None:
             f"driver supports only CUDA {env.cuda_driver_max_version}. Basic GPU ops work, but runtime-JIT / "
             "CUDA-graph kernels (e.g. NeMo RNNT/TDT ASR decode) can fail with CUDA_ERROR_UNSUPPORTED_PTX_VERSION "
             "(error 222). Fix: upgrade the NVIDIA driver, or install a torch built for CUDA "
-            f"<= {env.cuda_driver_max_version}; quick unblock for ASR alignment: decoder_type='ctc'."
+            f"<= {env.cuda_driver_max_version}; quick unblock for ASR alignment: adapter_kwargs.decoder_type='ctc'."
         )
 
 

@@ -547,9 +547,10 @@ class SplitASRAlignJoinStage(AgentReady, CompositeStage[AudioTask, AudioTask]):
         suggested_max_len: Target max length for audio segments (seconds).
         min_len: Minimum length for any split segment.
         model_id: Pretrained NeMo ASR model name or local ``.nemo`` path.
-        adapter_kwargs: ``NeMoASRAdapter`` options. The default converts the
-            FastConformer to local attention and decodes RNNT with word
-            timestamps.
+        adapter_kwargs: ``NeMoASRAdapter`` options, merged over the default
+            that converts the FastConformer to local attention and decodes
+            RNNT with word timestamps (so ``{"decoder_type": "ctc"}`` keeps
+            the timestamps).
         batch_size: Tasks per ASR ``process_batch`` call.
         max_audio_sec_per_actor: Padded audio seconds per adapter call.
         max_inference_duration_s: Longer splits are transcribed in chunks.
@@ -598,7 +599,7 @@ class SplitASRAlignJoinStage(AgentReady, CompositeStage[AudioTask, AudioTask]):
                 model_id=self.model_id,
                 max_audio_sec_per_actor=self.max_audio_sec_per_actor,
                 max_inference_duration_s=self.max_inference_duration_s,
-                adapter_kwargs=dict(self.adapter_kwargs),
+                adapter_kwargs={**_default_alignment_adapter_kwargs(), **self.adapter_kwargs},
                 batch_size=self.batch_size,
                 pred_text_key=self.text_key,
                 words_key=self.alignment_key,

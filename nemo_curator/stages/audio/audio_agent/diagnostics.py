@@ -342,7 +342,7 @@ def _ctc_choice(requirements: list[StageEnvironmentRequirement]) -> dict[str, An
         ),
         steps=[
             "verify the selected alignment checkpoint supports CTC",
-            "create a new recipe with decoder_type='ctc'",
+            "create a new recipe with adapter_kwargs.decoder_type='ctc'",
             "validate, smoke, and request confirmation for its new config hash",
         ],
         availability="conditional",

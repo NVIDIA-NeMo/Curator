@@ -142,6 +142,11 @@ class TestALMDataBuilder:
         assert "words" not in output or output.get("words") is None
         assert "segments" not in output or output.get("segments") is None
 
+    @pytest.mark.parametrize("kwargs", [{"drop_fields": "words"}, {"drop_fields_top_level": "words,segments"}])
+    def test_comma_separated_drop_fields_are_rejected(self, kwargs: dict[str, str]) -> None:
+        with pytest.raises(TypeError, match="not comma-separated strings"):
+            ALMDataBuilderStage(**kwargs)
+
     def test_different_sample_rates(self, sample_entries: list[dict]) -> None:
         stage = ALMDataBuilderStage(
             target_window_duration=120.0,
