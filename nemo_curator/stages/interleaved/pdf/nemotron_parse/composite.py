@@ -296,7 +296,8 @@ class NemotronParsePDFReader(CompositeStage[EmptyTask, InterleavedBatch]):
         if not ray_spec.get("is_actor_stage"):
             msg = "Overlapping rendering requires an HTTP inference actor"
             raise ValueError(msg)
-        renderer_remote_args = renderer.ray_stage_spec().get("ray_remote_args") or {}
+        render_spec = renderer.ray_stage_spec()
+        renderer_remote_args = render_spec.get("ray_remote_args") or {}
         inference_remote_args = ray_spec.get("ray_remote_args") or {}
         if any(
             renderer_remote_args[key] != inference_remote_args[key]
@@ -306,7 +307,7 @@ class NemotronParsePDFReader(CompositeStage[EmptyTask, InterleavedBatch]):
             raise ValueError(msg)
         if renderer_remote_args:
             ray_spec = {**ray_spec, "ray_remote_args": renderer_remote_args | inference_remote_args}
-        render_cpus = renderer.ray_stage_spec().get("ray_num_cpus")
+        render_cpus = render_spec.get("ray_num_cpus")
         infer_cpus = ray_spec.get("ray_num_cpus")
         cpus = (renderer.resources.cpus if render_cpus is None else render_cpus) + (
             inference.resources.cpus if infer_cpus is None else infer_cpus

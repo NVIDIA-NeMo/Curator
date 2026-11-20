@@ -186,7 +186,8 @@ class EarlyAdmissionStage(ProcessingStage[FileGroupTask, InterleavedBatch]):
         if rendered is None or parsed.keys() != expected:
             msg = "Render handoff did not produce all physical pages in the parent"
             raise RuntimeError(msg)
-        renderer_order = [_page_key(row) for row in rendered.to_pyarrow().to_pylist()]
+        identities = rendered.to_pyarrow().select(["document_id", "pdf_name", "page_number"])
+        renderer_order = [_page_key(row) for row in identities.to_pylist()]
         if len(renderer_order) != len(expected) or set(renderer_order) != expected:
             msg = "Rendered parent metadata disagrees with its admitted physical pages"
             raise RuntimeError(msg)
