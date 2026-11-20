@@ -169,11 +169,14 @@ and error:
    into the actor venv** (silently upgrade `ray`, or introduce `nixl-cu13`)
    unless something pins or excludes the incompatible dependency.
    `_ACTOR_VENV_OVERRIDES_PATH` is the existing guard: `ensure_actor_overrides_on_all_nodes()` writes a
-   `--override` file to a fixed node-local path before any actor using
+   `--override` file to a private, content-addressed node-local path before any actor using
    `DYNAMO_VLLM_RUNTIME_ENV` lands, pinning `ray==<driver version>` and
    excluding `nixl-cu13` only for `cu129`. Reuse this — via `_ACTOR_VENV_UV_OPTIONS`, the
    override file, or a per-model `runtime_env["uv"]["uv_pip_install_options"]`
    — rather than patching an already-built venv.
+   The driver’s absolute temporary-directory path must exist on each eligible node and be
+   private or protected by the sticky bit if shared between users. The node’s Ray worker and
+   runtime-environment installer must see the same staged file at that path.
 4. **Rule out GPU memory contention before chasing a compatibility fix.** A
    `gpu_memory_utilization` failure with seemingly-sufficient free memory is
    a common false lead — check `nvidia-smi` for a competing process first.

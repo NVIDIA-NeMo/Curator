@@ -17,9 +17,11 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import importlib.metadata
 import json
 import os
+import stat
 import tempfile
 from functools import reduce
 from pathlib import Path
@@ -57,12 +59,23 @@ if TYPE_CHECKING:
 
 # Ray creates the actor venv outside the project directory, so reapply the
 # driver Ray pin and CUDA-backend-specific constraints through an override file.
-_ACTOR_VENV_OVERRIDES_PATH = Path(tempfile.gettempdir()) / "nemo_curator_dynamo_actor_overrides.txt"
 _ACTOR_VENV_NIXL_CU13_EXCLUSION = "nixl-cu13 ; sys_platform == 'never'"
 _ACTOR_VENV_CUDA_TAG = os.environ.get("NEMO_CURATOR_DYNAMO_CUDA_TAG", "cu129")
 if _ACTOR_VENV_CUDA_TAG not in {"cu129", "cu130"}:
     msg = "NEMO_CURATOR_DYNAMO_CUDA_TAG must be 'cu129' or 'cu130'"
     raise ValueError(msg)
+
+
+def _actor_overrides(cuda_tag: str, ray_version: str) -> tuple[Path, str]:
+    body = f"ray=={ray_version}\n"
+    if cuda_tag == "cu129":
+        body += f"{_ACTOR_VENV_NIXL_CU13_EXCLUSION}\n"
+    owner = os.getuid() if os.name == "posix" else "user"
+    directory = Path(tempfile.gettempdir()) / f"nemo_curator_dynamo_{owner}"
+    return directory / f"{hashlib.sha256(body.encode()).hexdigest()}.txt", body
+
+
+_ACTOR_VENV_OVERRIDES_PATH, _ACTOR_VENV_OVERRIDES = _actor_overrides(_ACTOR_VENV_CUDA_TAG, ray.__version__)
 
 
 def _dynamo_runtime_packages() -> list[str]:
@@ -129,11 +142,25 @@ DYNAMO_VLLM_RUNTIME_ENV: dict[str, Any] = {
 
 @ray.remote
 def _write_actor_overrides_file(path: str, body: str) -> None:
-    Path(path).write_text(body)
+    directory = Path(path).parent
+    directory.mkdir(mode=0o700, exist_ok=True)
+    info = directory.lstat()
+    if not stat.S_ISDIR(info.st_mode) or (os.name == "posix" and (info.st_uid != os.getuid() or info.st_mode & 0o077)):
+        msg = f"Dynamo actor overrides require a private directory owned by the Ray worker: {directory}"
+        raise PermissionError(msg)
+
+    # Concurrent installs can open this path as soon as another driver finishes staging it.
+    staged = tempfile.NamedTemporaryFile(dir=directory, delete=False)  # noqa: SIM115
+    try:
+        with staged:
+            staged.write(body.encode())
+        os.replace(staged.name, path)
+    finally:
+        Path(staged.name).unlink(missing_ok=True)
 
 
 def ensure_actor_overrides_on_all_nodes(*, ignore_head_node: bool = False) -> None:
-    """Write the actor-venv ``--override`` file at a fixed path on every alive node.
+    """Publish the actor-venv ``--override`` file at its content-addressed path on every alive node.
 
     The file pins ``ray=={ray.__version__}`` (read from the driver) so the
     actor venv keeps the same ray patch as the cluster head — Ray rejects any
@@ -147,13 +174,10 @@ def ensure_actor_overrides_on_all_nodes(*, ignore_head_node: bool = False) -> No
     Re-call after cluster topology changes (autoscale, node restart) — this
     is one-shot and not auto-triggered.
     """
-    overrides = [f"ray=={ray.__version__}"]
-    if _ACTOR_VENV_CUDA_TAG != "cu130":
-        overrides.append(_ACTOR_VENV_NIXL_CU13_EXCLUSION)
     run_on_each_node(
         _write_actor_overrides_file,
         str(_ACTOR_VENV_OVERRIDES_PATH),
-        "\n".join(overrides) + "\n",
+        _ACTOR_VENV_OVERRIDES,
         ignore_head_node=ignore_head_node,
     )
 

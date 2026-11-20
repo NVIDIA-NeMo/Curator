@@ -441,27 +441,41 @@ class TestEnsureActorOverridesOnAllNodes:
     """Tests for the multi-node fan-out that materializes the actor-venv
     ``--override`` constraints file before workers are spawned."""
 
-    def test_writes_current_ray_version_at_path(self, shared_ray_client: None, tmp_path: Path) -> None:
-        """The fan-out writes ``ray=={ray.__version__}`` plus the nixl-cu13
-        exclusion at the configured path on every alive node. Catches
-        regressions where the content is hardcoded and silently drifts after
-        a Curator ray bump.
-        """
-        override_path = tmp_path / "override.txt"
-        with mock.patch.object(dynamo_vllm, "_ACTOR_VENV_OVERRIDES_PATH", override_path):
-            dynamo_vllm.ensure_actor_overrides_on_all_nodes()
+    def test_installer_uses_driver_constraints(self, shared_ray_client: None) -> None:
+        options = dynamo_vllm.DYNAMO_VLLM_RUNTIME_ENV["uv"]["uv_pip_install_options"]
+        path, body = dynamo_vllm._actor_overrides(dynamo_vllm._ACTOR_VENV_CUDA_TAG, ray.__version__)
+        assert options[options.index("--override") + 1] == str(path)
+        dynamo_vllm.ensure_actor_overrides_on_all_nodes()
+        assert path.read_text() == body
 
-        assert override_path.read_text() == f"ray=={ray.__version__}\n{dynamo_vllm._ACTOR_VENV_NIXL_CU13_EXCLUSION}\n"
+    def test_concurrent_installers_preserve_their_pins(self, shared_ray_client: None, tmp_path: Path) -> None:
+        with mock.patch.object(dynamo_vllm.tempfile, "gettempdir", return_value=str(tmp_path)):
+            cu129 = dynamo_vllm._actor_overrides("cu129", ray.__version__)
+            cu130 = dynamo_vllm._actor_overrides("cu130", ray.__version__)
+            other_ray = dynamo_vllm._actor_overrides("cu129", "2.0.0")
+        assert len({cu129[0], cu130[0], other_ray[0]}) == 3
+        assert cu129[1] == f"ray=={ray.__version__}\n{dynamo_vllm._ACTOR_VENV_NIXL_CU13_EXCLUSION}\n"
+        assert cu130[1] == f"ray=={ray.__version__}\n"
+        ray.get(
+            [
+                dynamo_vllm._write_actor_overrides_file.remote(str(path), body)
+                for path, body in [cu129, cu130, other_ray, cu129]
+            ]
+        )
+        for path, body in (cu129, cu130, other_ray):
+            assert path.read_text() == body
 
-    def test_cu130_keeps_nixl_cu13(self, shared_ray_client: None, tmp_path: Path) -> None:
-        override_path = tmp_path / "override.txt"
-        with (
-            mock.patch.object(dynamo_vllm, "_ACTOR_VENV_OVERRIDES_PATH", override_path),
-            mock.patch.object(dynamo_vllm, "_ACTOR_VENV_CUDA_TAG", "cu130"),
-        ):
-            dynamo_vllm.ensure_actor_overrides_on_all_nodes()
-
-        assert override_path.read_text() == f"ray=={ray.__version__}\n"
+    @pytest.mark.parametrize("unsafe", ["shared", "symlink"])
+    def test_refuses_unsafe_staging_directory(self, shared_ray_client: None, tmp_path: Path, unsafe: str) -> None:
+        directory = tmp_path / "staging"
+        if unsafe == "symlink":
+            directory.symlink_to(tmp_path, target_is_directory=True)
+        else:
+            directory.mkdir()
+            directory.chmod(0o777)
+        with pytest.raises(ray.exceptions.RayTaskError, match="private directory"):
+            ray.get(dynamo_vllm._write_actor_overrides_file.remote(str(directory / "overrides.txt"), "ray==1.0\n"))
+        assert not (directory / "overrides.txt").exists()
 
 
 def test_dynamo_runtime_env_matches_base_environment() -> None:
