@@ -109,7 +109,7 @@ class CaptionPreparationStage(ProcessingStage[VideoTask, VideoTask]):
 
         for clip in video.clips:
             if clip.buffer is None:
-                logger.warning(f"No buffer found for clip {clip.id}")
+                logger.warning(f"No buffer found for clip {clip.uuid}")
                 clip.errors["buffer"] = "empty"
                 continue
 
