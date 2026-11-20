@@ -28,7 +28,6 @@ from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, StageContract, StaticHints
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask
-from nemo_curator.utils.hash_utils import get_deterministic_hash
 
 
 @dataclass
@@ -278,8 +277,6 @@ class ManifestWriterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     def setup_on_node(
         self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None
     ) -> None:
-        if self.per_task_files:
-            return
         self._resolve_output()
         if getattr(self, "_run_token", None) is not None:
             self._verify_run()
@@ -334,7 +331,9 @@ class ManifestWriterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
 
     def _write_task_file(self, task: AudioTask, record: str) -> None:
         # Same task and row -> same name, so a retry overwrites rather than duplicates.
-        target = f"{self._path}/{get_deterministic_hash([record], task.task_id)}.jsonl"
+        # Full digest: with one file per row, a short hash prefix collides at millions of rows.
+        name = hashlib.sha256(f"{record}|{task.task_id}".encode()).hexdigest()
+        target = f"{self._path}/{name}.jsonl"
         partial = f"{target}.{uuid.uuid4().hex}.tmp"
         with self._fs.open(partial, "w", encoding="utf-8") as output:
             output.write(record)
