@@ -748,24 +748,14 @@ class TensorRTSortformerAdapter:
 
     def _load_file_waveform(self, path: str) -> torch.Tensor:
         """Load one regular-sized file, downmixing and resampling when needed."""
-        torch = _torch_module()
-        soundfile = _soundfile_module()
+        from nemo_curator.stages.audio.common.helpers import load_audio_file, resample_waveform
+
         try:
-            with soundfile.SoundFile(path) as audio_file:
-                source_rate = int(audio_file.samplerate)
-                data = audio_file.read(dtype="float32", always_2d=True)
-        except soundfile.SoundFileError as exc:
+            waveform, source_rate = load_audio_file(path)
+        except (OSError, RuntimeError) as exc:
             msg = f"TensorRT Sortformer could not read file input {path}"
             raise DiarizationInputError(msg) from exc
-        waveform = torch.from_numpy(data).mean(dim=1)
-        if source_rate != self.sample_rate:
-            try:
-                import torchaudio
-            except ImportError as exc:
-                msg = "Resampling regular Sortformer file input requires torchaudio"
-                raise ImportError(msg) from exc
-            waveform = torchaudio.functional.resample(waveform, source_rate, self.sample_rate)
-        return waveform.contiguous()
+        return resample_waveform(waveform[0], source_rate, self.sample_rate).contiguous()
 
     def _source_duration_and_empty(self, source: torch.Tensor | str) -> tuple[float, bool]:
         if isinstance(source, str):
@@ -811,36 +801,41 @@ class TensorRTSortformerAdapter:
         if self._config is None or self._stft_block_samples is None:
             msg = "TensorRTSortformerAdapter is not initialized"
             raise RuntimeError(msg)
+        from nemo_curator.stages.audio.common.helpers import load_audio_file
+
         soundfile = _soundfile_module()
-        hop_length = int(self._config["hop_length"])
-        context_hops = math.ceil((int(self._config["n_fft"]) / 2) / hop_length)
-        context_samples = context_hops * hop_length
         try:
-            with soundfile.SoundFile(path) as audio_file:
-                # shortcut: long-file resampling is unsupported to bound memory; pre-resample before diarization.
-                if audio_file.samplerate != self.sample_rate:
-                    msg = (
-                        f"Long Sortformer inputs must use the engine sample rate "
-                        f"({self.sample_rate} Hz), got {audio_file.samplerate} Hz for {path}"
-                    )
-                    raise DiarizationInputError(msg)
-                total_samples = len(audio_file)
-                for start in range(0, total_samples, self._stft_block_samples):
-                    end = min(start + self._stft_block_samples, total_samples)
-                    logical_length = (end - start) // hop_length
-                    if logical_length == 0:
-                        continue
-                    read_start = max(0, start - context_samples)
-                    read_end = min(total_samples, end + context_samples)
-                    audio_file.seek(read_start)
-                    data = audio_file.read(read_end - read_start, dtype="float32", always_2d=True)
-                    signal = torch.from_numpy(data).mean(dim=1)
-                    if start < context_samples:
-                        signal = torch.nn.functional.pad(signal, (context_samples - start, 0))
-                    yield self._extract_features(signal, logical_length, context_hops)
+            info = soundfile.info(path)
         except soundfile.SoundFileError as exc:
             msg = f"TensorRT Sortformer could not read file input {path}"
             raise DiarizationInputError(msg) from exc
+        # shortcut: long-file resampling is unsupported to bound memory; pre-resample before diarization.
+        if info.samplerate != self.sample_rate:
+            msg = (
+                f"Long Sortformer inputs must use the engine sample rate "
+                f"({self.sample_rate} Hz), got {info.samplerate} Hz for {path}"
+            )
+            raise DiarizationInputError(msg)
+        total_samples = info.frames
+        hop_length = int(self._config["hop_length"])
+        context_hops = math.ceil((int(self._config["n_fft"]) / 2) / hop_length)
+        context_samples = context_hops * hop_length
+        for start in range(0, total_samples, self._stft_block_samples):
+            end = min(start + self._stft_block_samples, total_samples)
+            logical_length = (end - start) // hop_length
+            if logical_length == 0:
+                continue
+            read_start = max(0, start - context_samples)
+            read_end = min(total_samples, end + context_samples)
+            try:
+                data, _ = load_audio_file(path, start=read_start, stop=read_end)
+            except (OSError, RuntimeError) as exc:
+                msg = f"TensorRT Sortformer could not read file input {path}"
+                raise DiarizationInputError(msg) from exc
+            signal = data[0]
+            if start < context_samples:
+                signal = torch.nn.functional.pad(signal, (context_samples - start, 0))
+            yield self._extract_features(signal, logical_length, context_hops)
 
     def _infer_batch(
         self,

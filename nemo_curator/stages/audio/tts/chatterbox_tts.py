@@ -36,6 +36,7 @@ from huggingface_hub import snapshot_download
 from loguru import logger
 from omegaconf import ListConfig
 
+from nemo_curator.stages.audio.common import load_audio_file, resample_waveform
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -437,7 +438,7 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
     def _process_audio_with_rttm(self, audio_filepath: str, rttm_filepath: str) -> str:  # noqa: C901, PLR0912
         """Strip silences using RTTM speech segments, up to max_reference_duration."""
         try:
-            audio, sr = ta.load(audio_filepath)
+            audio, sr = load_audio_file(audio_filepath, mono=False)
 
             speech_segments: list[tuple[float, float]] = []
             audio_duration = audio.shape[1] / sr
@@ -580,11 +581,11 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
             if total_dur >= self.max_reference_duration:
                 break
             try:
-                audio, sr = ta.load(fpath)
+                audio, sr = load_audio_file(fpath, mono=False)
                 if ref_sr is None:
                     ref_sr = sr
                 elif sr != ref_sr:
-                    audio = ta.functional.resample(audio, orig_freq=sr, new_freq=ref_sr)
+                    audio = resample_waveform(audio, sr, ref_sr)
                 seg_dur = audio.shape[1] / ref_sr
                 if total_dur + seg_dur > self.max_reference_duration:
                     remaining = self.max_reference_duration - total_dur
@@ -744,7 +745,7 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
 
                 native_sr = getattr(self.model, "sr", _CHATTERBOX_NATIVE_SR)
                 if native_sr != self.sample_rate:
-                    wav = ta.functional.resample(wav, orig_freq=native_sr, new_freq=self.sample_rate)
+                    wav = resample_waveform(wav, native_sr, self.sample_rate)
 
             if self.normalize_audio:
                 wav = self._normalize_audio(wav)
@@ -836,7 +837,9 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
     def _sidecar_path(audio_path: str) -> str:
         return f"{os.path.splitext(audio_path)[0]}.json"
 
-    def _read_cached_audio_if_valid(self, audio_path: str, manifest: dict[str, Any]) -> tuple[np.ndarray, int] | None:
+    def _read_cached_audio_if_valid(
+        self, audio_path: str, manifest: dict[str, Any]
+    ) -> tuple[torch.Tensor, int] | None:
         """Return cached audio only if a matching sidecar confirms it's valid.
 
         A filename-hash hit is NOT trusted on its own: it's cross-checked
@@ -867,7 +870,7 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
             # ``sample_rate`` is part of the manifest above, but trusting the
             # file's actual rate is a cheap, direct guard against ever
             # mis-reporting duration for an existing cache entry.
-            audio_data, file_sr = sf.read(audio_path)
+            audio_data, file_sr = load_audio_file(audio_path)
         except (OSError, RuntimeError) as e:
             logger.warning(f"Failed to read cached audio {audio_path}: {e}; regenerating.")
             return None
@@ -964,13 +967,13 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
                         else:
                             self._publish_cache_entry(audio_path, audio_data, manifest)
                         # Report metadata from the published artifact, just as cache hits do.
-                        audio_data, audio_sr = sf.read(audio_path)
+                        audio_data, audio_sr = load_audio_file(audio_path)
             except Exception as e:  # noqa: BLE001 -- isolate a bad reference/record to one task
                 logger.error(f"TTS processing failed for task {task.task_id}: {e}")
                 output_tasks.append(task)
                 continue
 
-            duration = len(audio_data) / audio_sr
+            duration = audio_data.shape[-1] / audio_sr
 
             task.data["audio_filepath"] = audio_path
             task.data["duration"] = duration

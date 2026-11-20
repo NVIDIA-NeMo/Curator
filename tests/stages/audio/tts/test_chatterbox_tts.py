@@ -587,7 +587,7 @@ class TestChatterboxTTSStage:
 
         # A valid RTTM but audio loading itself fails.
         rttm_path = os.path.join(ref_dataset, "rttms", "dialog001", "spk_A.rttm")
-        with patch(f"{MODULE}.ta.load", side_effect=RuntimeError("corrupt audio")):
+        with patch(f"{MODULE}.load_audio_file", side_effect=RuntimeError("corrupt audio")):
             assert stage._process_audio_with_rttm(wav_path, rttm_path) == wav_path
 
     def test_process_audio_with_rttm_truncates_to_max_duration(self, output_dir: str, ref_dataset: str) -> None:
@@ -623,7 +623,7 @@ class TestChatterboxTTSStage:
             stage.setup()
 
         # Every segment fails to load.
-        with patch(f"{MODULE}.ta.load", side_effect=RuntimeError("bad file")):
+        with patch(f"{MODULE}.load_audio_file", side_effect=RuntimeError("bad file")):
             out_path, chosen = stage._get_reference_audio_mls("some_key")
         assert out_path in stage._speaker_audio_map[chosen]
 

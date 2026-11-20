@@ -22,7 +22,6 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, ClassVar
 
-import soundfile as sf
 import torch
 from fsspec.core import url_to_fs
 from loguru import logger
@@ -41,7 +40,7 @@ from nemo_curator.stages.audio._agent._residency import (
     resolve_audio_path,
     validate_input_residency,
 )
-from nemo_curator.stages.audio.common import get_audio_duration
+from nemo_curator.stages.audio.common import get_audio_duration, load_audio_file
 from nemo_curator.stages.audio.inference.base import (
     _channel_first_waveform,
     _fanout_audio_segment,
@@ -534,7 +533,7 @@ class PyAnnoteDiarizationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
             register_temp=temp_paths,
         )
         if file_path is None and self.allow_audio_filepath_fallback and self.audio_filepath_key != "audio_filepath":
-            # Composability fallback: pipelines that did not run ResampleAudioStage
+            # Composability fallback: pipelines that did not run AudioFormatStage
             # only have the original audio_filepath.
             file_path = resolve_audio_path(
                 audio_input,
@@ -573,9 +572,7 @@ class PyAnnoteDiarizationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
         resident_sample_rate: int | None,
         source_path: str | None,
     ) -> AudioTask | list[AudioTask]:
-        # Load audio using soundfile (avoids torchcodec/FFmpeg dependency)
-        data, fs = sf.read(file_path, dtype="float32")
-        s = torch.from_numpy(data).unsqueeze(0) if data.ndim == 1 else torch.from_numpy(data.T)
+        s, fs = load_audio_file(file_path, mono=False)
         source_waveform = resident_waveform if resident_waveform is not None else s.numpy()
         source_sample_rate = resident_sample_rate if resident_sample_rate is not None else int(fs)
         identity_source_path = source_path or _stable_source_path(data_entry, self.original_file_key)

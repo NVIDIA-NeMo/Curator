@@ -43,6 +43,7 @@ from nemo_curator.stages.audio._agent._agent_ready import (
     StaticHints,
 )
 from nemo_curator.stages.audio._agent._residency import validate_audio_key_configuration
+from nemo_curator.stages.audio.common import load_audio_file
 from nemo_curator.stages.audio.tagging.inference.nemo_asr_align import NeMoASRAlignerStage
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.tasks import AudioTask
@@ -266,13 +267,13 @@ class SplitLongAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         _fs, resolved_path = url_to_fs(audio_path)
 
         # parent_url preserves protocol prefix (e.g. "s3://bucket/dir") for stored paths;
-        # resolved_parent is the fsspec-resolved counterpart for torchaudio I/O.
+        # resolved_parent is the fsspec-resolved counterpart for torchaudio writes.
         parent_url, filename = audio_path.rsplit("/", 1) if "/" in audio_path else ("", audio_path)
         resolved_parent = resolved_path.rsplit("/", 1)[0] if "/" in resolved_path else ""
         stem = filename.rsplit(".", 1)[0] if "." in filename else filename
         output_fs, resolved_output_dir = self._prepare_output_dir()
 
-        audio, sr = torchaudio.load(resolved_path)
+        audio, sr = load_audio_file(audio_path, mono=False)
         if self.output_dir is not None:
             # The default remains byte-for-byte source-adjacent. A shared directory needs the
             # source and effective split plan because either can otherwise overwrite another row.

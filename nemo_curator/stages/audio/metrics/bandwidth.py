@@ -34,6 +34,7 @@ from nemo_curator.stages.audio._agent._residency import (
     residency_read_specs,
     validate_input_residency,
 )
+from nemo_curator.stages.audio.common import load_audio_file
 from nemo_curator.stages.audio.metrics._common import (
     metrics_mapping,
     resident_pair_is_complete,
@@ -343,7 +344,8 @@ class BandwidthEstimationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
             )
             raise ValueError(msg)
         try:
-            audio, sample_rate = librosa.load(path=audio_path, sr=None)
+            audio, sample_rate = load_audio_file(audio_path)
+            audio = audio.squeeze(0).numpy()
         except Exception as ex:
             msg = f"[{self.name}] Failed to load audio: {audio_path}"
             raise RuntimeError(msg) from ex

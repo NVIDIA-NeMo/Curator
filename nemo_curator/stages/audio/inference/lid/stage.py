@@ -34,7 +34,7 @@ from loguru import logger
 from nemo_curator.models.audio.lid.base import AudioLIDAdapter, AudioLIDResult
 from nemo_curator.stages.audio._agent._agent_ready import AgentReady, ConditionalWrite, Gates, IOSpec, StageContract
 from nemo_curator.stages.audio._agent._residency import validate_audio_key_configuration
-from nemo_curator.stages.audio.common import ensure_mono, ensure_waveform_2d
+from nemo_curator.stages.audio.common import AudioTooLongError, ensure_mono, ensure_waveform_2d, resample_waveform
 from nemo_curator.stages.audio.inference.base import AdapterInferenceStage
 from nemo_curator.stages.resources import Resources
 
@@ -312,7 +312,14 @@ class AudioLIDInferenceStage(AgentReady, AdapterInferenceStage[AudioLIDAdapter])
                 else:
                     waveform, source_sample_rate = self._load_audio(audio_path)
                 prepared = self._prepare_waveform(waveform, source_sample_rate)
-            except (KeyError, TypeError, ValueError, soundfile.SoundFileError) as exc:
+            except (
+                KeyError,
+                TypeError,
+                ValueError,
+                FileNotFoundError,
+                soundfile.SoundFileError,
+                AudioTooLongError,
+            ) as exc:
                 logger.warning(
                     "Audio LID {}: failed to prepare task {} from {}: {}", self.model_id, task.task_id, audio_path, exc
                 )
@@ -343,11 +350,7 @@ class AudioLIDInferenceStage(AgentReady, AdapterInferenceStage[AudioLIDAdapter])
             msg = f"waveform must have one or two dimensions, got shape {tuple(tensor.shape)}"
             raise ValueError(msg)
         tensor = ensure_mono(tensor)
-        prepared = tensor.squeeze(0).cpu().numpy()
-        if int(sample_rate) != self.sample_rate:
-            import librosa
-
-            prepared = librosa.resample(prepared, orig_sr=int(sample_rate), target_sr=int(self.sample_rate))
+        prepared = resample_waveform(tensor.squeeze(0), int(sample_rate), self.sample_rate).cpu().numpy()
         return np.ascontiguousarray(prepared, dtype=np.float32)
 
     def _result_mapping(self, task: AudioTask) -> dict[str, Any]:

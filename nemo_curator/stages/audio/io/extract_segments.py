@@ -73,6 +73,7 @@ if TYPE_CHECKING:
     import numpy as np
 
 from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract, StaticHints
+from nemo_curator.stages.audio.common import load_audio_file
 from nemo_curator.stages.audio.postprocessing.timestamp_mapper import _numeric_key
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
@@ -145,7 +146,8 @@ def _read_segment(
     """Read a slice of audio from a file."""
     start_sample = int(start_ms * sample_rate / 1000)
     end_sample = int(end_ms * sample_rate / 1000)
-    audio, _ = sf.read(filepath, start=start_sample, stop=end_sample, dtype="float32")
+    audio, _ = load_audio_file(filepath, mono=False, start=start_sample, stop=end_sample)
+    audio = audio.T.squeeze(1).contiguous().numpy()  # soundfile layout: [samples] or [samples, channels]
     if reject_empty and len(audio) == 0:
         msg = f"Cannot extract empty audio interval {start_ms}-{end_ms}ms from {filepath}"
         raise ValueError(msg)

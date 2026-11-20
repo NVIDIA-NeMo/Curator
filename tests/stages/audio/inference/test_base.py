@@ -42,10 +42,10 @@ def test_planning_checks_the_selected_resident_role(
     kind: str, residency: str, monkeypatch: rh.pytest.MonkeyPatch
 ) -> None:
     from nemo_curator.stages.audio.common import GetAudioDurationStage
-    from nemo_curator.stages.audio.preprocessing import MonoConversionStage
+    from nemo_curator.stages.audio.preprocessing import AudioFormatStage
 
     stage, _seen = rh._make_stage(kind, monkeypatch, input_residency=residency)
-    producer = MonoConversionStage(output_sample_rate=16000)
+    producer = AudioFormatStage(target_channels=1)
     overwriter = GetAudioDurationStage(duration_key="waveform")
     report = rh.validate_pipeline([producer, overwriter, stage], initial_keys={"audio_filepath"})
     assert report.ok is (residency == "file"), report.summary()
@@ -77,11 +77,11 @@ def test_auto_planning_rejects_a_rate_overwritten_with_an_incompatible_role(
     kind: str, monkeypatch: rh.pytest.MonkeyPatch
 ) -> None:
     from nemo_curator.stages.audio.common import GetAudioDurationStage
-    from nemo_curator.stages.audio.preprocessing import MonoConversionStage
+    from nemo_curator.stages.audio.preprocessing import AudioFormatStage
 
     stage, _seen = rh._make_stage(kind, monkeypatch, input_residency="auto")
     report = rh.validate_pipeline(
-        [MonoConversionStage(output_sample_rate=16000), GetAudioDurationStage(duration_key="sample_rate"), stage],
+        [AudioFormatStage(target_channels=1), GetAudioDurationStage(duration_key="sample_rate"), stage],
         initial_keys={"audio_filepath"},
     )
     assert not report.ok, report.summary()
@@ -93,7 +93,7 @@ def test_auto_planning_rejects_a_rate_overwritten_with_an_incompatible_role(
 def test_asr_waveform_retention_controls_downstream_auto_residency(
     kind: str, keep_waveform: bool, monkeypatch: rh.pytest.MonkeyPatch
 ) -> None:
-    from nemo_curator.stages.audio.preprocessing import MonoConversionStage
+    from nemo_curator.stages.audio.preprocessing import AudioFormatStage
 
     downstream, _seen = rh._make_stage(kind, monkeypatch, input_residency="auto")
     asr = ASRStage(
@@ -105,7 +105,7 @@ def test_asr_waveform_retention_controls_downstream_auto_residency(
         keep_waveform=keep_waveform,
     )
     report = rh.validate_pipeline(
-        [MonoConversionStage(output_sample_rate=16000), asr, downstream], initial_keys={"audio_filepath"}
+        [AudioFormatStage(target_channels=1), asr, downstream], initial_keys={"audio_filepath"}
     )
     assert report.ok is keep_waveform, report.summary()
 

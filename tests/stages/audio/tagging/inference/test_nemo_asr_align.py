@@ -211,7 +211,7 @@ class TestNeMoASRAlignerStage:
         )
 
         with patch(
-            "nemo_curator.stages.audio.tagging.inference.nemo_asr_align.torchaudio.load",
+            "nemo_curator.stages.audio.tagging.inference.nemo_asr_align.load_audio_file",
             return_value=(torch.zeros(1, 32000), 16000),
         ):
             assert_agent_ready(

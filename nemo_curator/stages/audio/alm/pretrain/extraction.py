@@ -25,10 +25,7 @@ import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, ClassVar
 
-import numpy as np
 import soundfile as sf
-import torch
-import torchaudio.functional as taf
 from loguru import logger
 
 from nemo_curator.stages.audio._agent._agent_ready import (
@@ -49,6 +46,7 @@ from nemo_curator.stages.audio.alm.pretrain.utils import (
     _segment_text,
     make_snippet_id,
 )
+from nemo_curator.stages.audio.common import load_audio_file, resample_waveform
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -425,17 +423,12 @@ class SnippetExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             return None
 
         try:
-            audio, _ = sf.read(source_path, start=start_frame, stop=end_frame, dtype="float32", always_2d=True)
+            wave, _ = load_audio_file(source_path, start=start_frame, stop=end_frame)
         except Exception as e:  # noqa: BLE001
             logger.error(f"[{self.name}] {task.task_id}: failed to read slice [{start_sec:.2f}, {end_sec:.2f}]: {e}")
             return None
 
-        wave = torch.from_numpy(np.ascontiguousarray(audio.T))
-        if wave.shape[0] > 1:
-            wave = wave.mean(dim=0, keepdim=True)
-        if source_sr != self.target_sample_rate:
-            wave = taf.resample(wave, source_sr, self.target_sample_rate)
-        mono = wave.squeeze(0).contiguous().numpy()
+        mono = resample_waveform(wave, source_sr, self.target_sample_rate).squeeze(0).contiguous().numpy()
         actual_duration = mono.shape[0] / float(self.target_sample_rate)
 
         snippet_id = make_snippet_id(original_id, start_sec, end_sec)

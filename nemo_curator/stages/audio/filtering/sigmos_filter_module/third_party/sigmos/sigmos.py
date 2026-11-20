@@ -43,6 +43,8 @@ import onnxruntime as ort
 import scipy
 from loguru import logger
 
+from nemo_curator.stages.audio.common import resample_waveform
+
 __all__ = ["SigMOS", "Version"]
 
 
@@ -75,7 +77,6 @@ class SigMOS:
             model_file_path = model_path_history[model_version]
 
         self.sampling_rate = 48_000
-        self.resample_type = "fft"
         self.model_version = model_version
         self.device_id = device_id
 
@@ -131,7 +132,7 @@ class SigMOS:
 
     def run(self, audio: np.ndarray, sr: int | None = None) -> dict[str, float]:
         if sr is not None and sr != self.sampling_rate:
-            audio = librosa.resample(audio, orig_sr=sr, target_sr=self.sampling_rate, res_type=self.resample_type)
+            audio = resample_waveform(audio, sr, self.sampling_rate).numpy()
 
         features = self.stft(audio)
         features = self.compressed_mag_complex(features)

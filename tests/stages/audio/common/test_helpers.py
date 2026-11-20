@@ -13,17 +13,21 @@
 # limitations under the License.
 
 from pathlib import Path
-from unittest import mock
 
 import numpy as np
+import pytest
+import soundfile as sf
 import torch
 
 from nemo_curator.stages.audio.common import (
+    MAX_AUDIO_DURATION_SEC,
+    AudioTooLongError,
     ensure_mono,
     ensure_waveform_2d,
+    exceeds_max_duration,
     load_audio_file,
+    resample_waveform,
     resolve_model_path,
-    resolve_waveform_from_item,
 )
 
 
@@ -39,37 +43,31 @@ def test_ensure_mono() -> None:
     assert ensure_mono(torch.randn(2, 16000)).shape == (1, 16000)
 
 
-def test_load_audio_file(tmp_path: Path) -> None:
-    fake_data = np.random.default_rng(0).standard_normal(32000).astype(np.float32)
-    with mock.patch("nemo_curator.stages.audio.common.helpers.soundfile.read", return_value=(fake_data, 16000)):
-        waveform, sr = load_audio_file(str(tmp_path / "test.wav"), mono=True)
-        assert sr == 16000
-        assert waveform.shape == (1, 32000)
+def test_load_audio_file_reads_slices_downmixes_and_refuses_long_files(tmp_path: Path) -> None:
+    stereo = np.stack([np.arange(8, dtype=np.float32), -np.arange(8, dtype=np.float32)], axis=1) / 8
+    path = str(tmp_path / "test.wav")
+    sf.write(path, stereo, 4, subtype="FLOAT")
+
+    waveform, sr = load_audio_file(path, mono=False, start=2, stop=5)
+    assert sr == 4
+    assert torch.equal(waveform, torch.from_numpy(stereo[2:5]).T)
+    assert torch.equal(load_audio_file(path)[0], torch.zeros(1, 8))
+    with pytest.raises(AudioTooLongError):
+        load_audio_file(path, max_duration_sec=1)
+    assert load_audio_file(path, max_duration_sec=None)[0].shape == (1, 8)
 
 
-def test_resolve_waveform_with_data() -> None:
-    item = {"waveform": torch.randn(1, 16000), "sample_rate": 16000}
-    result = resolve_waveform_from_item(item, "test")
-    assert result is not None
-    assert result[1] == 16000
+def test_exceeds_max_duration() -> None:
+    assert exceeds_max_duration(MAX_AUDIO_DURATION_SEC + 1)
+    assert not exceeds_max_duration(MAX_AUDIO_DURATION_SEC)
+    assert not exceeds_max_duration(10, None)
+    assert not exceeds_max_duration("n/a")
 
 
-def test_resolve_waveform_from_file(tmp_path: Path) -> None:
-    wav_path = str(tmp_path / "audio.wav")
-    Path(wav_path).write_bytes(b"\x00")
-    with mock.patch(
-        "nemo_curator.stages.audio.common.helpers.load_audio_file", return_value=(torch.randn(1, 16000), 16000)
-    ):
-        item = {"audio_filepath": wav_path}
-        result = resolve_waveform_from_item(item, "test")
-        assert result is not None
-        assert item["waveform"] is not None
-
-
-def test_resolve_waveform_returns_none_when_missing() -> None:
-    assert resolve_waveform_from_item({}, "test") is None
-    assert resolve_waveform_from_item({"audio_filepath": "/nonexistent.wav"}, "test") is None
-    assert resolve_waveform_from_item({"waveform": torch.randn(16000)}, "test") is None
+def test_resample_waveform() -> None:
+    waveform = torch.randn(1, 16000)
+    assert resample_waveform(waveform, 16000, 16000) is waveform
+    assert resample_waveform(waveform.numpy(), 16000, 8000).shape == (1, 8000)
 
 
 def test_resolve_model_path(tmp_path: Path) -> None:

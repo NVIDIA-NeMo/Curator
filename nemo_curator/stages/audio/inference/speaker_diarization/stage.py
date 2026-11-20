@@ -50,7 +50,7 @@ from nemo_curator.stages.audio._agent._residency import (
     validate_audio_key_configuration,
     validate_input_residency,
 )
-from nemo_curator.stages.audio.common import ensure_mono, ensure_waveform_2d
+from nemo_curator.stages.audio.common import ensure_mono, ensure_waveform_2d, resample_waveform
 from nemo_curator.stages.audio.inference.base import (
     AdapterInferenceStage,
     _channel_first_waveform,
@@ -693,10 +693,7 @@ class InferenceSortformerStage(AgentReady, AdapterInferenceStage[DiarizationAdap
         import torch
 
         tensor = ensure_mono(tensor).squeeze(0).to(device="cpu", dtype=torch.float32)
-        if source_rate != self.target_sample_rate:
-            import torchaudio
-
-            tensor = torchaudio.functional.resample(tensor, source_rate, self.target_sample_rate)
+        tensor = resample_waveform(tensor, source_rate, self.target_sample_rate)
         waveform_array = np.ascontiguousarray(tensor.numpy(), dtype=np.float32)
         if not np.isfinite(waveform_array).all():
             msg = "waveform contains non-finite samples"

@@ -38,11 +38,9 @@ import tempfile
 from dataclasses import dataclass, field
 from typing import Any, ClassVar, cast
 
-import numpy as np
 import soundfile as sf
 import torch
 from loguru import logger
-from pydub import AudioSegment
 
 try:
     from nemo.collections.asr.models import SortformerEncLabelModel
@@ -64,15 +62,6 @@ from nemo_curator.stages.audio.segmentation.speaker_separation_module.speaker_se
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
-
-
-def _pydub_to_waveform_sr(seg: AudioSegment) -> tuple[torch.Tensor, int]:
-    """Convert PyDub AudioSegment to (waveform, sample_rate). Output is canonical format only."""
-    max_val = float(1 << (8 * seg.sample_width - 1))
-    samples = np.array(seg.get_array_of_samples(), dtype=np.float32) / max_val
-    if seg.channels > 1:
-        samples = samples.reshape((-1, seg.channels)).mean(axis=1)
-    return torch.from_numpy(samples).unsqueeze(0), seg.frame_rate
 
 
 def _bounded_speaker_stem(stem: str, speaker_id: str) -> str:
@@ -405,7 +394,7 @@ class SpeakerSeparationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             if result.duration < self.min_duration:
                 logger.debug(f"Skipping {speaker_id}: duration {result.duration:.2f}s < {self.min_duration}s")
                 continue
-            spk_waveform, spk_sr = _pydub_to_waveform_sr(result.audio)
+            spk_waveform, spk_sr = result.audio, result.sample_rate
             drop_keys = {
                 *self._INHERITED_DROP_KEYS,
                 self.waveform_key,

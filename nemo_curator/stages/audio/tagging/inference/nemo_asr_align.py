@@ -29,7 +29,6 @@ from typing import Any, ClassVar
 
 import nemo.collections.asr as nemo_asr
 import torch
-import torchaudio
 from loguru import logger
 from nemo.collections.asr.parts.submodules.ctc_decoding import CTCDecodingConfig
 from nemo.collections.asr.parts.submodules.rnnt_decoding import RNNTDecodingConfig
@@ -43,6 +42,7 @@ from nemo_curator.stages.audio._agent._agent_ready import (
     StageContract,
     StaticHints,
 )
+from nemo_curator.stages.audio.common import load_audio_file
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -131,7 +131,7 @@ class BaseASRProcessorStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                 audio_path = metadata.get(self.resampled_audio_filepath_key, metadata.get(self.audio_filepath_key))
                 if not audio_path:
                     continue
-                audio, sr = torchaudio.load(audio_path)
+                audio, sr = load_audio_file(audio_path, mono=False)
                 for segment_idx, segment in enumerate(metadata.get(segments_key, [])):
                     duration = segment.get("end", 0) - segment.get("start", 0)
                     if duration >= self.min_len:
