@@ -12,17 +12,13 @@ RUN_ROOT=${ROOT}/extraction
 SERVER_LOG_DIR=${RUN_ROOT}/server-logs
 MODEL=${MODEL:?set MODEL to the Nemotron Parse 3.5 model directory}
 PROXY=${PROXY:-${SCRIPT_DIR}/round_robin_proxy.py}
-mkdir -p "${SERVER_LOG_DIR}"
-
 for command in curl setsid nvidia-smi; do command -v "${command}" >/dev/null; done
 [[ -x "${PYTHON}" && -d "${MODEL}" && -f "${PROXY}" ]]
 : "${PDF_DIR:?set PDF_DIR}"
 [[ -d "${PDF_DIR}" ]]
-gpu_count=$(nvidia-smi --query-gpu=index --format=csv,noheader | wc -l)
-if [[ "${gpu_count}" -ne 8 ]]; then
-  echo "This B200 reproduction profile requires eight assigned GPUs" >&2
-  exit 1
-fi
+source "${SCRIPT_DIR}/direct_gpu_mapping.sh"
+select_direct_gpus
+mkdir -p "${SERVER_LOG_DIR}"
 "${PYTHON}" -c 'import aiohttp; import vllm'
 "${PYTHON}" - <<'CHECK_PORTS'
 import socket
@@ -72,7 +68,7 @@ declare -A replica_pids
 launch_replica() {
   local gpu=$1
   local port=$2
-  setsid env CUDA_VISIBLE_DEVICES="${gpu}" VLLM_WORKER_MULTIPROC_METHOD=spawn \
+  setsid env CUDA_VISIBLE_DEVICES="${direct_gpu_selectors[gpu]}" VLLM_WORKER_MULTIPROC_METHOD=spawn \
     "${PYTHON}" -m vllm.entrypoints.openai.api_server \
       --model "${MODEL}" \
       --served-model-name nemotron-parse \

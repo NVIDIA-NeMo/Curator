@@ -491,8 +491,12 @@ per-GPU throughput is divided by one. These flags apply to the benchmark only.
 - Linux with Bash, `setsid`, `nvidia-smi`, and `curl` on `PATH`.
 - A local Nemotron Parse 3.5 model directory.
 - A JSONL PDF manifest and the corresponding PDF root.
-- All eight physical GPU indexes 0–7 assigned to the experiment for the preserved
-  16-replica topology. The shell launchers target those indexes explicitly.
+- Eight physical GPUs assigned to the experiment for the preserved 16-replica
+  topology. The direct launchers preserve the order of eight distinct GPU
+  indexes or eight full GPU UUIDs supplied in `CUDA_VISIBLE_DEVICES`. An
+  explicit empty, partial, or invalid list stops the launch. On a dedicated
+  eight-GPU node with no visibility setting, the archived profile uses
+  indexes 0–7.
 
 The shell launchers derive `CURATOR_ROOT` from their location and default
 `PYTHON` to `${CURATOR_ROOT}/.venv-parse35-cuda13/bin/python`. Set either value
