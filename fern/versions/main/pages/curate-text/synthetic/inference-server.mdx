@@ -150,6 +150,8 @@ the `nemo_curator_dynamo` Ray namespace. Actor creation and cleanup use that
 namespace explicitly, including when the caller has already initialized Ray in
 another namespace. This internal actor namespace is separate from
 `DynamoServerConfig.namespace`, which controls Dynamo service discovery.
+Dynamo reuses the caller's existing Ray connection and leaves it open after
+startup and shutdown.
 
 ## Ray Serve Configuration
 
