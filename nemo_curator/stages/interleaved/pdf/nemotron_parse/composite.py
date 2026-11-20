@@ -16,7 +16,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import (
@@ -82,6 +82,11 @@ class NemotronParsePDFReader(CompositeStage[EmptyTask, InterleavedBatch]):
         JSONL field containing a list of PDF filenames (CC-MAIN style).
     url_field
         JSONL field containing the source URL.
+    parse_mode
+        Opt in to the model package's served Parse 3.5 single, double or triple
+        pipeline. Requires inference_server_endpoint. Unset preserves v1.2.
+    triple_regions
+        Combine detector and full-page regions (union), or use detector alone.
     inference_server_endpoint
         OpenAI-compatible inference server endpoint. A Dynamo-backed server is
         the recommended production topology; when omitted, inference runs in
@@ -89,6 +94,9 @@ class NemotronParsePDFReader(CompositeStage[EmptyTask, InterleavedBatch]):
     inference_server_client_num_workers
         Fixed number of concurrent HTTP client stage workers. Use four times
         the number of inference GPUs.
+    inference_server_reuse_encoded_images
+        Reuse verified unchanged producer PNGs in served single mode. Disabled
+        by default; unverified images keep the ordinary encoding path.
     """
 
     manifest_path: str | None = None
@@ -111,16 +119,30 @@ class NemotronParsePDFReader(CompositeStage[EmptyTask, InterleavedBatch]):
     file_name_field: str = "file_name"
     file_names_field: str = "cc_pdf_file_names"
     url_field: str = "url"
+    parse_mode: str | None = field(default=None, kw_only=True)
+    triple_regions: str = field(default="union", kw_only=True)
     inference_server_endpoint: str | None = None
     inference_server_model_name: str | None = None
     inference_server_client_num_workers: int = 4
     inference_server_request_timeout_s: float = 300.0
     inference_server_max_retries: int = 3
+    inference_server_reuse_encoded_images: bool = field(default=False, kw_only=True)
 
     def __post_init__(self) -> None:
         super().__init__()
+        if type(self.inference_server_reuse_encoded_images) is not bool:
+            msg = "inference_server_reuse_encoded_images must be a boolean"
+            raise TypeError(msg)
+        if self.inference_server_reuse_encoded_images and (
+            self.parse_mode != "single" or self.inference_server_endpoint is None
+        ):
+            msg = "Encoded image reuse requires served Parse 3.5 single mode"
+            raise ValueError(msg)
         if self.manifest_path is None:
             msg = "manifest_path is required"
+            raise ValueError(msg)
+        if self.parse_mode is not None and self.inference_server_endpoint is None:
+            msg = "parse_mode requires inference_server_endpoint"
             raise ValueError(msg)
         self._partitioner = PDFPartitioningStage(
             manifest_path=self.manifest_path,
@@ -137,6 +159,8 @@ class NemotronParsePDFReader(CompositeStage[EmptyTask, InterleavedBatch]):
             jsonl_base_dir=self.jsonl_base_dir,
             dpi=self.dpi,
             max_pages=self.max_pages,
+            retain_failures=self.parse_mode is not None,
+            reuse_encoded_images=self.inference_server_reuse_encoded_images,
         )
         if self.inference_server_endpoint is None:
             self._inference = NemotronParseInferenceStage(
@@ -154,6 +178,8 @@ class NemotronParsePDFReader(CompositeStage[EmptyTask, InterleavedBatch]):
                 raise ValueError(msg)
             self._inference = NemotronParseHTTPClientStage(
                 endpoint=self.inference_server_endpoint,
+                parse_mode=self.parse_mode,
+                triple_regions=self.triple_regions,
                 model_name=self.inference_server_model_name or self.model_path,
                 model_path=self.model_path,
                 text_in_pic=self.text_in_pic,
@@ -161,6 +187,7 @@ class NemotronParsePDFReader(CompositeStage[EmptyTask, InterleavedBatch]):
                 max_retries=self.inference_server_max_retries,
                 inference_batch_size=self.inference_batch_size,
                 max_tokens=self.max_tokens,
+                reuse_encoded_images=self.inference_server_reuse_encoded_images,
             ).with_(num_workers=self.inference_server_client_num_workers)
         self._postprocessor = NemotronParsePostprocessStage(
             min_crop_px=self.min_crop_px,
