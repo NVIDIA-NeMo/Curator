@@ -1088,6 +1088,10 @@ def test_generated_audio_and_sidecar_publish_to_a_cloud_prefix(ref_dataset: str)
         stage = _build_stage("memory://tts-out", ref_dataset, storage_options={"skip_instance_cache": True})
         stage.setup()
         result = stage.process_batch([_make_task("Hello cloud")])[0]
+        calls = stage.model.generate.call_count
+        cached = stage.process_batch([_make_task("Hello cloud")])[0]
+    assert stage.model.generate.call_count == calls  # the cloud cache entry is reused, not regenerated
+    assert cached.data["audio_filepath"] == result.data["audio_filepath"]
 
     path = result.data["audio_filepath"]
     assert path.startswith("memory://tts-out/")

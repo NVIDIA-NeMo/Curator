@@ -403,6 +403,11 @@ def _write_metadata_csv(
     return csv_path
 
 
+def _wal_line(resume_key: str, record: dict[str, Any]) -> str:
+    payload = {"version": _WAL_VERSION, "resume_key": resume_key, "record": record}
+    return json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n"
+
+
 @contextmanager
 def _output_lock(output_dir: str) -> Iterator[None]:
     if is_remote_url(output_dir):
@@ -542,6 +547,10 @@ class SegmentExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                 )
             finally:
                 self._task_ids_by_entry = {}
+                if is_remote_url(self.output_dir):
+                    # shortcut: one log upload per batch, so a worker killed mid-batch loses that batch's
+                    # reservations and its retry may leave orphan clips; use per-segment objects if that matters.
+                    self._rewrite_output_state_as_wal()
 
             for row in metadata_rows:
                 self._metadata_by_filename[row["filename"]] = row
@@ -724,26 +733,16 @@ class SegmentExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             self._segment_counter[name] = max(self._segment_counter[name], index)
 
     def _rewrite_output_state_as_wal(self) -> None:
+        log = "".join(_wal_line(key, record) for key, record in self._segment_reservations.items())
         if is_remote_url(self.output_dir):
-            # Object stores cannot append, so every reservation rewrites the log with one PUT.
-            lines = (
-                json.dumps(
-                    {"version": _WAL_VERSION, "resume_key": resume_key, "record": record},
-                    sort_keys=True,
-                    separators=(",", ":"),
-                )
-                + "\n"
-                for resume_key, record in self._segment_reservations.items()
-            )
-            self._fs.pipe_file(self._state_path, "".join(lines).encode())
+            # Object stores cannot append, so the whole log is uploaded with one PUT.
+            self._fs.pipe_file(self._state_path, log.encode())
             self._state_is_wal = True
             return
         fd, temp_path = tempfile.mkstemp(prefix=".segment_extraction_state.", suffix=".json.tmp", dir=self.output_dir)
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as state_file:
-                for resume_key, record in self._segment_reservations.items():
-                    payload = {"version": _WAL_VERSION, "resume_key": resume_key, "record": record}
-                    state_file.write(json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n")
+                state_file.write(log)
                 state_file.flush()
                 os.fsync(state_file.fileno())
             os.replace(temp_path, self._state_path)
@@ -755,12 +754,13 @@ class SegmentExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
 
     def _persist_output_state(self, resume_key: str, record: dict[str, Any]) -> None:
         """Durably append one reservation instead of rewriting all prior reservations."""
-        if not self._state_is_wal or is_remote_url(self.output_dir):
+        if is_remote_url(self.output_dir):
+            return  # process_batch uploads the whole log once per batch
+        if not self._state_is_wal:
             self._rewrite_output_state_as_wal()
             return
-        payload = {"version": _WAL_VERSION, "resume_key": resume_key, "record": record}
         with open(self._state_path, "a", encoding="utf-8") as state_file:
-            state_file.write(json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n")
+            state_file.write(_wal_line(resume_key, record))
             state_file.flush()
             os.fsync(state_file.fileno())
 

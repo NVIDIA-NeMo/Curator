@@ -86,7 +86,8 @@ def _make_shard_path(output_path: str, ext: str) -> str:
     Each writer/aggregator worker computes one of these in ``setup()``;
     the merger glob-matches the same pattern after pipeline completion.
     """
-    return f"{output_path}.shard-{os.getpid()}-{uuid.uuid4().hex[:8]}.{ext}"
+    # Full uuid: on object stores every record gets its own shard, so 32 random bits would collide.
+    return f"{output_path}.shard-{os.getpid()}-{uuid.uuid4().hex}.{ext}"
 
 
 def _glob_shards(output_path: str, ext: str, storage_options: dict[str, Any] | None = None) -> list[str]:

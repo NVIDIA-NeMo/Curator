@@ -19,6 +19,7 @@ import numpy as np
 import pytest
 import soundfile as sf
 
+from nemo_curator.stages.audio.io import segment_io
 from nemo_curator.stages.audio.io.segment_io import write_audio
 
 _RAMP = (np.arange(1600, dtype=np.float32) / 1600) - 0.5
@@ -39,3 +40,20 @@ def test_failed_encode_writes_nothing(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="subtype"):
         write_audio(str(tmp_path / "a.wav"), _RAMP, 16000, file_format="wav", subtype="NOPE")
     assert not list(tmp_path.iterdir())
+
+
+def test_failed_local_publication_keeps_the_previous_file_and_cleans_temp(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "a.wav"
+    path.write_bytes(b"previous")
+
+    def fail_replace(_source: object, _target: object) -> None:
+        msg = "injected publication failure"
+        raise OSError(msg)
+
+    monkeypatch.setattr(segment_io.os, "replace", fail_replace)
+    with pytest.raises(OSError, match="injected publication"):
+        write_audio(str(path), _RAMP, 16000, file_format="wav", subtype="FLOAT")
+    assert path.read_bytes() == b"previous"
+    assert list(tmp_path.iterdir()) == [path]

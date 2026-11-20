@@ -48,3 +48,22 @@ def test_registration_rejects_empty_shards_without_writing(tmp_path: Path, count
     with pytest.raises(ValueError, match="at least one input"):
         register_nemo_speech_shard(_LOCAL, str(tmp_path), "corpus/shard", count)
     assert not list(tmp_path.iterdir())
+
+
+def test_cloud_registration_conflict_is_caught_when_xb_is_not_exclusive(monkeypatch: pytest.MonkeyPatch) -> None:
+    from fsspec.implementations.memory import MemoryFileSystem
+
+    fs = MemoryFileSystem(skip_instance_cache=True)
+    real_open = fs.open
+    # Some backends accept "xb" but upload small files with a plain, unconditional PUT.
+    monkeypatch.setattr(
+        fs, "open", lambda path, mode="rb", **kwargs: real_open(path, mode.replace("x", "w"), **kwargs)
+    )
+    root = "/nemo-speech-state-xb"
+    path = register_nemo_speech_shard(fs, root, "corpus/shard", 2)
+    try:
+        with pytest.raises(ValueError, match=r"Conflicting.*registration"):
+            register_nemo_speech_shard(fs, root, "corpus/shard", 3)
+        assert json.loads(fs.cat_file(path))["expected_inputs"] == 2
+    finally:
+        fs.rm(root, recursive=True)

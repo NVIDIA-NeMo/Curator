@@ -284,7 +284,8 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
                     fs.put_file(str(path), posixpath.join(resolved_root, path.relative_to(local_root).as_posix()))
             for task in results:
                 for key in ("textgrid_filepath", "rttm_filepath", "ctm_filepath"):
-                    if task.data.get(key):
+                    # Only paths this batch wrote move; an upstream RTTM/CTM passes through as it does locally.
+                    if task.data.get(key) and Path(task.data[key]).is_relative_to(local_root):
                         relative = Path(task.data[key]).relative_to(local_root).as_posix()
                         task.data[key] = posixpath.join(remote_root, relative)
         return results

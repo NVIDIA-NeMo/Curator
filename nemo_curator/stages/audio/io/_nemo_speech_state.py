@@ -36,11 +36,15 @@ def write_json_if_absent(fs: AbstractFileSystem, path: str, payload: Any) -> boo
     """Create ``path`` holding ``payload`` unless it exists; return whether it was created.
 
     Locally this keeps the atomic link-based create. Object stores publish an
-    object only when its upload completes, and ``xb`` makes the create exclusive.
+    object only when its upload completes, and ``xb`` makes the create exclusive
+    where the backend supports it.
     """
 
     if isinstance(fs, LocalFileSystem):
         return write_json_atomically_if_absent(Path(path), payload, separators=(",", ":"))
+    # Not every backend makes a small ``xb`` upload conditional (s3fs 2024.12 does a plain PUT).
+    if fs.exists(path):
+        return False
     try:
         with fs.open(path, "xb") as stream:
             stream.write((json.dumps(payload, separators=(",", ":"), sort_keys=True) + "\n").encode("utf-8"))

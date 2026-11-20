@@ -1151,7 +1151,7 @@ def test_atomic_extraction_accepts_legal_long_output_names(wav_dir: Path, tmp_pa
 
     assert task.data["extracted_path"] == [str(expected)]
     assert sf.info(expected).frames == sf.info(source).samplerate // 2
-    assert list(output_dir.glob(".segment-extraction-*")) == []
+    assert list(output_dir.glob("*.tmp")) == []
 
 
 @pytest.mark.parametrize("prefix_length", [1, 6, 80, "unicode_escape"])
@@ -1629,3 +1629,27 @@ def test_load_manifests_reads_a_cloud_directory() -> None:
     entries = load_manifests("memory://cloud-manifests", "memory://cloud-manifests-out")
     assert [e["idx"] for e in entries] == [0, 1]
     assert fs.exists("/cloud-manifests-out/manifest.jsonl")
+
+
+def test_cloud_reservation_log_is_uploaded_once_per_batch(wav_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    stage = SegmentExtractionStage(output_dir="memory://extract-once", storage_options={"skip_instance_cache": True})
+    real_pipe_file = stage._fs.pipe_file
+    state_uploads: list[str] = []
+
+    def counting_pipe_file(path: str, *args: object, **kwargs: object) -> None:
+        if path.endswith(".segment_extraction_state.json"):
+            state_uploads.append(path)
+        real_pipe_file(path, *args, **kwargs)
+
+    monkeypatch.setattr(stage._fs, "pipe_file", counting_pipe_file)
+    tasks = []
+    for i in range(3):
+        task = AudioTask(
+            data={"original_file": _wav_path(wav_dir), "original_start_ms": i * 500, "original_end_ms": i * 500 + 400}
+        )
+        task._set_task_id("source", i)
+        tasks.append(task)
+    stage.process_batch(tasks)
+
+    assert len(state_uploads) == 1
+    assert len(stage._fs.cat_file(state_uploads[0]).decode().splitlines()) == 3

@@ -54,7 +54,7 @@ from nemo_curator.stages.audio.io._nemo_speech_state import (
     shard_registration_root,
     write_json_if_absent,
 )
-from nemo_curator.stages.audio.io.segment_io import encode_audio
+from nemo_curator.stages.audio.io.segment_io import encode_audio, write_bytes_atomically
 from nemo_curator.stages.audio.io.shard_key import validate_shard_key
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
@@ -192,35 +192,6 @@ def _json_safe(value: Any) -> Any:  # noqa: ANN401
         msg = f"Value of type {type(value).__name__} is not JSON serializable"
         raise TypeError(msg)
     return result
-
-
-def _write_bytes_atomically(fs: AbstractFileSystem, path_str: str, payload: bytes) -> None:
-    if not isinstance(fs, LocalFileSystem):
-        # An object becomes visible only once its single upload completes.
-        fs.pipe_file(path_str, payload)
-        return
-    path = Path(path_str)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temp_path: Path | None = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            mode="wb",
-            dir=path.parent,
-            prefix=f".{path.name}.",
-            suffix=".tmp",
-            delete=False,
-        ) as stream:
-            temp_path = Path(stream.name)
-            stream.write(payload)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temp_path, path)
-        with contextlib.suppress(OSError):
-            fsync_directory(path.parent)
-    except Exception:
-        if temp_path is not None:
-            temp_path.unlink(missing_ok=True)
-        raise
 
 
 def _mono_float32(waveform: Any) -> np.ndarray:  # noqa: ANN401
@@ -876,7 +847,7 @@ class NeMoSpeechWriterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                         logger.warning(f"Replacing unbound or invalid Opus output: {output_path}")
                     encoded = self._encode_opus(waveform, sample_rate)
                     _claim_audio_path(fs, root, audio_claim, hashlib.sha256(encoded).hexdigest())
-                    _write_bytes_atomically(fs, output_path, encoded)
+                    write_bytes_atomically(fs, output_path, encoded)
                 if not (
                     _opus_matches_claim(fs, root, output_path, audio_claim)
                     and _valid_opus(fs, output_path, sample_rate, len(waveform))

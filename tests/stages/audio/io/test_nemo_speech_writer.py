@@ -937,23 +937,6 @@ def test_writer_does_not_complete_invalid_audio(tmp_path: Path, changes: dict[st
         finalize_nemo_speech_output(str(tmp_path))
 
 
-def test_failed_atomic_audio_publication_keeps_previous_file_and_cleans_temp(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    path = tmp_path / "clip.opus"
-    path.write_bytes(b"previous")
-
-    def fail_replace(_source: object, _target: object) -> None:
-        msg = "injected publication failure"
-        raise OSError(msg)
-
-    monkeypatch.setattr(writer_module.os, "replace", fail_replace)
-    with pytest.raises(OSError, match="injected publication"):
-        writer_module._write_bytes_atomically(_LOCAL, str(path), b"replacement")
-    assert path.read_bytes() == b"previous"
-    assert list(tmp_path.iterdir()) == [path]
-
-
 def test_ffmpeg_encoding_fallback_writes_real_decodable_opus(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(writer_module.sf, "check_format", lambda *_args: False)
     writer = _writer(tmp_path)

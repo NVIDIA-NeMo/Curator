@@ -878,7 +878,8 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
             # ``sample_rate`` is part of the manifest above, but trusting the
             # file's actual rate is a cheap, direct guard against ever
             # mis-reporting duration for an existing cache entry.
-            audio_data, file_sr = sf.read(audio_path)
+            with fs.open(audio_path, "rb") as f:
+                audio_data, file_sr = sf.read(f)
         except (OSError, RuntimeError) as e:
             logger.warning(f"Failed to read cached audio {audio_path}: {e}; regenerating.")
             return None

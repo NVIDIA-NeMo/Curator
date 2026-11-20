@@ -16,20 +16,29 @@
 
 ``SegmentExtractionStage``, ``AudioSegmentWriterStage``, ``SnippetExtractionStage`` and
 ``SplitLongAudioStage`` all encode a slice of samples and publish it. Encoding happens fully
-in memory first, so a failed encode never leaves a file behind, and the bytes are written
-through fsspec so a local path and an ``s3://`` / ``gs://`` URL behave the same.
+in memory first, so a failed encode never leaves a file behind, and the bytes are published
+whole: a local file through a temporary file and a rename, an ``s3://`` / ``gs://`` object with
+one upload.
 """
 
 from __future__ import annotations
 
+import contextlib
 import io
+import os
+import tempfile
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-import fsspec
 import soundfile as sf
+from fsspec.core import url_to_fs
+from fsspec.implementations.local import LocalFileSystem
+
+from nemo_curator.utils.atomic_io import fsync_directory
 
 if TYPE_CHECKING:
     import numpy as np
+    from fsspec import AbstractFileSystem
 
 
 def encode_audio(audio: np.ndarray, sample_rate: int, *, file_format: str, subtype: str) -> bytes:
@@ -48,7 +57,34 @@ def write_audio(  # noqa: PLR0913
     subtype: str,
     storage_options: dict[str, Any] | None = None,
 ) -> None:
-    """Encode ``audio`` and write it to a local path or cloud URL (parent directories are created)."""
+    """Encode ``audio`` and publish it at a local path or cloud URL (parent directories are created)."""
     payload = encode_audio(audio, sample_rate, file_format=file_format, subtype=subtype)
-    with fsspec.open(path, "wb", **(storage_options or {})) as f:
-        f.write(payload)
+    fs, resolved = url_to_fs(path, **(storage_options or {}))
+    write_bytes_atomically(fs, resolved, payload)
+
+
+def write_bytes_atomically(fs: AbstractFileSystem, path_str: str, payload: bytes) -> None:
+    """Publish ``payload`` at ``path_str`` so a reader never sees a partially written file."""
+    if not isinstance(fs, LocalFileSystem):
+        # An object becomes visible only once its single upload completes.
+        fs.pipe_file(path_str, payload)
+        return
+    path = Path(path_str)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path: Path | None = None
+    try:
+        # A short temp name: the final name may already be close to the 255-byte limit.
+        with tempfile.NamedTemporaryFile(
+            mode="wb", dir=path.parent, prefix=".", suffix=".tmp", delete=False
+        ) as stream:
+            temp_path = Path(stream.name)
+            stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temp_path, path)
+        with contextlib.suppress(OSError):
+            fsync_directory(path.parent)
+    except Exception:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
+        raise
