@@ -18,7 +18,8 @@
 
 Reuses the pipeline and argparser from
 tutorials/interleaved/nemotron_parse_pdf/pipeline_utils.py with comprehensive
-metrics collection.
+metrics collection. The tutorial's Dynamo and direct-vLLM reproduction runners
+use this module for their shared Parse throughput and output metrics.
 """
 
 import argparse
@@ -40,6 +41,8 @@ sys.path.insert(0, str(REPO_ROOT / "tutorials" / "interleaved" / "nemotron_parse
 from pipeline_utils import (
     create_nemotron_parse_pdf_argparser,
     create_nemotron_parse_pdf_pipeline,
+    validate_manifest_path,
+    validate_output_directory,
 )
 
 from nemo_curator.backends.utils import get_available_cpu_gpu_resources
@@ -65,6 +68,19 @@ def _available_gpu_count() -> int:
         msg = f"Nemotron-Parse inference needs at least one GPU, found {num_gpus}."
         raise RuntimeError(msg)
     return num_gpus
+
+
+def _external_server_topology(args: argparse.Namespace) -> tuple[int, int]:
+    """Use caller-declared remote resources without inspecting the client GPU host."""
+    if args.num_replicas is None or args.inference_server_num_gpus is None:
+        msg = "External endpoints require --num-replicas and --inference-server-num-gpus."
+        raise ValueError(msg)
+    num_replicas = _resolve_num_replicas(args.num_replicas)
+    num_gpus = int(args.inference_server_num_gpus)
+    if num_gpus < 1:
+        msg = f"--inference-server-num-gpus must be at least 1, got {num_gpus}."
+        raise ValueError(msg)
+    return num_replicas, num_gpus
 
 
 def _sample_ids_from_table(data: Any) -> set[str]:
@@ -124,6 +140,8 @@ def _compute_pdf_parse_metrics(
     run_time_taken: float,
     num_inference_gpus: int,
     inference_stage_parallelism: int,
+    *,
+    overlap_rendering: bool = False,
 ) -> dict[str, float]:
     """Compute benchmark-level throughput metrics from additive task stats."""
     task_metrics = TaskPerfUtils.aggregate_task_metrics(output_tasks, prefix="task")
@@ -132,13 +150,10 @@ def _compute_pdf_parse_metrics(
     num_valid_pages = task_metrics.get(f"{metric_prefix}.num_valid_pages_sum", 0.0)
     total_input_tokens = task_metrics.get(f"{metric_prefix}.total_prompt_tokens_sum", 0.0)
     total_output_tokens = task_metrics.get(f"{metric_prefix}.total_output_tokens_sum", 0.0)
-    inference_stage_process_time_sum_s = task_metrics.get("task_nemotron_parse_inference_process_time_sum", 0.0)
 
     throughput_pages_per_sec = _safe_div(num_valid_pages, run_time_taken)
     throughput_output_tokens_per_sec = _safe_div(total_output_tokens, run_time_taken)
-    inference_stage_active_time_s = _safe_div(inference_stage_process_time_sum_s, inference_stage_parallelism)
-    inference_stage_gpu_time_s = inference_stage_active_time_s * num_inference_gpus
-    return {
+    metrics = {
         # Surfaced as first-class metrics (not just throughput denominators) so
         # entries can assert on work actually completed rather than on wall-clock
         # rates, which vary with cluster load. Page count is exactly reproducible
@@ -146,18 +161,56 @@ def _compute_pdf_parse_metrics(
         # model emits EOS), so it is asserted as a band rather than an exact value.
         "num_pages_processed": num_valid_pages,
         "num_output_tokens": total_output_tokens,
-        # Stage process time excludes model/server setup. Normalizing the sum
-        # across the stage's concurrent workers estimates the active inference
-        # wall time for both in-process and HTTP inference. These intermediate
-        # values are intentionally not exposed as top-level metrics.
-        "inference_stage_pages_per_sec_per_gpu": _safe_div(num_valid_pages, inference_stage_gpu_time_s),
-        "inference_stage_input_tokens_per_sec_per_gpu": _safe_div(total_input_tokens, inference_stage_gpu_time_s),
-        "inference_stage_output_tokens_per_sec_per_gpu": _safe_div(total_output_tokens, inference_stage_gpu_time_s),
         "throughput_pages_per_sec": throughput_pages_per_sec,
         "throughput_output_tokens_per_sec": throughput_output_tokens_per_sec,
         "throughput_pages_per_sec_per_gpu": _safe_div(throughput_pages_per_sec, num_inference_gpus),
         "throughput_output_tokens_per_sec_per_gpu": _safe_div(throughput_output_tokens_per_sec, num_inference_gpus),
     }
+    # The fused actor's timer includes rendering, so only report inference-stage rates when stages are separate.
+    if not overlap_rendering:
+        inference_seconds = task_metrics.get("task_nemotron_parse_inference_process_time_sum", 0.0)
+        gpu_seconds = _safe_div(inference_seconds, inference_stage_parallelism) * num_inference_gpus
+        metrics.update(
+            inference_stage_pages_per_sec_per_gpu=_safe_div(num_valid_pages, gpu_seconds),
+            inference_stage_input_tokens_per_sec_per_gpu=_safe_div(total_input_tokens, gpu_seconds),
+            inference_stage_output_tokens_per_sec_per_gpu=_safe_div(total_output_tokens, gpu_seconds),
+        )
+    return metrics
+
+
+def _log_benchmark_result(duration: float, num_pdfs: int, metrics: dict[str, float]) -> None:
+    logger.success(f"Benchmark completed in {duration:.2f}s")
+    logger.success(f"Processed {num_pdfs} PDFs")
+    logger.success(f"Page throughput: {metrics['throughput_pages_per_sec']:.2f} pages/s")
+    logger.success(f"Output token throughput: {metrics['throughput_output_tokens_per_sec']:.2f} tokens/s")
+    if "inference_stage_pages_per_sec_per_gpu" in metrics:
+        logger.success(
+            "Inference-stage per-GPU throughput: "
+            f"{metrics['inference_stage_pages_per_sec_per_gpu']:.2f} pages/s/GPU, "
+            f"{metrics['inference_stage_output_tokens_per_sec_per_gpu']:.2f} output tokens/s/GPU, "
+            f"{metrics['inference_stage_input_tokens_per_sec_per_gpu']:.2f} input tokens/s/GPU"
+        )
+
+
+def _benchmark_server_type(args: argparse.Namespace) -> InferenceServerBackend | None:
+    server_type = args.inference_server_type
+    if args.inference_server_endpoint is not None and server_type is not None:
+        msg = "Choose --inference-server-endpoint or --inference-server-type, not both"
+        raise ValueError(msg)
+    if args.parse_mode is not None and args.inference_server_endpoint is None:
+        if args.nemotron_parse_path is None:
+            msg = "Parse 3.5 requires --inference-server-endpoint or --nemotron-parse-path"
+            raise ValueError(msg)
+        return server_type or "dynamo"
+    return server_type
+
+
+def _validate_output_directory(output_dir: Path, *, require_fresh: bool) -> None:
+    if require_fresh and output_dir.exists():
+        msg = f"Output directory {output_dir} already exists"
+        raise FileExistsError(msg)
+    if require_fresh:
+        validate_output_directory(output_dir)
 
 
 def run_nemotron_parse_pdf_benchmark(args: argparse.Namespace) -> dict[str, Any]:
@@ -165,7 +218,9 @@ def run_nemotron_parse_pdf_benchmark(args: argparse.Namespace) -> dict[str, Any]
     executor = setup_executor(args.executor)
 
     output_dir = Path(args.output_dir).absolute()
-    output_dir.mkdir(parents=True, exist_ok=True)
+    if args.pages_per_task is None:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        validate_output_directory(output_dir)
 
     inference_server = None
     inference_server_startup_s = 0.0
@@ -174,6 +229,8 @@ def run_nemotron_parse_pdf_benchmark(args: argparse.Namespace) -> dict[str, Any]
     inference_stage_parallelism = 0
     server_engine_kwargs: dict[str, Any] | None = None
     server_type: InferenceServerBackend | None = args.inference_server_type
+    external_endpoint = args.inference_server_endpoint
+    overlap_rendering = getattr(args, "overlap_rendering", False)
 
     logger.info(f"Manifest: {args.manifest}")
     logger.info(f"PDF source: zip_base_dir={args.zip_base_dir}, pdf_dir={args.pdf_dir}")
@@ -186,6 +243,9 @@ def run_nemotron_parse_pdf_benchmark(args: argparse.Namespace) -> dict[str, Any]
     output_tasks: list = []
 
     try:
+        validate_manifest_path(args.manifest)
+        _validate_output_directory(output_dir, require_fresh=args.pages_per_task is not None)
+        server_type = _benchmark_server_type(args)
         if server_type is not None:
             if args.backend != "vllm":
                 msg = f"--inference-server-type requires --backend=vllm, got {args.backend!r}."
@@ -213,6 +273,7 @@ def run_nemotron_parse_pdf_benchmark(args: argparse.Namespace) -> dict[str, Any]
                 engine_kwargs=server_engine_kwargs,
                 request_timeout_s=args.inference_server_request_timeout_s,
                 health_check_timeout_s=args.inference_server_health_timeout_s,
+                nemotron_parse_path=args.nemotron_parse_path if args.parse_mode is not None else None,
             )
             server_engine_kwargs = inference_server.models[0].engine_kwargs
             inference_server.start()
@@ -226,6 +287,15 @@ def run_nemotron_parse_pdf_benchmark(args: argparse.Namespace) -> dict[str, Any]
             )
             logger.info(
                 f"Inference server ready at {inference_server.endpoint} after {inference_server_startup_s:.2f}s"
+            )
+        elif external_endpoint is not None:
+            num_replicas, num_inference_gpus = _external_server_topology(args)
+            inference_stage_parallelism = args.inference_server_client_workers_per_replica * num_replicas
+            pipeline = create_nemotron_parse_pdf_pipeline(
+                args,
+                inference_server_endpoint=external_endpoint,
+                inference_server_model_name=args.inference_server_model_name or args.model_id or args.model_path,
+                inference_server_client_num_workers=inference_stage_parallelism,
             )
         else:
             num_inference_gpus = _available_gpu_count()
@@ -245,20 +315,10 @@ def run_nemotron_parse_pdf_benchmark(args: argparse.Namespace) -> dict[str, Any]
             run_time_taken,
             num_inference_gpus,
             inference_stage_parallelism,
+            overlap_rendering=overlap_rendering,
         )
 
-        logger.success(f"Benchmark completed in {run_time_taken:.2f}s")
-        logger.success(f"Processed {num_pdfs_processed} PDFs")
-        logger.success(f"Page throughput: {pdf_parse_metrics['throughput_pages_per_sec']:.2f} pages/s")
-        logger.success(
-            f"Output token throughput: {pdf_parse_metrics['throughput_output_tokens_per_sec']:.2f} tokens/s"
-        )
-        logger.success(
-            "Inference-stage per-GPU throughput: "
-            f"{pdf_parse_metrics['inference_stage_pages_per_sec_per_gpu']:.2f} pages/s/GPU, "
-            f"{pdf_parse_metrics['inference_stage_output_tokens_per_sec_per_gpu']:.2f} output tokens/s/GPU, "
-            f"{pdf_parse_metrics['inference_stage_input_tokens_per_sec_per_gpu']:.2f} input tokens/s/GPU"
-        )
+        _log_benchmark_result(run_time_taken, num_pdfs_processed, pdf_parse_metrics)
         if not num_pdfs_processed or not pdf_parse_metrics["num_pages_processed"]:
             logger.error("Benchmark produced no PDFs or pages")
         else:
@@ -270,19 +330,9 @@ def run_nemotron_parse_pdf_benchmark(args: argparse.Namespace) -> dict[str, Any]
         logger.debug(f"Full traceback:\n{error_traceback}")
         run_time_taken = time.perf_counter() - run_start_time
         num_pdfs_processed = 0
-        # Keep the metric keys stable across success and failure so entry
-        # requirements always have a value to compare against.
-        pdf_parse_metrics = {
-            "num_pages_processed": 0.0,
-            "num_output_tokens": 0.0,
-            "inference_stage_pages_per_sec_per_gpu": 0.0,
-            "inference_stage_input_tokens_per_sec_per_gpu": 0.0,
-            "inference_stage_output_tokens_per_sec_per_gpu": 0.0,
-            "throughput_pages_per_sec": 0.0,
-            "throughput_output_tokens_per_sec": 0.0,
-            "throughput_pages_per_sec_per_gpu": 0.0,
-            "throughput_output_tokens_per_sec_per_gpu": 0.0,
-        }
+        pdf_parse_metrics = _compute_pdf_parse_metrics(
+            [], run_time_taken, num_inference_gpus, inference_stage_parallelism, overlap_rendering=overlap_rendering
+        )
 
     finally:
         if inference_server is not None:
@@ -298,20 +348,30 @@ def run_nemotron_parse_pdf_benchmark(args: argparse.Namespace) -> dict[str, Any]
             "output_dir": str(output_dir),
             "benchmark_results_path": str(args.benchmark_results_path),
             "model_path": args.model_path,
+            "parse_mode": args.parse_mode,
+            "nemotron_parse_path": args.nemotron_parse_path,
+            "inference_server_endpoint": external_endpoint,
             "backend": args.backend,
             "inference_server_type": server_type,
             "num_replicas": num_replicas,
             "num_inference_gpus": num_inference_gpus,
             "inference_server_client_workers_per_replica": (
-                args.inference_server_client_workers_per_replica if server_type is not None else None
+                args.inference_server_client_workers_per_replica
+                if server_type is not None or external_endpoint is not None
+                else None
             ),
             "pdfs_per_task": args.pdfs_per_task,
             "max_pdfs": args.max_pdfs,
             "dpi": args.dpi,
+            "raster_max_size": getattr(args, "raster_max_size", None),
+            "persistent_rendering": getattr(args, "persistent_rendering", False),
+            "overlap_rendering": overlap_rendering,
             "max_pages": args.max_pages,
             "inference_batch_size": args.inference_batch_size,
             "max_num_seqs": (
-                args.max_num_seqs if server_type is None else (server_engine_kwargs or {}).get("max_num_seqs")
+                args.max_num_seqs
+                if server_type is None and external_endpoint is None
+                else (server_engine_kwargs or {}).get("max_num_seqs")
             ),
             "max_tokens": args.max_tokens,
             "enforce_eager": args.enforce_eager,
@@ -361,7 +421,13 @@ def main() -> int:
         "--num-replicas",
         type=int,
         default=None,
-        help="Inference-server replicas; defaults to the GPU count reported by Ray",
+        help="Inference-server replicas; required for external endpoints, otherwise defaults to Ray's GPU count",
+    )
+    parser.add_argument(
+        "--inference-server-num-gpus",
+        type=int,
+        default=None,
+        help="Actual remote GPU count for external-endpoint throughput accounting; required for external endpoints",
     )
     parser.add_argument(
         "--inference-server-client-workers-per-replica",

@@ -16,19 +16,25 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
+from nemo_curator.stages.interleaved.pdf.nemotron_parse._early_admission import EarlyAdmissionStage
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import (
     DEFAULT_MAX_TOKENS,
     DEFAULT_MODEL_PATH,
     NemotronParseHTTPClientStage,
     NemotronParseInferenceStage,
 )
+from nemo_curator.stages.interleaved.pdf.nemotron_parse.page_budget import validate_extraction_config
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.partitioning import PDFPartitioningStage
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.postprocess import NemotronParsePostprocessStage
-from nemo_curator.stages.interleaved.pdf.nemotron_parse.preprocess import PDFPreprocessStage
+from nemo_curator.stages.interleaved.pdf.nemotron_parse.preprocess import DEFAULT_RASTER_MAX_SIZE, PDFPreprocessStage
+from nemo_curator.stages.interleaved.pdf.nemotron_parse.reassembly import PDFDocumentMergeStage
+from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import EmptyTask, InterleavedBatch
+
+_MAX_OVERLAP_PAGES = 64
 
 
 @dataclass
@@ -57,13 +63,23 @@ class NemotronParsePDFReader(CompositeStage[EmptyTask, InterleavedBatch]):
     backend
         Inference backend: ``"vllm"`` (recommended) or ``"hf"``.
     pdfs_per_task
-        Number of PDFs per processing task.
+        Number of PDFs per task in legacy mode; ignored when pages_per_task is set.
+    pages_per_task
+        Opt-in page-only task budget. Pack across documents and split long PDFs
+        without dropping pages. Requires served single mode and RayDataExecutor.
     max_pdfs
         Maximum PDFs to process (for testing).
     dpi
-        PDF rendering resolution.
+        PDF rendering resolution ceiling in dots per inch.
+    raster_max_size
+        Maximum rendered width and height in pixels, preserving the page aspect ratio.
+    persistent_rendering
+        Reuse an isolated PDFium process within each render actor.
+    overlap_rendering
+        Run HTTP inference as completed render ranges become available. Requires
+        served single mode and a page budget of at most 64 pages.
     max_pages
-        Maximum pages to render per PDF.
+        Legacy per-PDF page limit; page mode processes the full manifest selection.
     inference_batch_size
         Pages per GPU forward pass for HF, or maximum concurrent page requests
         from each HTTP client worker for an inference server. Start with 32;
@@ -82,6 +98,11 @@ class NemotronParsePDFReader(CompositeStage[EmptyTask, InterleavedBatch]):
         JSONL field containing a list of PDF filenames (CC-MAIN style).
     url_field
         JSONL field containing the source URL.
+    parse_mode
+        Opt in to the model package's served Parse 3.5 single, double or triple
+        pipeline. Requires inference_server_endpoint. Unset preserves v1.2.
+    triple_regions
+        Combine detector and full-page regions (union), or use detector alone.
     inference_server_endpoint
         OpenAI-compatible inference server endpoint. A Dynamo-backed server is
         the recommended production topology; when omitted, inference runs in
@@ -89,6 +110,14 @@ class NemotronParsePDFReader(CompositeStage[EmptyTask, InterleavedBatch]):
     inference_server_client_num_workers
         Fixed number of concurrent HTTP client stage workers. Use four times
         the number of inference GPUs.
+    inference_server_reuse_encoded_images
+        Reuse verified unchanged producer PNGs in served single mode. Disabled
+        by default; unverified images keep the ordinary encoding path.
+
+    page_budget_extraction_config
+        Resolved effective parser, model, request, rendering and projection
+        identity for page mode. This record verifies settings; it does not
+        override them. Required when pages_per_task is set.
     """
 
     manifest_path: str | None = None
@@ -98,8 +127,13 @@ class NemotronParsePDFReader(CompositeStage[EmptyTask, InterleavedBatch]):
     model_path: str = DEFAULT_MODEL_PATH
     backend: str = "vllm"
     pdfs_per_task: int = 10
+    pages_per_task: int | None = field(default=None, kw_only=True)
+    page_budget_extraction_config: dict | None = field(default=None, kw_only=True)
     max_pdfs: int | None = None
     dpi: int = 300
+    raster_max_size: tuple[int, int] = field(default=DEFAULT_RASTER_MAX_SIZE, kw_only=True)
+    persistent_rendering: bool = field(default=False, kw_only=True)
+    overlap_rendering: bool = field(default=False, kw_only=True)
     max_pages: int = 50
     inference_batch_size: int = 4
     max_num_seqs: int = 64
@@ -111,20 +145,41 @@ class NemotronParsePDFReader(CompositeStage[EmptyTask, InterleavedBatch]):
     file_name_field: str = "file_name"
     file_names_field: str = "cc_pdf_file_names"
     url_field: str = "url"
+    parse_mode: str | None = field(default=None, kw_only=True)
+    triple_regions: str = field(default="union", kw_only=True)
     inference_server_endpoint: str | None = None
     inference_server_model_name: str | None = None
     inference_server_client_num_workers: int = 4
     inference_server_request_timeout_s: float = 300.0
     inference_server_max_retries: int = 3
+    inference_server_reuse_encoded_images: bool = field(default=False, kw_only=True)
 
     def __post_init__(self) -> None:
         super().__init__()
+        self._validate_overlap()
+        if type(self.inference_server_reuse_encoded_images) is not bool:
+            msg = "inference_server_reuse_encoded_images must be a boolean"
+            raise TypeError(msg)
+        if self.inference_server_reuse_encoded_images and (
+            self.parse_mode != "single" or self.inference_server_endpoint is None
+        ):
+            msg = "Encoded image reuse requires served Parse 3.5 single mode"
+            raise ValueError(msg)
         if self.manifest_path is None:
             msg = "manifest_path is required"
+            raise ValueError(msg)
+        if self.pages_per_task is not None and (self.parse_mode != "single" or self.inference_server_endpoint is None):
+            msg = "pages_per_task requires served Parse 3.5 single mode and RayDataExecutor"
+            raise ValueError(msg)
+        if self.pages_per_task is not None:
+            self.page_budget_extraction_config = validate_extraction_config(self.page_budget_extraction_config)
+        if self.parse_mode is not None and self.inference_server_endpoint is None:
+            msg = "parse_mode requires inference_server_endpoint"
             raise ValueError(msg)
         self._partitioner = PDFPartitioningStage(
             manifest_path=self.manifest_path,
             pdfs_per_task=self.pdfs_per_task,
+            pages_per_task=self.pages_per_task,
             max_pdfs=self.max_pdfs,
             dataset_name=self.dataset_name,
             file_name_field=self.file_name_field,
@@ -136,7 +191,11 @@ class NemotronParsePDFReader(CompositeStage[EmptyTask, InterleavedBatch]):
             pdf_dir=self.pdf_dir,
             jsonl_base_dir=self.jsonl_base_dir,
             dpi=self.dpi,
+            raster_max_size=self.raster_max_size,
+            persistent_rendering=self.persistent_rendering,
             max_pages=self.max_pages,
+            retain_failures=self.parse_mode is not None,
+            reuse_encoded_images=self.inference_server_reuse_encoded_images,
         )
         if self.inference_server_endpoint is None:
             self._inference = NemotronParseInferenceStage(
@@ -154,6 +213,8 @@ class NemotronParsePDFReader(CompositeStage[EmptyTask, InterleavedBatch]):
                 raise ValueError(msg)
             self._inference = NemotronParseHTTPClientStage(
                 endpoint=self.inference_server_endpoint,
+                parse_mode=self.parse_mode,
+                triple_regions=self.triple_regions,
                 model_name=self.inference_server_model_name or self.model_path,
                 model_path=self.model_path,
                 text_in_pic=self.text_in_pic,
@@ -161,10 +222,53 @@ class NemotronParsePDFReader(CompositeStage[EmptyTask, InterleavedBatch]):
                 max_retries=self.inference_server_max_retries,
                 inference_batch_size=self.inference_batch_size,
                 max_tokens=self.max_tokens,
+                reuse_encoded_images=self.inference_server_reuse_encoded_images,
             ).with_(num_workers=self.inference_server_client_num_workers)
         self._postprocessor = NemotronParsePostprocessStage(
             min_crop_px=self.min_crop_px,
         )
+        self._merger = PDFDocumentMergeStage() if self.pages_per_task is not None else None
+        if self._merger is not None:
+            self._configure_page_budget()
+
+    def _validate_overlap(self) -> None:
+        if type(self.overlap_rendering) is not bool:
+            msg = "overlap_rendering must be a boolean"
+            raise TypeError(msg)
+        if self.overlap_rendering and not (
+            type(self.pages_per_task) is int and 1 <= self.pages_per_task <= _MAX_OVERLAP_PAGES
+        ):
+            msg = "Overlapping rendering requires a page budget between 1 and 64"
+            raise ValueError(msg)
+
+    def _configure_page_budget(self) -> None:
+        self._inference.extraction_config = self.page_budget_extraction_config
+        self._partitioner._extraction_config = self.page_budget_extraction_config
+        self._preprocessor._extraction_config = self.page_budget_extraction_config
+        render = self.page_budget_extraction_config["render"]
+        max_size = None if self.raster_max_size == DEFAULT_RASTER_MAX_SIZE else list(self.raster_max_size)
+        if (
+            render.get("dpi") != self.dpi
+            or render.get("proc_size") != list(self._inference.proc_size)
+            or render.get("raster_max_size") != max_size
+        ):
+            msg = "Page-budget extraction configuration does not match rendering settings"
+            raise ValueError(msg)
+        if self.page_budget_extraction_config["projection"] != {
+            "schema": "pdf-page-budget.v1",
+            "min_crop_px": self.min_crop_px,
+        }:
+            msg = "Page-budget extraction configuration does not match projection settings"
+            raise ValueError(msg)
+        self._partitioner._parser_config = {
+            "model_path": self.model_path,
+            "parse_mode": self.parse_mode,
+            "triple_regions": self.triple_regions,
+            "dpi": self.dpi,
+            "max_tokens": self.max_tokens,
+            "text_in_pic": self.text_in_pic,
+            "min_crop_px": self.min_crop_px,
+        }
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return self._partitioner.inputs()
@@ -173,4 +277,49 @@ class NemotronParsePDFReader(CompositeStage[EmptyTask, InterleavedBatch]):
         return self._postprocessor.outputs()
 
     def decompose(self) -> list[ProcessingStage]:
-        return [self._partitioner, self._preprocessor, self._inference, self._postprocessor]
+        stages = [self._partitioner, self._preprocessor, self._inference, self._postprocessor]
+        return stages if self._merger is None else [*stages, self._merger]
+
+    def decompose_and_apply_with(self) -> list[ProcessingStage]:
+        stages = super().decompose_and_apply_with()
+        if not self.overlap_rendering:
+            return stages
+
+        partitioner, renderer, inference, *rest = stages
+        if renderer.resources.requires_gpu or inference.resources.requires_gpu:
+            msg = "Overlapping rendering and served inference use a CPU-only actor"
+            raise ValueError(msg)
+        if renderer.runtime_env and inference.runtime_env and renderer.runtime_env != inference.runtime_env:
+            msg = "Overlapping rendering requires a single compatible Ray runtime environment"
+            raise ValueError(msg)
+        ray_spec = inference.ray_stage_spec()
+        if not ray_spec.get("is_actor_stage"):
+            msg = "Overlapping rendering requires an HTTP inference actor"
+            raise ValueError(msg)
+        renderer_remote_args = renderer.ray_stage_spec().get("ray_remote_args") or {}
+        inference_remote_args = ray_spec.get("ray_remote_args") or {}
+        if any(
+            renderer_remote_args[key] != inference_remote_args[key]
+            for key in renderer_remote_args.keys() & inference_remote_args.keys()
+        ):
+            msg = "Overlapping rendering requires compatible Ray actor options"
+            raise ValueError(msg)
+        if renderer_remote_args:
+            ray_spec = {**ray_spec, "ray_remote_args": renderer_remote_args | inference_remote_args}
+        render_cpus = renderer.ray_stage_spec().get("ray_num_cpus")
+        infer_cpus = ray_spec.get("ray_num_cpus")
+        cpus = (renderer.resources.cpus if render_cpus is None else render_cpus) + (
+            inference.resources.cpus if infer_cpus is None else infer_cpus
+        )
+        if render_cpus is not None or infer_cpus is not None:
+            ray_spec = {**ray_spec, "ray_num_cpus": cpus}
+        fused = EarlyAdmissionStage(renderer, inference).with_(
+            name=inference.name,
+            resources=Resources(cpus=cpus),
+            batch_size=inference.batch_size,
+            num_workers=inference.num_workers(),
+            num_workers_per_node=inference.num_workers_per_node(),
+            runtime_env=inference.runtime_env or renderer.runtime_env,
+            ray_stage_spec=ray_spec,
+        )
+        return [partitioner, fused, *rest]

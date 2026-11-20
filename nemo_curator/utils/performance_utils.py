@@ -17,6 +17,7 @@ from __future__ import annotations
 import contextlib
 import statistics
 import time
+import uuid
 from typing import TYPE_CHECKING
 
 import attrs
@@ -46,6 +47,8 @@ class StagePerfStats:
     input_data_size_mb: float = 0.0
     num_items_processed: int = 0
     custom_metrics: dict[str, float] = attrs.field(factory=dict)
+    # A fan-out preserves one measurement across independently serialized tasks.
+    _measurement_id: uuid.UUID = attrs.field(factory=uuid.uuid4, init=False, repr=False, eq=False)
 
     def __add__(self, other: StagePerfStats) -> StagePerfStats:
         """Add two StagePerfStats."""
@@ -72,6 +75,7 @@ class StagePerfStats:
 
     def reset(self) -> None:
         """Reset the stats."""
+        self._measurement_id = uuid.uuid4()
         self.process_time = 0.0
         self.actor_idle_time = 0.0
         self.input_data_size_mb = 0.0
@@ -80,7 +84,16 @@ class StagePerfStats:
 
     def to_dict(self) -> dict[str, float | int]:
         """Convert the stats to a dictionary."""
-        return attrs.asdict(self)
+        # Keep the public metric schema independent of internal accounting IDs,
+        # including records unpickled from before measurement IDs were added.
+        return {
+            "stage_name": self.stage_name,
+            "process_time": self.process_time,
+            "actor_idle_time": self.actor_idle_time,
+            "input_data_size_mb": self.input_data_size_mb,
+            "num_items_processed": self.num_items_processed,
+            "custom_metrics": dict(self.custom_metrics),
+        }
 
     def items(self) -> list[tuple[str, float | int]]:
         """Returns (metric_name, metric_value) pairs
