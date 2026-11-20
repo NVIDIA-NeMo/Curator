@@ -8,12 +8,15 @@ The tutorial is one YAML file, `pipeline.yaml`, run by `nemo_curator/config/run.
 
 - Python 3.11+
 - NeMo Curator installed (see the [Installation Guide](https://docs.nvidia.com/nemo/curator/latest/admin/installation.html))
+- [`ffmpeg`](https://ffmpeg.org/) command-line tool, to convert the recordings to mono WAV
 - Licensed CallHome English audio and CHAT annotations, staged as shown below
 
 ### Stage the Dataset
 
-The audio and CHAT annotations may be distributed separately and the source
-audio may require conversion. Convert the recordings to WAV, then stage each
+The audio and CHAT annotations may be distributed separately. CallHome audio
+is stereo, one speaker per channel, and NeMo reads only the first channel of a
+file, so convert each recording to mono 16 kHz WAV
+(`ffmpeg -i <recording> -ac 1 -ar 16000 <stem>.wav`). Then stage each
 recording and its matching annotation under one directory before running the
 tutorial:
 
@@ -66,7 +69,7 @@ whole-recording preparation, result fields, and RTTM files.
 ## What the Pipeline Does
 
 1. **File discovery (`CreateInitialManifestAudioFolderStage`)** — Emits one `AudioTask` per WAV file in `data_dir`.
-2. **Diarization inference (`InferenceSortformerStage`)** — Loads each whole recording, downmixes the stereo CallHome audio to mono 16 kHz in memory, and sends it to `NeMoSortformerAdapter`. It adds `diar_segments` and `num_speakers`, and writes RTTM files to `<output_dir>/rttm/`.
+2. **Diarization inference (`InferenceSortformerStage`)** — Sends each whole mono recording to `NeMoSortformerAdapter`. It adds `diar_segments` and `num_speakers`, and writes RTTM files to `<output_dir>/rttm/`.
 3. **DER evaluation (`DiarizationErrorRateStage`)** — Compares predicted segments against the matching `eng/<stem>.cha` reference and writes `der_metrics`. Scoring is restricted to the UEM region (min/max annotated timestamps from the CHA file) with a configurable collar tolerance (default 0.25 s). Recordings without a `.cha` file get `der_metrics: null`.
 4. **`ManifestWriterStage`** — Writes one row per recording to `<output_dir>/results.jsonl`.
 
@@ -152,4 +155,4 @@ source.
 - Maximum 4 speakers per recording
 - Trained primarily on English speech
 - Performance may degrade on noisy or very long recordings
-- The stage downmixes and resamples inputs to mono 16 kHz in memory.
+- File inputs are decoded by NeMo, which resamples to 16 kHz but reads only the first channel; stage mono files.

@@ -40,6 +40,7 @@ the source audio.
 
 from __future__ import annotations
 
+import inspect
 import os
 from typing import TYPE_CHECKING, Any
 
@@ -271,6 +272,9 @@ class AudioPretrainWorkflow(WorkflowBase):
     pipeline, and merges the shards into the final manifest, tar, and metrics
     JSON even if the pipeline fails, so partial output is never lost.
     """
+
+    # Lets signature checks of YAML workflow entries see the builder's argument names.
+    __signature__ = inspect.signature(build_audio_pretrain_pipeline)
 
     def __init__(self, **pipeline_kwargs: Any) -> None:  # noqa: ANN401
         self.pipeline_kwargs = pipeline_kwargs

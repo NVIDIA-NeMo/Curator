@@ -95,7 +95,7 @@ def test_stage_builds_adapter_with_engine_options() -> None:
 
 
 def test_stage_writes_canary_unsupported_language_contract() -> None:
-    stage = InferenceIndicCanaryStage(engine_dir="/models/indic-canary").with_(num_workers=4)
+    stage = InferenceIndicCanaryStage(engine_dir="/models/indic-canary")
     adapter = MagicMock()
     adapter.transcribe_batch.return_value = [
         ASRResult(text="namaste", extras={"language_code": "hi", "audio_duration_sec": 0.05}),

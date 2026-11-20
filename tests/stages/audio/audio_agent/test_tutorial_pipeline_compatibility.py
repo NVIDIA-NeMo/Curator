@@ -19,7 +19,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-import hydra
 import pytest
 from omegaconf import DictConfig, OmegaConf
 
@@ -31,7 +30,6 @@ TUTORIAL_PIPELINES = (
     (
         "fleurs",
         "tutorials/audio/fleurs/pipeline.yaml",
-        "stages",
         (
             "CreateInitialManifestFleursStage",
             "ASRStage",
@@ -45,7 +43,6 @@ TUTORIAL_PIPELINES = (
     (
         "alm",
         "tutorials/audio/alm/pipeline.yaml",
-        "stages",
         (
             "ManifestReader",
             "ALMDataBuilderStage",
@@ -56,7 +53,6 @@ TUTORIAL_PIPELINES = (
     (
         "readspeech",
         "tutorials/audio/readspeech/pipeline.yaml",
-        "processors",
         (
             "CreateInitialManifestReadSpeechStage",
             "AudioDataFilterStage",
@@ -67,7 +63,6 @@ TUTORIAL_PIPELINES = (
     (
         "tagging_asr",
         "tutorials/audio/tagging/asr_pipeline.yaml",
-        "stages",
         (
             "ManifestReader",
             "ResampleAudioStage",
@@ -87,7 +82,6 @@ TUTORIAL_PIPELINES = (
     (
         "tagging_tts",
         "tutorials/audio/tagging/tts_pipeline.yaml",
-        "stages",
         (
             "ManifestReader",
             "ResampleAudioStage",
@@ -121,32 +115,26 @@ def _load_config(relative_path: str, tmp_path: Path) -> DictConfig:
     return cfg
 
 
-def _construct_stages(cfg: DictConfig, collection: str) -> list[Any]:
-    if collection == "stages":
-        return list(create_pipeline_from_yaml(cfg, log_config=False).stages)
-    return [hydra.utils.instantiate(stage_cfg) for stage_cfg in cfg.processors]
+def _construct_stages(cfg: DictConfig) -> list[Any]:
+    return list(create_pipeline_from_yaml(cfg, log_config=False).stages)
 
 
 @pytest.mark.parametrize(
-    ("_name", "relative_path", "collection", "expected_classes"),
+    ("_name", "relative_path", "expected_classes"),
     TUTORIAL_PIPELINES,
 )
 def test_tutorial_yaml_stage_order_remains_compatible(
     _name: str,
     relative_path: str,
-    collection: str,
     expected_classes: tuple[str, ...],
     tmp_path: Path,
 ) -> None:
-    stages = _construct_stages(_load_config(relative_path, tmp_path), collection)
+    stages = _construct_stages(_load_config(relative_path, tmp_path))
     assert tuple(type(stage).__name__ for stage in stages) == expected_classes
 
 
 def test_tutorial_sensitive_defaults_remain_compatible(tmp_path: Path) -> None:
-    fleurs = _construct_stages(
-        _load_config("tutorials/audio/fleurs/pipeline.yaml", tmp_path),
-        "stages",
-    )
+    fleurs = _construct_stages(_load_config("tutorials/audio/fleurs/pipeline.yaml", tmp_path))
     assert fleurs[0].lang == "hy_am"
     assert fleurs[0].split == "dev"
     assert fleurs[0].batch_size == 4
@@ -161,10 +149,7 @@ def test_tutorial_sensitive_defaults_remain_compatible(tmp_path: Path) -> None:
     assert fleurs[4].target_value == 5.5
     assert fleurs[5].batch_size == 64
 
-    tagging = _construct_stages(
-        _load_config("tutorials/audio/tagging/asr_pipeline.yaml", tmp_path),
-        "stages",
-    )
+    tagging = _construct_stages(_load_config("tutorials/audio/tagging/asr_pipeline.yaml", tmp_path))
     resample = tagging[1]
     assert resample.target_sample_rate == 16000
     assert resample.target_nchannels == 1
