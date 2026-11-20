@@ -18,6 +18,7 @@ import re
 import pandas as pd
 import pytest
 
+from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.filters import DocumentFilter, Filter, Score, ScoreFilter
 from nemo_curator.stages.text.filters.heuristic import (
     BoilerPlateStringFilter,
@@ -158,6 +159,17 @@ class TestFilterModule:
         assert "retained 2/4 rows" in caplog.text
         assert "filter_fn batch" in caplog.text
         assert "retained 1/4 rows" in caplog.text
+
+    @pytest.mark.parametrize(
+        ("score_field", "expected_columns"),
+        [(None, ["documents"]), ("a_count", ["documents", "a_count"])],
+    )
+    def test_score_filter_outputs(self, score_field: str | None, expected_columns: list[str]) -> None:
+        filters = ScoreFilter(LetterCountFilter(), text_field="documents", score_field=score_field)
+
+        assert filters.outputs() == (["data"], expected_columns)
+        description = Pipeline(name="test", stages=[filters]).describe()
+        assert f"Output columns: {', '.join(expected_columns)}" in description
 
     def test_score_document(self, letter_count_data: DocumentBatch) -> None:
         letter_filter = LetterCountFilter()
