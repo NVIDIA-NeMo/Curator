@@ -19,8 +19,12 @@ from ray.data import ActorPoolStrategy
 
 from nemo_curator.backends.ray_data.utils import (
     get_actor_compute_strategy_for_stage,
+    get_gpu_actor_initial_workers,
 )
 from nemo_curator.backends.utils import RayStageSpecKeys, get_available_cpu_gpu_resources
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.resources import Resources
+from nemo_curator.tasks import EmptyTask
 from tests.backends.test_utils import reset_head_node_cache  # noqa: F401
 
 
@@ -105,3 +109,50 @@ class TestGetActorComputeStrategyForStage:
 
         with pytest.raises(ValueError, match="Invalid Ray Data actor pool sizing for stage stage"):
             get_actor_compute_strategy_for_stage(mock_stage)
+
+
+class _Stage(ProcessingStage[EmptyTask, EmptyTask]):
+    name = "stage"
+
+    def __init__(self, gpus: float = 0.0, ray_stage_spec: dict | None = None, num_workers: int | None = None):
+        self.resources = Resources(cpus=1.0, gpus=gpus)
+        self._ray_stage_spec = ray_stage_spec or {}
+        self._num_workers = num_workers
+
+    def ray_stage_spec(self) -> dict:
+        return self._ray_stage_spec
+
+    def num_workers(self) -> int | None:
+        return self._num_workers
+
+    def process(self, task: EmptyTask) -> EmptyTask:
+        return task
+
+
+class TestGpuActorInitialWorkers:
+    def test_gpu_actor_stages_split_free_gpus(self):
+        stages = [
+            _Stage(),  # CPU task stage
+            _Stage(gpus=1.0),
+            _Stage(gpus=2.0),
+            _Stage(gpus=1.0, ray_stage_spec={RayStageSpecKeys.IS_ACTOR_STAGE: False}),  # GPU task stage
+        ]
+        # 8 GPUs across the two GPU actor stages: 4 GPUs each.
+        assert get_gpu_actor_initial_workers(stages, available_gpus=8) == [None, 4, 2, None]
+
+    def test_explicit_worker_count_and_too_few_gpus(self):
+        stages = [_Stage(gpus=1.0, num_workers=3), _Stage(gpus=1.0)]
+        assert get_gpu_actor_initial_workers(stages, available_gpus=1) == [None, 1]
+
+    @pytest.mark.parametrize(
+        ("ray_stage_spec", "expected"),
+        [
+            ({}, ActorPoolStrategy(min_size=1, max_size=None, initial_size=4)),
+            ({RayStageSpecKeys.MAX_WORKERS: 2}, ActorPoolStrategy(min_size=1, max_size=2, initial_size=2)),
+            ({RayStageSpecKeys.MIN_WORKERS: 6}, ActorPoolStrategy(min_size=6, max_size=None, initial_size=6)),
+            ({RayStageSpecKeys.INITIAL_WORKERS: 3}, ActorPoolStrategy(min_size=1, max_size=None, initial_size=3)),
+        ],
+    )
+    def test_default_initial_workers_respects_stage_sizing(self, ray_stage_spec: dict, expected: ActorPoolStrategy):
+        stage = _Stage(gpus=1.0, ray_stage_spec=ray_stage_spec)
+        assert get_actor_compute_strategy_for_stage(stage, default_initial_workers=4) == expected
