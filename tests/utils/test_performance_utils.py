@@ -3,6 +3,8 @@
 
 import pickle
 
+import pytest
+
 from nemo_curator.utils.performance_utils import StagePerfStats
 
 
@@ -37,3 +39,17 @@ def test_adding_stats_creates_one_new_measurement():
     total = first + second
     assert total.process_time == 3.0
     assert total._measurement_id not in {first._measurement_id, second._measurement_id}
+
+
+@pytest.mark.parametrize("tuple_state", [False, True])
+def test_legacy_stats_can_be_serialized_again_after_upgrade(*, tuple_state: bool) -> None:
+    metrics = StagePerfStats("stage", 1.0, 2.0, 3.0, 4, {"pages": 5.0}).to_dict()
+    restored = StagePerfStats.__new__(StagePerfStats)
+    restored.__setstate__(tuple(metrics.values()) if tuple_state else metrics)
+
+    copies = [pickle.loads(pickle.dumps(restored)) for _ in range(2)]  # noqa: S301 - trusted in-memory fixture
+
+    assert all(copy.to_dict() == metrics for copy in copies)
+    assert copies[0]._measurement_id == copies[1]._measurement_id == restored._measurement_id
+    assert restored._measurement_id != StagePerfStats("stage")._measurement_id
+    assert not hasattr(restored, "unrelated_attribute")

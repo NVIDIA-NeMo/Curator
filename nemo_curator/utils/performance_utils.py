@@ -50,6 +50,14 @@ class StagePerfStats:
     # A fan-out preserves one measurement across independently serialized tasks.
     _measurement_id: uuid.UUID = attrs.field(factory=uuid.uuid4, init=False, repr=False, eq=False)
 
+    def __getattr__(self, name: str) -> uuid.UUID:
+        # attrs restores only the fields present in a pickle. An older record
+        # needs an identity when Ray serializes it again for the next stage.
+        if name == "_measurement_id":
+            self._measurement_id = uuid.uuid4()
+            return self._measurement_id
+        raise AttributeError(name)
+
     def __add__(self, other: StagePerfStats) -> StagePerfStats:
         """Add two StagePerfStats."""
         return StagePerfStats(
