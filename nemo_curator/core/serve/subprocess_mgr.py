@@ -608,23 +608,18 @@ def sweep_orphan_actors_by_prefix(*, prefix: str, namespace: str) -> int:
     number of orphans reaped. Mirrors ``remove_named_pgs_with_prefix`` in
     ``placement``.
     """
-    try:
-        from ray.util.state import list_actors
-    except ImportError:
-        return 0
-
     import ray
 
     try:
-        alive = list_actors(filters=[("state", "=", "ALIVE")])
-    except Exception:  # noqa: BLE001
-        logger.debug("Could not list actors for orphan sweep")
+        named = ray.util.list_named_actors(all_namespaces=True)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"Could not list actors for cleanup of {prefix!r} in {namespace!r}: {exc}")
         return 0
 
     stale: list[tuple[str, ActorHandle]] = []
-    for entry in alive:
-        name = getattr(entry, "name", "") or ""
-        if not name.startswith(prefix):
+    for entry in named:
+        name = entry["name"]
+        if entry["namespace"] != namespace or not name.startswith(prefix):
             continue
         try:
             actor = ray.get_actor(name, namespace=namespace)

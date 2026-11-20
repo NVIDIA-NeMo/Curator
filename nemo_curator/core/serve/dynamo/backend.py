@@ -83,6 +83,13 @@ if TYPE_CHECKING:
     from nemo_curator.core.serve.server import InferenceServer
 
 
+def _ray_session() -> contextlib.AbstractContextManager:
+    """Keep a caller-owned Ray connection alive across deployment operations."""
+    if ray.is_initialized():
+        return contextlib.nullcontext()
+    return ray.init(namespace=NEMO_CURATOR_DYNAMO_NAMESPACE)
+
+
 class DynamoBackend(InferenceBackend):
     """Dynamo backend for ``InferenceServer`` — aggregated serving on Ray PGs.
 
@@ -133,7 +140,7 @@ class DynamoBackend(InferenceBackend):
         deployment_id = uuid.uuid4().hex
         self._actor_name_prefix = f"dynamo_{deployment_id}_{server.name}"
 
-        with ray.init(namespace=NEMO_CURATOR_DYNAMO_NAMESPACE, ignore_reinit_error=True):
+        with _ray_session():
             # Anchor the runtime dir under Ray's session dir so the benchmarking
             # runner (benchmarking/runner/ray_cluster.py) picks up Dynamo
             # subprocess logs / manifests when it copies session_latest/ to the
@@ -158,7 +165,7 @@ class DynamoBackend(InferenceBackend):
 
     def stop(self) -> None:
         try:
-            with ray.init(namespace=NEMO_CURATOR_DYNAMO_NAMESPACE, ignore_reinit_error=True):
+            with _ray_session():
                 self._teardown_actors_and_pgs()
         except Exception:  # noqa: BLE001
             logger.warning("Dynamo backend shutdown hit an error (cluster may be gone)", exc_info=True)

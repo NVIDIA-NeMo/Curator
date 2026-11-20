@@ -23,6 +23,7 @@ from typing import Any
 from unittest import mock
 
 import pytest
+import ray
 
 import nemo_curator.core.serve.dynamo.backend as dynamo_backend
 from nemo_curator.core.serve import DynamoServerConfig, DynamoVLLMModelConfig, InferenceServer, subprocess_mgr
@@ -632,6 +633,25 @@ def test_failed_dynamo_deploy_stops_children_before_removing_pg(ambient_namespac
     assert not any(children_alive.values()), {"alive": children_alive, "events": events}
     assert events[-1] == ("remove-pg", 0)
     assert all(options.get("namespace") == NEMO_CURATOR_DYNAMO_NAMESPACE for options in spawn_options)
+
+
+@pytest.mark.usefixtures("shared_ray_client")
+def test_dynamo_preserves_callers_ray_session() -> None:
+    backend = DynamoBackend(
+        InferenceServer(
+            models=[DynamoVLLMModelConfig(model_identifier="m")],
+            backend=DynamoServerConfig(etcd_endpoint="http://etcd:2379", nats_url="nats://nats:4222"),
+        )
+    )
+    job = ray.get_runtime_context().get_job_id()
+    with (
+        mock.patch.object(dynamo_backend, "ensure_actor_overrides_on_all_nodes"),
+        mock.patch.object(backend, "_deploy_and_healthcheck"),
+    ):
+        backend.start()
+        assert ray.is_initialized() and ray.get_runtime_context().get_job_id() == job
+        backend.stop()
+        assert ray.is_initialized() and ray.get_runtime_context().get_job_id() == job
 
 
 def test_same_name_dynamo_deployments_keep_independent_lifecycles() -> None:
