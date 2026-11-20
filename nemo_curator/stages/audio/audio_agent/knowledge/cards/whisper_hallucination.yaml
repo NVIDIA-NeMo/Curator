@@ -1,0 +1,17 @@
+stage_id: WhisperHallucinationStage
+category: quality
+summary: "Flag likely ASR hallucinations (repeated n-grams, long words, known phrases, impossible character rate) in skip_me_key without dropping rows."
+tags: []
+model_id: null
+resource: {cpus: 1.0, gpu_mem_gb: 0.0, gpu_optional: false, bound: cpu}
+composition:
+  typical_downstream: [SelectBestPredictionStage]
+params_of_note:
+  common_hall_file: "Text file of known hallucination phrases, one per line."
+  text_key: "Transcript to check (default pred_text)."
+  duration_key: "Audio duration in seconds for the character-rate check."
+  overwrite: "Re-check rows already flagged and clear the flag when the transcript now passes."
+notes:
+  - "Flagged rows get skip_me_key = 'Hallucination:<name>'; unrelated existing skip reasons are kept."
+verified: {params: mechanical, tags: mechanical, resource: best_guess}
+provenance: {model_card_url: null, card_version: 1, last_validated: "2026-11-19"}

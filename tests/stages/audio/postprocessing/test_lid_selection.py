@@ -19,7 +19,9 @@ from __future__ import annotations
 import pytest
 
 from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
+from nemo_curator.stages.audio._agent._planning import validate_pipeline
 from nemo_curator.stages.audio.postprocessing.lid_selection import SelectAudioLanguageStage
+from nemo_curator.stages.audio.preprocessing.indic_asr import PrepareIndicASRInputStage
 from nemo_curator.tasks import AudioTask
 
 _SPEECHBRAIN = "SpeechBrainLangID"
@@ -304,6 +306,15 @@ def test_selector_is_agent_ready_for_each_selection_path(scenario: str) -> None:
     assert contract.writes.data_keys == ["source_lang", "additional_notes"]
     assert contract.removes_keys == ["lid"]
     assert contract.conditional_writes[0].writes.data_keys == ["_skipme"]
+
+
+def test_selected_language_satisfies_a_required_language_read() -> None:
+    report = validate_pipeline(
+        [SelectAudioLanguageStage(), PrepareIndicASRInputStage()],
+        initial_keys={"audio_filepath", "audio_item_id", "duration", "text", "lid"},
+    )
+
+    assert report.ok, report.issues
 
 
 @pytest.mark.parametrize(

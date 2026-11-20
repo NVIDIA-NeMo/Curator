@@ -99,6 +99,11 @@ KEY_ROLES: dict[str, Role] = {
     # windows (ALM snippet planning)
     "windows_key": "windows",
     "filtered_windows_key": "windows",
+    # shared row-control columns: a language code, the "_skipme" reason, the audit-note mapping
+    "source_lang_key": "language",
+    "language_key": "language",
+    "skip_me_key": "skip_reason",
+    "notes_key": "notes",
 }
 
 # ``*_key`` constructor fields with no cross-stage role (chained by value within
@@ -141,6 +146,9 @@ LITERAL_KEY_ROLES: dict[str, Role] = {
     "pred_text": "pred_text",
     "words": "words",
     "alignment": "alignment",
+    "source_lang": "language",
+    "_skipme": "skip_reason",
+    "additional_notes": "notes",
 }
 
 

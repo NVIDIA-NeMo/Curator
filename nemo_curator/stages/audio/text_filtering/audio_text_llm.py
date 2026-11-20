@@ -127,9 +127,6 @@ class AudioTextLLMStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     KEY_ROLE_OVERRIDES: ClassVar[dict[str, Role]] = {
         "output_text_key": "text",
         "ground_truth_key": "reference_text",
-        "language_key": "unknown",
-        "notes_key": "unknown",
-        "skip_me_key": "unknown",
     }
     INTERNAL_KEY_FIELDS: ClassVar[frozenset[str]] = frozenset({"api_key"})
     AGENT_STATIC: ClassVar[StaticHints] = StaticHints(

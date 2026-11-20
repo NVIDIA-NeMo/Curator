@@ -422,7 +422,7 @@ class NeMoSpeechReaderStage(AgentReady, ProcessingStage[FileGroupTask, AudioTask
     )
     KEY_ROLE_OVERRIDES: ClassVar[dict[str, Role]] = {"sampling_rate_key": "sample_rate"}
     INTERNAL_KEY_FIELDS: ClassVar[frozenset[str]] = frozenset(
-        {"num_channels_key", "corpus_key", "source_lang_key", "read_error_key", "audio_too_long_key"}
+        {"num_channels_key", "corpus_key", "read_error_key", "audio_too_long_key"}
     )
 
     def __post_init__(self) -> None:

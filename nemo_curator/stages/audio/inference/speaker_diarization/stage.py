@@ -271,7 +271,7 @@ class InferenceSortformerStage(AgentReady, AdapterInferenceStage[DiarizationAdap
         "session_name_key": "item_id",
         "rttm_filepath_key": "output_path",
     }
-    INTERNAL_KEY_FIELDS: ClassVar[frozenset[str]] = frozenset({"notes_key", "read_error_key"})
+    INTERNAL_KEY_FIELDS: ClassVar[frozenset[str]] = frozenset({"read_error_key"})
 
     def __post_init__(self) -> None:
         super().__post_init__()

@@ -15,7 +15,7 @@
 """Bandwidth estimation stage."""
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, ClassVar
 
 import librosa
 import numpy as np
@@ -28,6 +28,7 @@ from nemo_curator.stages.audio._agent._agent_ready import (
     Gates,
     IOSpec,
     StageContract,
+    StaticHints,
 )
 from nemo_curator.stages.audio._agent._residency import (
     InputResidency,
@@ -113,6 +114,8 @@ class BandwidthEstimationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.audio_filepath_key, self.metrics_key]
+
+    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(gates=Gates(per_row_independent=True))
 
     def describe(self) -> StageContract:
         # An audio source (file or in-memory waveform, per input_residency) AND

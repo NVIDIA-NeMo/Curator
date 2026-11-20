@@ -21,6 +21,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
 from nemo_curator.stages.audio.postprocessing import (
     SEDPostprocessingStage as PublicSEDPostprocessingStage,
 )
@@ -264,3 +265,22 @@ def test_importing_the_stage_needs_no_torch_dependency() -> None:
         [sys.executable, "-c", probe], capture_output=True, text=True, check=True
     )
     assert result.stdout.strip() == "False False"
+
+
+def test_stage_is_agent_ready() -> None:
+    assert_agent_ready(
+        _stage(),
+        lambda: _task(_framewise(active={_SPEECH_IDX: (10, 40)})),
+        expected_cardinality="1:1",
+        available_keys={"_sed_framewise", "sed_fps", "sed_valid_frames"},
+    )
+
+
+def test_frame_rate_and_valid_frame_keys_are_configurable() -> None:
+    framewise = _framewise(active={_SPEECH_IDX: (10, 40)})
+    task = AudioTask(data={"_sed_framewise": framewise, "fps": _FPS, "frames": 20})
+
+    events = _stage(fps_key="fps", valid_frames_key="frames").process(task).data["sed_events"]
+
+    assert [event["start_time"] for event in events] == [pytest.approx(0.2)]
+    assert [event["end_time"] for event in events] == [pytest.approx(0.4)]

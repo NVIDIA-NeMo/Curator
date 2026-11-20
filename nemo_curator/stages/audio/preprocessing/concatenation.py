@@ -34,12 +34,12 @@ Example:
 
 import os
 from dataclasses import KW_ONLY, dataclass, field
-from typing import Any
+from typing import Any, ClassVar
 
 import torch
 from loguru import logger
 
-from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract
+from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract, StaticHints
 from nemo_curator.stages.audio._agent._residency import validate_audio_key_configuration, write_audio_stable
 from nemo_curator.stages.audio.common import ensure_waveform_2d
 from nemo_curator.stages.base import ProcessingStage
@@ -152,6 +152,8 @@ class SegmentConcatenationStage(AgentReady, ProcessingStage[AudioTask, AudioTask
         if self.write_to_disk:
             outs.append(self.audio_filepath_key)
         return [], outs
+
+    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(gates=Gates(per_row_independent=True))
 
     def describe(self) -> StageContract:
         writes = [self.original_file_key, self.num_segments_key, self.total_duration_sec_key]

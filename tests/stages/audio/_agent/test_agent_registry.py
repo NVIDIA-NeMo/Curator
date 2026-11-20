@@ -123,3 +123,19 @@ def test_manifest_writer_static_contract_exposes_invariant_sink_gates(tmp_path: 
     configured = build_contract(ManifestWriterStage(output_path=str(tmp_path / "out.jsonl")))
 
     assert static.gates == configured.gates
+
+
+@pytest.mark.parametrize(
+    ("field_name", "default", "role"),
+    [
+        ("source_lang_key", "source_lang", "language"),
+        ("language_key", "source_lang", "language"),
+        ("skip_me_key", "_skipme", "skip_reason"),
+        ("notes_key", "additional_notes", "notes"),
+    ],
+)
+def test_shared_row_control_columns_have_roles(field_name: str, default: str, role: str) -> None:
+    from nemo_curator.stages.audio._agent._roles import role_for_field, role_for_value
+
+    assert role_for_field(field_name) == role
+    assert role_for_value(default) == role

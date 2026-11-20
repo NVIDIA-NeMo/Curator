@@ -1,0 +1,21 @@
+stage_id: SEDInferenceStage
+category: quality
+summary: "Run sound-event detection through an adapter and store a frame-by-class probability matrix per row (optionally as an NPZ sidecar)."
+tags: [needs_gpu, needs_internet_first_run, batch_only]
+model_id: null
+resource:
+  cpus: 1.0
+  gpu_mem_gb: 4.0
+  gpu_optional: false
+  bound: gpu
+composition:
+  typical_downstream: [SEDPostprocessingStage]
+params_of_note:
+  adapter_target: "Import path of a SEDAdapter (tutorial: PANNs CNN14)."
+  checkpoint_path: "Checkpoint file; a missing path is downloaded to."
+  save_npz: "Also write output_dir/framewise/*.npz and npz_filepath_key."
+  framewise_output_key: "In-memory matrix key (default _sed_framewise), consumed by SEDPostprocessingStage."
+notes:
+  - "Not declared per-row independent: the adapter pads each batch."
+verified: {params: mechanical, tags: mechanical, resource: best_guess}
+provenance: {model_card_url: null, card_version: 1, last_validated: "2026-11-19"}

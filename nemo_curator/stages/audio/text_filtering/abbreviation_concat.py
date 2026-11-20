@@ -17,10 +17,17 @@ from __future__ import annotations
 import functools
 import re
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, ClassVar
 
 from loguru import logger
 
+from nemo_curator.stages.audio._agent._agent_ready import (
+    AgentReady,
+    ConditionalWrite,
+    IOSpec,
+    Role,
+    StageContract,
+)
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -203,7 +210,7 @@ def concat_abbreviations(text: str, language: str = "en") -> tuple[str, list[str
 
 
 @dataclass
-class AbbreviationConcatStage(ProcessingStage[AudioTask, AudioTask]):
+class AbbreviationConcatStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """Concatenate spaced single-letter abbreviations in a transcript."""
 
     text_key: str = "text"
@@ -214,6 +221,23 @@ class AbbreviationConcatStage(ProcessingStage[AudioTask, AudioTask]):
     default_language: str = "en"
     name: str = "AbbreviationConcat"
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
+
+    KEY_ROLE_OVERRIDES: ClassVar[dict[str, Role]] = {"output_text_key": "text"}
+
+    def describe(self) -> StageContract:
+        return StageContract(
+            reads=IOSpec(data_keys=[self.text_key]),
+            optional_reads=IOSpec(data_keys=[self.skip_me_key, self.source_lang_key, self.notes_key]),
+            writes=IOSpec(data_keys=[self.output_text_key]),
+            conditional_writes=[
+                ConditionalWrite(
+                    writes=IOSpec(data_keys=[self.notes_key]),
+                    condition="at least one spaced abbreviation is joined",
+                    value_origin="augments_upstream_same_key",
+                )
+            ],
+            cardinality="1:1",
+        )
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], [self.text_key]

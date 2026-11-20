@@ -22,6 +22,7 @@ from nemo_curator.stages.audio import (
 from nemo_curator.stages.audio import (
     RegexSubstitutionStage as PublicRegexSubstitutionStage,
 )
+from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
 from nemo_curator.stages.audio.text_filtering.abbreviation_concat import (
     AbbreviationConcatStage,
     concat_abbreviations,
@@ -155,3 +156,13 @@ def test_stage_preserves_non_string_input() -> None:
 def test_audio_package_exports_stages() -> None:
     assert PublicAbbreviationConcatStage is AbbreviationConcatStage
     assert PublicRegexSubstitutionStage is RegexSubstitutionStage
+
+
+def test_abbreviation_concat_is_agent_ready() -> None:
+    contract = assert_agent_ready(
+        AbbreviationConcatStage(),
+        lambda: AudioTask(data={"text": "the N A S A launch", "source_lang": "en"}),
+        expected_cardinality="1:1",
+        available_keys={"text", "source_lang"},
+    )
+    assert contract.key_roles["text"] == "text"

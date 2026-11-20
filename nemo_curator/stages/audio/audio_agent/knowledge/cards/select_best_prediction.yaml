@@ -1,0 +1,19 @@
+stage_id: SelectBestPredictionStage
+category: text_norm
+summary: "Choose one transcript per row from a primary prediction, a fallback prediction, or reference text, recording the chosen source."
+tags: []
+model_id: null
+resource: {cpus: 1.0, gpu_mem_gb: 0.0, gpu_optional: false, bound: cpu}
+composition:
+  typical_upstream: [WhisperHallucinationStage]
+params_of_note:
+  primary_text_key: "Primary model prediction."
+  fallback_text_key: "Fallback model prediction (overridden by asr_text_key when set)."
+  output_key: "Selected transcript (default best_prediction)."
+  source_key: "Label of the selected source (default best_prediction_source)."
+  reference_text_key: "Optional reference text used by the reference policies."
+  min_agreement_pct: "Agreement needed to keep a hallucination-flagged primary prediction."
+notes:
+  - "Reads lang_not_supported / recovered notes from notes_key and Hallucination reasons from skip_me_key to pick a branch."
+verified: {params: mechanical, tags: mechanical, resource: best_guess}
+provenance: {model_card_url: null, card_version: 1, last_validated: "2026-11-19"}

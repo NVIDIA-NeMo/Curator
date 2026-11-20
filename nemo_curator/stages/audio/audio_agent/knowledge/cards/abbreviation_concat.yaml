@@ -1,0 +1,16 @@
+stage_id: AbbreviationConcatStage
+category: text_norm
+summary: "Join ASR-spelled single-letter abbreviations (e.g. 'N A S A' -> 'NASA') in one transcript field."
+tags: []
+model_id: null
+resource: {cpus: 1.0, gpu_mem_gb: 0.0, gpu_optional: false, bound: cpu}
+composition:
+  typical_upstream: [RegexSubstitutionStage]
+params_of_note:
+  text_key: "Input transcript (default text)."
+  output_text_key: "Output transcript (default text, i.e. in place)."
+  source_lang_key: "Language code selecting the uppercase letter class (default source_lang; falls back to default_language)."
+notes:
+  - "Rows with a skip reason are left unchanged; joins are noted in notes_key."
+verified: {params: mechanical, tags: mechanical, resource: best_guess}
+provenance: {model_card_url: null, card_version: 1, last_validated: "2026-11-19"}

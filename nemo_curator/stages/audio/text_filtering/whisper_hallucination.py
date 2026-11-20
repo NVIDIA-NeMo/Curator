@@ -24,6 +24,11 @@ from typing import Any
 
 from loguru import logger
 
+from nemo_curator.stages.audio._agent._agent_ready import (
+    AgentReady,
+    IOSpec,
+    StageContract,
+)
 from nemo_curator.stages.audio.text_filtering.scriptio_continua import is_scriptio_continua
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
@@ -47,7 +52,7 @@ AGGLUTINATIVE_COMPOUNDING_LANGS: frozenset[str] = frozenset(
 
 
 @dataclass
-class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
+class WhisperHallucinationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """Flag transcripts that show common ASR hallucination patterns.
 
     Four independent checks run, and any single hit flags the row:
@@ -116,6 +121,14 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
     # Long phrases such as "Thank you" intentionally match their common
     # Whisper-generated continuations.
     _PREFIX_MATCH_MIN_LEN: int = 8
+
+    def describe(self) -> StageContract:
+        return StageContract(
+            reads=IOSpec(data_keys=[self.text_key, self.duration_key]),
+            optional_reads=IOSpec(data_keys=[self.skip_me_key, self.language_key, self.notes_key]),
+            writes=IOSpec(data_keys=[self.skip_me_key, self.notes_key]),
+            cardinality="1:1",
+        )
 
     def _set_note(self, task_data: dict[str, Any], value: str) -> None:
         notes = task_data.get(self.notes_key)

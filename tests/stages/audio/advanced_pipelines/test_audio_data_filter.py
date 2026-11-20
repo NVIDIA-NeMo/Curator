@@ -19,6 +19,7 @@ import pytest
 from omegaconf import OmegaConf
 
 from nemo_curator.stages.audio._agent._agent_registry import build_contract, static_contract
+from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
 from nemo_curator.stages.audio._agent._planning import validate_pipeline
 from nemo_curator.stages.audio.advanced_pipelines.audio_data_filter.audio_data_filter import (
     AudioDataFilterStage,
@@ -440,3 +441,7 @@ class TestDefaultYAMLConsistency:
         stages_with_gpus = ["vad", "band_filter", "utmos", "sigmos", "speaker_separation"]
         for stage_name in stages_with_gpus:
             assert "gpus" in cfg[stage_name], f"{stage_name} missing 'gpus' in config"
+
+
+def test_audio_data_filter_is_agent_ready() -> None:
+    assert_agent_ready(AudioDataFilterStage(), run=False)
