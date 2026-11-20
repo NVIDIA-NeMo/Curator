@@ -16,7 +16,7 @@ use_cases:
   good_for: ["keep high-fidelity wideband recordings (full_band)", "cheap CPU early-cull before GPU quality stages", "detect telephony / narrowband audio"]
   avoid_for: ["telephony data you want to KEEP (then set band_value=narrow_band)", "when you need a perceptual-quality score (use UTMOS/SIGMOS)"]
 composition:
-  typical_upstream: [MonoConversionStage, VADSegmentationStage]
+  typical_upstream: [AudioFormatStage, VADSegmentationStage]
   typical_downstream: [UTMOSFilterStage, SIGMOSFilterStage]
 params_of_note:
   band_value: "'full_band' (keep hi-fi / wideband, default) or 'narrow_band' (keep telephony-style)"
@@ -43,7 +43,7 @@ comparison:
   known_limitations: "bandwidth only; not a perceptual-quality score"
 notes:
   - "Cheapest quality filter (CPU) -- a good FIRST filter to reduce load on downstream GPU stages."
-  - "Sample rate: it does NOT resample; it computes band energies (0-24 kHz bins) on the audio's NATIVE spectrum to detect bandwidth. Do NOT put a ResampleAudioStage upstream -- resampling changes the very bandwidth it measures. Any input rate works; a source stored at a low rate is correctly read as narrower band (bands above Nyquist read as empty)."
+  - "Sample rate: it does NOT resample; it computes band energies (0-24 kHz bins) on the audio's NATIVE spectrum to detect bandwidth. Do NOT put an AudioFormatStage(target_sample_rate=...) upstream -- resampling changes the very bandwidth it measures. Any input rate works; a source stored at a low rate is correctly read as narrower band (bands above Nyquist read as empty)."
   - "Model: sklearn RandomForest loaded via joblib from HF nvidia/nemocurator-speech-bandwidth-filter (file band_classifier_model_band_7000_samples.joblib); features are LUFS-normalized band energies. Trained/validated primarily on 16 kHz and 48 kHz audio."
   - "Downloads the .joblib on first run (needs network once) unless model_path is set."
   - "Output scope follows mode. A valid prediction writes band_prediction in only the selected task or segment scope. In annotate mode, unresolvable audio, unavailable inference, or an invalid prediction retains the item without band_prediction; in filter mode it is dropped."

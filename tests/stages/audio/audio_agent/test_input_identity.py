@@ -379,10 +379,10 @@ class TestFolderAndGeneratedSources:
                 {"raw_data_dir": "file:///tmp/readspeech"},
             ),
             (
-                "ReadLongFormManifestStage",
+                "ManifestReader",
                 {
-                    "input_manifest": "file:///tmp/long.jsonl",
-                    "audio_dir": "/tmp/audio",  # noqa: S108
+                    "manifest_path": "/tmp/long.jsonl",  # noqa: S108
+                    "audio_dir": "file:///tmp/audio",
                 },
             ),
         ],
@@ -483,19 +483,22 @@ class TestFolderAndGeneratedSources:
         assert not raw_dir.exists()
 
 
-class TestLongFormSource:
+class TestAudioDirManifestSource:
+    """ManifestReader with ``audio_dir`` (the ALM pretrain long-form source)."""
+
     def test_manifest_is_primary_and_audio_resolution_is_profile_context(self, tmp_path: Path) -> None:
         manifest = tmp_path / "long.jsonl"
         manifest.write_text("{}\n", encoding="utf-8")
         audio_dir = tmp_path / "audio"
         audio_dir.mkdir()
         recipe = _recipe(
-            "ReadLongFormManifestStage",
+            "ManifestReader",
             {
-                "input_manifest": str(manifest),
+                "manifest_path": str(manifest),
                 "audio_dir": str(audio_dir),
                 "audio_path_resolution": "relative",
-                "audio_filepath_key": "path",
+                "include_files_key": "path",
+                "id_key": "id",
             },
             inputs={"manifest_path": manifest.as_uri(), "audio_dir": str(audio_dir)},
         )
@@ -503,23 +506,36 @@ class TestLongFormSource:
         binding = resolve_dataset_binding(recipe, data=manifest.as_uri())
 
         assert binding.status == "resolved"
-        assert binding.configured_paths == (str(manifest), str(audio_dir))
+        assert binding.configured_paths == (str(manifest),)
         assert binding.primary_path == str(manifest)
         assert binding.profile_source == str(manifest)
         assert binding.profile_kwargs == {
+            "audio_filepath_key": "path",
+            "include_files": None,
             "audio_dir": str(audio_dir),
             "audio_path_resolution": "relative",
-            "audio_filepath_key": "path",
         }
+
+    def test_asserted_audio_dir_must_match(self, tmp_path: Path) -> None:
+        manifest = tmp_path / "long.jsonl"
+        manifest.write_text("{}\n", encoding="utf-8")
+        binding = resolve_dataset_binding(
+            _recipe(
+                "ManifestReader",
+                {"manifest_path": str(manifest), "audio_dir": str(tmp_path)},
+                inputs={"audio_dir": str(tmp_path / "other")},
+            )
+        )
+        assert binding.status == "mismatch"
 
     def test_as_is_resolution_does_not_require_audio_dir_to_exist(self, tmp_path: Path) -> None:
         manifest = tmp_path / "long.jsonl"
         manifest.write_text("", encoding="utf-8")
         binding = resolve_dataset_binding(
             _recipe(
-                "ReadLongFormManifestStage",
+                "ManifestReader",
                 {
-                    "input_manifest": str(manifest),
+                    "manifest_path": str(manifest),
                     "audio_dir": str(tmp_path / "unused"),
                     "audio_path_resolution": "as_is",
                 },
@@ -527,33 +543,30 @@ class TestLongFormSource:
         )
         assert binding.status == "resolved"
 
-    def test_invalid_resolution_and_missing_manifest_are_not_resolved(self, tmp_path: Path) -> None:
+    def test_invalid_resolution_and_missing_paths_are_not_resolved(self, tmp_path: Path) -> None:
+        manifest = tmp_path / "long.jsonl"
+        manifest.write_text("", encoding="utf-8")
         invalid = resolve_dataset_binding(
             _recipe(
-                "ReadLongFormManifestStage",
-                {
-                    "input_manifest": str(tmp_path / "missing.jsonl"),
-                    "audio_dir": str(tmp_path),
-                    "audio_path_resolution": "invented",
-                },
+                "ManifestReader",
+                {"manifest_path": str(manifest), "audio_dir": str(tmp_path), "audio_path_resolution": "invented"},
             )
         )
-        missing = resolve_dataset_binding(
-            _recipe(
-                "ReadLongFormManifestStage",
-                {"input_manifest": str(tmp_path / "missing.jsonl"), "audio_dir": str(tmp_path)},
-            )
+        missing_audio = resolve_dataset_binding(
+            _recipe("ManifestReader", {"manifest_path": str(manifest), "audio_dir": str(tmp_path / "absent")})
+        )
+        missing_manifest = resolve_dataset_binding(
+            _recipe("ManifestReader", {"manifest_path": str(tmp_path / "missing.jsonl"), "audio_dir": str(tmp_path)})
         )
         assert invalid.status == "unsupported"
-        assert missing.status == "missing"
+        assert missing_audio.status == "missing"
+        assert "audio_dir does not exist" in missing_audio.reason
+        assert missing_manifest.status == "missing"
 
     def test_resolution_does_not_mutate_recipe_or_stage_defaults(self, tmp_path: Path) -> None:
         manifest = tmp_path / "long.jsonl"
         manifest.write_text("", encoding="utf-8")
-        recipe = _recipe(
-            "ReadLongFormManifestStage",
-            {"input_manifest": str(manifest), "audio_dir": str(tmp_path)},
-        )
+        recipe = _recipe("ManifestReader", {"manifest_path": str(manifest), "audio_dir": str(tmp_path)})
         before = recipe.to_dict()
         resolve_dataset_binding(recipe)
         assert recipe.to_dict() == before

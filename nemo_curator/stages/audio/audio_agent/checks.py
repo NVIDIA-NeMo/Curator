@@ -264,13 +264,11 @@ def _check_data_flow(ctx: CheckContext) -> CheckResult:
 def _rate_converted_to(stage: Any, built: Any) -> int | None:  # noqa: ANN401 - IR and built stage
     """The rate this stage CONVERTS its audio to, or ``None`` if it changes nothing.
 
-    Only ``target_sample_rate`` counts as a conversion. ``MonoConversionStage`` takes an
-    ``output_sample_rate``, but its card is explicit that this is a rate to VERIFY against and
-    that the stage never resamples -- reading it as a conversion would tell the planner the
+    Only ``target_sample_rate`` counts as a conversion. ``allowed_sample_rates`` and its
+    min/max siblings SELECT rows -- reading them as a conversion would tell the planner the
     audio had been converted when it had merely been checked (and non-matching rows dropped).
 
-    The built stage is consulted so an omitted parameter still resolves to its real default
-    (``ResampleAudioStage`` converts to 16 kHz whether or not the recipe says so).
+    The built stage is consulted so an omitted parameter still resolves to its real default.
     """
     v = stage.params.get("target_sample_rate")
     if v is None and built is not None:
@@ -307,7 +305,7 @@ def _forget_rewritten_rates(
 def _sample_rate_provenance(ctx: CheckContext, data_srs: set[int]) -> list[set[int]]:  # noqa: C901, PLR0912
     """Track file and resident rate evidence separately for each configured binding."""
     # A conversion only changes the keys it actually writes. In particular, the
-    # default resampler leaves the source filepath untouched, and ASR's internal
+    # default converter leaves the source filepath untouched, and ASR's internal
     # input preparation does not change audio supplied to a later stage.
     file_rates: dict[str, set[int]] = {}
     resident_rates: dict[str, set[int]] = {}
@@ -344,22 +342,22 @@ def _sample_rate_provenance(ctx: CheckContext, data_srs: set[int]) -> list[set[i
         else:
             srs_here = set(file_srs)
         rates.append(srs_here)
-        if s.ref == "ResampleAudioStage":
-            converted = _rate_converted_to(s, stage_obj)
-            if converted is not None:
-                if param("write_to_disk", True):
-                    file_rates[param("resampled_audio_filepath_key", "resampled_audio_filepath")] = {converted}
-                    if param("update_audio_filepath", False):
-                        original_key = param("original_audio_filepath_key", "original_audio_filepath")
-                        file_rates.setdefault(original_key, set(file_srs))
-                        file_rates[filepath_key] = {converted}
-                if param("keep_waveform_in_task", False):
-                    resident_rates[waveform_key] = {converted}
-                    resident_rate_keys[waveform_key] = sample_rate_key
-                    converted_resident_keys.add(waveform_key)
-                elif param("write_to_disk", True) and residency != "file":
-                    resident_rates.pop(waveform_key, None)
-                    converted_resident_keys.discard(waveform_key)
+        converted = _rate_converted_to(s, stage_obj) if s.ref == "AudioFormatStage" else None
+        if converted is not None:
+            if param("write_to_disk", False):
+                file_rates[param("output_audio_filepath_key", "converted_audio_filepath")] = {converted}
+                if param("update_audio_filepath", False):
+                    original_key = param("original_audio_filepath_key", "original_audio_filepath")
+                    file_rates.setdefault(original_key, set(file_srs))
+                    file_rates[filepath_key] = {converted}
+            if param("keep_waveform_in_task", True):
+                resident_rates[waveform_key] = {converted}
+                resident_rate_keys[waveform_key] = sample_rate_key
+                converted_resident_keys.add(waveform_key)
+            else:
+                # A disk-only conversion removes the resident waveform/rate pair.
+                resident_rates.pop(waveform_key, None)
+                converted_resident_keys.discard(waveform_key)
         elif stage_obj is not None and i > 0:
             from nemo_curator.stages.audio import agent as foundation
 

@@ -27,6 +27,7 @@ import numpy as np
 import soundfile as sf
 from loguru import logger
 
+from nemo_curator.stages.audio.common import load_audio_file
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask
 from nemo_curator.utils.operation_utils import make_temporary_dir
@@ -261,11 +262,11 @@ class MergeConversationSDPStage(ProcessingStage[AudioTask, AudioTask]):
         return sorted(rows, key=lambda row: row[0])
 
     def _prepare_turn(self, entry: dict[str, Any]) -> _PreparedTurn:
-        audio, sr = sf.read(entry.get("audio_filepath", ""), dtype="float64", always_2d=True)
+        waveform, sr = load_audio_file(entry.get("audio_filepath", ""), dtype="float64")
+        audio = waveform[0].numpy()
         if not len(audio) or not np.isfinite(audio).all():
             msg = "Turn audio must contain finite samples"
             raise ValueError(msg)
-        audio = audio.mean(axis=1)
         speech: list[tuple[int, int]] = []
         for start, duration, _ in self._read_timestamps(entry.get("rttm_filepath", "")):
             left = round(max(0, min(len(audio) / sr, start)) * sr)

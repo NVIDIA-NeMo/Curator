@@ -155,7 +155,7 @@ A pipeline that stacks UTMOS (cheap) and SIGMOS (fine-grained):
 ```python
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.backends.xenna import XennaExecutor
-from nemo_curator.stages.audio.preprocessing.mono_conversion import MonoConversionStage
+from nemo_curator.stages.audio.preprocessing import AudioFormatStage
 from nemo_curator.stages.audio.segmentation.vad_segmentation import VADSegmentationStage
 from nemo_curator.stages.audio.filtering.utmos import UTMOSFilterStage
 from nemo_curator.stages.audio.filtering.sigmos import SIGMOSFilterStage
@@ -164,7 +164,7 @@ from nemo_curator.stages.text.io.writer import JsonlWriter
 
 pipeline = Pipeline(name="sigmos_filtering")
 
-pipeline.add_stage(MonoConversionStage(output_sample_rate=48000))
+pipeline.add_stage(AudioFormatStage(allowed_sample_rates=[48000], target_channels=1))
 pipeline.add_stage(VADSegmentationStage(min_duration_sec=2.0))
 
 # Coarse cut with UTMOS first

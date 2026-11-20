@@ -75,7 +75,7 @@ whole-recording preparation, result fields, RTTM files, and resume behavior.
 ## What the Script Does
 
 1. **File discovery (`CallHomeReaderStage`)** — Scans the dataset directory for WAV files with matching `.cha` annotations. Emits one `AudioTask` per file; checkpoint state, not an existing RTTM alone, controls resume.
-2. **Mono conversion (`EnsureMonoStage`)** — CallHome WAVs are stereo (one channel per speaker). This stage downmixes to mono 16 kHz under `<output-dir>/mono/`, so `--clean` removes derived audio before rebuilding it.
+2. **Mono conversion (`AudioFormatStage`)** — CallHome WAVs are stereo (one channel per speaker). This stage downmixes to mono 16 kHz under `<output-dir>/mono/`, so `--clean` removes derived audio before rebuilding it.
 3. **Diarization inference (`InferenceSortformerStage`)** — Loads each whole recording and sends it to `NeMoSortformerAdapter`. It adds `diar_segments` and `num_speakers`, and writes RTTM files to `<output-dir>/rttm/`.
 4. **DER evaluation (`DERComputationStage`)** — Compares predicted segments against CHA ground truth. Scoring is restricted to the UEM region (min/max annotated timestamps from CHA) with a configurable collar tolerance (default 0.25 s).
 
@@ -147,5 +147,5 @@ source.
 - Trained primarily on English speech
 - Performance may degrade on noisy or very long recordings
 - The stage downmixes and resamples inputs to mono 16 kHz. This tutorial also
-  materializes normalized files in `EnsureMonoStage` so the benchmark inputs
+  materializes normalized files with `AudioFormatStage` so the benchmark inputs
   are explicit and reusable.

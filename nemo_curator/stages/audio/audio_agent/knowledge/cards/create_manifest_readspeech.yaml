@@ -19,7 +19,7 @@ use_cases:
     - "data that already has a JSONL manifest -- use ManifestReader"
 composition:
   typical_upstream: []
-  typical_downstream: [MonoConversionStage, ResampleAudioStage, VADSegmentationStage]
+  typical_downstream: [AudioFormatStage, VADSegmentationStage]
 conflicts_with: [CreateInitialManifestAudioFolderStage, CreateInitialManifestFleursStage, ManifestReader]
 comparison:
   CreateInitialManifestAudioFolderStage: "the generic, dataset-agnostic folder source, and the right default whenever the corpus is simply a folder of audio rather than this specific dataset. Concretely it differs in what it reads and what it writes: it takes an `extensions` list matched case-insensitively (.wav/.flac/.mp3/.ogg/.opus/.m4a by default) where this stage walks for `.wav` case-sensitively only; it defaults to ALL files (`max_samples=-1`) where this stage defaults to 5000; it never downloads or writes audio; it adds a path-derived `audio_item_id`; and it writes no transcript and no rate, where this stage writes a constant `text` and `sample_rate` (see semantic_facts). Pick this stage only when the data's PROVENANCE is DNS Challenge 5 Read Speech."

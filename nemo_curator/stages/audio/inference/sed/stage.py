@@ -57,7 +57,7 @@ import numpy as np
 from loguru import logger
 
 from nemo_curator.models.audio.sed.base import SEDAdapter
-from nemo_curator.stages.audio.common import ensure_mono, ensure_waveform_2d
+from nemo_curator.stages.audio.common import ensure_mono, ensure_waveform_2d, resample_waveform
 from nemo_curator.stages.audio.inference.base import AdapterInferenceStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.utils.hash_utils import get_deterministic_hash
@@ -160,11 +160,7 @@ class SEDInferenceStage(AdapterInferenceStage[SEDAdapter]):
 
         tensor = ensure_waveform_2d(waveform)
         tensor = ensure_mono(tensor)
-        prepared = tensor.squeeze(0).cpu().numpy()
-        if source_sample_rate != self.sample_rate:
-            import librosa
-
-            prepared = librosa.resample(prepared, orig_sr=source_sample_rate, target_sr=self.sample_rate)
+        prepared = resample_waveform(tensor.squeeze(0), source_sample_rate, self.sample_rate).cpu().numpy()
         return np.ascontiguousarray(prepared, dtype=np.float32)
 
     def process(self, task: AudioTask) -> AudioTask:

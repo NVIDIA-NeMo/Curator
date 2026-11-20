@@ -66,7 +66,7 @@ pipeline.add_stage(vad)
 
 The default resource allocation is `Resources(cpus=1.0, gpus=0.0)`. Silero VAD is small enough that fractional-GPU sharing works well; set `gpus=0.1` on the stage's `Resources` if you have GPU headroom.
 
-**Prerequisites**: each input `AudioTask` must carry a `waveform` and `sample_rate` field. Place a [`MonoConversionStage`](/curate-audio/process-data/quality-filtering/preprocessing) upstream to guarantee both.
+**Prerequisites**: each input `AudioTask` must carry a `waveform` and `sample_rate` field. Place an [`AudioFormatStage(target_channels=1)`](/curate-audio/process-data/quality-filtering/preprocessing) upstream to guarantee both.
 
 ### Step 2: Tune the Padding
 
@@ -138,7 +138,7 @@ A minimum-viable pipeline that loads audio, segments it, and writes a manifest o
 ```python
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.backends.xenna import XennaExecutor
-from nemo_curator.stages.audio.preprocessing.mono_conversion import MonoConversionStage
+from nemo_curator.stages.audio.preprocessing import AudioFormatStage
 from nemo_curator.stages.audio.segmentation.vad_segmentation import VADSegmentationStage
 from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
 from nemo_curator.stages.text.io.writer import JsonlWriter
@@ -146,7 +146,7 @@ from nemo_curator.stages.text.io.writer import JsonlWriter
 pipeline = Pipeline(name="vad_segmentation")
 
 # 1. Normalize input audio
-pipeline.add_stage(MonoConversionStage(output_sample_rate=48000))
+pipeline.add_stage(AudioFormatStage(allowed_sample_rates=[48000], target_channels=1))
 
 # 2. Segment into speech chunks
 pipeline.add_stage(
@@ -175,6 +175,6 @@ pipeline.run(executor)
 
 ## Related Topics
 
-- **[Preprocessing Stages](/curate-audio/process-data/quality-filtering/preprocessing)** — `MonoConversionStage` (typically upstream) and `SegmentConcatenationStage` (typically downstream).
+- **[Preprocessing Stages](/curate-audio/process-data/quality-filtering/preprocessing)** — `AudioFormatStage` (typically upstream) and `SegmentConcatenationStage` (typically downstream).
 - **[Speaker Separation](/curate-audio/process-data/quality-filtering/speaker-separation)** — typical next stage when you need diarization in addition to segmentation.
 - **[`AudioDataFilterStage` Composite](/curate-audio/process-data/quality-filtering/audio-data-filter-stage)** — wraps VAD with the rest of the audio quality pipeline.

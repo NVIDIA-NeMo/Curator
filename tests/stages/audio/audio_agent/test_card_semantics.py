@@ -406,8 +406,7 @@ def test_compound_selector_card_documents_flat_logic_and_resolvable_upstreams() 
         "SIGMOSFilterStage",
         "UTMOSFilterStage",
         "BandFilterStage",
-        "ChannelCountStage",
-        "SampleRateFilterStage",
+        "AudioFormatStage",
         "InferenceSortformerStage",
         "PyAnnoteDiarizationStage",
         "ManifestCheckpointStage",
@@ -495,10 +494,10 @@ def test_a_row_dropping_stage_cannot_ship_a_card_that_omits_the_filter_tag() -> 
     decision to include it is made.
     """
     violations = check_card(
-        "SampleRateFilterStage",
+        "BandFilterStage",
         {
-            "category": "preprocess",
-            "summary": "Selects rows by sample rate.",
+            "category": "quality",
+            "summary": "Selects rows by bandwidth.",
             "verified": {"params": "mechanical"},
             "tags": [],
         },

@@ -116,7 +116,7 @@ def profile_data(  # noqa: PLR0913
     files (via ``soundfile``), detects transcript presence, and records any
     unreadable files. Never raises on bad input — problems become ``notes`` /
     ``unreadable`` entries so the agent can triage. ``audio_dir`` plus
-    ``audio_path_resolution`` mirrors ``ReadLongFormManifestStage`` when that
+    ``audio_path_resolution`` mirrors ``ManifestReader(audio_dir=...)`` when that
     source deliberately re-anchors manifest paths. ``identity_files`` folds
     additional local dataset-definition files (for example a FLEURS transcript
     TSV) into the same identity without changing ordinary profiler defaults.

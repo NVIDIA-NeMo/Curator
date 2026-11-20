@@ -16,7 +16,7 @@ use_cases:
   good_for: ["breaking very long recordings before ASR/alignment (memory + accuracy)"]
   avoid_for: ["already-short clips"]
 composition:
-  typical_upstream: [ResampleAudioStage, ManifestReader]
+  typical_upstream: [AudioFormatStage, ManifestReader]
   typical_downstream: [NeMoASRAlignerStage, JoinSplitAudioMetadataStage]
   incompatible_upstream:
     VADSegmentationStage: "Its segment schema uses start_ms/end_ms, while this stage requires segments[].start/end in seconds. Convert the schema explicitly before composing them."

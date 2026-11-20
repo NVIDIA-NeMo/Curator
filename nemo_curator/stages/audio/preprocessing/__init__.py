@@ -16,40 +16,27 @@
 Audio preprocessing stages.
 
 These stages prepare audio for further processing:
-- ChannelCountStage: Record, select on, or convert the channel count (never resamples)
-- SampleRateFilterStage: Keep only acceptable sample rates, recording each (header-only read)
-- MonoConversionStage: Convert to mono and verify sample rate in one step
+- AudioFormatStage: Record, select on, or convert sample rate and channel count in one stage
 - PrepareIndicASRInputStage: Prepare Hindi audio and reference fields for Indic ASR
 - SegmentConcatenationStage: Concatenate multiple audio segments
 
-Channel policy and rate policy are separate stages so a pipeline can set one without the
-other, and each says whether it measures, selects or converts rather than doing two at once.
-
 Example:
     from nemo_curator.pipeline import Pipeline
-    from nemo_curator.stages.audio.preprocessing import (
-        ChannelCountStage,
-        SampleRateFilterStage,
-    )
+    from nemo_curator.stages.audio.preprocessing import AudioFormatStage
 
     pipeline = Pipeline(name="preprocessing_pipeline")
-    # 48 kHz mono, by selection: nothing is rewritten, the rest is dropped.
-    pipeline.add_stage(SampleRateFilterStage(allowed_sample_rates=[48000]))
-    pipeline.add_stage(ChannelCountStage(action="filter", allowed_channels=[1]))
-    # ...or by conversion: every row is kept and made mono.
-    pipeline.add_stage(ChannelCountStage(action="convert", target_channels=1))
+    # 48 kHz mono, by selection: nothing is decoded, other rows are dropped.
+    pipeline.add_stage(AudioFormatStage(allowed_sample_rates=[48000], allowed_channels=[1]))
+    # ...or by conversion: every row is decoded and made 16 kHz mono.
+    pipeline.add_stage(AudioFormatStage(target_sample_rate=16000, target_channels=1))
 """
 
-from .channel_count import ChannelCountStage
+from .audio_format import AudioFormatStage
 from .concatenation import SegmentConcatenationStage
 from .indic_asr import PrepareIndicASRInputStage
-from .mono_conversion import MonoConversionStage
-from .sample_rate_filter import SampleRateFilterStage
 
 __all__ = [
-    "ChannelCountStage",
-    "MonoConversionStage",
+    "AudioFormatStage",
     "PrepareIndicASRInputStage",
-    "SampleRateFilterStage",
     "SegmentConcatenationStage",
 ]

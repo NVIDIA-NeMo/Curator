@@ -28,12 +28,13 @@ from nemo_curator.stages.audio._agent._agent_ready import (
     IOSpec,
     StageContract,
 )
+from nemo_curator.stages.audio.text_filtering.text_transform import SegmentTextTransform
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask
 
 
 @dataclass
-class ChineseConversionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
+class ChineseConversionStage(SegmentTextTransform, AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """Convert Traditional Chinese text to Simplified Chinese (or other OpenCC conversions).
 
     Iterates over the ``segments`` list of each entry and writes the converted
@@ -61,12 +62,6 @@ class ChineseConversionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     segments_key: str = "segments"
     output_suffix: str = "_simplified"
 
-    def inputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.segments_key]
-
-    def outputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.segments_key]
-
     def describe(self) -> StageContract:
         return StageContract(
             reads=IOSpec(data_keys=[self.segments_key]),
@@ -89,15 +84,9 @@ class ChineseConversionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             self._converter = OpenCC(self.convert_type)
         logger.info(f"[{self.name}] Using conversion type: {self.convert_type}")
 
-    def process(self, task: AudioTask) -> AudioTask:
-        data_entry = task.data
-        output_key = f"{self.text_key}{self.output_suffix}"
-        for segment in data_entry.get(self.segments_key, []):
-            if self.text_key in segment:
-                try:
-                    segment[output_key] = self._converter.convert(segment[self.text_key])
-                except Exception:  # noqa: BLE001
-                    logger.warning(f"[{self.name}] Chinese conversion failed, keeping original")
-                    segment[output_key] = segment[self.text_key]
-
-        return task
+    def transform_text(self, text: str) -> str:
+        try:
+            return self._converter.convert(text)
+        except Exception:  # noqa: BLE001
+            logger.warning(f"[{self.name}] Chinese conversion failed, keeping original")
+            return text

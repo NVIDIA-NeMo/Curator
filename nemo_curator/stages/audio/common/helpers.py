@@ -15,19 +15,70 @@
 import os
 from typing import Any
 
+import fsspec
 import soundfile
 import torch
-from loguru import logger
+
+# Longest audio any stage decodes; longer files are refused before their samples are read.
+MAX_AUDIO_DURATION_SEC = 12 * 60 * 60
 
 
-def load_audio_file(audio_path: str, mono: bool = True) -> tuple[torch.Tensor, int]:
-    """Load audio file and return waveform tensor (channels, samples) and sample rate."""
-    data, sample_rate = soundfile.read(audio_path, dtype="float32")
-    waveform = torch.from_numpy(data)
-    waveform = waveform.unsqueeze(0) if waveform.dim() == 1 else waveform.T
+class AudioTooLongError(RuntimeError):
+    """The file is longer than the decode limit. A RuntimeError, so stages skip the row like any unreadable file."""
+
+
+def exceeds_max_duration(duration: Any, max_duration_sec: float | None = MAX_AUDIO_DURATION_SEC) -> bool:  # noqa: ANN401
+    """Whether ``duration`` (seconds) is over the limit. ``None`` or a nonpositive limit disables it."""
+    if max_duration_sec is None or max_duration_sec <= 0:
+        return False
+    try:
+        return float(duration) > max_duration_sec
+    except (TypeError, ValueError):
+        return False
+
+
+def load_audio_file(  # noqa: PLR0913
+    audio_path: str,
+    mono: bool = True,
+    *,
+    start: int = 0,
+    stop: int | None = None,
+    dtype: str = "float32",
+    storage_options: dict[str, Any] | None = None,
+    max_duration_sec: float | None = MAX_AUDIO_DURATION_SEC,
+) -> tuple[torch.Tensor, int]:
+    """Decode audio into ``(waveform [channels, samples], sample_rate)``. The one audio decoder.
+
+    Opens local and cloud (``s3://``, ``gs://``) paths through fsspec. ``start``/``stop`` are
+    frame indices for reading a slice. Raises :class:`AudioTooLongError`, from the header and
+    before decoding, when the span to decode is longer than ``max_duration_sec``.
+    """
+    with (
+        fsspec.open(str(audio_path), "rb", **(storage_options or {})) as f,
+        soundfile.SoundFile(f) as audio,
+    ):
+        end = audio.frames if stop is None else min(stop, audio.frames)
+        frames = max(end - start, 0)
+        if exceeds_max_duration(frames / audio.samplerate, max_duration_sec):
+            msg = f"{audio_path}: {frames / audio.samplerate:.0f}s to decode, over the {max_duration_sec}s limit"
+            raise AudioTooLongError(msg)
+        audio.seek(start)
+        data = audio.read(frames, dtype=dtype, always_2d=True)
+        sample_rate = audio.samplerate
+    waveform = torch.from_numpy(data).T
     if mono and waveform.shape[0] > 1:
         waveform = waveform.mean(dim=0, keepdim=True)
     return waveform, sample_rate
+
+
+def resample_waveform(waveform: Any, orig_sr: int, target_sr: int) -> torch.Tensor:  # noqa: ANN401
+    """Resample ``waveform`` (tensor or array, time last) to ``target_sr``. The one resampler."""
+    waveform = torch.as_tensor(waveform)
+    if int(orig_sr) == int(target_sr):
+        return waveform
+    import torchaudio
+
+    return torchaudio.functional.resample(waveform, int(orig_sr), int(target_sr))
 
 
 def ensure_waveform_2d(waveform: Any) -> torch.Tensor:  # noqa: ANN401
@@ -44,64 +95,6 @@ def ensure_mono(waveform: torch.Tensor) -> torch.Tensor:
     if waveform.shape[0] > 1:
         waveform = waveform.mean(dim=0, keepdim=True)
     return waveform
-
-
-def resolve_waveform_from_item(
-    item: dict[str, Any], task_id: str, mono: bool = True
-) -> tuple[torch.Tensor, int] | None:
-    """
-    Resolve (waveform, sample_rate) from an item dict, loading from file if needed.
-
-    Checks item['waveform'] + item['sample_rate'], falls back to loading from
-    item['audio_filepath'], resolves missing sample_rate from file header.
-    Updates item in-place when loading from file.
-    Returns None if resolution fails.
-
-    .. note::
-       The canonical resolver is :func:`nemo_curator.stages.audio._agent._residency.resolve_audio`.
-       This helper is retained for its unique behavior — reading ``sample_rate`` from the
-       file header *without* reloading an already-present waveform, and writing the loaded
-       waveform/sample_rate back into ``item`` — which ``resolve_audio`` does not replicate.
-       Prefer ``resolve_audio`` in new code.
-    """
-    waveform = item.get("waveform")
-    sample_rate = item.get("sample_rate")
-
-    if waveform is None:
-        audio_filepath = item.get("audio_filepath")
-        if audio_filepath and os.path.exists(audio_filepath):
-            try:
-                waveform, sample_rate = load_audio_file(audio_filepath, mono=mono)
-                item["waveform"] = waveform
-                item["sample_rate"] = sample_rate
-            except (OSError, RuntimeError, soundfile.SoundFileError) as e:
-                logger.error(f"[{task_id}] Failed to load audio file: {e}")
-                return None
-        else:
-            logger.warning(f"[{task_id}] No waveform or valid audio_filepath found")
-            return None
-    elif sample_rate is None:
-        audio_filepath = item.get("audio_filepath")
-        if audio_filepath and os.path.exists(audio_filepath):
-            try:
-                info = soundfile.info(audio_filepath)
-                sample_rate = info.samplerate
-                item["sample_rate"] = sample_rate
-            except (OSError, RuntimeError, soundfile.SoundFileError) as e:
-                logger.error(
-                    f"[{task_id}] Waveform present but sample_rate missing "
-                    f"and could not read from '{audio_filepath}': {e}"
-                )
-                return None
-        else:
-            logger.error(f"[{task_id}] Waveform present but 'sample_rate' missing and no audio_filepath available.")
-            return None
-
-    waveform = ensure_waveform_2d(waveform)
-    if mono:
-        waveform = ensure_mono(waveform)
-
-    return waveform, sample_rate
 
 
 def resolve_model_path(model_path: str, reference_file: str, module_subdir: str) -> str:

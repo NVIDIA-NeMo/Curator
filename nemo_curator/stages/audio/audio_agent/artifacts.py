@@ -83,7 +83,6 @@ _URI_PREFERENCE = (
     "output_manifest",
     "output_path",
     "output_dir",
-    "resampled_audio_dir",
     "separated_audio_dir",
     "rttm_out_dir",
     "output_audio_tar_path",

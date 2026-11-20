@@ -44,8 +44,7 @@ from nemo_curator.stages.audio.common import (
     PreserveByValueStage,
 )
 from nemo_curator.stages.audio.preprocessing import (
-    ChannelCountStage,
-    MonoConversionStage,
+    AudioFormatStage,
     SegmentConcatenationStage,
 )
 from nemo_curator.stages.base import ProcessingStage
@@ -144,28 +143,6 @@ def test_overwriting_task_key_does_not_change_nested_role() -> None:
     assert report.ok, report.summary()
 
 
-@pytest.mark.parametrize("carrier", ["audio_filepath", "waveform"])
-def test_file_to_waveform_in_place_alias_remains_composable(wav_filepath, carrier: str) -> None:  # noqa: ANN001
-    from nemo_curator.stages.audio.common import GetAudioDurationStage
-    from nemo_curator.stages.audio.preprocessing.mono_conversion import MonoConversionStage
-
-    producer = _ContractStage(StageContract(writes=IOSpec(data_keys=[carrier]), key_roles={carrier: "audio_filepath"}))
-    conversion = MonoConversionStage(audio_filepath_key=carrier, waveform_key=carrier, output_sample_rate=16000)
-    waveform_consumer = GetAudioDurationStage(input_residency="waveform", waveform_key=carrier)
-    report = validate_pipeline([producer, conversion, waveform_consumer], initial_keys=set(), initial_roles=set())
-    assert report.ok, report.summary()
-    assert report.keys_ok, report.summary()
-    assert "audio_filepath" not in report.produced_roles
-    result = conversion.process(AudioTask(data={carrier: str(wav_filepath)}))
-    rows = waveform_consumer.process_batch([result])
-    assert len(rows) == 1
-    assert rows[0].data["duration"] > 0
-    file_consumer = GetAudioDurationStage(audio_filepath_key=carrier)
-    invalid = validate_pipeline([producer, conversion, file_consumer], initial_keys=set(), initial_roles=set())
-    assert not invalid.ok
-    assert any(issue.code == "key_role_conflict" for issue in invalid.issues)
-
-
 @pytest.mark.parametrize("nested", [False, True])
 def test_explicit_seed_role_overrides_alias_name(nested: bool) -> None:
     scope = "segment_data_keys" if nested else "data_keys"
@@ -189,9 +166,8 @@ def test_scalar_overwrite_releases_only_its_tensor_carrier(
     wav_filepath: Path, tmp_path: Path, retain_other_tensor: bool
 ) -> None:
     from nemo_curator.stages.audio.common import GetAudioDurationStage, ManifestWriterStage
-    from nemo_curator.stages.audio.preprocessing.mono_conversion import MonoConversionStage
 
-    conversion = MonoConversionStage(output_sample_rate=16000)
+    conversion = AudioFormatStage(target_channels=1, input_residency="file")
     duration = GetAudioDurationStage(duration_key="waveform")
     sink = ManifestWriterStage(output_path=str(tmp_path / "rows.jsonl"))
     seed = {"audio_filepath", "other"} if retain_other_tensor else {"audio_filepath"}
@@ -216,11 +192,10 @@ def test_scalar_overwrite_releases_only_its_tensor_carrier(
 @pytest.mark.parametrize("overwrite", [False, True])
 def test_manifest_reader_checks_fresh_downstream_roles(tmp_path: Path, overwrite: bool) -> None:
     from nemo_curator.stages.audio.common import GetAudioDurationStage, ManifestReader
-    from nemo_curator.stages.audio.preprocessing import MonoConversionStage
 
     manifest = tmp_path / "input.jsonl"
     manifest.write_text('{"audio_filepath": "clip.wav"}\n')
-    stages = [ManifestReader(str(manifest)), MonoConversionStage(output_sample_rate=16000)]
+    stages = [ManifestReader(str(manifest)), AudioFormatStage(target_channels=1, input_residency="file")]
     if overwrite:
         stages.append(GetAudioDurationStage(duration_key="waveform"))
     stages.append(GetAudioDurationStage(input_residency="waveform"))
@@ -258,14 +233,17 @@ def test_scalar_filter_preserves_producer_role(multiple: bool) -> None:
         PreserveByValueConditionsStage,
         PreserveByValueStage,
     )
-    from nemo_curator.stages.audio.preprocessing import MonoConversionStage
 
     selection = (
         PreserveByValueConditionsStage({"payload": {"target_value": 0, "operator": "gt"}})
         if multiple
         else PreserveByValueStage("payload", 0, operator="gt")
     )
-    stages = [MonoConversionStage(output_sample_rate=16000), GetAudioDurationStage(duration_key="payload"), selection]
+    stages = [
+        AudioFormatStage(target_channels=1, input_residency="file"),
+        GetAudioDurationStage(duration_key="payload"),
+        selection,
+    ]
     invalid = validate_pipeline([*stages, GetAudioDurationStage(input_residency="waveform", waveform_key="payload")])
     assert not invalid.ok
     assert any(issue.code == "key_role_conflict" for issue in invalid.issues)
@@ -275,17 +253,19 @@ def test_scalar_filter_preserves_producer_role(multiple: bool) -> None:
     assert "duration" in valid.produced_roles
 
 
-@pytest.mark.parametrize("consumer_kind", ["mono", "channels", "duration"])
+@pytest.mark.parametrize("consumer_kind", ["mono", "duration"])
 def test_auto_rejects_known_incompatible_preferred_input(consumer_kind: str) -> None:
     from nemo_curator.stages.audio.common import GetAudioDurationStage
-    from nemo_curator.stages.audio.preprocessing import MonoConversionStage
 
     consumer = {
-        "mono": MonoConversionStage(input_residency="auto", output_sample_rate=16000),
-        "channels": ChannelCountStage(action="convert", input_residency="auto"),
+        "mono": AudioFormatStage(target_channels=1),
         "duration": GetAudioDurationStage(input_residency="auto"),
     }[consumer_kind]
-    stages = [MonoConversionStage(output_sample_rate=16000), GetAudioDurationStage(duration_key="waveform"), consumer]
+    stages = [
+        AudioFormatStage(target_channels=1, input_residency="file"),
+        GetAudioDurationStage(duration_key="waveform"),
+        consumer,
+    ]
     report = validate_pipeline(stages)
     assert not report.ok
     assert any(issue.code == "key_role_conflict" for issue in report.issues)
@@ -293,13 +273,12 @@ def test_auto_rejects_known_incompatible_preferred_input(consumer_kind: str) -> 
 
 def test_auto_invalid_rate_can_still_use_file_alternative() -> None:
     from nemo_curator.stages.audio.common import GetAudioDurationStage
-    from nemo_curator.stages.audio.preprocessing import MonoConversionStage
 
     report = validate_pipeline(
         [
-            MonoConversionStage(output_sample_rate=16000),
+            AudioFormatStage(target_channels=1, input_residency="file"),
             GetAudioDurationStage(duration_key="sample_rate"),
-            MonoConversionStage(input_residency="auto", output_sample_rate=16000),
+            AudioFormatStage(target_channels=1),
         ]
     )
     assert report.ok
@@ -767,13 +746,13 @@ def test_a_custom_manifest_path_column_is_what_the_reader_declares(tmp_path: Pat
     seed = {"initial_keys": set(), "initial_roles": set(), "initial_task_type": "FileGroupTask"}
 
     # A default consumer reads ``audio_filepath``, which this manifest does not carry.
-    assert not validate_pipeline([reader, MonoConversionStage()], **seed).keys_ok
+    assert not validate_pipeline([reader, AudioFormatStage()], **seed).keys_ok
 
     # Pointed at the same column, it validates.
-    assert validate_pipeline([reader, MonoConversionStage(audio_filepath_key="recording_path")], **seed).keys_ok
+    assert validate_pipeline([reader, AudioFormatStage(audio_filepath_key="recording_path")], **seed).keys_ok
 
     # And the ordinary manifest still pairs with the ordinary consumer.
-    assert validate_pipeline([ManifestReaderStage(), MonoConversionStage()], **seed).keys_ok
+    assert validate_pipeline([ManifestReaderStage(), AudioFormatStage()], **seed).keys_ok
 
 
 def test_concatenation_reads_require_nested_segment_audio_keys() -> None:
@@ -817,8 +796,8 @@ def test_concatenation_reads_require_nested_segment_audio_keys() -> None:
 @pytest.mark.parametrize("sink", [ManifestWriterStage, ManifestCheckpointStage])
 def test_same_name_nested_tensor_survives_top_level_drop_into_sink(sink: type, tmp_path: Path) -> None:
     """A disk-only conversion drops the TOP-LEVEL waveform; a same-named nested one still blocks a sink."""
-    mono = MonoConversionStage(
-        output_sample_rate=16000,
+    mono = AudioFormatStage(
+        target_channels=1,
         input_residency="waveform",
         keep_waveform_in_task=False,
         write_to_disk=True,
@@ -857,7 +836,7 @@ def test_multi_alternative_read_dangles_when_no_literal_branch_is_complete() -> 
             key_roles={"resampled_audio_filepath": "audio_filepath"},
         )
     )
-    auto_consumer = MonoConversionStage(input_residency="auto")
+    auto_consumer = AudioFormatStage(target_channels=1)
 
     dangling = validate_pipeline(
         [renamed_role_only, auto_consumer],
@@ -877,7 +856,7 @@ def test_multi_alternative_read_dangles_when_no_literal_branch_is_complete() -> 
         )
     )
     clean_file = validate_pipeline(
-        [file_producer, MonoConversionStage(input_residency="auto")],
+        [file_producer, AudioFormatStage(target_channels=1)],
         initial_roles=set(),
         initial_keys=set(),
     )
@@ -892,7 +871,7 @@ def test_multi_alternative_read_dangles_when_no_literal_branch_is_complete() -> 
         )
     )
     clean_waveform = validate_pipeline(
-        [waveform_producer, MonoConversionStage(input_residency="auto")],
+        [waveform_producer, AudioFormatStage(target_channels=1)],
         initial_roles=set(),
         initial_keys=set(),
     )

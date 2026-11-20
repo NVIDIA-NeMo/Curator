@@ -140,6 +140,10 @@ def _validate_vad(vad: dict[str, Any]) -> None:
 
 def _validate(cfg: dict[str, Any]) -> None:
     """Validate cross-field constraints after merge."""
+    if "mono_conversion" in cfg:
+        # Ignoring it would keep the default 48 kHz-only selection and drop every other rate.
+        msg = "mono_conversion was replaced by audio_format; set audio_format.allowed_sample_rates (null keeps every rate)"
+        raise ValueError(msg)
     _validate_vad(cfg.get("vad", {}))
 
     utmos = cfg.get("utmos", {})
@@ -172,12 +176,6 @@ def _validate(cfg: dict[str, Any]) -> None:
             msg = f"speaker_separation.min_duration must be positive, got {min_dur}"
             raise ValueError(msg)
 
-    mc = cfg.get("mono_conversion", {})
-    sr = mc.get("output_sample_rate", 48000)
-    if not isinstance(sr, int) or sr <= 0:
-        msg = f"mono_conversion.output_sample_rate must be a positive integer, got {sr}"
-        raise ValueError(msg)
-
     concat = cfg.get("concatenation", {})
     silence = concat.get("silence_duration_sec", 0)
     if silence < 0:
@@ -187,7 +185,7 @@ def _validate(cfg: dict[str, Any]) -> None:
 
 def get_enabled_stages(cfg: dict[str, Any]) -> list[str]:
     """Return a list of enabled stage names from a loaded config."""
-    stages: list[str] = ["mono_conversion"]
+    stages: list[str] = ["audio_format"]
     if cfg.get("vad", {}).get("enable", True):
         stages.append("vad")
     if cfg.get("band_filter", {}).get("enable", True):

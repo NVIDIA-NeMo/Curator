@@ -31,7 +31,7 @@ The intended loop::
     agent.find_consumers("pred_text")          # [] from find_producers => unproducible
 
     # 3. CONFIGURE + BUILD
-    cls = agent.get_agent_ready_stage_class("SampleRateFilterStage")
+    cls = agent.get_agent_ready_stage_class("AudioFormatStage")
     stage = cls(min_sample_rate=16_000)        # params_schema documents the knobs
 
     # 4. VALIDATE (before ever running)

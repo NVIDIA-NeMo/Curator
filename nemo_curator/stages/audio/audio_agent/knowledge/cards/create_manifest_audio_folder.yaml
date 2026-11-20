@@ -22,7 +22,7 @@ use_cases:
     - "downloading a known public dataset -- use that dataset's CreateInitialManifest*Stage"
 composition:
   typical_upstream: []
-  typical_downstream: [GetAudioDurationStage, MonoConversionStage, ResampleAudioStage, VADSegmentationStage]
+  typical_downstream: [GetAudioDurationStage, AudioFormatStage, VADSegmentationStage]
 comparison:
   CreateInitialManifestReadSpeechStage: "a corpus-SPECIFIC source for DNS Challenge 5 Read Speech, not a folder reader, and the one most easily picked by mistake for a plain folder: 'read speech', 'clean speech' or 48 kHz WAV describe what a corpus sounds like, whereas that stage requires the corpus to BE that dataset. Choosing it for an ordinary folder fails silently -- it walks `.wav` case-sensitively (dropping .WAV/.flac/.mp3/...), caps at max_samples=5000, labels every row dataset_name='DNS-ReadSpeech', and writes a constant sample_rate=48000 with an empty text. Prefer this stage unless the data's provenance is that dataset."
   CreateInitialManifestFleursStage: "a corpus-specific source for FLEURS that needs `lang`/`split` and a transcript+audio layout, and raises when it is absent. Use it only for FLEURS; this stage is the source for a folder that merely holds audio."

@@ -18,11 +18,14 @@ from nemo_curator.stages.audio.common.folder_source import (
     CreateInitialManifestAudioFolderStage as CreateInitialManifestAudioFolderStage,
 )
 from nemo_curator.stages.audio.common.folder_source import _AudioFolderTask as _AudioFolderTask
+from nemo_curator.stages.audio.common.helpers import MAX_AUDIO_DURATION_SEC as MAX_AUDIO_DURATION_SEC
+from nemo_curator.stages.audio.common.helpers import AudioTooLongError as AudioTooLongError
 from nemo_curator.stages.audio.common.helpers import ensure_mono as ensure_mono
 from nemo_curator.stages.audio.common.helpers import ensure_waveform_2d as ensure_waveform_2d
+from nemo_curator.stages.audio.common.helpers import exceeds_max_duration as exceeds_max_duration
 from nemo_curator.stages.audio.common.helpers import load_audio_file as load_audio_file
+from nemo_curator.stages.audio.common.helpers import resample_waveform as resample_waveform
 from nemo_curator.stages.audio.common.helpers import resolve_model_path as resolve_model_path
-from nemo_curator.stages.audio.common.helpers import resolve_waveform_from_item as resolve_waveform_from_item
 from nemo_curator.stages.audio.common.manifest_checkpoint import ManifestCheckpointStage as ManifestCheckpointStage
 from nemo_curator.stages.audio.common.manifest_reader import ManifestReader as ManifestReader
 from nemo_curator.stages.audio.common.manifest_reader import ManifestReaderStage as ManifestReaderStage
@@ -34,6 +37,8 @@ from nemo_curator.stages.audio.common.value_filters import PreserveByValueStage 
 from nemo_curator.stages.audio.common.value_filters import _ValueCondition as _ValueCondition
 
 __all__ = [
+    "MAX_AUDIO_DURATION_SEC",
+    "AudioTooLongError",
     "CreateInitialManifestAudioFolderStage",
     "GetAudioDurationStage",
     "ManifestCheckpointStage",
@@ -44,10 +49,11 @@ __all__ = [
     "PreserveByValueStage",
     "ensure_mono",
     "ensure_waveform_2d",
+    "exceeds_max_duration",
     "get_audio_duration",
     "load_audio_file",
+    "resample_waveform",
     "resolve_model_path",
-    "resolve_waveform_from_item",
 ]
 
 # Preserve pipeline fingerprints and existing pickle paths across the module split.
@@ -64,8 +70,9 @@ for _export in (
     load_audio_file,
     ensure_waveform_2d,
     ensure_mono,
-    resolve_waveform_from_item,
+    resample_waveform,
     resolve_model_path,
+    AudioTooLongError,
     _AudioFolderTask,
     _ValueCondition,
 ):

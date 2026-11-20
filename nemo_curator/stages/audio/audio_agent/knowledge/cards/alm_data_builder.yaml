@@ -48,7 +48,7 @@ params_of_note:
   drop_fields_top_level: "comma-separated top-level keys removed from the output entry (default 'words,segments').
     Add 'waveform' when an upstream stage kept one in the task, or it reaches the sink and fails to serialize"
 param_dependencies:
-  audio_sample_rate_key: "must name an existing rate field (default audio_sample_rate). SampleRateFilterStage can
+  audio_sample_rate_key: "must name an existing rate field (default audio_sample_rate). AudioFormatStage can
     measure a file header with sample_rate_key='audio_sample_rate', without retaining a waveform. If consuming
     retained converted audio, point this at its sample_rate field and drop waveform before a JSON sink."
 semantic_facts:

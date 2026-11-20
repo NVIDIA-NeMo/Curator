@@ -306,18 +306,11 @@ def test_postprocessing_memory_failures_propagate(error: Exception, monkeypatch:
 def test_every_non_16khz_input_is_resampled(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[tuple[int, int]] = []
 
-    class _Resample:
-        def __init__(self, *, orig_freq: int, new_freq: int) -> None:
-            calls.append((orig_freq, new_freq))
+    def _resample(_waveform: torch.Tensor, orig_sr: int, target_sr: int) -> torch.Tensor:
+        calls.append((orig_sr, target_sr))
+        return torch.zeros(512, dtype=torch.float32)
 
-        def __call__(self, waveform: torch.Tensor) -> torch.Tensor:
-            return torch.zeros((1, 512), dtype=torch.float32)
-
-    monkeypatch.setitem(
-        sys.modules,
-        "torchaudio",
-        SimpleNamespace(transforms=SimpleNamespace(Resample=_Resample)),
-    )
+    monkeypatch.setattr("nemo_curator.stages.audio.common.helpers.resample_waveform", _resample)
     monkeypatch.setitem(
         sys.modules,
         "silero_vad",

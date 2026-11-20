@@ -46,11 +46,10 @@ SUPPORTED_SOURCE_REFS = (
     "CreateInitialManifestAudioFolderStage",
     "CreateInitialManifestFleursStage",
     "CreateInitialManifestReadSpeechStage",
-    "ReadLongFormManifestStage",
 )
 _SUPPORTED_SOURCE_SET = frozenset(SUPPORTED_SOURCE_REFS)
 _LOCAL_URI_SCHEMES = frozenset({"file", "local"})
-_LONG_FORM_RESOLUTIONS = frozenset({"basename", "relative", "as_is"})
+_AUDIO_PATH_RESOLUTIONS = frozenset({"basename", "relative", "as_is"})
 _REQUIRED_RE = re.compile(r"^REQUIRED(?:[_:\s]|$)", re.IGNORECASE)
 _TEMPLATE_RE = re.compile(r"(?:\{\{.*?\}\}|\$\{.*?\}|\{[^{}]+\}|<[^<>]+>)")
 
@@ -187,7 +186,6 @@ def resolve_dataset_binding(recipe: Recipe, data: str | None = None) -> DatasetB
         "CreateInitialManifestAudioFolderStage": _resolve_audio_folder,
         "CreateInitialManifestFleursStage": _resolve_fleurs,
         "CreateInitialManifestReadSpeechStage": _resolve_readspeech,
-        "ReadLongFormManifestStage": _resolve_long_form,
     }
     if stage.ref in handlers:
         return handlers[stage.ref](recipe, stage, data)
@@ -432,21 +430,52 @@ def _assert_cli_data(
     return replace(binding, status="mismatch", issues=(reason,), reason=reason)
 
 
-def _resolve_manifest_reader(recipe: Recipe, stage: StageRef, data: str | None) -> DatasetBinding:  # noqa: C901
+def _manifest_audio_dir(stage: StageRef, paths: tuple[str, ...]) -> tuple[dict[str, str], DatasetBinding | None]:
+    """Profile options for a ManifestReader that re-anchors row paths to ``audio_dir``.
+
+    The reader then reads its audio from there, so the profile (and with it the identity)
+    must resolve paths the same way. Returns the binding refusing the source instead when
+    ``audio_dir`` or its resolution mode cannot execute.
+    """
+    if stage.params.get("audio_dir") is None:
+        return {}, None
+    audio_dir, issue, is_uri = _canonical_os_scalar(stage.params["audio_dir"], "ManifestReader.audio_dir")
+    resolution = stage.params.get("audio_path_resolution", "basename")
+    status: BindingStatus = "unsupported" if is_uri else "missing"
+    if issue is None and resolution not in _AUDIO_PATH_RESOLUTIONS:
+        status = "unsupported"
+        issue = (
+            f"ManifestReader.audio_path_resolution must be one of {sorted(_AUDIO_PATH_RESOLUTIONS)!r}, "
+            f"got {resolution!r}"
+        )
+    elif issue is None and resolution != "as_is" and not os.path.isdir(str(audio_dir)):
+        issue = f"ManifestReader.audio_dir does not exist for {resolution!r} path resolution: {audio_dir}"
+    if issue is not None or audio_dir is None:
+        reason = issue or "ManifestReader.audio_dir did not resolve to a path"
+        return {}, _binding(status, source_ref=stage.ref, configured_paths=paths, source_index=0, reason=reason)
+    return {"audio_dir": audio_dir, "audio_path_resolution": resolution}, None
+
+
+def _resolve_manifest_reader(recipe: Recipe, stage: StageRef, data: str | None) -> DatasetBinding:  # noqa: C901, PLR0911, PLR0912
     configured_manifest_path = stage.params.get("manifest_path")
     paths, issue = _canonical_many(configured_manifest_path, "ManifestReader.manifest_path")
     if issue:
         return _binding("missing", source_ref=stage.ref, source_index=0, reason=issue)
 
     primary = paths[0] if len(paths) == 1 else None
+    profile_kwargs = {
+        "audio_filepath_key": stage.params.get("include_files_key", "audio_filepath"),
+        "include_files": stage.params.get("include_files"),
+    }
+    anchor, refused = _manifest_audio_dir(stage, paths)
+    if refused is not None:
+        return refused
+    profile_kwargs |= anchor
     binding = _base(
         stage.ref,
         configured_paths=paths,
         primary_path=primary,
-        profile_kwargs={
-            "audio_filepath_key": stage.params.get("include_files_key", "audio_filepath"),
-            "include_files": stage.params.get("include_files"),
-        },
+        profile_kwargs=profile_kwargs,
         # A URI, glob, or directory is a selector, not one manifest.  Passing a
         # directory to profile_data would incorrectly identify its audio files as
         # the input rather than the manifests selected by ManifestReader.
@@ -460,7 +489,10 @@ def _resolve_manifest_reader(recipe: Recipe, stage: StageRef, data: str | None) 
             else None
         ),
     )
-    binding = _assert_recipe_inputs(binding, recipe, {"manifest_path": (paths,)})
+    expected_inputs = {"manifest_path": (paths,)}
+    if anchor:
+        expected_inputs["audio_dir"] = ((anchor["audio_dir"],),)
+    binding = _assert_recipe_inputs(binding, recipe, expected_inputs)
     if binding.status == "mismatch":
         return binding
 
@@ -697,73 +729,3 @@ def _resolve_readspeech(recipe: Recipe, stage: StageRef, data: str | None) -> Da
         return replace(binding, issues=(reason,), reason=reason)
     reason = f"no WAV files were found under {raw_dir} and auto_download=False"
     return replace(binding, status="missing", issues=(reason,), reason=reason)
-
-
-def _resolve_long_form(
-    recipe: Recipe,
-    stage: StageRef,
-    data: str | None,
-) -> DatasetBinding:
-    manifest, manifest_issue, manifest_is_uri = _canonical_os_scalar(
-        stage.params.get("input_manifest"),
-        f"{stage.ref}.input_manifest",
-    )
-    audio_dir, audio_issue, audio_is_uri = _canonical_os_scalar(
-        stage.params.get("audio_dir"),
-        f"{stage.ref}.audio_dir",
-    )
-    if manifest_issue or audio_issue or manifest is None or audio_dir is None:
-        reason = "; ".join(issue for issue in (manifest_issue, audio_issue) if issue) or (
-            f"{stage.ref} paths did not resolve"
-        )
-        return _binding(
-            "unsupported" if manifest_is_uri or audio_is_uri else "missing",
-            source_ref=stage.ref,
-            source_index=0,
-            reason=reason,
-        )
-    resolution = stage.params.get("audio_path_resolution", "basename")
-    if resolution not in _LONG_FORM_RESOLUTIONS:
-        reason = (
-            f"{stage.ref}.audio_path_resolution must be one of {sorted(_LONG_FORM_RESOLUTIONS)!r}, got {resolution!r}"
-        )
-        return _binding(
-            "unsupported",
-            source_ref=stage.ref,
-            configured_paths=(manifest, audio_dir),
-            primary_path=manifest,
-            source_index=0,
-            reason=reason,
-        )
-
-    kwargs = {
-        "audio_dir": audio_dir,
-        "audio_path_resolution": resolution,
-        "audio_filepath_key": stage.params.get("audio_filepath_key", "audio_filepath"),
-    }
-    binding = _base(
-        stage.ref,
-        configured_paths=(manifest, audio_dir),
-        primary_path=manifest,
-        profile_source=manifest,
-        profile_kwargs=kwargs,
-    )
-    binding = _assert_recipe_inputs(
-        binding,
-        recipe,
-        {
-            "input_manifest": ((manifest,),),
-            "manifest_path": ((manifest,),),
-            "audio_dir": ((audio_dir,),),
-        },
-    )
-    binding = _assert_cli_data(binding, data, (manifest,))
-    if binding.status == "mismatch":
-        return binding
-    if not os.path.isfile(manifest):
-        reason = f"long-form input manifest does not exist: {manifest}"
-        return replace(binding, status="missing", profile_source=None, issues=(reason,), reason=reason)
-    if resolution != "as_is" and not os.path.isdir(audio_dir):
-        reason = f"long-form audio_dir does not exist for {resolution!r} path resolution: {audio_dir}"
-        return replace(binding, status="missing", profile_source=None, issues=(reason,), reason=reason)
-    return binding

@@ -20,7 +20,6 @@ hydra:
 manifest_path: ???
 output_path: ./faster_whisper_output.jsonl
 workspace_dir: /tmp/faster_whisper_workspace
-resampled_audio_dir: ${workspace_dir}/audio_resampled
 model_id: large-v3
 model_revision: null
 default_language: null
@@ -147,12 +146,13 @@ stages:
     manifest_path: ${manifest_path}
     files_per_partition: 1
 
-  - _target_: nemo_curator.stages.audio.tagging.ResampleAudioStage
-    name: ResampleAudio
-    resampled_audio_dir: ${resampled_audio_dir}
+  - _target_: nemo_curator.stages.audio.preprocessing.AudioFormatStage
     target_sample_rate: 16000
-    target_format: wav
-    target_nchannels: 1
+    target_channels: 1
+    write_to_disk: true
+    keep_waveform_in_task: false
+    output_dir: ${workspace_dir}/audio_resampled
+    output_audio_filepath_key: resampled_audio_filepath
 
   - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
     name: FasterWhisper_inference

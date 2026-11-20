@@ -36,18 +36,9 @@ stages:
     manifest_path: ${manifest_path}
     files_per_partition: 1
 
-  - _target_: nemo_curator.stages.audio.tagging.resample_audio.ResampleAudioStage
-    resampled_audio_dir: ${output_dir}/resampled
+  - _target_: nemo_curator.stages.audio.preprocessing.AudioFormatStage
     target_sample_rate: 16000
-    target_format: wav
-    target_codec: pcm_f32le
-    target_nchannels: 1
-
-  - _target_: nemo_curator.stages.audio.preprocessing.MonoConversionStage
-    audio_filepath_key: resampled_audio_filepath
-    output_sample_rate: 16000
-    waveform_key: waveform
-    sample_rate_key: sample_rate
+    target_channels: 1
 
   - _target_: nemo_curator.stages.audio.inference.speaker_diarization.stage.InferenceSortformerStage
     model_id: ${model_dir}/sortformer.nemo

@@ -25,7 +25,7 @@ from nemo_curator.stages.audio.audio_agent.recipe import Recipe
 
 _READER = {"ref": "ManifestReader", "params": {"manifest_path": "/tmp/m.jsonl"}}  # noqa: S108
 _WRITER = {"ref": "ManifestWriterStage", "params": {"output_path": "/tmp/out.jsonl"}}  # noqa: S108
-_MONO_WF = {"ref": "MonoConversionStage", "params": {"keep_waveform_in_task": True}}
+_MONO_WF = {"ref": "AudioFormatStage", "params": {"target_channels": 1, "keep_waveform_in_task": True}}
 _DUR_WAVE = {"ref": "GetAudioDurationStage", "params": {"input_residency": "waveform"}}
 _DUR_FILE = {"ref": "GetAudioDurationStage", "params": {"input_residency": "file"}}
 # One of the two pairs that pass state through ``task._metadata`` rather than the row.
@@ -127,16 +127,16 @@ class TestAudioDirectoryBoundary:
                 "stages": [
                     _READER,
                     {
-                        "ref": "MonoConversionStage",
+                        "ref": "AudioFormatStage",
                         "params": {
+                            "target_channels": 1,
                             "write_to_disk": True,
                             "keep_waveform_in_task": False,
-                            "strict_sample_rate": False,
                             "output_dir": str(tmp_path / "mono"),
                             "update_audio_filepath": update_audio_filepath,
                         },
                     },
-                    suffix or {"ref": "ChannelCountStage", "params": {"input_residency": "file"}},
+                    suffix or {"ref": "AudioFormatStage", "params": {"input_residency": "file"}},
                     _WRITER,
                 ]
             }
@@ -205,7 +205,7 @@ class TestAudioDirectoryBoundary:
             update_audio_filepath=True,
             suffix={
                 "ref": "PreserveByValueStage",
-                "params": {"input_value_key": "is_mono", "target_value": True, "operator": "eq"},
+                "params": {"input_value_key": "num_channels", "target_value": 1, "operator": "eq"},
             },
         )
         materialized, error = continuation.materialize(recipe, uri=str(tmp_path / "mono"), kind="audio_dir", prefix=2)

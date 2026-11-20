@@ -92,29 +92,17 @@ def _bound_recipe(  # noqa: C901, PLR0911, PLR0912
         )
         if error:
             return _SmokeBound(None, error=error)
-        execution_knobs = {key: value for key, value in src.params.items() if key in EXECUTION_KNOB_PARAMS}
+        # Only the file selection is replaced; row options (include_files, id_key, audio_dir,
+        # ...) and execution knobs keep their configured values.
         src.params = {
+            **src.params,
             "manifest_path": tmp,
             "files_per_partition": 1,
             "blocksize": None,
             "file_extensions": [".jsonl"],
             "storage_options": None,
-            "include_files": src.params.get("include_files"),
-            "include_files_key": src.params.get("include_files_key", "audio_filepath"),
-            **execution_knobs,
         }
         rpt.notes.append(f"bounded via {len(manifests)} resolved local manifest file(s) ({count}/{sample} rows)")
-        return _SmokeBound(bounded, (tmp,), count)
-
-    if src.ref == "ReadLongFormManifestStage":
-        manifest = getattr(binding, "primary_path", None)
-        if not isinstance(manifest, str):
-            return _SmokeBound(None, error="long-form manifest path was not resolved")
-        tmp, count, error = _write_bounded_manifest((manifest,), sample)
-        if error:
-            return _SmokeBound(None, error=error)
-        src.params["input_manifest"] = tmp
-        rpt.notes.append(f"bounded via truncated long-form manifest ({count}/{sample} rows)")
         return _SmokeBound(bounded, (tmp,), count)
 
     if src.ref == "CreateInitialManifestFleursStage":
@@ -225,7 +213,7 @@ def _isolate_smoke_outputs(bound: _SmokeBound, rpt: SmokeReport) -> _SmokeBound:
                 )
 
             if (
-                stage.ref == "MonoConversionStage"
+                stage.ref == "AudioFormatStage"
                 and stage.params.get("write_to_disk", False)
                 and not stage.params.get("output_dir")
             ):

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -239,21 +239,9 @@ def test_waveforms_are_normalized_to_contiguous_mono(waveform: object) -> None:
 
 
 def test_a_mismatched_sample_rate_is_resampled_before_the_adapter() -> None:
-    librosa = MagicMock()
-    librosa.resample.side_effect = lambda waveform, *, orig_sr, target_sr: np.repeat(waveform, target_sr // orig_sr)
     stage, adapter = _stage()
-    with patch.dict("sys.modules", {"librosa": librosa}):
-        stage.process_batch([_task(seconds=1.0, sample_rate=8000)])
+    stage.process_batch([_task(seconds=1.0, sample_rate=8000)])
     assert len(adapter.calls[0][0]["waveform"]) == pytest.approx(_SR, rel=0.01)
-    librosa.resample.assert_called_once()
-
-
-def test_a_matching_sample_rate_avoids_librosa() -> None:
-    librosa = MagicMock()
-    stage, _ = _stage()
-    with patch.dict("sys.modules", {"librosa": librosa}):
-        stage.process_batch([_task()])
-    librosa.resample.assert_not_called()
 
 
 def test_file_mode_loads_the_yaml_manifest_contract(tmp_path: Path) -> None:

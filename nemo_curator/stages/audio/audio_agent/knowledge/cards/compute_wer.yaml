@@ -30,7 +30,7 @@ semantic_facts:
   metrics:
     meaning: "Error-rate scores comparing an ASR HYPOTHESIS against a REFERENCE transcript (nested: metrics.wer.wer, metrics.cer.cer, plus edge/PNC variants)."
     unit: "non-negative fractions; WER/CER can exceed 1.0 when insertions dominate"
-    provenance: "word_error_rate_detail over the NORMALIZED hypothesis_text_key vs reference_text_key text; REQUIRES both to be present."
+    provenance: "Levenshtein WER/CER with insertion/deletion/substitution rates (text_metrics.edit_operation_counts) over the NORMALIZED hypothesis_text_key vs reference_text_key text; REQUIRES both to be present."
     scope: "per segment when segments_key is present, else the top-level row"
     propagation: "Written under metrics_key at task or segment scope; there is no inline threshold. A generic flat-key filter requires the selected score to be extracted or flattened first."
     counterexamples:

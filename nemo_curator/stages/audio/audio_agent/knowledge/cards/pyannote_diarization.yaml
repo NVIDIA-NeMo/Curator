@@ -29,7 +29,7 @@ use_cases:
        holds silence/gap placeholders labeled speaker='no-speaker' (see semantic_facts.segments). Normalize those
        rows first; this describes the emitted format, not a permanent incompatibility with downstream workflows."
 composition:
-  typical_upstream: [MonoConversionStage, ResampleAudioStage]
+  typical_upstream: [AudioFormatStage]
   typical_downstream: [MergeAlignmentDiarizationStage, TimestampMapperStage, AudioToDocumentStage, PrepareModuleSegmentsStage, ASRStage]
 params_of_note:
   hf_token: "HuggingFace token; REQUIRED (pyannote 3.1 is gated)"
@@ -95,7 +95,7 @@ notes:
   - "Gated: you must accept BOTH pyannote/segmentation-3.0 AND pyannote/speaker-diarization-3.1 license terms on HuggingFace (missing the segmentation acceptance -> 401)."
   - "Internally loads a WhisperX/pyannote VAD (vad_onset=0.5, vad_offset=0.363) to re-segment long turns with randomized chunk sizes (non-deterministic unless seeded)."
   - "RTTM files are written beside the audio file (path not configurable) when write_rttm=True."
-  - "Sample rate: pyannote ingests 16 kHz mono and auto-downmixes + auto-resamples on load, so any input rate is accepted (no supported_sample_rates constraint). Default audio_filepath_key is resampled_audio_filepath (pairs with ResampleAudioStage)."
+  - "Sample rate: pyannote ingests 16 kHz mono and auto-downmixes + auto-resamples on load, so any input rate is accepted (no supported_sample_rates constraint). Default audio_filepath_key is resampled_audio_filepath; after AudioFormatStage(write_to_disk=True) point it at converted_audio_filepath."
   - "(external) pyannote 3.1 is pure PyTorch (3.1 removed onnxruntime)."
 caveats:
   - "Requires a HuggingFace token and acceptance of the pyannote model license (two gated models)."

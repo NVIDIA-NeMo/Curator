@@ -1,0 +1,80 @@
+stage_id: AudioFormatStage
+category: preprocess
+summary: "Record each row's sample rate and channel count, optionally drop rows outside allowed/min/max constraints, and optionally convert to target_sample_rate / target_channels (resample in-process with torchaudio, downmix to mono or duplicate mono). Without a target it reads only the header and never decodes."
+# is_filter because any allowed_*/min_*/max_* constraint drops rows, and target_channels > 1
+# drops layouts it cannot convert. The DEFAULT (no constraint, no target) only records, so the
+# tag is broader than the default contract's cardinality -- the same pairing OverlapFilterStage uses.
+tags: [is_filter]
+model_id: null
+domain: {language: any, style: any}
+constraints: {}
+resource:
+  cpus: 1.0
+  gpu_mem_gb: 0.0
+  gpu_optional: false
+  bound: cpu
+  throughput_hint: "CPU. Without a target_* it is header-only (soundfile.info); with one it decodes and runs torch mean/repeat and torchaudio resampling over the waveform"
+use_cases:
+  good_for:
+    - "recording sample_rate and num_channels for every row without decoding (no parameters)"
+    - "keeping only rows that already have an acceptable rate or channel count (allowed_*/min_*/max_*), before any decoding stage runs"
+    - "normalizing a mixed corpus to a model's expected form, e.g. target_sample_rate=16000, target_channels=1"
+  avoid_for:
+    - "downmixing surround to stereo: target_channels > 1 from more channels is REFUSED (the row is dropped)"
+    - "data already at the target rate and channel count (a target converts and decodes every row for nothing)"
+    - "non-WAV output: write_to_disk always writes WAV"
+composition:
+  typical_upstream: [ManifestReader, CreateInitialManifestReadSpeechStage, CreateInitialManifestAudioFolderStage, CreateInitialManifestFleursStage]
+  typical_downstream: [VADSegmentationStage, BandFilterStage, UTMOSFilterStage, SIGMOSFilterStage, ASRStage, InferenceSortformerStage, GetAudioDurationStage]
+params_of_note:
+  allowed_sample_rates: "rates to keep, e.g. [16000, 22050]. None (default) = no constraint. A bare list means 'these rates', never a range; use min/max for a range."
+  min_sample_rate: "lowest acceptable rate, inclusive. None (default) = unbounded below."
+  max_sample_rate: "highest acceptable rate, inclusive. None (default) = unbounded above."
+  allowed_channels: "channel counts to keep, e.g. [1] for already-mono rows only. None (default) = no constraint."
+  min_channels: "lowest acceptable channel count, inclusive. None (default) = unbounded below."
+  max_channels: "highest acceptable channel count, inclusive. None (default) = unbounded above."
+  target_sample_rate: "resample to this rate in-process (torchaudio). None (default) keeps the rate. Constraints apply to the SOURCE rate, before conversion."
+  target_channels: "convert to this many channels. 1 averages every channel; N > 1 duplicates a mono source; any other layout change (e.g. 6 -> 2) drops the row. None (default) keeps the count."
+  input_residency: "'auto' (default) uses a resident waveform/rate pair before the file; 'file' ignores resident audio; 'waveform' requires resident audio and never touches disk."
+  keep_waveform_in_task: "with a target: keep the converted waveform and its rate in the task (default True; in-memory, no disk)."
+  write_to_disk: "with a target, OPT-IN (default False): also write the converted WAV under output_dir (system temp dir when None) and record it under output_audio_filepath_key. Off by default -- that is why this card is not tagged writes_disk."
+  output_dir: "directory for written WAVs (write_to_disk=True). None uses the system temp dir, which nothing cleans up."
+  output_audio_filepath_key: "key for the written WAV path (default converted_audio_filepath)."
+  update_audio_filepath: "with write_to_disk=True, repoint audio_filepath_key at the written file and preserve the prior path under original_audio_filepath_key (default False)."
+  audio_filepath_key: "file input key (default audio_filepath); point it at the actual routed artifact when reading a prior disk transform"
+semantic_facts:
+  sample_rate:
+    meaning: "The source rate when no target_sample_rate is set; the converted rate after a rate conversion that keeps the waveform."
+    unit: "Hz (integer)"
+    provenance: "A resident waveform's declared rate, otherwise the file header; target_sample_rate after conversion."
+    scope: "One row / one audio carrier."
+    propagation: "Written for every surviving row. A disk-only conversion (keep_waveform_in_task=False) removes the resident waveform/rate pair; read output_audio_filepath_key instead."
+    counterexamples:
+      - "allowed_sample_rates=[16000] does NOT resample 48 kHz audio -- it DROPS it. Use target_sample_rate=16000 to convert."
+      - "Not a promise the corpus is uniform: a range or multi-value allowed_sample_rates can leave several rates among the survivors."
+  num_channels:
+    meaning: "The source channel count without target_channels; the produced count after conversion."
+    unit: "channels (integer >= 1)"
+    provenance: "Resident waveform shape or file header; the converted waveform's shape after conversion."
+    scope: "One row / one audio carrier."
+    propagation: "Written for every surviving row."
+    counterexamples:
+      - "allowed_channels=[1] does NOT make anything mono -- it discards whatever is not. target_channels=1 converts instead. Choosing wrongly either destroys most of a stereo corpus or leaves it unconverted."
+      - "Upmix is duplication: target_channels=2 from mono is the same signal twice, not genuine stereo."
+  converted_audio_filepath:
+    meaning: "Path to a NEW WAV written at the target rate/channels -- a transformed copy; the original file is untouched."
+    unit: "file path (string)"
+    provenance: "Written by this stage under output_dir when write_to_disk=True and a target is set."
+    scope: "the converted copy for this row"
+    propagation: "audio_filepath still names the source unless update_audio_filepath=True; a file-based consumer must read this key, the retained waveform, or use update_audio_filepath."
+    counterexamples:
+      - "Not written without a target or without write_to_disk; the key name follows output_audio_filepath_key."
+param_dependencies:
+  write_to_disk: "needs target_sample_rate or target_channels; with a target, at least one of keep_waveform_in_task / write_to_disk must be True (sinkless conversions are refused at construction)."
+  update_audio_filepath: "requires write_to_disk=True."
+  output_dir: "only meaningful with write_to_disk=True; refused without a target."
+notes:
+  - "One stage, three uses: record (no parameters), select (allowed_*/min_*/max_*), convert (target_*). They combine: constraints are checked on the source before conversion."
+  - "Routing is explicit after a disk conversion: by default audio_filepath remains the source and the converted WAV is written to converted_audio_filepath."
+verified: {params: mechanical, semantic_facts: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess}
+provenance: {model_card_url: null, card_version: 1, last_validated: "2026-11-19"}

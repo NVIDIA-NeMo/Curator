@@ -88,10 +88,13 @@ def test_generated_reference_is_covered_by_persisted_provenance(paired_recipe: R
     paired_recipe.stages.insert(
         2,
         StageRef(
-            "ResampleAudioStage",
+            "AudioFormatStage",
             {
-                "resampled_audio_dir": str(tmp_path / "audio"),
-                "resampled_audio_filepath_key": "reference",
+                "target_sample_rate": 16000,
+                "write_to_disk": True,
+                "keep_waveform_in_task": False,
+                "output_dir": str(tmp_path / "audio"),
+                "output_audio_filepath_key": "reference",
             },
         ),
     )

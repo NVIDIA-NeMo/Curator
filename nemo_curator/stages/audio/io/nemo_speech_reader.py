@@ -44,6 +44,7 @@ from nemo_curator.stages.audio._agent._agent_ready import (
     StageContract,
     StaticHints,
 )
+from nemo_curator.stages.audio.common import MAX_AUDIO_DURATION_SEC, exceeds_max_duration
 from nemo_curator.stages.audio.io._nemo_speech_paths import contained_output_path, validate_local_output_dir
 from nemo_curator.stages.audio.io._nemo_speech_state import register_nemo_speech_shard
 from nemo_curator.stages.audio.io.shard_key import derive_manifest_shard_key
@@ -400,7 +401,7 @@ class NeMoSpeechReaderStage(AgentReady, ProcessingStage[FileGroupTask, AudioTask
     """
 
     output_dir: str | None = None
-    max_audio_duration_sec: float | None = 12 * 60 * 60
+    max_audio_duration_sec: float | None = MAX_AUDIO_DURATION_SEC
     keep_waveform: bool = True
     reader_workers: int | None = None
     name: str = "nemo_speech_reader"
@@ -512,14 +513,6 @@ class NeMoSpeechReaderStage(AgentReady, ProcessingStage[FileGroupTask, AudioTask
 
         return LazyNeMoIterator(manifest_path)
 
-    def _over_duration_limit(self, duration: Any) -> bool:  # noqa: ANN401
-        if self.max_audio_duration_sec is None or self.max_audio_duration_sec <= 0:
-            return False
-        try:
-            return float(duration) > self.max_audio_duration_sec
-        except (TypeError, ValueError):
-            return False
-
     @staticmethod
     def _source_path(cut: Any) -> str:  # noqa: ANN401
         if cut.recording is not None and cut.recording.sources:
@@ -578,7 +571,7 @@ class NeMoSpeechReaderStage(AgentReady, ProcessingStage[FileGroupTask, AudioTask
         row_index: int,
         shard_total: int,
     ) -> AudioTask:
-        if self._over_duration_limit(cut.duration):
+        if exceeds_max_duration(cut.duration, self.max_audio_duration_sec):
             return self._placeholder(
                 task=task,
                 row=row,
@@ -667,7 +660,7 @@ class NeMoSpeechReaderStage(AgentReady, ProcessingStage[FileGroupTask, AudioTask
         adapter = self._make_non_tar_adapter(manifest_path)
         results: list[AudioTask] = []
         for row_index, row in enumerate(rows):
-            if self._over_duration_limit(row.get("duration")):
+            if exceeds_max_duration(row.get("duration"), self.max_audio_duration_sec):
                 results.append(
                     self._placeholder(
                         task=task,
@@ -822,7 +815,7 @@ class NeMoSpeechAudioReader(AgentReady, CompositeStage[EmptyTask, AudioTask]):
     output_dir: str | None = None
     cleanup_partial: bool = True
     resume_mode: str = "done_markers"
-    max_audio_duration_sec: float | None = 12 * 60 * 60
+    max_audio_duration_sec: float | None = MAX_AUDIO_DURATION_SEC
     keep_waveform: bool = True
     reader_workers: int | None = None
     name: str = "nemo_speech_audio_reader"

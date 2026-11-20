@@ -18,10 +18,7 @@ import math
 from dataclasses import dataclass, field
 from typing import Any, ClassVar
 
-import librosa
-import soundfile as sf
 import torch
-import torchaudio.functional as torchaudio_F  # noqa: N812
 from loguru import logger
 from torchaudio.pipelines import SQUIM_OBJECTIVE
 
@@ -40,6 +37,7 @@ from nemo_curator.stages.audio._agent._residency import (
     residency_read_specs,
     validate_input_residency,
 )
+from nemo_curator.stages.audio.common import load_audio_file, resample_waveform
 from nemo_curator.stages.audio.metrics._common import (
     metrics_mapping,
     resident_pair_is_complete,
@@ -340,17 +338,11 @@ class TorchSquimQualityMetricsStage(AgentReady, ProcessingStage[AudioTask, Audio
             )
             raise ValueError(msg)
         try:
-            info = sf.info(audio_path)
-            sr = info.samplerate
-        except Exception as ex:
-            msg = f"[{self.name}] Failed to read audio info: {audio_path}"
-            raise RuntimeError(msg) from ex
-        try:
-            audio, _ = librosa.load(path=audio_path, sr=sr)
+            audio, sr = load_audio_file(audio_path)
         except Exception as ex:
             msg = f"[{self.name}] Failed to load audio: {audio_path}"
             raise RuntimeError(msg) from ex
-        return audio, sr
+        return audio.squeeze(0).numpy(), sr
 
     def _collect_waveforms_for_entry(self, task_idx: int, data_entry: dict) -> list[tuple[int, int, torch.Tensor]]:
         """Extract valid segment waveforms from a single audio entry.
@@ -387,16 +379,12 @@ class TorchSquimQualityMetricsStage(AgentReady, ProcessingStage[AudioTask, Audio
                     continue
 
                 metrics_mapping(segment, metrics_key=self.metrics_key, stage_name=self.name)
-                y = torch.from_numpy(audio[start_frame:end_frame])
-                if sr != self.target_sr:
-                    y = torchaudio_F.resample(y.unsqueeze(0), sr, self.target_sr).squeeze(0)
+                y = resample_waveform(audio[start_frame:end_frame], sr, self.target_sr)
 
                 collected.append((task_idx, seg_idx, y))
         else:
             metrics_mapping(data_entry, metrics_key=self.metrics_key, stage_name=self.name)
-            y = torch.from_numpy(audio)
-            if sr != self.target_sr:
-                y = torchaudio_F.resample(y.unsqueeze(0), sr, self.target_sr).squeeze(0)
+            y = resample_waveform(audio, sr, self.target_sr)
             collected.append((task_idx, -1, y))
         return collected
 

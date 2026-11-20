@@ -127,8 +127,8 @@ def run_readspeech_benchmark(  # noqa: PLR0913, PLR0915
     pipeline.add_stage(
         AudioDataFilterStage(
             config={
-                "mono_conversion": {
-                    "output_sample_rate": sample_rate,
+                "audio_format": {
+                    "allowed_sample_rates": [sample_rate],
                 },
                 "vad": {
                     "enable": enable_vad,

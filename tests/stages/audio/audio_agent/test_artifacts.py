@@ -152,13 +152,18 @@ def test_uninspectable_sortformer_config_cannot_match_an_earlier_identity(
 
 
 @pytest.mark.parametrize("write_to_disk", [False, True])
-def test_resampler_artifact_requires_enabled_disk_output(tmp_path: Path, write_to_disk: bool) -> None:
+def test_converter_artifact_requires_enabled_disk_output(tmp_path: Path, write_to_disk: bool) -> None:
     output = tmp_path / "audio"
     output.mkdir()
     (output / "old.wav").write_bytes(b"old content")
     stage = StageRef(
-        ref="ResampleAudioStage",
-        params={"resampled_audio_dir": str(output), "write_to_disk": write_to_disk, "keep_waveform_in_task": True},
+        ref="AudioFormatStage",
+        params={
+            "target_sample_rate": 16000,
+            "output_dir": str(output),
+            "write_to_disk": write_to_disk,
+            "keep_waveform_in_task": True,
+        },
     )
     assert artifacts.output_uri(stage) == ((str(output), "audio_dir") if write_to_disk else ("", "unknown"))
 
@@ -176,9 +181,9 @@ def test_disabled_sink_cannot_publish_unrelated_existing_files(
             "stages": [
                 {"ref": "ManifestReader", "params": {"manifest_path": str(tmp_path / "input.jsonl")}},
                 {
-                    "ref": "ResampleAudioStage",
+                    "ref": "AudioFormatStage",
                     "params": {
-                        "resampled_audio_dir": str(output),
+                        "target_sample_rate": 16000,
                         "write_to_disk": False,
                         "keep_waveform_in_task": True,
                     },

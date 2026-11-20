@@ -15,7 +15,7 @@ use_cases:
   good_for: ["adding a duration field for length filtering (PreserveByValue) or export", "computing duration from a resident waveform (input_residency) without re-reading the file"]
   avoid_for: ["when duration already exists in the manifest"]
 composition:
-  typical_upstream: [ManifestReader, ResampleAudioStage, MonoConversionStage, SpeakerSeparationStage, SegmentConcatenationStage]
+  typical_upstream: [ManifestReader, AudioFormatStage, SpeakerSeparationStage, SegmentConcatenationStage]
   typical_downstream: [PreserveByValueStage, AudioToDocumentStage, ManifestWriterStage]
 params_of_note:
   audio_filepath_key: "key holding the audio file path (default audio_filepath); used when input_residency is 'file'/'auto'"

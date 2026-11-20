@@ -24,7 +24,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 import soundfile as sf
 import torch
-from pydub import AudioSegment
 
 from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
 from nemo_curator.stages.audio._agent._planning import validate_pipeline
@@ -38,8 +37,8 @@ from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
 
-def _make_audio_segment(duration_ms: int = 5000, sample_rate: int = 48000) -> AudioSegment:
-    return AudioSegment.silent(duration=duration_ms, frame_rate=sample_rate)
+def _silence(duration_ms: int = 5000, sample_rate: int = 48000) -> tuple[torch.Tensor, int]:
+    return torch.zeros(1, duration_ms * sample_rate // 1000), sample_rate
 
 
 def _make_task(duration_sec: float = 10.0, sample_rate: int = 48000) -> AudioTask:
@@ -62,8 +61,8 @@ class TestSpeakerSeparationStage:
 
         separator = MagicMock()
         speaker_data = {
-            "speaker_0": SpeakerResult(_make_audio_segment(3000), 3.0, [(0.0, 3.0)]),
-            "speaker_1": SpeakerResult(_make_audio_segment(4000), 4.0, [(0.0, 4.0)]),
+            "speaker_0": SpeakerResult(*_silence(3000), 3.0, [(0.0, 3.0)]),
+            "speaker_1": SpeakerResult(*_silence(4000), 4.0, [(0.0, 4.0)]),
         }
         separator.get_speaker_audio_data.return_value = speaker_data
         stage._separator = separator
@@ -85,7 +84,7 @@ class TestSpeakerSeparationStage:
 
         separator = MagicMock()
         separator.get_speaker_audio_data.return_value = {
-            "spk_0": SpeakerResult(_make_audio_segment(5000), 5.0, [(0.0, 5.0)]),
+            "spk_0": SpeakerResult(*_silence(5000), 5.0, [(0.0, 5.0)]),
         }
         stage._separator = separator
 
@@ -113,7 +112,7 @@ class TestSpeakerSeparationStage:
         stage = SpeakerSeparationStage(min_duration=0.5, write_to_disk=True, separated_audio_dir=str(tmp_path / "sep"))
         separator = MagicMock()
         separator.get_speaker_audio_data.return_value = {
-            "spk_0": SpeakerResult(_make_audio_segment(3000), 3.0, [(0.0, 3.0)]),
+            "spk_0": SpeakerResult(*_silence(3000), 3.0, [(0.0, 3.0)]),
         }
         stage._separator = separator
         item = stage.process(_make_task())[0].data
@@ -132,7 +131,7 @@ class TestSpeakerSeparationStage:
         )
         separator = MagicMock()
         separator.get_speaker_audio_data.return_value = {
-            "spk_0": SpeakerResult(_make_audio_segment(3000), 3.0, [(0.0, 3.0)]),
+            "spk_0": SpeakerResult(*_silence(3000), 3.0, [(0.0, 3.0)]),
         }
         stage._separator = separator
         item = stage.process(_make_task())[0].data
@@ -153,8 +152,8 @@ class TestSpeakerSeparationStage:
 
         separator = MagicMock()
         separator.get_speaker_audio_data.return_value = {
-            "speaker_0": SpeakerResult(_make_audio_segment(5000), 5.0, [(0.0, 5.0)]),
-            "speaker_1": SpeakerResult(_make_audio_segment(1000), 1.0, [(0.0, 1.0)]),
+            "speaker_0": SpeakerResult(*_silence(5000), 5.0, [(0.0, 5.0)]),
+            "speaker_1": SpeakerResult(*_silence(1000), 1.0, [(0.0, 1.0)]),
         }
         stage._separator = separator
 
@@ -380,17 +379,6 @@ class TestExcludeOverlappingSegments:
         assert result == {}
 
 
-class _TinyAudioSegment:
-    """A pydub-shaped stub: just enough for the separator to hand back audio."""
-
-    sample_width = 2
-    channels = 1
-    frame_rate = 16000
-
-    def get_array_of_samples(self) -> list[int]:
-        return [0, 500, -500, 0] * 100
-
-
 # Lifted from tests/stages/audio/test_agent_simulation_pipelines.py: it drives only
 # SpeakerSeparationStage, and was the sole coverage of fan-out metadata isolation.
 def test_agent_fanout_children_have_isolated_metadata() -> None:
@@ -402,8 +390,8 @@ def test_agent_fanout_children_have_isolated_metadata() -> None:
 
     def fake_speaker_audio_data(*_args: Any, **_kwargs: Any) -> dict[str, Any]:  # noqa: ANN401
         return {
-            "spk0": SimpleNamespace(audio=_TinyAudioSegment(), duration=0.25, diar_segments=[(0.0, 0.25)]),
-            "spk1": SimpleNamespace(audio=_TinyAudioSegment(), duration=0.30, diar_segments=[(0.25, 0.55)]),
+            "spk0": SpeakerResult(torch.zeros(1, 400), 16000, duration=0.25, diar_segments=[(0.0, 0.25)]),
+            "spk1": SpeakerResult(torch.zeros(1, 400), 16000, duration=0.30, diar_segments=[(0.25, 0.55)]),
         }
 
     stage = SpeakerSeparationStage(
@@ -438,7 +426,7 @@ def _stubbed_speaker_stage(**kwargs: object) -> SpeakerSeparationStage:
     stage = SpeakerSeparationStage(min_duration=0.1, resources=Resources(gpus=0.0), **kwargs)
     stage._separator = SimpleNamespace(
         get_speaker_audio_data=lambda *_args, **_kwargs: {
-            "spk_0": SpeakerResult(_make_audio_segment(500, sample_rate=11025), 0.5, [(0.0, 0.5)])
+            "spk_0": SpeakerResult(*_silence(500, sample_rate=11025), 0.5, [(0.0, 0.5)])
         }
     )
     return stage
@@ -759,9 +747,9 @@ def test_multi_speaker_publish_failure_retains_immutable_outputs(tmp_path, monke
     )
     stage._separator = SimpleNamespace(
         get_speaker_audio_data=lambda *_args, **_kwargs: {
-            "spk_0": SpeakerResult(_make_audio_segment(500, sample_rate=11025), 0.5, [(0.0, 0.5)]),
-            "spk_1": SpeakerResult(_make_audio_segment(600, sample_rate=11025), 0.6, [(0.0, 0.6)]),
-            "spk_2": SpeakerResult(_make_audio_segment(700, sample_rate=11025), 0.7, [(0.0, 0.7)]),
+            "spk_0": SpeakerResult(*_silence(500, sample_rate=11025), 0.5, [(0.0, 0.5)]),
+            "spk_1": SpeakerResult(*_silence(600, sample_rate=11025), 0.6, [(0.0, 0.6)]),
+            "spk_2": SpeakerResult(*_silence(700, sample_rate=11025), 0.7, [(0.0, 0.7)]),
         }
     )
     real_link = os.link
@@ -794,9 +782,9 @@ def test_concurrent_duplicate_publish_failure_never_deletes_successful_outputs(t
         )
         stage._separator = SimpleNamespace(
             get_speaker_audio_data=lambda *_args, **_kwargs: {
-                "spk_0": SpeakerResult(_make_audio_segment(500, sample_rate=11025), 0.5, [(0.0, 0.5)]),
-                "spk_1": SpeakerResult(_make_audio_segment(600, sample_rate=11025), 0.6, [(0.0, 0.6)]),
-                "spk_2": SpeakerResult(_make_audio_segment(700, sample_rate=11025), 0.7, [(0.0, 0.7)]),
+                "spk_0": SpeakerResult(*_silence(500, sample_rate=11025), 0.5, [(0.0, 0.5)]),
+                "spk_1": SpeakerResult(*_silence(600, sample_rate=11025), 0.6, [(0.0, 0.6)]),
+                "spk_2": SpeakerResult(*_silence(700, sample_rate=11025), 0.7, [(0.0, 0.7)]),
             }
         )
         return stage
@@ -844,3 +832,22 @@ def test_concurrent_duplicate_publish_failure_never_deletes_successful_outputs(t
     assert "b" not in errors
     assert len(results["b"]) == 3
     assert all(Path(child.data["audio_filepath"]).exists() for child in results["b"])
+
+
+def test_speaker_audio_keeps_only_each_speakers_segments(tmp_path: Path) -> None:
+    sep = _make_separator()
+    segments = {"spk_0": [(0.0, 0.5)], "spk_1": [(0.5, 1.0)], "quiet": [(1.0, 1.5)]}
+    waveform = torch.cat([torch.full((1, 8000), 0.5), torch.full((1, 8000), -0.25), torch.zeros(1, 8000)], dim=1)
+    path = str(tmp_path / "mix.wav")
+    sf.write(path, waveform.squeeze(0).numpy(), 16000, subtype="FLOAT")
+
+    for source, sample_rate in ((waveform, 16000), (path, None)):
+        with patch.object(SpeakerSeparator, "process_audio", return_value=segments):
+            result = sep.get_speaker_audio_data(source, sample_rate=sample_rate)
+
+        assert set(result) == {"spk_0", "spk_1"}
+        assert result["spk_0"].sample_rate == 16000
+        torch.testing.assert_close(result["spk_0"].audio[:, :8000], waveform[:, :8000])
+        assert not result["spk_0"].audio[:, 8000:].any()
+        torch.testing.assert_close(result["spk_1"].audio[:, 8000:16000], waveform[:, 8000:16000])
+        assert not result["spk_1"].audio[:, :8000].any()

@@ -22,10 +22,8 @@ and WhisperXVADStage (ProcessingStage for VAD-only pipeline use).
 import os
 import time
 from dataclasses import dataclass, field
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
-import numpy as np
-import soundfile as sf
 import torch
 from loguru import logger
 from whisperx.audio import SAMPLE_RATE
@@ -40,7 +38,7 @@ from nemo_curator.stages.audio._agent._residency import (
     resolve_audio_path,
     validate_input_residency,
 )
-from nemo_curator.stages.audio.common import get_audio_duration
+from nemo_curator.stages.audio.common import get_audio_duration, load_audio_file
 from nemo_curator.stages.audio.inference.base import (
     _channel_first_waveform,
     _fanout_audio_segment,
@@ -58,6 +56,9 @@ from nemo_curator.stages.audio.inference.base import (
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
+
+if TYPE_CHECKING:
+    import numpy as np
 
 
 class WhisperXVADModel:
@@ -414,7 +415,7 @@ class WhisperXVADStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             register_temp=temp_paths,
         )
         if file_path is None and self.allow_audio_filepath_fallback and self.audio_filepath_key != "audio_filepath":
-            # Composability fallback: pipelines that did not run ResampleAudioStage
+            # Composability fallback: pipelines that did not run AudioFormatStage
             # only have the original audio_filepath.
             file_path = resolve_audio_path(
                 audio_input,
@@ -446,8 +447,8 @@ class WhisperXVADStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                 )
                 return [] if self.fanout else task
 
-            data, sr = sf.read(file_path, dtype="float32")
-            audio = np.expand_dims(data, axis=0) if data.ndim == 1 else data.T
+            waveform, sr = load_audio_file(file_path, mono=False)
+            audio = waveform.numpy()
             vad_segments = self._vad_model.get_vad_segments(audio, self.max_length, sample_rate=sr)
             data_entry[self.segments_key] = vad_segments
             self._log_metrics(

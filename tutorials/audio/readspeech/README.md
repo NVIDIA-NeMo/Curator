@@ -119,10 +119,10 @@ CreateInitialManifestReadSpeechStage
       |
       v
 AudioDataFilterStage (auto-selects topology)
-  Combo 1: MonoConversion -> Filters -> TimestampMapper
-  Combo 2: MonoConversion -> VAD stage + Silero adapter (fan-out) -> Filters -> TimestampMapper
-  Combo 3: MonoConversion -> Filters -> SpeakerSep(fan-out) -> Filters -> TimestampMapper
-  Combo 4: MonoConversion -> VAD(nested) -> Filters -> SegmentConcat
+  Combo 1: AudioFormat -> Filters -> TimestampMapper
+  Combo 2: AudioFormat -> VAD stage + Silero adapter (fan-out) -> Filters -> TimestampMapper
+  Combo 3: AudioFormat -> Filters -> SpeakerSep(fan-out) -> Filters -> TimestampMapper
+  Combo 4: AudioFormat -> VAD(nested) -> Filters -> SegmentConcat
             -> SpeakerSep -> VAD_Speaker(fan-out) -> Filters -> TimestampMapper
       |
       v
@@ -347,7 +347,7 @@ By default, all built-in filter scores are included:
 |-------|--------|---------|
 | `speaker_id` | SpeakerSeparation | included |
 | `num_speakers` | SpeakerSeparation | included |
-| `sample_rate` | MonoConversion | included |
+| `sample_rate` | AudioFormat | included |
 | `utmos_mos` | UTMOSFilter | included |
 | `sigmos_noise`, `sigmos_ovrl`, ... | SIGMOSFilter | included |
 | `band_prediction` | BandFilter | included |
@@ -367,10 +367,10 @@ are always blocked, even if added to `passthrough_keys`.
 A warning is logged if blocked keys are detected in the configuration.
 
 **Speaker separation note**: When speaker separation is enabled, the parent
-task's `duration` and `num_samples` fields are dropped before building
+task's `duration` field is dropped before building
 per-speaker child tasks, since each speaker segment has its own duration
 computed from the diarization result. Only `audio`/`waveform` (non-serializable)
-and `duration`/`num_samples` (parent-specific) are dropped; all other fields
+and `duration` (parent-specific) are dropped; all other fields
 are inherited by child tasks.
 
 ### Example outputs

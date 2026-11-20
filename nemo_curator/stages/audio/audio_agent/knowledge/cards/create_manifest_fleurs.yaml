@@ -16,7 +16,7 @@ use_cases:
   avoid_for: ["data not in FLEURS (use ManifestReader on your own manifest)"]
 composition:
   typical_upstream: []
-  typical_downstream: [ResampleAudioStage, MonoConversionStage, ASRStage]
+  typical_downstream: [AudioFormatStage, ASRStage]
 params_of_note:
   lang: "FLEURS language code (e.g. 'hy_am' for Armenian)"
   split: "'test', 'train', or 'dev'"

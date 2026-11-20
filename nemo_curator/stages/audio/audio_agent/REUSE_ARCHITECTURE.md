@@ -137,8 +137,8 @@ Excluded from `semantic_hash` (in `recipe.EXECUTION_KNOB_PARAMS` and
 - execution knobs — `resources`, `batch_size`, `num_workers`, `runtime_env`
 - terminal manifest locations — `output_path`, `output_manifest`
 
-Generated asset locations (`output_dir`, `resampled_audio_dir`, `separated_audio_dir`,
-`rttm_out_dir`, `output_audio_tar_path`) remain in semantic identity because manifests
+Generated asset locations (`output_dir`, `separated_audio_dir`, `rttm_out_dir`,
+`output_audio_tar_path`) remain in semantic identity because manifests
 serialize their paths. Persisted artifacts bind digests of these generated dependencies,
 and downstream writers inherit prefix determinism and freshness constraints. The v4 step
 key namespace recomputes older artifacts that lack this evidence.
@@ -282,7 +282,7 @@ need certainty over agency.
 
 Validity only matters for steps that *have* an artifact, and a step gets one only if it wrote
 something: `output_uri()` reads the stage's output-location parameter (`output_path`,
-`output_dir`, `resampled_audio_dir`, …) and returns `("", "unknown")` when there is none, which
+`output_dir`, `separated_audio_dir`, …) and returns `("", "unknown")` when there is none, which
 makes `StepPlan.persists()` false and skips publication. A stage that computes in memory and
 hands its rows downstream therefore leaves no resume point, by construction — reuse resumes from
 disk, and there is nothing on disk.

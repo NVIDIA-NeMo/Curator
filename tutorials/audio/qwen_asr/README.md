@@ -3,7 +3,7 @@
 This tutorial reads a NeMo-style audio manifest, normalizes each file to a
 16 kHz mono WAV, transcribes it with `Qwen/Qwen3-ASR-0.6B`, and writes the
 results to JSONL. The pipeline composes `ManifestReader`, the same
-`ResampleAudioStage` used by the audio tagging tutorial, the generic `ASRStage`
+`AudioFormatStage` used by the audio tagging tutorial, the generic `ASRStage`
 configured with `QwenASRAdapter`, and `ManifestWriterStage`.
 
 There is no Qwen-specific inference stage or tutorial runner. Model lifecycle,
@@ -24,9 +24,10 @@ uv sync --extra audio_cuda12 --extra vllm
 source .venv/bin/activate
 ```
 
-`ResampleAudioStage` invokes `ffmpeg`, so input audio may use any format
-supported by the installed build. It writes PCM 16-bit, 16 kHz, mono WAV files
-under `resampled_audio_dir` before inference.
+`AudioFormatStage` decodes input audio with soundfile, so any format libsndfile
+reads works (WAV, FLAC, OGG/Opus, MP3). It resamples in-process and writes PCM
+16-bit, 16 kHz, mono WAV files under `${workspace_dir}/audio_resampled`
+before inference.
 
 ## Run the bundled smoke input
 
@@ -123,8 +124,8 @@ The input is JSONL with one object per audio file. Each object must contain
 {"audio_filepath": "/data/sample.wav", "source_lang": "en"}
 ```
 
-`ResampleAudioStage` preserves `audio_filepath` and adds `audio_item_id`,
-`resampled_audio_filepath`, and `duration`. `ASRStage` opens the resampled file
+`AudioFormatStage` preserves `audio_filepath` and adds `sample_rate`,
+`num_channels`, `resampled_audio_filepath`, and `duration`. `ASRStage` opens the resampled file
 for its current batch, converts it to contiguous mono 16 kHz NumPy samples,
 and passes the waveform plus language to the adapter. Waveforms are not stored
 in the output task data.

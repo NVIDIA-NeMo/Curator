@@ -768,35 +768,6 @@ class TestPlan:
         assert decision.status != "ready"
         assert "no prior run" in decision.reason
 
-    def test_shared_resample_outputs_stop_reuse_before_a_directory_resume_point(self, tmp_path: Path) -> None:
-        """A later artifact cannot restore independence lost at shared resample output names."""
-        audio = tmp_path / "audio"
-        inventory = _corpus(audio, ("a.wav", "b.wav"))
-        rec = Recipe.from_dict(
-            {
-                "stages": [
-                    {"ref": "CreateInitialManifestAudioFolderStage", "params": {"data_dir": str(audio)}},
-                    {"ref": "GetAudioDurationStage", "params": {}},
-                    {
-                        "ref": "ResampleAudioStage",
-                        "params": {"target_sample_rate": 16000, "resampled_audio_dir": str(tmp_path / "rs")},
-                    },
-                    {"ref": "TorchSquimQualityMetricsStage", "params": {}},
-                    {"ref": "ManifestWriterStage", "params": {"output_path": str(tmp_path / "out.jsonl")}},
-                ]
-            }
-        ).freeze()
-        (tmp_path / "rs").mkdir(parents=True, exist_ok=True)
-        _publish(rec, 2, dataset_key=_PRIOR, rows=[], coverage=inventory)
-
-        decision = delta.plan(
-            rec, dataset_key=_KEY, inventory={**inventory, "c.wav": "16|9"}, inventory_root=str(audio)
-        )
-
-        assert decision.status != "ready"
-        assert "ResampleAudioStage" in decision.reason
-        assert "nothing is persisted that early" in decision.reason
-
     def test_a_prior_result_published_elsewhere_is_refused_by_name(self, tmp_path: Path) -> None:
         """Output paths are outside the reuse identity, so one step key can span two files.
 

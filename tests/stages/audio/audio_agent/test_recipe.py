@@ -26,7 +26,7 @@ import pytest
 from nemo_curator.stages.audio.audio_agent.recipe import Recipe, StageRef
 
 _BASE = {
-    "stages": [{"ref": "MonoConversionStage", "params": {"a": 1, "b": 2}}],
+    "stages": [{"ref": "AudioFormatStage", "params": {"a": 1, "b": 2}}],
     "inputs": {"x": "/d", "y": 2},
     "preset": "p",
 }
@@ -80,7 +80,7 @@ class TestTheConfirmGateAnchor:
         shuffled = {
             "preset": "p",
             "inputs": {"y": 2, "x": "/d"},
-            "stages": [{"params": {"b": 2, "a": 1}, "ref": "MonoConversionStage"}],
+            "stages": [{"params": {"b": 2, "a": 1}, "ref": "AudioFormatStage"}],
         }
 
         assert _hash(shuffled) == _hash(_BASE)
@@ -108,8 +108,8 @@ class TestTheConfirmGateAnchor:
     @pytest.mark.parametrize(
         ("label", "mutation"),
         [
-            ("a stage param", {"stages": [{"ref": "MonoConversionStage", "params": {"a": 1, "b": 3}}]}),
-            ("the stage ref", {"stages": [{"ref": "ResampleAudioStage", "params": {"a": 1, "b": 2}}]}),
+            ("a stage param", {"stages": [{"ref": "AudioFormatStage", "params": {"a": 1, "b": 3}}]}),
+            ("the stage ref", {"stages": [{"ref": "GetAudioDurationStage", "params": {"a": 1, "b": 2}}]}),
             ("an input", {"inputs": {"x": "/other", "y": 2}}),
             ("the preset", {"preset": "q"}),
         ],
@@ -217,9 +217,9 @@ class TestAMalformedStageEntrySaysWhatIsWrong:
     @pytest.mark.parametrize("bad", ["sample_rate=16000", [1, 2], 7, ("a", "b", "c")])
     def test_params_that_are_not_a_mapping_are_named(self, bad: object) -> None:
         with pytest.raises(ValueError, match="'params' must be a mapping") as caught:
-            StageRef.from_dict({"ref": "MonoConversionStage", "params": bad})
+            StageRef.from_dict({"ref": "AudioFormatStage", "params": bad})
 
-        assert "MonoConversionStage" in str(caught.value), "the host has to know which stage"
+        assert "AudioFormatStage" in str(caught.value), "the host has to know which stage"
 
     @pytest.mark.parametrize(
         ("params", "expected"),
@@ -249,7 +249,7 @@ class TestAMalformedStageEntrySaysWhatIsWrong:
         """
         malformed = [
             {"stages": {"ref": "S"}},
-            {"stages": ["MonoConversionStage"]},
+            {"stages": ["AudioFormatStage"]},
             {"stages": [{"ref": "S", "params": [1, 2]}]},
             {"stages": [], "inputs": [1, 2]},
             {"stages": [], "acceptance_criteria": [{"nope": 1}]},

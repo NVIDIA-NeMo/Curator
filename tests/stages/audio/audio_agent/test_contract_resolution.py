@@ -177,16 +177,9 @@ class TestACompositeReportsWhatItsInnerStagesNeed:
 
         assert one_of, "an inner stage reading audio requires SOMETHING from upstream"
         options = one_of[0]["one_of"]
+        # The entry stage is AudioFormatStage with input_residency="auto": either carrier works.
         assert ["audio_filepath"] in options
-        # Only ``audio_filepath``: this composite's entry stage is MonoConversionStage, whose
-        # ``input_residency`` defaults to "file" because that is all it read before the agent
-        # work -- so a waveform alternative here would be a capability main never had. This
-        # test's subject is that alternatives are REPORTED rather than collapsed to nothing,
-        # which the non-empty ``one_of`` above establishes; that a single stage can offer
-        # SEVERAL alternatives is covered where it belongs, on the stage itself:
-        # tests/stages/audio/test_agent_planning.py::test_reads_one_of_is_satisfied_by_any_alternative
-        # and tests/stages/audio/metrics/test_metrics.py::test_waveform_and_auto_residency.
-        assert ["waveform", "sample_rate"] not in options
+        assert ["waveform", "sample_rate"] in options
 
     def test_alternatives_stay_out_of_the_flat_requirement_list(self) -> None:
         """Demanding both a file path and a waveform would ask for a form nobody needs."""
@@ -234,15 +227,15 @@ class TestTheCallerLearnsWhenADefaultIsNotTheOnlyOption:
 
 class TestAnUnresolvedContractSaysSoAndSaysWhatWouldFixIt:
     def test_a_stage_needing_arguments_names_them(self) -> None:
-        out = aa.describe("ResampleAudioStage")
+        out = aa.describe("AudioSegmentWriterStage")
         detail = out["contract_unresolved"]
 
-        assert "resampled_audio_dir" in detail["required_params"]
-        assert "resampled_audio_dir" in detail["retry_with"]
+        assert "output_dir" in detail["required_params"]
+        assert "output_dir" in detail["retry_with"]
         assert detail["reads_writes_are"] == "unknown, not empty"
 
     def test_supplying_them_resolves_it(self, tmp_path: Path) -> None:
-        out = aa.describe("ResampleAudioStage", {"resampled_audio_dir": str(tmp_path)})
+        out = aa.describe("AudioSegmentWriterStage", {"output_dir": str(tmp_path)})
 
         assert "contract_unresolved" not in out
         assert out["contract"]["contract_resolution"] == "configured"

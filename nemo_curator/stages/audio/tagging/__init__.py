@@ -29,7 +29,6 @@ _LAZY_IMPORTS = {
     "ManifestReaderStage": "nemo_curator.stages.audio.common",
     "ManifestWriterStage": "nemo_curator.stages.audio.common",
     # --- Preprocessing (tagging/) ---
-    "ResampleAudioStage": "nemo_curator.stages.audio.tagging.resample_audio",
     "SplitLongAudioStage": "nemo_curator.stages.audio.tagging.split",
     "JoinSplitAudioMetadataStage": "nemo_curator.stages.audio.tagging.split",
     "SplitASRAlignJoinStage": "nemo_curator.stages.audio.tagging.split",

@@ -401,11 +401,15 @@ class TestSampleRateFollowsThePipeline:
         return str(manifest)
 
     @staticmethod
-    def _resample(tmp_path: Path, target: int | None) -> dict:
-        params: dict = {"resampled_audio_dir": str(tmp_path / f"rs{target}")}
-        if target is not None:
-            params["target_sample_rate"] = target
-        return {"ref": "ResampleAudioStage", "params": params}
+    def _resample(tmp_path: Path, target: int) -> dict:
+        params = {
+            "target_sample_rate": target,
+            "write_to_disk": True,
+            "keep_waveform_in_task": False,
+            "output_dir": str(tmp_path / f"rs{target}"),
+            "output_audio_filepath_key": "resampled_audio_filepath",
+        }
+        return {"ref": "AudioFormatStage", "params": params}
 
     @pytest.fixture(autouse=True)
     def strict_rate_consumer(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -529,15 +533,6 @@ class TestSampleRateFollowsThePipeline:
 
         assert self._rate_warnings([reader, consumer], manifest) == []
 
-    def test_an_omitted_target_resolves_to_the_stage_default(self, tmp_path: Path) -> None:
-        # ResampleAudioStage converts to 16 kHz by default, whether or not the recipe says so.
-        manifest = self._corpus(tmp_path, 48000)
-        reader = {"ref": "ManifestReader", "params": {"manifest_path": manifest}}
-        resample = self._resample(tmp_path, None)
-        resample["params"]["update_audio_filepath"] = True
-        stages = [reader, resample, self._SIXTEEN_K_ONLY]
-        assert self._rate_warnings(stages, manifest) == []
-
     def test_resampling_to_an_unsupported_rate_warns_with_the_effective_rate(self, tmp_path: Path) -> None:
         manifest = self._corpus(tmp_path, 48000)
         reader = {"ref": "ManifestReader", "params": {"manifest_path": manifest}}
@@ -549,14 +544,13 @@ class TestSampleRateFollowsThePipeline:
         assert "8000" in warnings[0]["message"]
         assert "source was [48000]" in warnings[0]["message"]
 
-    def test_mono_conversion_is_not_mistaken_for_a_resample(self, tmp_path: Path) -> None:
-        # MonoConversionStage takes an output_sample_rate, but its card is explicit that this is
-        # a rate to VERIFY against and that it never resamples. Treating it as a conversion would
+    def test_rate_selection_is_not_mistaken_for_a_resample(self, tmp_path: Path) -> None:
+        # allowed_sample_rates SELECTS rows; it never resamples. Treating it as a conversion would
         # tell the planner the audio had been converted when it had only been checked.
         manifest = self._corpus(tmp_path, 48000)
         reader = {"ref": "ManifestReader", "params": {"manifest_path": manifest}}
-        mono = {"ref": "MonoConversionStage", "params": {"output_sample_rate": 16000, "strict_sample_rate": False}}
-        warnings = self._rate_warnings([reader, mono, self._SIXTEEN_K_ONLY], manifest)
+        select = {"ref": "AudioFormatStage", "params": {"allowed_sample_rates": [16000]}}
+        warnings = self._rate_warnings([reader, select, self._SIXTEEN_K_ONLY], manifest)
         assert len(warnings) == 1
         assert "48000" in warnings[0]["message"]
 

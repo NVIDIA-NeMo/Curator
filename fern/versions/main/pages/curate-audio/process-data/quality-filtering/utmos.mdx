@@ -81,7 +81,7 @@ The default resource allocation is `Resources(cpus=1.0, gpus=0.5)`. UTMOS is sma
 
 - **Model fetch**: the model is downloaded via `torch.hub` from `tarepan/SpeechMOS:v1.2.0` on first use.
 - **Offline environments**: if `torch.hub` access is unavailable, the stage logs the error and passes the input through unchanged. Pre-cache the model in an air-gapped environment by setting the `TORCH_HOME` environment variable.
-- **Multi-channel handling**: stereo and multi-channel input is converted to mono internally before scoring; you do not need to insert `MonoConversionStage` solely for UTMOS.
+- **Multi-channel handling**: stereo and multi-channel input is converted to mono internally before scoring; you do not need to insert `AudioFormatStage` solely for UTMOS.
 
 ## Domain-Specific Tuning
 
@@ -115,7 +115,7 @@ UTMOSFilterStage(mos_threshold=3.0)
 ```python
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.backends.xenna import XennaExecutor
-from nemo_curator.stages.audio.preprocessing.mono_conversion import MonoConversionStage
+from nemo_curator.stages.audio.preprocessing import AudioFormatStage
 from nemo_curator.stages.audio.segmentation.vad_segmentation import VADSegmentationStage
 from nemo_curator.stages.audio.filtering.utmos import UTMOSFilterStage
 from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
@@ -124,7 +124,7 @@ from nemo_curator.stages.text.io.writer import JsonlWriter
 pipeline = Pipeline(name="utmos_filtering")
 
 # 1. Normalize input
-pipeline.add_stage(MonoConversionStage(output_sample_rate=48000))
+pipeline.add_stage(AudioFormatStage(allowed_sample_rates=[48000], target_channels=1))
 
 # 2. Segment into speech chunks
 pipeline.add_stage(VADSegmentationStage(min_duration_sec=2.0))

@@ -7,9 +7,8 @@ transcribe the audio.
 
 ```mermaid
 flowchart TD
-    read["Read recording manifest"] --> resample["Resample to mono 16 kHz WAV"]
-    resample --> load["Load waveform"]
-    load --> diarize["Sortformer: speaker turns and RTTM"]
+    read["Read recording manifest"] --> resample["Load waveform as mono 16 kHz"]
+    resample --> diarize["Sortformer: speaker turns and RTTM"]
     diarize --> vad["Silero TensorRT: split speech segments"]
     vad --> sed["CNN14 TensorRT: sound-event probabilities"]
     sed --> events["Label sound events"]
@@ -400,7 +399,6 @@ xenna/
 ├── metadata.jsonl       # One row per speech segment, plus no-speech audit rows
 ├── audio/              # Emitted Opus speech clips
 ├── rttm/               # Recording-level speaker turns
-├── resampled/          # Intermediate mono 16 kHz WAV recordings
 └── speechbrain_cache/  # Worker-local model loading files
 ```
 
@@ -447,8 +445,8 @@ those rows as accepted language-labeled training data without reviewing them.
 
 ## What each stage does
 
-1. **Read and resample:** read JSONL, create a mono 16 kHz floating-point WAV, then load its
-   waveform. The original audio path remains available for provenance.
+1. **Read and resample:** read JSONL, then load each recording as a mono 16 kHz
+   floating-point waveform in memory. The original audio path remains available for provenance.
 2. **Sortformer:** diarize the whole recording and save speaker turns as RTTM.
 3. **VAD:** split speech at threshold 0.5 with 1,000 ms minimum silence,
    100 ms padding, and segment lengths from 0.5 to 40 seconds. Each segment

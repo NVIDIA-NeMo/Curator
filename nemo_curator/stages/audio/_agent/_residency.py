@@ -499,8 +499,8 @@ def reject_sinkless_conversion(
     """Refuse a conversion configuration that converts audio into nowhere.
 
     A converting stage has exactly two places to put its result: the task (``keep_waveform_in_task``)
-    and disk (``write_to_disk``). With neither, the stage still writes its metadata -- ``is_mono``,
-    ``num_channels``, ``duration`` -- describing audio no consumer can reach, while the row keeps
+    and disk (``write_to_disk``). With neither, the stage still writes its metadata -- ``num_channels``,
+    ``duration`` -- describing audio no consumer can reach, while the row keeps
     whatever it arrived with. That is worse than an error at any later point: the corpus that comes
     out is the unconverted one, labelled as converted.
 

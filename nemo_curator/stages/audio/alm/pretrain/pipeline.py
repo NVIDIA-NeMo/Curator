@@ -40,7 +40,10 @@ the source audio.
 
 from __future__ import annotations
 
+import os
+
 from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.audio.common.manifest_reader import AUDIO_PATH_RESOLUTION_BASENAME, ManifestReader
 
 from .extraction import SnippetExtractionStage
 from .finalize import (
@@ -49,7 +52,6 @@ from .finalize import (
 )
 from .io import (
     PretrainMetricsAggregatorStage,
-    ReadLongFormManifestStage,
     SnippetManifestWriterStage,
 )
 from .planning import (
@@ -57,7 +59,6 @@ from .planning import (
     SnippetCutPlannerStage,
     SnippetRepetitionFilterStage,
 )
-from .utils import AUDIO_PATH_RESOLUTION_BASENAME
 
 __all__ = [
     "build_audio_pretrain_pipeline",
@@ -114,8 +115,9 @@ def build_audio_pretrain_pipeline(  # noqa: PLR0913
        wires both calls automatically.
 
     Args:
-        input_manifest: Path to the input JSONL manifest, one row per
-            long-form audio.
+        input_manifest: Path to the local input JSONL manifest, one row per
+            long-form audio, read by ``ManifestReader``.  A missing file
+            raises ``FileNotFoundError`` here.
         audio_dir: Directory containing the source audio files.  Each
             row's ``audio_filepath`` is re-anchored to this directory
             according to ``audio_path_resolution`` (default basename).
@@ -175,7 +177,7 @@ def build_audio_pretrain_pipeline(  # noqa: PLR0913
         output_format: ``"wav"``, ``"flac"``, or ``"ogg"``.
         audio_filepath_key: JSONL field that holds the path to the audio
             file (default ``"audio_filepath"``).
-        audio_path_resolution: How ``ReadLongFormManifestStage`` maps a
+        audio_path_resolution: How ``ManifestReader`` maps a
             row's ``audio_filepath`` to an on-disk path: ``"basename"``
             (default, with duplicate-basename detection), ``"relative"``
             (preserves subdirectories under ``audio_dir``), or
@@ -200,18 +202,24 @@ def build_audio_pretrain_pipeline(  # noqa: PLR0913
         duration_key: Configurable snippet-duration field shared by
             extraction and metrics aggregation.
     """
+    if not os.path.isfile(input_manifest):
+        msg = f"Manifest not found: {input_manifest}"
+        raise FileNotFoundError(msg)
     return Pipeline(
         name="audio_pretrain_long_form_cut",
         description=("Long-form diarized audio -> bounded mono resampled snippets for audio LLM pretraining"),
         stages=[
-            ReadLongFormManifestStage(
-                input_manifest=input_manifest,
-                audio_dir=audio_dir,
-                audio_filepath_key=audio_filepath_key,
-                audio_path_resolution=audio_path_resolution,
-                dataset_name=dataset_name,
+            ManifestReader(
+                manifest_path=input_manifest,
+                # Read the named file whatever its extension, as the pipeline always has.
+                file_extensions=[os.path.splitext(input_manifest)[1]],
+                include_files_key=audio_filepath_key,
                 id_key=id_key,
                 segments_key=segments_key,
+                audio_dir=audio_dir,
+                audio_path_resolution=audio_path_resolution,
+                dataset_name=dataset_name,
+                skip_invalid_rows=True,
             ),
             OverlapFilterStage(min_overlap_sec=min_overlap_sec, segments_key=segments_key),
             SnippetCutPlannerStage(

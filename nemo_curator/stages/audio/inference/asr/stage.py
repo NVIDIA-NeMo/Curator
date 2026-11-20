@@ -28,7 +28,6 @@ from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import numpy as np
 import torch
-import torchaudio
 from loguru import logger
 
 from nemo_curator.models.asr.base import ASRAdapter, ASRResult
@@ -40,6 +39,7 @@ from nemo_curator.stages.audio._agent._agent_ready import (
     StageContract,
     StaticHints,
 )
+from nemo_curator.stages.audio.common import resample_waveform
 from nemo_curator.stages.audio.inference.base import AdapterInferenceStage
 from nemo_curator.stages.audio.model_input_segmentation import (
     plan_audio_segments,
@@ -398,18 +398,6 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
             items.append(item)
         return items
 
-    @staticmethod
-    def _load_audio(audio_filepath: str) -> tuple[np.ndarray, int]:
-        """Open one resampled file inside the ASR worker.
-
-        ``torchaudio.load`` returns channel-first audio. Resampled pipeline
-        inputs are normally mono, so squeezing removes that singleton channel;
-        multichannel inputs remain channel-first for ``_prepare_waveform`` to
-        downmix.
-        """
-        waveform, sample_rate = torchaudio.load(audio_filepath)
-        return waveform.squeeze(0).numpy(), sample_rate
-
     def _prepare_waveform(self, waveform: object, sample_rate: object) -> np.ndarray:
         """Return contiguous mono float32 samples at ``target_sample_rate``."""
         source_sample_rate = int(sample_rate)
@@ -425,12 +413,7 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
             return np.empty(0, dtype=np.float32)
         if tensor.ndim == _CHANNEL_FIRST_DIMENSIONS:
             tensor = tensor.mean(dim=0)
-        if source_sample_rate != self.target_sample_rate:
-            tensor = torchaudio.functional.resample(
-                tensor,
-                source_sample_rate,
-                self.target_sample_rate,
-            )
+        tensor = resample_waveform(tensor, source_sample_rate, self.target_sample_rate)
         return np.ascontiguousarray(tensor.cpu().numpy(), dtype=np.float32)
 
     def process(self, task: AudioTask) -> AudioTask:

@@ -242,7 +242,7 @@ def test_combo3_diar_segments() -> None:
 
 
 def test_combo1_duration_fallback() -> None:
-    """Filters-only: uses duration from MonoConversion."""
+    """Filters-only: uses the duration AudioFormatStage writes."""
     task = _make_task(
         {
             "audio_filepath": "/a.wav",

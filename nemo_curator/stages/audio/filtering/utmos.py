@@ -39,7 +39,6 @@ from pathlib import Path
 from typing import Any, ClassVar, Literal
 
 import torch
-import torchaudio
 from loguru import logger
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
@@ -53,6 +52,7 @@ from nemo_curator.stages.audio._agent._residency import (
     validate_audio_key_configuration,
     validate_input_residency,
 )
+from nemo_curator.stages.audio.common import resample_waveform
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -191,7 +191,6 @@ class UTMOSFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         )
         self._model = None
         self._model_failed = False
-        self._resamplers: dict[int, Any] = {}
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], []
@@ -273,7 +272,6 @@ class UTMOSFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     def teardown(self) -> None:
         self._model = None
         self._model_failed = False
-        self._resamplers.clear()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
@@ -377,10 +375,7 @@ class UTMOSFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             device = next(self._model.parameters()).device
             waveform = waveform.to(device)
 
-            if sr != self.sample_rate:
-                if sr not in self._resamplers:
-                    self._resamplers[sr] = torchaudio.transforms.Resample(sr, self.sample_rate).to(device)
-                waveform = self._resamplers[sr](waveform)
+            waveform = resample_waveform(waveform, sr, self.sample_rate)
 
             with torch.no_grad():
                 score = self._model(waveform, sr=self.sample_rate)

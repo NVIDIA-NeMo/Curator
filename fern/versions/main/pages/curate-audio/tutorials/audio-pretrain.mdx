@@ -29,13 +29,13 @@ flowchart LR
     I --> J["Reconcile manifest with tar"]
 ```
 
-All seven stages are CPU stages. `ReadLongFormManifestStage` fans one manifest into an `AudioTask` per source recording, and `SnippetExtractionStage` fans each recording into one task per surviving snippet. Workers write unique shards; the driver merges and validates them after pipeline execution.
+All seven stages are CPU stages. `ManifestReader` (configured with `id_key`, `segments_key`, `audio_dir`, and `skip_invalid_rows=True`) fans one manifest into an `AudioTask` per source recording, and `SnippetExtractionStage` fans each recording into one task per surviving snippet. Workers write unique shards; the driver merges and validates them after pipeline execution.
 
 ### Stage contracts
 
 | # | Stage | Consumes | Produces | Failure and skip behavior |
 | --- | --- | --- | --- | --- |
-| 0 | `ReadLongFormManifestStage` | Input JSONL and audio path settings | One source `AudioTask` per accepted row | Skips invalid JSON, missing/duplicate IDs, and missing path fields. Missing manifest, invalid path mode, or duplicate basename in `basename` mode fails the stage. |
+| 0 | `ManifestReader` | Input JSONL and audio path settings | One source `AudioTask` per accepted row | Skips invalid JSON, missing/duplicate IDs, and missing path fields. A missing manifest fails pipeline construction; an invalid path mode fails stage construction; a duplicate basename in `basename` mode fails the stage. |
 | 1 | `OverlapFilterStage` | `segments` with `start` and `end` | Sorted, filtered `segments`; input/drop counters in task metadata | Drops fully empty and qualifying overlapping segments. Malformed timestamps surface as processing errors. |
 | 2 | `SnippetCutPlannerStage` | Filtered `segments` | Internal `_snippet_plan`; duration/gap drop counters | Rejects invalid duration or gap configuration at construction. Zero plans warn and continue. |
 | 3 | `SnippetRepetitionFilterStage` | `_snippet_plan`, tokenizer | Filtered `_snippet_plan`; repetition counters and examples | Hub download, tokenizer load, or non-fast tokenizer errors fail setup. Short texts without a complete n-gram pass. |

@@ -77,16 +77,10 @@ def _prepare_waveform(
         raise ValueError(msg)
     waveform = waveform.contiguous()
 
-    needs_resample = sample_rate not in SILERO_SUPPORTED_SAMPLE_RATES
-    if needs_resample:
-        import torchaudio
+    if sample_rate not in SILERO_SUPPORTED_SAMPLE_RATES:
+        from nemo_curator.stages.audio.common.helpers import resample_waveform
 
-        waveform_cpu = waveform.cpu().unsqueeze(0)
-        resampler = torchaudio.transforms.Resample(
-            orig_freq=sample_rate,
-            new_freq=SILERO_TARGET_SAMPLE_RATE,
-        )
-        waveform = resampler(waveform_cpu).squeeze(0).contiguous()
+        waveform = resample_waveform(waveform.cpu(), sample_rate, SILERO_TARGET_SAMPLE_RATE).contiguous()
         sample_rate = SILERO_TARGET_SAMPLE_RATE
 
     return waveform.to(device=device, dtype=torch.float32, non_blocking=True), sample_rate
