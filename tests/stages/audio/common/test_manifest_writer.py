@@ -55,6 +55,33 @@ def test_writer_actor_restart_retains_committed_rows(
     assert [json.loads(line) for line in path.read_text().splitlines()] == [{"row": 3}]
 
 
+def test_per_task_files_writer_restart_and_retry_keep_rows_exactly_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from nemo_curator.backends.base import NodeInfo, WorkerMetadata
+    from nemo_curator.backends.ray_data import adapter
+
+    monkeypatch.setattr(adapter, "get_worker_metadata_and_node_id", lambda: (NodeInfo(), WorkerMetadata()))
+    out = tmp_path / "manifest"
+    stage = ManifestWriterStage(str(out), per_task_files=True)
+    tasks = [AudioTask(data={"row": i}) for i in range(3)]
+    for i, task in enumerate(tasks):
+        task._set_task_id("src", i)
+    first = adapter.create_actor_from_stage(pickle.loads(pickle.dumps(stage)))()  # noqa: S301
+    first.stage.process(tasks[0])
+    first.stage.process(tasks[1])
+    # The actor dies after writing row 1 but before acknowledging it, so the restarted
+    # actor is set up again and receives row 1 a second time.
+    restarted = adapter.create_actor_from_stage(pickle.loads(pickle.dumps(stage)))()  # noqa: S301
+    restarted.stage.process(tasks[1])
+    restarted.stage.process(tasks[2])
+    rows = [json.loads(line) for f in sorted(out.glob("*.jsonl")) for line in f.read_text().splitlines()]
+    assert sorted(row["row"] for row in rows) == [0, 1, 2]
+    assert not list(out.glob("*.tmp"))
+    with pytest.raises(ValueError, match="per_task_files"):
+        stage.prepare_on_driver()
+
+
 def test_writer_direct_setup_replaces_existing_output(tmp_path: Path) -> None:
     path = tmp_path / "output.jsonl"
     path.write_text('{"old": true}\n')
