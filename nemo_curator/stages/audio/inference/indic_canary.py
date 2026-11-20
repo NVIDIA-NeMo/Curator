@@ -101,15 +101,10 @@ class InferenceIndicCanaryStage(ASRStage):
         super().__post_init__()
 
     def describe(self) -> StageContract:
-        # The engine is local; TensorRT-LLM pads each batch to its longest row, which is unreviewed.
-        return dataclasses.replace(
-            super().describe(),
-            gates=Gates(
-                requires_gpu=self.resources.requires_gpu,
-                requires_internet_first_run=False,
-                per_row_independent=False,
-            ),
-        )
+        # The engine is local; ASRStage leaves this unreviewed TensorRT-LLM adapter not row-independent.
+        contract = super().describe()
+        gates = dataclasses.replace(contract.gates, requires_internet_first_run=False)
+        return dataclasses.replace(contract, gates=gates)
 
     def _create_adapter(self) -> IndicCanaryTRTLLMASR:
         """Construct Canary through its reference-compatible ``engine_dir`` API."""

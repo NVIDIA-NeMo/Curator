@@ -180,12 +180,15 @@ class SEDInferenceStage(AgentReady, AdapterInferenceStage[SEDAdapter]):
             optional_reads=IOSpec(
                 data_keys=[self.skip_me_key, self.audio_filepath_key, *(outputs if self.skip_if_output_exists else [])]
             ),
-            writes=IOSpec(data_keys=outputs),
             conditional_writes=[
+                ConditionalWrite(
+                    writes=IOSpec(data_keys=outputs),
+                    condition=f"'{self.skip_me_key}' is empty and the row's audio is prepared",
+                ),
                 ConditionalWrite(
                     writes=IOSpec(data_keys=[self.skip_me_key]),
                     condition="audio loading or preparation fails for the row",
-                )
+                ),
             ],
             cardinality="1:1",
             gates=Gates(

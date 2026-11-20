@@ -17,6 +17,7 @@ from pathlib import Path
 
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
 from nemo_curator.stages.audio.alm import ALMDataBuilderStage, ALMDataOverlapStage
 from nemo_curator.stages.audio.common import (
     ManifestReader,
@@ -261,3 +262,7 @@ class TestManifestWriterRoundTrip:
             loaded = audio_entry.data
             assert loaded["audio_filepath"] == orig["audio_filepath"]
             assert len(loaded["segments"]) == len(orig["segments"])
+
+
+def test_manifest_reader_is_agent_ready(tmp_path: Path) -> None:
+    assert_agent_ready(ManifestReader(str(tmp_path / "in.jsonl")), run=False)

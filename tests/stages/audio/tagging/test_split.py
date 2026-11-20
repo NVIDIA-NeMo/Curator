@@ -714,3 +714,7 @@ def test_split_nested_output_contract_matches_runtime(tmp_path: Path, route: str
         {stage.audio_filepath_key, stage.duration_key, stage.audio_item_id_key} <= child.keys() for child in children
     )
     assert consumer.process_batch([output]) == [output]
+
+
+def test_split_asr_align_join_is_agent_ready() -> None:
+    assert_agent_ready(SplitASRAlignJoinStage(), run=False)

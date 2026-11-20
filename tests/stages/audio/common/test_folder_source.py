@@ -13,6 +13,9 @@
 # limitations under the License.
 
 
+from pathlib import Path
+
+from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
 from nemo_curator.stages.audio.common import (
     CreateInitialManifestAudioFolderStage,
 )
@@ -27,3 +30,7 @@ def test_bounded_audio_folder_source_is_not_row_independent() -> None:
     assert static_contract(CreateInitialManifestAudioFolderStage).gates.per_row_independent is False
     assert bounded.describe().gates.per_row_independent is False
     assert unbounded.describe().gates.per_row_independent is True
+
+
+def test_audio_folder_source_is_agent_ready(tmp_path: Path) -> None:
+    assert_agent_ready(CreateInitialManifestAudioFolderStage(data_dir=str(tmp_path)), run=False)

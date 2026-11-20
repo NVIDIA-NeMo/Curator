@@ -20,6 +20,7 @@ import numpy as np
 import pytest
 
 from nemo_curator.backends.base import WorkerMetadata
+from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
 from nemo_curator.stages.audio.common import (
     GetAudioDurationStage,
     ManifestCheckpointStage,
@@ -626,3 +627,7 @@ def test_retry_after_append_open_failure_does_not_duplicate_rows(
     replacement.process(task)
     driver.finalize()
     assert [json.loads(line) for line in output.read_text().splitlines()] == [{"text": "hello"}]
+
+
+def test_manifest_writer_is_agent_ready(tmp_path: Path) -> None:
+    assert_agent_ready(ManifestWriterStage(str(tmp_path / "out.jsonl")), run=False)

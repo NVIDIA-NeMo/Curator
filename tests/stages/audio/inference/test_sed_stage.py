@@ -548,11 +548,12 @@ def test_module_docstring_contains_the_exact_yaml_command() -> None:
     assert "clip-level audio tagging" in stage.__doc__
 
 
-def test_stage_is_agent_ready(tmp_path: Path) -> None:
+@pytest.mark.parametrize("skip_reason", ["", "upstream"])
+def test_stage_is_agent_ready(tmp_path: Path, skip_reason: str) -> None:
     stage, _ = _stage(save_npz=True, output_dir=str(tmp_path))
     contract = assert_agent_ready(
         stage,
-        lambda: AudioTask(task_id="row-0", data=_task().data),
+        lambda: AudioTask(task_id="row-0", data=_task(_skipme=skip_reason).data),
         expected_cardinality="1:1",
         available_keys={"waveform", "sample_rate"},
     )
