@@ -252,10 +252,10 @@ class ManifestReaderStage(AgentReady, ProcessingStage[FileGroupTask, AudioTask])
 
 def _per_row_independent(reader: Any) -> bool:  # noqa: ANN401 - either reader dataclass
     # Id de-duplication and the basename-collision guard look across rows, so a run over a
-    # subset of the manifest can emit rows (or succeed) where the full run would not.
-    return reader.id_key is None and (
-        reader.audio_dir is None or reader.audio_path_resolution != AUDIO_PATH_RESOLUTION_BASENAME
-    )
+    # subset of the manifest can emit rows (or succeed) where the full run would not. And with
+    # audio_dir a delta names the re-anchored file, while include_files matches the manifest's
+    # own value, so the narrowed run would select nothing.
+    return reader.id_key is None and reader.audio_dir is None
 
 
 @dataclass

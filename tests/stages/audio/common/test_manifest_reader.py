@@ -268,7 +268,7 @@ class TestManifestReaderLongFormOptions:
         [
             ({"id_key": "id"}, False),
             ({"audio_dir": "/data"}, False),
-            ({"audio_dir": "/data", "audio_path_resolution": "relative"}, True),
+            ({"audio_dir": "/data", "audio_path_resolution": "relative"}, False),
             ({"segments_key": "segments"}, True),
         ],
     )

@@ -172,6 +172,10 @@ class TestValidate:
         with pytest.raises(ValueError, match="silence_duration_sec"):
             _validate(cfg)
 
+    def test_removed_mono_conversion_section_is_refused(self) -> None:
+        with pytest.raises(ValueError, match=r"audio_format\.allowed_sample_rates"):
+            AudioDataFilterStage(config={"mono_conversion": {"output_sample_rate": 16000}})
+
 
 # ---------------------------------------------------------------------------
 # 4. Config: get_enabled_stages()

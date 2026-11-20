@@ -174,10 +174,11 @@ def test_file_mode_loads_audio_for_the_adapter(tmp_path: Path) -> None:
     assert task.data["lid"][_MODEL_ID]["language"] == "ta"
 
 
-def test_an_unreadable_file_gets_an_empty_completed_result(tmp_path: Path) -> None:
+@pytest.mark.parametrize("name", ["missing.wav", ""])  # "" names the directory itself
+def test_an_unreadable_file_gets_an_empty_completed_result(tmp_path: Path, name: str) -> None:
     stage, adapter = _stage(waveform_key=None)
 
-    (task,) = stage.process_batch([AudioTask(data={"audio_filepath": str(tmp_path / "missing.wav")})])
+    (task,) = stage.process_batch([AudioTask(data={"audio_filepath": str(tmp_path / name)})])
 
     assert task.data["lid"][_MODEL_ID] == {"language": "", "confidence": 0.0, "tag": "primary"}
     assert adapter.calls == []

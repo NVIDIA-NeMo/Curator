@@ -317,6 +317,8 @@ class AudioLIDInferenceStage(AgentReady, AdapterInferenceStage[AudioLIDAdapter])
                 TypeError,
                 ValueError,
                 FileNotFoundError,
+                IsADirectoryError,
+                PermissionError,
                 soundfile.SoundFileError,
                 AudioTooLongError,
             ) as exc:

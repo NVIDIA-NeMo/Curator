@@ -115,6 +115,9 @@ class AudioFormatStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     def __post_init__(self) -> None:  # noqa: C901 (one check per parameter group)
         super().__init__()
         validate_input_residency(self.input_residency, stage_name=self.name)
+        for name in ("allowed_sample_rates", "allowed_channels"):
+            # Hydra passes a YAML list as a ListConfig; a bare number raises TypeError here.
+            setattr(self, name, None if getattr(self, name) is None else list(getattr(self, name)))
         for name in (
             "allowed_sample_rates",
             "min_sample_rate",
@@ -191,6 +194,8 @@ class AudioFormatStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         keys = [self.sample_rate_key, self.num_channels_key]
         if not self._converts:
             return keys
+        if not self.keep_waveform_in_task:
+            keys = [self.num_channels_key]  # a disk-only conversion removes the rate with the waveform
         keys.append(self.duration_key)
         if self.keep_waveform_in_task:
             keys.append(self.waveform_key)
@@ -348,11 +353,10 @@ class AudioFormatStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                     )
             if self.keep_waveform_in_task:
                 task.data[self.waveform_key] = waveform
+                task.data[self.sample_rate_key] = sample_rate
             else:
                 # After the file exists, so a failed write leaves the row's audio as it arrived.
                 drop_resident_audio(task.data, waveform_key=self.waveform_key, sample_rate_key=self.sample_rate_key)
-            if self.keep_waveform_in_task or self.sample_rate_key in task.data:
-                task.data[self.sample_rate_key] = sample_rate
             task.data[self.num_channels_key] = waveform.shape[0]
             task.data[self.duration_key] = waveform.shape[1] / sample_rate
         except (OSError, RuntimeError, TypeError, ValueError) as e:

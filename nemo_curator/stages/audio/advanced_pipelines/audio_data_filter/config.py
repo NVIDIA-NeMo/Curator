@@ -140,6 +140,10 @@ def _validate_vad(vad: dict[str, Any]) -> None:
 
 def _validate(cfg: dict[str, Any]) -> None:
     """Validate cross-field constraints after merge."""
+    if "mono_conversion" in cfg:
+        # Ignoring it would keep the default 48 kHz-only selection and drop every other rate.
+        msg = "mono_conversion was replaced by audio_format; set audio_format.allowed_sample_rates (null keeps every rate)"
+        raise ValueError(msg)
     _validate_vad(cfg.get("vad", {}))
 
     utmos = cfg.get("utmos", {})

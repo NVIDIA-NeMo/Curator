@@ -19,8 +19,10 @@ import numpy as np
 import pytest
 import soundfile as sf
 import torch
+from omegaconf import ListConfig
 
 from nemo_curator.stages.audio._agent._agent_registry import build_contract
+from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
 from nemo_curator.stages.audio.preprocessing import AudioFormatStage
 from nemo_curator.stages.audio.preprocessing import audio_format as af
 from nemo_curator.tasks import AudioTask
@@ -96,6 +98,9 @@ def test_writes_to_disk_and_repoints_path(tmp_path: Path) -> None:
     assert out.data["converted_audio_filepath"] == written
     assert sf.info(written).samplerate == 8000
     assert "waveform" not in out.data
+    assert_agent_ready(
+        stage, lambda: _task(audio_filepath=source), expected_cardinality="1:1", available_keys={"audio_filepath"}
+    )
 
 
 def test_unreadable_file_drops_row(tmp_path: Path) -> None:
@@ -115,6 +120,12 @@ def test_unreadable_file_drops_row(tmp_path: Path) -> None:
 def test_rejects_invalid_configuration(options: dict) -> None:
     with pytest.raises(ValueError):  # noqa: PT011
         AudioFormatStage(**options)
+
+
+def test_allowed_values_take_a_hydra_list_but_not_a_bare_number() -> None:
+    assert AudioFormatStage(allowed_channels=ListConfig([1])).allowed_channels == [1]
+    with pytest.raises(TypeError):
+        AudioFormatStage(allowed_sample_rates=16000)
 
 
 def test_contract_names_filtering_and_conversion() -> None:

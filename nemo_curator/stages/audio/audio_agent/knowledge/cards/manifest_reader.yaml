@@ -36,7 +36,7 @@ notes:
   - "Cloud reads require credentials/endpoints available to the reader's default fsspec configuration; storage_options on this composite does not configure the inner read."
   - "Composite of FilePartitioningStage + ManifestReaderStage; this is the stage to use directly (ManifestReaderStage is its inner read half)."
   - "include_files narrows rows within the same manifest reader, preserving the source-stage identity used by full and delta runs."
-  - "id_key de-duplication and the basename-mode duplicate-path guard look across rows, so either one makes the reader not per-row independent (no delta narrowing). include_files compares the manifest's own path value, before audio_dir re-anchoring."
+  - "id_key or any audio_dir makes the reader not per-row independent (no delta narrowing): id de-duplication and the basename-mode duplicate-path guard look across rows, and include_files compares the manifest's own path value, before audio_dir re-anchoring, while a delta names the re-anchored file."
   - "A manifest_path naming no file only warns and yields no rows."
 verified: {params: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess}
 provenance: {model_card_url: null, card_version: 5, last_validated: "2026-11-19"}
