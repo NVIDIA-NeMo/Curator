@@ -16,7 +16,8 @@ import os
 from pathlib import Path
 from unittest import mock
 
-from ray.data import DataContext
+import pytest
+from ray.data import DataContext, ExecutionResources
 
 from nemo_curator.backends.ray_data import RayDataExecutor
 from nemo_curator.stages.base import ProcessingStage
@@ -73,21 +74,35 @@ def test_stages_get_lists_and_actor_teardown_runs(tmp_path: Path) -> None:
     assert sum(int(marker.read_text()) for marker in markers) == 8
 
 
-def test_gpu_limit_excludes_inference_server_gpus() -> None:
+@pytest.mark.parametrize(
+    ("user_options", "expected_gpu_limit"),
+    [
+        ({}, 3),
+        ({"resource_limits": ExecutionResources.for_limits(gpu=2)}, 2),
+        ({"exclude_resources": ExecutionResources(gpu=1)}, float("inf")),
+    ],
+)
+def test_gpu_limit_excludes_inference_server_gpus(
+    user_options: dict, expected_gpu_limit: float, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    options = DataContext.get_current().execution_options
+    for name, value in user_options.items():
+        monkeypatch.setattr(options, name, value)
+    previous = options.resource_limits
     seen_gpu_limits = []
-    to_dataset = RayDataExecutor._tasks_to_dataset
 
-    def record_limit(self: RayDataExecutor, tasks: list) -> object:
+    def record_limit(self: RayDataExecutor, tasks: list) -> object:  # noqa: ARG001
         seen_gpu_limits.append(DataContext.get_current().execution_options.resource_limits.gpu)
-        return to_dataset(self, tasks)
+        msg = "stop after recording"
+        raise RuntimeError(msg)
 
-    previous = DataContext.get_current().execution_options.resource_limits
     with (
         mock.patch("nemo_curator.backends.ray_data.executor.is_inference_server_active", return_value=True),
         mock.patch("nemo_curator.backends.ray_data.executor.get_available_cpu_gpu_resources", return_value=(8, 3)),
         mock.patch.object(RayDataExecutor, "_tasks_to_dataset", record_limit),
+        pytest.raises(RuntimeError, match="stop after recording"),
     ):
         RayDataExecutor().execute([RecordBatchTypeStage()], _tasks(2))
 
-    assert seen_gpu_limits == [3]
-    assert DataContext.get_current().execution_options.resource_limits == previous
+    assert seen_gpu_limits == [expected_gpu_limit]
+    assert options.resource_limits == previous

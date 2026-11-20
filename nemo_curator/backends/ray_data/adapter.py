@@ -236,7 +236,6 @@ def create_actor_from_stage(
         def __init__(self):
             """Initialize the stage processor."""
             super().__init__(stage)
-            self.setup_done = False
             node_info, worker_metadata = get_worker_metadata_and_node_id()
             self.setup_on_node(node_info, worker_metadata)
             self.setup(worker_metadata)
@@ -251,7 +250,6 @@ def create_actor_from_stage(
             # Ray Data deletes the UDF when it releases the actor; this is its only teardown hook.
             if not getattr(self, "setup_done", False):
                 return
-            self.setup_done = False
             try:
                 self.teardown()
             except Exception:  # noqa: BLE001

@@ -98,9 +98,11 @@ class RayDataExecutor(BaseExecutor):
             )
 
             _, available_gpus = get_available_cpu_gpu_resources(ignore_head_node=self.ignore_head_node)
-            if is_inference_server_active():
-                # Ray Data budgets against total cluster GPUs; leave out the ones the server holds.
-                execution_options.resource_limits = previous_resource_limits.copy(gpu=available_gpus)
+            # Ray Data budgets against total cluster GPUs; leave out the ones the server holds. Never raise the
+            # user's GPU limit, and keep their exclude_resources (Ray Data rejects both set for one resource).
+            if is_inference_server_active() and not execution_options.exclude_resources.gpu:
+                gpu_limit = min(previous_resource_limits.gpu, available_gpus)
+                execution_options.resource_limits = previous_resource_limits.copy(gpu=gpu_limit)
             initial_workers = get_gpu_actor_initial_workers(stages, available_gpus)
             teardown_tracker = TeardownTracker.remote() if any(map(_runs_teardown, stages)) else None
 
