@@ -21,6 +21,12 @@ from nemo_curator.stages.interleaved.pdf.nemotron_parse.utils import image_to_by
 pytestmark = pytest.mark.skipif(os.name != "posix", reason="Reusable worker passes POSIX file descriptors")
 
 
+@pytest.fixture
+def reusable_pdfium() -> None:
+    if not _pdf_renderer._supports_pdfium_reset():
+        pytest.skip("Same-process PDFium reset is unavailable")
+
+
 def _pdf(page_sizes: list[tuple[int, int]]) -> bytes:
     pdfium = pytest.importorskip("pypdfium2")
     with io.BytesIO() as stream:
@@ -39,6 +45,7 @@ def _signature(result: _pdf_renderer.RenderResult) -> tuple[list[bytes | None], 
     return [None if page is None else image_to_bytes(page) for page in pages], timed_out, page_count
 
 
+@pytest.mark.usefixtures("reusable_pdfium")
 def test_reused_worker_matches_fresh_rasters_after_valid_and_adverse_ranges() -> None:
     sizes = (160, 192)
     options = {"retain_failures": True, "raster_max_size": sizes}
@@ -61,6 +68,7 @@ def test_reused_worker_matches_fresh_rasters_after_valid_and_adverse_ranges() ->
         os.kill(worker_pid, 0)
 
 
+@pytest.mark.usefixtures("reusable_pdfium")
 def test_reusable_worker_restarts_after_exit_and_releases_oversized_fallback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -85,6 +93,48 @@ def test_reusable_worker_restarts_after_exit_and_releases_oversized_fallback(
         stage.teardown()
 
 
+def test_unqualified_pdfium_uses_fresh_renderer_without_starting_a_helper(monkeypatch: pytest.MonkeyPatch) -> None:
+    pdf = _pdf([(240, 330)])
+    options = {"retain_failures": True, "raster_max_size": (64, 64)}
+    fresh = PDFPreprocessStage(**options)
+    stage = PDFPreprocessStage(**options, persistent_rendering=True)
+    monkeypatch.setattr(_pdf_renderer, "version", lambda _distribution: "unqualified")
+
+    def unexpected_start(_renderer: _pdf_renderer.PersistentPdfRenderer) -> None:
+        pytest.fail("An unqualified runtime started a persistent helper")
+
+    monkeypatch.setattr(_pdf_renderer.PersistentPdfRenderer, "_start", unexpected_start)
+    try:
+        assert _signature(stage._render_once(pdf, [0])) == _signature(fresh._render_once(pdf, [0]))
+        assert stage._persistent_renderer.worker_pid is None
+    finally:
+        stage.teardown()
+
+
+@pytest.mark.usefixtures("reusable_pdfium")
+def test_reset_requires_supported_hooks_and_closed_pdfium_handles(monkeypatch: pytest.MonkeyPatch) -> None:
+    from pypdfium2 import PdfDocument, _library_scope
+
+    calls = []
+    monkeypatch.setattr(_library_scope, "destroy_lib", lambda: calls.append("destroy"))
+    monkeypatch.setattr(_library_scope, "init_lib", None)
+    with pytest.raises(_pdf_renderer.RenderWorkerUnavailableError, match="reset hooks are unavailable"):
+        _pdf_renderer._reset_pdfium_library()
+    assert not calls
+
+    monkeypatch.setattr(_library_scope, "init_lib", lambda: calls.append("init"))
+    document = PdfDocument.new()
+    try:
+        with pytest.raises(_pdf_renderer.RenderWorkerUnavailableError, match="Live PDFium handles"):
+            _pdf_renderer._reset_pdfium_library()
+        assert not calls
+    finally:
+        document.close()
+
+    _pdf_renderer._reset_pdfium_library()
+    assert calls == ["destroy", "init"]
+
+
 def test_cancelled_range_does_not_create_a_worker() -> None:
     stage = PDFPreprocessStage(persistent_rendering=True)
     event = threading.Event()
@@ -94,6 +144,7 @@ def test_cancelled_range_does_not_create_a_worker() -> None:
     assert stage._persistent_renderer is None
 
 
+@pytest.mark.usefixtures("reusable_pdfium")
 def test_cancellation_reaps_an_inflight_worker() -> None:
     stage = PDFPreprocessStage(persistent_rendering=True, raster_max_size=(64, 64))
     pdf = _pdf([(240, 330)])

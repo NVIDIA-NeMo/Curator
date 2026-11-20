@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import atexit
 import contextlib
+import gc
 import os
 import pickle
 import socket
@@ -15,6 +16,8 @@ import subprocess
 import sys
 import threading
 import time
+import weakref
+from importlib.metadata import PackageNotFoundError, version
 
 from PIL import Image
 
@@ -27,6 +30,7 @@ _DIMENSIONS = struct.Struct("!II")
 _MAX_FRAME_BYTES = 256 * 1024**2
 _POLL_SECONDS = 0.1
 _RGB_CHANNELS = 3
+_PDFIUM_RESET_VERSION = "5.7.1"
 
 RenderOptions = tuple[int, int, tuple[int, int], bool, list[int] | None, bool]
 RenderResult = tuple[list[Image.Image | None], bool, int | None]
@@ -159,10 +163,50 @@ def _page_count(pdf: bytes) -> int:
         return len(document)
 
 
+def _supports_pdfium_reset() -> bool:
+    # The native reset and handle check depend on private wrapper internals.
+    # Read package metadata without importing PDFium in the owning process.
+    try:
+        return version("pypdfium2") == _PDFIUM_RESET_VERSION
+    except PackageNotFoundError:
+        return False
+
+
+def _has_live_pdfium_handles() -> bool:
+    # In the qualified wrapper, every native handle registers a PDFium finalizer.
+    registry = getattr(weakref.finalize, "_registry", None)
+    if not isinstance(registry, dict):
+        msg = "The PDFium finalizer registry is unavailable"
+        raise RenderWorkerUnavailableError(msg)
+    return any(getattr(info.func, "__module__", "").startswith("pypdfium2.") for info in tuple(registry.values()))
+
+
+def _reset_pdfium_library() -> None:
+    """Restore native renderer state in the isolated helper between ranges."""
+    try:
+        from pypdfium2._library_scope import destroy_lib, init_lib
+    except ImportError as error:
+        msg = "The PDFium reset hooks are unavailable"
+        raise RenderWorkerUnavailableError(msg) from error
+    if not callable(destroy_lib) or not callable(init_lib):
+        msg = "The PDFium reset hooks are unavailable"
+        raise RenderWorkerUnavailableError(msg)
+    if _has_live_pdfium_handles():
+        gc.collect()
+        if _has_live_pdfium_handles():
+            msg = "Live PDFium handles prevent a renderer reset"
+            raise RenderWorkerUnavailableError(msg)
+    destroy_lib()
+    init_lib()
+
+
 def _serve(sock_fd: int, owner_fd: int) -> None:
     threading.Thread(target=_owner_watch, args=(owner_fd,), daemon=True).start()
     with socket.socket(fileno=sock_fd) as sock:
+        served = False
         while payload := _read_frame(sock):
+            if served:
+                _reset_pdfium_library()
             # The socket is inherited directly from our owner.
             pdf, options = pickle.loads(payload)  # noqa: S301
             dpi, max_pages, max_size, keep_failed, indexes, count_pages = options
@@ -180,6 +224,7 @@ def _serve(sock_fd: int, owner_fd: int) -> None:
                 )
             _send_pages(sock, pages)
             del payload, pdf, pages
+            served = True
 
 
 class PersistentPdfRenderer:
@@ -189,6 +234,7 @@ class PersistentPdfRenderer:
         self._worker: tuple[subprocess.Popen[bytes], socket.socket, int] | None = None
         self._lock = threading.Lock()
         self._failed_reap = False
+        self._supports_reset = _supports_pdfium_reset()
 
     @property
     def worker_pid(self) -> int | None:
@@ -263,6 +309,9 @@ class PersistentPdfRenderer:
             msg = "PDF renderer is closed because a previous worker could not be reaped"
             raise RuntimeError(msg)
         check_cancel(cancel_event)
+        if not self._supports_reset:
+            msg = "This PyPDFium2 version requires a fresh renderer"
+            raise RenderWorkerUnavailableError(msg)
         # Do not copy oversized input into a request the worker cannot accept.
         if len(pdf) > _MAX_FRAME_BYTES:
             msg = "PDF input exceeds the persistent renderer transport limit"

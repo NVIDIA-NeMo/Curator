@@ -244,7 +244,7 @@ existing positional reader and HTTP-client calls remain compatible.
 | `max_pdfs` | int \| None | `None` | Hard cap on total PDFs processed (debug aid). |
 | `dpi` | int | `300` | Render DPI for PDF pages. |
 | `raster_max_size` | tuple[int, int] | `(1664, 2048)` | Aspect-preserving render cap in pixels. |
-| `persistent_rendering` | bool | `False` | Reuse an isolated PDFium process across render ranges. |
+| `persistent_rendering` | bool | `False` | Reuse an isolated PDFium process across render ranges on the qualified runtime. |
 | `overlap_rendering` | bool | `False` | Submit completed render ranges early in served single-pass page mode with at most 64 pages per task. |
 | `max_pages` | int | `50` | Per-PDF page limit in PDF-based mode; ignored in page-based mode, which processes the manifest selection. |
 | `inference_batch_size` | int | `4` | Pages per HF pass or concurrent page requests per HTTP worker. The HTTP stage warns below the validated starting point of 32. |
@@ -759,8 +759,14 @@ in the extraction contract's `render` section. A smaller raster can reduce
 fine detail, so validate extraction quality on representative documents.
 
 Use `--persistent-rendering` to reuse a CPU-only PDFium process across render
-ranges. Use `--overlap-rendering` to send completed ranges to the single-pass
-HTTP server while rendering continues for the same parent task. Overlap uses
+ranges on POSIX with PyPDFium2 5.7.1. The helper resets its PDFium library between
+ranges after its native handles have closed. If reuse is unavailable or the
+helper cannot safely reset, Curator uses a fresh child with the remaining
+render time.
+
+Use `--overlap-rendering` to send completed ranges to the single-pass HTTP
+server while rendering continues for the same parent task. This handoff also
+works when rendering uses a fresh child. Overlap uses
 one CPU actor for both stages and retains the HTTP stage's worker count and
 request concurrency. It reserves both stages' CPU resources. Document
 assembly retains the original physical pages and waits for a complete task.

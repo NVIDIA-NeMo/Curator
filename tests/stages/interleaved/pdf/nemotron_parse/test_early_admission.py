@@ -14,7 +14,7 @@ from types import SimpleNamespace
 import pytest
 from PIL import Image
 
-from nemo_curator.stages.interleaved.pdf.nemotron_parse import _early_admission, inference
+from nemo_curator.stages.interleaved.pdf.nemotron_parse import _early_admission, _pdf_renderer, inference
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.extraction import parser_package_identity
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.preprocess import PDFPreprocessStage
 from tests.stages.interleaved.pdf.nemotron_parse._page_budget_helpers import TEST_EXTRACTION_CONFIG, partition
@@ -62,12 +62,16 @@ def _stages(
     return renderer, parser, parents
 
 
+@pytest.mark.parametrize("disable_pdfium_reuse", [False, True])
 def test_completed_range_starts_http_before_sibling_and_retains_parent(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     http_endpoint: SimpleNamespace,  # noqa: F811
+    disable_pdfium_reuse: bool,
 ) -> None:
     pytest.importorskip("pypdfium2")
+    if disable_pdfium_reuse:
+        monkeypatch.setattr(_pdf_renderer, "_supports_pdfium_reset", lambda: False)
     renderer, parser, parents = _stages(http_endpoint.endpoint, tmp_path, monkeypatch)
     (parent,) = parents
     for name in ("red", "blue"):
@@ -104,7 +108,7 @@ def test_completed_range_starts_http_before_sibling_and_retains_parent(
     try:
         actual = fused.process(parent)
         if renderer.persistent_rendering:
-            assert renderer._persistent_renderer.worker_pid is not None
+            assert (renderer._persistent_renderer.worker_pid is not None) == _pdf_renderer._supports_pdfium_reset()
     finally:
         fused.teardown()
 
