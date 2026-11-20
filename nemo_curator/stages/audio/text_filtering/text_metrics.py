@@ -14,27 +14,43 @@
 
 """Dependency-free text error-rate helpers for lightweight filtering stages."""
 
+import re
 from collections.abc import Sequence
 from typing import TypeVar
 
 _Token = TypeVar("_Token")
+_PUNCTUATION = re.compile(r"[^\w\s]", re.UNICODE)
+
+
+def normalize_for_error_rate(text: str) -> str:
+    """Lowercase and drop punctuation: the light text normalization for WER/CER comparisons."""
+    return _PUNCTUATION.sub("", text).lower()
+
+
+def edit_operation_counts(reference: Sequence[_Token], hypothesis: Sequence[_Token]) -> tuple[int, int, int]:
+    """Return ``(substitutions, insertions, deletions)`` of a minimal alignment of ``hypothesis`` to ``reference``.
+
+    Ties prefer insertion, then deletion, then match/substitution, which reproduces the
+    breakdown NeMo's ``word_error_rate_detail`` (kaldialign) reports.
+    """
+    previous = [(j, 0, j, 0) for j in range(len(hypothesis) + 1)]  # (total, sub, ins, del)
+    for ref_index, ref_token in enumerate(reference, start=1):
+        current = [(ref_index, 0, 0, ref_index)]
+        for hyp_index, hyp_token in enumerate(hypothesis, start=1):
+            left, up, diag = current[hyp_index - 1], previous[hyp_index], previous[hyp_index - 1]
+            miss = ref_token != hyp_token
+            best = (left[0] + 1, left[1], left[2] + 1, left[3])
+            if up[0] + 1 < best[0]:
+                best = (up[0] + 1, up[1], up[2], up[3] + 1)
+            if diag[0] + miss < best[0]:
+                best = (diag[0] + miss, diag[1] + miss, diag[2], diag[3])
+            current.append(best)
+        previous = current
+    return previous[-1][1:]
 
 
 def _levenshtein_distance(reference: Sequence[_Token], hypothesis: Sequence[_Token]) -> int:
-    """Return the Levenshtein edit distance between two token sequences."""
-    previous = list(range(len(hypothesis) + 1))
-    for ref_index, ref_token in enumerate(reference, start=1):
-        current = [ref_index]
-        for hyp_index, hyp_token in enumerate(hypothesis, start=1):
-            current.append(
-                min(
-                    previous[hyp_index] + 1,
-                    current[hyp_index - 1] + 1,
-                    previous[hyp_index - 1] + (ref_token != hyp_token),
-                )
-            )
-        previous = current
-    return previous[-1]
+    return sum(edit_operation_counts(reference, hypothesis))
 
 
 def _error_rate_percent(reference: Sequence[_Token], hypothesis: Sequence[_Token]) -> float:

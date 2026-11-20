@@ -19,7 +19,6 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from loguru import logger
-from nemo.collections.asr.metrics.wer import word_error_rate_detail
 from nemo_text_processing.text_normalization import Normalizer
 
 from nemo_curator.backends.base import WorkerMetadata
@@ -32,22 +31,26 @@ from nemo_curator.stages.audio._agent._agent_ready import (
     StageContract,
 )
 from nemo_curator.stages.audio.metrics._common import metrics_mapping, validate_metric_keys
-from nemo_curator.stages.audio.text_filtering.text_metrics import word_error_rate
+from nemo_curator.stages.audio.text_filtering.text_metrics import edit_operation_counts, word_error_rate
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask
 
 
 def _error_rate_detail(hypothesis: str, reference: str, use_cer: bool) -> dict[str, float | int]:
-    """Return NeMo's WER/CER with insertion/deletion/substitution rates, rounded to 4 places."""
-    rate, tokens, ins_rate, del_rate, sub_rate = word_error_rate_detail(
-        hypotheses=[hypothesis], references=[reference], use_cer=use_cer
-    )
+    """WER (or CER) with insertion/deletion/substitution rates, rounded to 4 places; ``inf`` for an empty reference."""
+    ref, hyp = (list(reference), list(hypothesis)) if use_cer else (reference.split(), hypothesis.split())
+    sub, ins, dele = edit_operation_counts(ref, hyp)
+    tokens = len(ref)
+
+    def rate(count: int) -> float:
+        return round(count / tokens, 4) if tokens else float("inf")
+
     return {
-        "cer" if use_cer else "wer": round(rate, 4),
+        "cer" if use_cer else "wer": rate(sub + ins + dele),
         "tokens": tokens,
-        "ins_rate": round(ins_rate, 4),
-        "del_rate": round(del_rate, 4),
-        "sub_rate": round(sub_rate, 4),
+        "ins_rate": rate(ins),
+        "del_rate": rate(dele),
+        "sub_rate": rate(sub),
     }
 
 
