@@ -37,9 +37,7 @@
 import os
 from enum import Enum
 
-import librosa
 import numpy as np
-import onnxruntime as ort
 import scipy
 from loguru import logger
 
@@ -85,6 +83,9 @@ class SigMOS:
         self.window_length = 960
         self.window = np.sqrt(np.hanning(int(self.window_length) + 1)[:-1]).astype(np.float32)
 
+        # Imported here so that importing SIGMOSFilterStage does not load onnxruntime.
+        import onnxruntime as ort
+
         options = ort.SessionOptions()
         options.inter_op_num_threads = 1
         options.intra_op_num_threads = 1
@@ -111,6 +112,8 @@ class SigMOS:
             last_frame = self.frame_size
 
         padded_signal = np.pad(signal, ((self.window_length - self.frame_size, self.window_length - last_frame),))
+        import librosa
+
         frames = librosa.util.frame(padded_signal, frame_length=len(self.window), hop_length=self.frame_size, axis=0)
         spec = scipy.fft.rfft(frames * self.window, n=self.dft_size)
         return spec.astype(np.complex64)
@@ -131,6 +134,8 @@ class SigMOS:
 
     def run(self, audio: np.ndarray, sr: int | None = None) -> dict[str, float]:
         if sr is not None and sr != self.sampling_rate:
+            import librosa
+
             audio = librosa.resample(audio, orig_sr=sr, target_sr=self.sampling_rate, res_type=self.resample_type)
 
         features = self.stft(audio)

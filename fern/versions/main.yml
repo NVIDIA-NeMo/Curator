@@ -501,6 +501,9 @@ navigation:
               - page: ReadSpeech Tutorial
                 path: ./main/pages/curate-audio/tutorials/readspeech.mdx
                 slug: readspeech
+              - page: Granary v2 Tutorials
+                path: ./main/pages/curate-audio/tutorials/granary-v2.mdx
+                slug: granary-v2
           - section: Load Data
             slug: load-data
             contents:
@@ -600,6 +603,9 @@ navigation:
               - page: Text Integration
                 path: ./main/pages/curate-audio/process-data/text-integration/index.mdx
                 slug: text-integration
+              - page: Stage Reference
+                path: ./main/pages/curate-audio/process-data/stage-reference.mdx
+                slug: stage-reference
           - page: Save and Export
             path: ./main/pages/curate-audio/save-export.mdx
             slug: save-export

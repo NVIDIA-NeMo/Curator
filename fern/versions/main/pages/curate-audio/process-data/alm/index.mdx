@@ -16,10 +16,10 @@ Curate training data for audio language models by extracting fixed-duration wind
 
 The ALM pipeline processes audio manifests through a four-stage chain:
 
-1. **ALMManifestReader** reads JSONL manifests line-by-line, producing one `AudioTask` per entry
+1. **ManifestReader** reads JSONL manifests line-by-line, producing one `AudioTask` per entry
 2. **ALMDataBuilderStage** constructs candidate windows from consecutive segments, applying sample rate, bandwidth, speaker count, and duration constraints
 3. **ALMDataOverlapStage** removes windows that share too much audio content, keeping windows closest to the target duration
-4. **ALMManifestWriterStage** writes filtered results as JSONL
+4. **ManifestWriterStage** writes filtered results as JSONL
 
 All stages run on CPU and support both Xenna and Ray Data backends.
 
@@ -48,16 +48,15 @@ target-duration
 ```python
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.alm import (
-    ALMManifestReader,
     ALMDataBuilderStage,
     ALMDataOverlapStage,
-    ALMManifestWriterStage,
 )
+from nemo_curator.stages.audio.common import ManifestReader, ManifestWriterStage
 
 pipeline = Pipeline(name="alm_curation")
 
 # Read input manifests
-pipeline.add_stage(ALMManifestReader(manifest_path="/data/manifests/"))
+pipeline.add_stage(ManifestReader(manifest_path="/data/manifests/"))
 
 # Build 120-second training windows
 pipeline.add_stage(
@@ -78,7 +77,7 @@ pipeline.add_stage(
 )
 
 # Write results
-pipeline.add_stage(ALMManifestWriterStage(output_path="/data/output/alm.jsonl"))
+pipeline.add_stage(ManifestWriterStage(output_path="/data/output/alm.jsonl"))
 ```
 
 ## Related Topics

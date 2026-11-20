@@ -112,7 +112,8 @@ jobs:
         if: ${{ !cancelled() }}
         run: bash .github/scripts/report_disk_usage.sh
       - name: Install system dependencies for audio tests
-        if: matrix.folder == 'stages-audio'
+        # config/test_run.py resamples audio with FFmpeg.
+        if: contains(fromJSON('["stages-audio", "config"]'), matrix.folder)
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ffmpeg

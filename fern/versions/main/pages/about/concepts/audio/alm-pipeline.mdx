@@ -23,10 +23,10 @@ Audio language models require training windows that contain multiple speakers, m
 
 ```mermaid
 graph TD
-    A[JSONL Manifests] --> B[ALMManifestReader]
+    A[JSONL Manifests] --> B[ManifestReader]
     B --> C[ALMDataBuilderStage]
     C --> D[ALMDataOverlapStage]
-    D --> E[ALMManifestWriterStage]
+    D --> E[ManifestWriterStage]
     E --> F[Filtered JSONL Output]
 
     B -- "1 AudioTask per manifest line" --> C
@@ -70,16 +70,16 @@ The `overlap_percentage` parameter controls filtering aggressiveness:
 
 ### Reading
 
-`ALMManifestReader` is a composite stage that decomposes into two sub-stages:
+`ManifestReader` is a composite stage that decomposes into two sub-stages:
 
 1. **`FilePartitioningStage`**: Discovers and partitions manifest files from a path or list of paths
-2. **`ALMManifestReaderStage`**: Reads each partition line-by-line using fsspec, producing one `AudioTask` per JSONL line
+2. **`ManifestReaderStage`**: Reads each partition line-by-line using fsspec, producing one `AudioTask` per JSONL line
 
 This approach avoids loading entire manifests into memory with Pandas, keeping memory usage proportional to a single line rather than three to five times the file size.
 
 ### Writing
 
-`ALMManifestWriterStage` appends each `AudioTask` as a JSON line to the output file. It uses a single-writer constraint (`num_workers=1`) to prevent concurrent write conflicts. The stage truncates the output file on setup to ensure clean results across reruns.
+`ManifestWriterStage` appends each `AudioTask` as a JSON line to the output file. It uses a single-writer constraint (`num_workers=1`) to prevent concurrent write conflicts. The stage truncates the output file on setup to ensure clean results across reruns.
 
 Both reader and writer stages support local and cloud paths (S3, GCS) through fsspec.
 

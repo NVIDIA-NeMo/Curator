@@ -1,0 +1,474 @@
+---
+description: "Reference for audio stages that have no dedicated page: readers, writers, inference, language ID, text processing, tagging, metrics, and utility stages"
+categories: ["audio-processing"]
+tags: ["stage-reference", "audio-stages", "readers", "writers", "inference", "tagging"]
+personas: ["mle-focused", "data-scientist-focused"]
+difficulty: "intermediate"
+content_type: "reference"
+modality: "audio-only"
+---
+
+# Audio Stage Reference
+
+This page covers audio stages that do not have their own how-to page. Each entry gives the import path, what the stage reads and writes, and the parameters you are most likely to change. The class docstrings list every parameter.
+
+Every audio stage processes `AudioTask` objects and reads or writes fields of `task.data`. Most field names are configurable through `*_key` parameters; the defaults are shown below.
+
+## Input and Discovery
+
+### CreateInitialManifestAudioFolderStage
+
+Starts a pipeline from a plain folder of audio files when there is no JSONL manifest. It recursively scans `data_dir` and emits one `AudioTask` per file with `audio_filepath` and a filename-derived `audio_item_id`. Use [`ManifestReader`](/curate-audio/load-data/custom-manifests) when a manifest already exists.
+
+```python
+from nemo_curator.stages.audio.common.folder_source import CreateInitialManifestAudioFolderStage
+
+stage = CreateInitialManifestAudioFolderStage(data_dir="/data/raw_audio", extensions=[".wav", ".flac"])
+```
+
+| Parameter | Default | Description |
+|---|---|---|
+| `data_dir` | required | Local folder to scan |
+| `extensions` | `.wav .flac .mp3 .ogg .opus .m4a` | File extensions to include (case-insensitive) |
+| `recursive` | `True` | Recurse into subfolders |
+| `max_samples` | `-1` | Maximum number of files (`-1` for all) |
+| `include_files` | `None` | Restrict to these absolute paths |
+
+### NeMoSpeechAudioReader
+
+Composite reader for NeMo `nemo` and `nemo_tarred` `input_cfg` entries. It decomposes into `NeMoSpeechDiscoveryStage`, which expands the YAML into one source task per manifest/tar shard, and `NeMoSpeechReaderStage`, which decodes each shard into mono `AudioTask` objects. Successful rows carry a float32 `waveform`, `sample_rate`, `sampling_rate`, and `duration`; failed or overlong rows keep their manifest metadata and set `read_error` (and `audio_too_long` for the duration limit).
+
+```python
+from nemo_curator.stages.audio.io.nemo_speech_reader import NeMoSpeechAudioReader
+
+reader = NeMoSpeechAudioReader(
+    yaml_path="/data/input_cfg.yaml",
+    language_filter=["en"],
+    output_dir="/data/output",  # enables .done-marker restart
+)
+```
+
+| Parameter | Default | Description |
+|---|---|---|
+| `yaml_path` / `input_cfg` | `""` / `None` | NeMo input configuration file or inline configuration (inline wins) |
+| `corpus_filter`, `language_filter` | `None` | Keep only these corpora or languages |
+| `output_dir` | `None` | Writer output directory, used to skip shards with a `.done` marker |
+| `resume_mode` | `"done_markers"` | Use `"checkpoint"` when running with `Pipeline.run(checkpoint_path=...)`. Do not combine the two. |
+| `max_audio_duration_sec` | 12 hours | Longer rows are marked `audio_too_long` instead of decoded |
+| `keep_waveform` | `True` | Keep the decoded waveform on the task |
+
+Pair it with [`NeMoSpeechWriterStage`](#nemospeechwriterstage).
+
+## Writers and Export
+
+### NeMoSpeechWriterStage
+
+Terminal sink that writes each task as an Opus clip plus a NeMo manifest row and a receipt. The output directory must be an absolute path on a shared filesystem that every worker sees at the same path. After a successful run, call `finalize_nemo_speech_output(output_dir)` to create the shard manifests and completion markers.
+
+```python
+from nemo_curator.stages.audio.io.nemo_speech_writer import NeMoSpeechWriterStage, finalize_nemo_speech_output
+
+pipeline.add_stage(NeMoSpeechWriterStage(output_dir="/shared/output", target_sample_rate=16000))
+pipeline.run()
+finalize_nemo_speech_output("/shared/output")
+```
+
+| Parameter | Default | Description |
+|---|---|---|
+| `output_dir` | required | Root for Opus clips, manifests, receipts, and markers |
+| `target_sample_rate` | `16000` | Required sample rate for rows that carry a waveform |
+| `save_audio` | `True` | Write Opus clips; set `False` to write manifests only |
+| `writer_concurrency` | `1` | Concurrent encodes per worker |
+
+### AudioSegmentWriterStage
+
+Writes each 16 kHz mono segment waveform as an Opus file below `output_dir/audio` and rewrites `audio_filepath` to that file. `original_file` keeps the source recording and `audio_item_id` identifies the segment. VAD timestamps, speaker counts, SED events, and LID decisions are kept; whole-recording diarization and in-memory audio fields are removed. Output file names depend on the source, interval, and PCM content, so retries cannot collide.
+
+```python
+from nemo_curator.stages.audio.io.write_audio import AudioSegmentWriterStage
+
+stage = AudioSegmentWriterStage(output_dir="/shared/segments")
+```
+
+A row flagged with `vad_empty` is kept as an audit row without a clip. A row with `read_error` raises.
+
+### SegmentExtractionStage
+
+Reads each segment's slice from the original file and writes it as a standalone audio file, recording the path under `output_key` (default `extracted_path`). Its input is manifest entries produced by [`TimestampMapperStage`](/curate-audio/process-data/quality-filtering/preprocessing). The stage works only through `process_batch()`.
+
+```python
+from nemo_curator.stages.audio.io.extract_segments import SegmentExtractionStage
+
+stage = SegmentExtractionStage(output_dir="/data/segments", output_format="flac")
+```
+
+`output_format` is one of `wav`, `flac`, or `ogg`.
+
+### ManifestGroupExportStage
+
+Writes one file per distinct value of `group_by`, for example one transcript per speaker. Rows pass through unchanged, so the stage can sit anywhere after the data exists. Values that cannot be serialized (such as a waveform tensor) are left out of the written columns.
+
+```python
+from nemo_curator.stages.audio.io.group_export import ManifestGroupExportStage
+
+stage = ManifestGroupExportStage(output_dir="/data/by_speaker", group_by="speaker_id", format="txt", write_timeline=True)
+```
+
+| Parameter | Default | Description |
+|---|---|---|
+| `group_by` | `"speaker_id"` | Column whose value names each output file |
+| `format` | `"txt"` | `txt` (one `text_key` line per row), `json` (JSONL), or `csv` |
+| `columns` | `None` | Columns to write for `json` and `csv` (all serializable columns when unset) |
+| `include_timestamps` | `True` | Prefix `txt` lines with `start_key`/`end_key` |
+| `write_timeline` | `False` | Also write a who-spoke-when `timeline.txt` |
+| `missing_group` | `"unknown"` | Group name for rows without a `group_by` value |
+
+## ASR Inference
+
+These stages subclass `ASRStage` and fix the adapter for one model family. Refer to [ASR Inference](/curate-audio/process-data/asr-inference) for the general adapter-based stage. All three read an in-memory waveform from `waveform_key` (default `waveform`) at the sample rate in `sample_rate_key` (default `sampling_rate`), write the transcript to `pred_text_key` (default `asr_prediction`), and record notes under `additional_notes`. They request one GPU by default.
+
+### InferenceParakeetStage
+
+Transcribes Parakeet-supported languages with `nvidia/parakeet-tdt-0.6b-v3` by default, without writing temporary WAV files.
+
+```python
+from nemo_curator.stages.audio.inference.parakeet import InferenceParakeetStage
+
+stage = InferenceParakeetStage(model_id="nvidia/parakeet-tdt-0.6b-v3")
+```
+
+| Parameter | Default | Description |
+|---|---|---|
+| `model_id` | `nvidia/parakeet-tdt-0.6b-v3` | NeMo checkpoint |
+| `supported_langs` | `None` | Restrict to these `source_lang` values |
+| `backend` | `"nemo"` | `"tensorrt"` runs a prebuilt engine from `tensorrt_engine_dir` |
+| `chunking_mode` | `"engine"` | `"none"` disables long-audio chunking |
+| `batch_size` | `16` | Tasks per batch |
+
+### InferenceIndicConformerHybridStage
+
+Transcribes Indic languages with an IndicConformer hybrid CTC/RNNT checkpoint (default `ai4bharat/indicconformer_stt_hi_hybrid_ctc_rnnt_large`). Rows whose `source_lang` is not an IndicConformer language are not transcribed.
+
+```python
+from nemo_curator.stages.audio.inference.indic_conformer_hybrid import InferenceIndicConformerHybridStage
+
+stage = InferenceIndicConformerHybridStage(decode_mode="rnnt")
+```
+
+| Parameter | Default | Description |
+|---|---|---|
+| `decode_mode` | `"rnnt"` | `"ctc"` or `"rnnt"` |
+| `backend` | `"nemo"` | `"tensorrt"` replaces only the Conformer encoder with an FP16 engine from `tensorrt_engine_dir` |
+| `rnnt_precision` | `"fp32"` | `fp32`, `fp16`, or `bf16` |
+
+### InferenceIndicCanaryStage
+
+Transcribes Indic audio with an existing Canary TensorRT-LLM engine. It needs the [Indic Canary TensorRT-LLM image](/reference/infra/container-environments#indic-canary-tensorrt-llm-image) built from `docker/audio/Dockerfile.trt_llm`, not the standard audio environment. Unsupported languages are marked with `_skipme`.
+
+```python
+from nemo_curator.stages.audio.inference.indic_canary import InferenceIndicCanaryStage
+
+stage = InferenceIndicCanaryStage(engine_dir="/engines/indic_canary", num_beams=4)
+```
+
+| Parameter | Default | Description |
+|---|---|---|
+| `engine_dir` | `""` | Directory containing the prebuilt engine |
+| `num_beams` | `4` | Beam width |
+| `max_new_tokens` | `374` | Decoding limit |
+| `pnc` | `False` | Request punctuation and capitalization |
+| `min_duration_sec`, `max_duration_sec` | `0.5`, `40.0` | Accepted clip duration range |
+
+### PrepareIndicASRInputStage
+
+Prepares Hindi clips for the Indic ASR stages. It loads 16 kHz audio as a mono `[1, samples]` waveform, resolves `audio_filepath` against `audio_root`, checks the decoded length against the manifest `duration` within 1 ms, copies the input `text` to `reference_text` and `granary_v1_prediction`, and initializes `additional_notes` and `_skipme`. It does not transcribe. `source_lang` must be `"hi"`.
+
+```python
+from nemo_curator.stages.audio.preprocessing.indic_asr import PrepareIndicASRInputStage
+
+stage = PrepareIndicASRInputStage(audio_root="/data/hindi")
+```
+
+The [Granary v2 Indic ASR tutorial](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials/audio/granary_v2/indic_asr) uses these stages together.
+
+### AdapterInferenceStage
+
+Base class shared by the adapter-backed inference stages (`ASRStage`, `AudioLIDInferenceStage`, and others). It owns the adapter lifecycle and file or waveform input handling. A subclass constructs the adapter from `adapter_target` and implements model-specific normalization, inference, and result assembly. Subclass it when you add a new model family.
+
+## Language Identification
+
+### AudioLIDInferenceStage
+
+Identifies the spoken language of a task's leading audio window through a model adapter. Each model writes its result to `task.data["lid"][model_id]` as a mapping with `language`, `confidence`, and `tag`. Run several instances with different `model_id` values to build an ensemble, then select with `SelectAudioLanguageStage`.
+
+```python
+from nemo_curator.stages.audio.inference.lid.stage import AudioLIDInferenceStage
+
+stage = AudioLIDInferenceStage(
+    adapter_target="nemo_curator.models.audio.lid.speechbrain.SpeechBrainLIDAdapter",
+    model_id="SpeechBrainLangID",
+    tag="primary",
+)
+```
+
+| Parameter | Default | Description |
+|---|---|---|
+| `adapter_target` | required | Import path of an `AudioLIDAdapter` implementation |
+| `model_id` | required | Key for this model in the shared result mapping |
+| `tag` | required | Ensemble role recorded with every result |
+| `min_duration_sec`, `max_duration_sec` | `1.0`, `10.0` | Window passed to the model |
+| `adapter_kwargs` | `{}` | Provider-specific options such as checkpoint names |
+| `skip_if_output_exists` | `False` | Skip rows that already have a result for `model_id` |
+
+Missing, unreadable, or too-short audio receives an empty completed result so a rerun is deterministic.
+
+### SelectAudioLanguageStage
+
+Applies the reference precedence policy to the ensemble results in `lid` and writes the chosen lowercase language code to `source_lang`. It writes `""` when predictions are missing and `"skipped"` on disagreement, records each model's label and confidence in `additional_notes`, and then removes the `lid` results.
+
+```python
+from nemo_curator.stages.audio.postprocessing.lid_selection import SelectAudioLanguageStage
+
+stage = SelectAudioLanguageStage()
+```
+
+The model IDs it looks for (`speechbrain_model_id`, `indic_canary_model_id`, `whisper_model_id`) default to `SpeechBrainLangID`, `IndicCanaryLangID`, and `WhisperLangID`.
+
+## Transcript Text Processing
+
+### AudioTextLLMStage
+
+Sends transcripts to a shared OpenAI-compatible inference server (such as Dynamo) and writes the rewritten text to `output_text_key`. The server owns the model and GPUs; the stage only sends text requests and returns tasks in their original order.
+
+```python
+from nemo_curator.stages.audio.text_filtering.audio_text_llm import AudioTextLLMStage
+
+stage = AudioTextLLMStage(
+    endpoint="http://localhost:8000/v1",
+    model_name="my-llm",
+    prompt="Apply inverse text normalization to the transcript.",
+    validation_mode="itn",
+)
+```
+
+| Parameter | Default | Description |
+|---|---|---|
+| `endpoint`, `model_name` | required | Server URL and served model |
+| `prompt` | `""` | System message, or a user message when it contains `{text}`. `{language}` and `{language_rules}` resolve per row. |
+| `mode` | `"text"` | `"recover_entities"` uses `ground_truth_key`; `"language_id"` checks the prediction against `language_key` |
+| `operations` | `None` | Several independent operations sent as one concurrent batch |
+| `validation_mode` | `"none"` | `"itn"` or `"tn"` rejects rewrites that add words or drift script |
+| `max_concurrent_requests` | `16` | Concurrent requests per worker |
+
+### DisfluencyWerGuardStage
+
+Restores the original prediction when disfluency removal changed too much. It compares `ref_text_key` with the cleaned `hyp_text_key` using CER for languages written without spaces and WER otherwise, stores the rate in `wer_key`, and replaces the cleaned text when the rate exceeds `max_wer_pct`.
+
+```python
+from nemo_curator.stages.audio.text_filtering.disfluency_wer_guard import DisfluencyWerGuardStage
+
+stage = DisfluencyWerGuardStage(ref_text_key="pred_text", hyp_text_key="pred_text_clean", max_wer_pct=50.0)
+```
+
+### ChineseConversionStage
+
+Converts the text of every entry in `segments` with OpenCC (Traditional to Simplified by default) and writes it to `{text_key}_simplified`. A segment whose conversion fails keeps its original text.
+
+```python
+from nemo_curator.stages.audio.tagging.text.chinese_conversion import ChineseConversionStage
+
+stage = ChineseConversionStage(text_key="text", convert_type="t2s")
+```
+
+## Diarization and Voice Activity Detection
+
+### PyAnnoteDiarizationStage
+
+Runs PyAnnote speaker diarization and overlap detection (default `pyannote/speaker-diarization-3.1`). It writes speaker turns to `segments` and overlapping speech to `overlap_segments`, and optionally writes an RTTM file. With `fanout=True`, it emits one child task per turn instead.
+
+```python
+from nemo_curator.stages.audio.inference.speaker_diarization.pyannote import PyAnnoteDiarizationStage
+
+stage = PyAnnoteDiarizationStage(hf_token="hf_...", min_length=0.5, max_length=40.0)
+```
+
+| Parameter | Default | Description |
+|---|---|---|
+| `hf_token` | `None` | Hugging Face token; not needed for a local pipeline directory in `model_name` |
+| `audio_filepath_key` | `resampled_audio_filepath` | Input audio path |
+| `input_residency` | `"file"` | `"waveform"` reads `waveform_key`; `"auto"` prefers the waveform and falls back to the file |
+| `min_length`, `max_length` | `0.5`, `40.0` | Segment length bounds in seconds |
+| `num_speakers_key` | `None` | Also write the distinct-speaker count to this key |
+| `fanout` | `False` | Emit one task per segment |
+
+For NVIDIA Streaming Sortformer diarization, refer to the [Sortformer tutorial](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials/audio/sortformer).
+
+### WhisperXVADStage
+
+Runs WhisperX voice activity detection and writes speech segments to `vad_segments`. Entries shorter than `min_length` are dropped. With `fanout=True`, it emits one child task per segment, and the children omit the parent transcript.
+
+```python
+from nemo_curator.stages.audio.inference.vad.whisperx_vad import WhisperXVADStage
+
+stage = WhisperXVADStage(min_length=0.5, max_length=40.0, vad_onset=0.5, vad_offset=0.363)
+```
+
+For the Silero-based segmentation stage, refer to [VAD Segmentation](/curate-audio/process-data/quality-filtering/vad).
+
+## Tagging Pipeline
+
+These stages are used by the [audio tagging tutorial](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials/audio/tagging), which turns raw, unlabeled audio into labeled TTS or ASR training data.
+
+### SplitASRAlignJoinStage
+
+Composite stage that always runs three stages together: `SplitLongAudioStage` splits audio longer than `suggested_max_len`, `NeMoASRAlignerStage` transcribes and aligns each chunk, and `JoinSplitAudioMetadataStage` merges the transcripts and alignments back into the original entry.
+
+```python
+from nemo_curator.stages.audio.tagging.split import SplitASRAlignJoinStage
+
+stage = SplitASRAlignJoinStage(
+    model_name="nvidia/parakeet-tdt_ctc-1.1b",
+    suggested_max_len=3600.0,
+    output_dir="/data/split_chunks",
+)
+```
+
+| Parameter | Default | Description |
+|---|---|---|
+| `suggested_max_len` | `3600.0` | Target maximum chunk length in seconds |
+| `min_len` | `1.0` | Minimum chunk length |
+| `model_name` / `model_path` | `nvidia/parakeet-tdt_ctc-1.1b` / `None` | NeMo ASR model; `model_path` wins when set |
+| `decoder_type` | `"rnnt"` | `"ctc"` or `"rnnt"` |
+| `compute_timestamps` | `True` | Compute word-level timestamps |
+| `output_dir` | `None` | Where to write chunks (next to the source audio when unset) |
+
+### SplitLongAudioStage
+
+Splits audio longer than `suggested_max_len` at natural pauses and records the chunk files, offsets, and metadata under the `split_*` keys. Use it directly only when you run your own ASR between the split and the join; otherwise use `SplitASRAlignJoinStage`.
+
+### JoinSplitAudioMetadataStage
+
+Merges the transcripts and alignments of chunks created by `SplitLongAudioStage` back into the original entry, shifting timestamps by each chunk's offset.
+
+### MergeAlignmentDiarizationStage
+
+Merges word alignments from `alignment` into the diarization `segments`, adding each segment's `text` and `words`.
+
+```python
+from nemo_curator.stages.audio.tagging.merge_alignment_diarization import MergeAlignmentDiarizationStage
+
+stage = MergeAlignmentDiarizationStage(text_key="text", words_key="words")
+```
+
+### PrepareModuleSegmentsStage
+
+Builds training segments for a TTS or ASR model. It merges adjacent same-speaker segments, then splits them by maximum duration, pauses, terminal punctuation, and bandwidth changes.
+
+```python
+from nemo_curator.stages.audio.tagging.prepare_module_segments import PrepareModuleSegmentsStage
+
+stage = PrepareModuleSegmentsStage(module="tts", min_duration=5.0, max_duration=20.0)
+```
+
+| Parameter | Default | Description |
+|---|---|---|
+| `module` | `"tts"` | `"tts"` keeps single-speaker segments; `"asr"` allows several speakers |
+| `min_duration`, `max_duration` | `5.0`, `20.0` | Segment duration bounds in seconds |
+| `max_pause` | `2.0` | Longest pause between words inside one segment (TTS) |
+| `terminal_punct_marks` | `.!?` and CJK marks | Characters that end an utterance |
+| `punctuation_split_only` | `False` | Split only at punctuation |
+
+## Quality Metrics
+
+### BandwidthEstimationStage
+
+Estimates each segment's effective bandwidth from its power spectrum: the highest frequency whose energy is within `frequency_threshold` dB of the peak. The estimate is added to each entry in `segments` under `metrics`.
+
+```python
+from nemo_curator.stages.audio.metrics.bandwidth import BandwidthEstimationStage
+
+stage = BandwidthEstimationStage(n_fft=512, frequency_threshold=-50.0)
+```
+
+`input_residency` selects the input: `"file"` (default) reads `audio_filepath`, `"waveform"` reads `waveform_key`, and `"auto"` prefers a complete waveform and sample-rate pair and falls back to the file. To filter by a full-band or narrow-band classifier instead, use [Band Filter](/curate-audio/process-data/quality-filtering/band-filter).
+
+### TorchSquimQualityMetricsStage
+
+Computes TorchAudio SQUIM objective metrics (PESQ, STOI, and SI-SDR) for each entry in `segments` on the GPU and writes them under `metrics`. It reads `resampled_audio_filepath` by default and supports the same `input_residency` options as `BandwidthEstimationStage`.
+
+```python
+from nemo_curator.stages.audio.metrics.squim import TorchSquimQualityMetricsStage
+
+stage = TorchSquimQualityMetricsStage(target_sr=16000, compute_batch_size=32)
+```
+
+## Alignment
+
+### MFAAlignmentStage
+
+Runs batch forced alignment with the [Montreal Forced Aligner](https://montreal-forced-aligner.readthedocs.io/). It writes TextGrid, RTTM, and CTM files under `output_dir` (in `textgrids/`, `rttms/`, and `ctms/`). The stage works only through `process_batch()`; use `.with_(batch_size=N)` to set how many tasks go into each `mfa align` call. The `mfa` binary and its models must be installed separately.
+
+```python
+from nemo_curator.stages.audio.alignment.mfa_alignment import MFAAlignmentStage
+
+stage = MFAAlignmentStage(output_dir="/data/mfa", acoustic_model="english_us_arpa", dictionary="english_us_arpa", num_jobs=8)
+```
+
+| Parameter | Default | Description |
+|---|---|---|
+| `acoustic_model`, `dictionary`, `g2p_model` | `english_us_arpa` | MFA models; set `g2p_model=""` to turn off G2P for out-of-vocabulary words |
+| `num_jobs` | `1` | Parallel MFA jobs; also sets the default CPU reservation |
+| `beam`, `retry_beam` | `100`, `400` | Alignment search beams |
+| `create_rttm`, `create_ctm` | `True` | Write RTTM and CTM files |
+| `align_timeout_seconds` | `3600.0` | Timeout for each `mfa align` call |
+
+Refer to the [MFA alignment tutorial](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials/audio/alignment).
+
+## Synthetic Conversations
+
+### ChatterboxTTSStage
+
+Generates audio for conversation turns with Chatterbox TTS, using reference voices from the `reference_voices_dataset` directory (a `wavs/<dialog>/<speaker>.wav` layout with optional `rttms/`, or the MLS layout). Each input task is one turn with `utterance` (or `text`), `speaker`, and `conversation_id`; the stage adds `audio_filepath` and `duration`. Voices are assigned by a hash of `(conversation_id, speaker)`, so a speaker keeps the same voice across workers and nodes. With `language=None` the English model is used; otherwise the multilingual model is loaded.
+
+```python
+from nemo_curator.stages.audio.tts.chatterbox_tts import ChatterboxTTSStage
+
+stage = ChatterboxTTSStage(output_audio_dir="/data/tts", reference_voices_dataset="/data/reference_voices")
+```
+
+### MergeConversationSDPStage
+
+Merges the turns of one conversation into `mixed.wav`, `multichannel.wav`, `all.rttm`, an optional `all.ctm`, and `segments.seglst.json` under `output_conversations_dir/<conversation_id>`. Each input task must hold one complete conversation: a `conversation_id` and a `turns` list in which every turn has `audio_filepath`, `speaker`, and a unique integer `turn_index`. Long pauses are shortened to `max_pause_duration`, and a turn's `overlap` value overlaps or separates it from the previous turn.
+
+```python
+from nemo_curator.stages.audio.merging.merge_conversation import MergeConversationSDPStage
+
+stage = MergeConversationSDPStage(output_conversations_dir="/data/conversations", max_pause_duration=2.0)
+```
+
+Refer to the [Chatterbox TTS tutorial](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials/audio/tts).
+
+## Filtering by Field Values
+
+### PreserveByValueConditionsStage
+
+Keeps a row when several scalar conditions hold. Conditions use AND by default; set `condition_logic="or"` to keep a row when any condition passes. Rows missing a condition key fail. With `items_key`, the conditions filter a list of child mappings inside each row instead of the rows themselves. For a single condition, use `PreserveByValueStage` as shown in [Duration Filtering](/curate-audio/process-data/quality-assessment/duration-filtering).
+
+```python
+from nemo_curator.stages.audio.common.value_filters import PreserveByValueConditionsStage
+
+stage = PreserveByValueConditionsStage(
+    conditions=[
+        {"input_value_key": "duration", "target_value": 1.0, "operator": "ge"},
+        {"input_value_key": "wer", "target_value": 20.0, "operator": "le"},
+    ],
+)
+```
+
+| Parameter | Default | Description |
+|---|---|---|
+| `conditions` | required | List of `{input_value_key, target_value, operator}` mappings, or a mapping from key to `{target_value, operator}` |
+| `missing_value_policy` | `"error"` | `"drop"` removes rows that lack a condition key |
+| `items_key` | `None` | Filter the child list under this key instead of whole rows |
+| `drop_parent_if_empty` | `True` | In child mode, drop the row when no child survives |
+| `condition_logic` | `"and"` | `"and"` or `"or"` |

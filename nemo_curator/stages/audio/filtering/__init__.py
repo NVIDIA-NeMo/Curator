@@ -12,14 +12,31 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Audio quality filtering stages."""
+"""Audio quality filtering stages.
 
-from .band import BandFilterStage
-from .sigmos import SIGMOSFilterStage
-from .utmos import UTMOSFilterStage
+Importing one filter must not import another's model stack (SIGMOS pulls onnxruntime and librosa). Concrete stages are therefore resolved only when requested.
+"""
 
-__all__ = [
-    "BandFilterStage",
-    "SIGMOSFilterStage",
-    "UTMOSFilterStage",
-]
+from __future__ import annotations
+
+from importlib import import_module
+
+_LAZY = {
+    "BandFilterStage": "nemo_curator.stages.audio.filtering.band",
+    "SIGMOSFilterStage": "nemo_curator.stages.audio.filtering.sigmos",
+    "UTMOSFilterStage": "nemo_curator.stages.audio.filtering.utmos",
+}
+
+__all__ = ["BandFilterStage", "SIGMOSFilterStage", "UTMOSFilterStage"]
+
+
+def __getattr__(name: str) -> object:
+    target = _LAZY.get(name)
+    if target is None:
+        msg = f"module {__name__!r} has no attribute {name!r}"
+        raise AttributeError(msg)
+    return getattr(import_module(target), name)
+
+
+def __dir__() -> list[str]:
+    return __all__

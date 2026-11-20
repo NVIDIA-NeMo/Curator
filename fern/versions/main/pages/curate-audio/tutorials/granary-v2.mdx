@@ -1,0 +1,57 @@
+---
+description: "Overview of the Granary v2 audio tutorials: metadata extraction, Indic ASR, Qwen Omni ASR, and transcript text processing"
+categories: ["tutorials"]
+tags: ["granary", "metadata", "indic-asr", "qwen-omni", "text-processing", "language-id"]
+personas: ["mle-focused", "data-scientist-focused"]
+difficulty: "advanced"
+content_type: "tutorial"
+modality: "audio-only"
+---
+
+# Granary v2 Tutorials
+
+The Granary v2 tutorials build speech training data: prepare speech clips and metadata, transcribe them with one of two ASR pipelines, and then enrich the transcripts. Each tutorial lives in [`tutorials/audio/granary_v2`](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials/audio/granary_v2), with its complete pipeline YAML and a README that covers the environment, sample data, input and output fields, and validation commands.
+
+| Step | Tutorial | Result |
+|---|---|---|
+| Prepare recordings | [Metadata extraction](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials/audio/granary_v2/metadata) | Opus speech clips with speaker, sound-event, and language metadata |
+| Transcribe Hindi clips | [Indic ASR](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials/audio/granary_v2/indic_asr) | Canary and Parakeet predictions, the selected and cleaned transcript, and WER |
+| Transcribe with Qwen3-Omni | [Qwen Omni ASR](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials/audio/granary_v2/qwen_omni_asr) | Transcripts checked for hallucinations and cleaned for downstream use |
+| Process transcripts | [Text pipeline](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials/audio/granary_v2/text_pipeline) | Entity recovery, punctuation, language verification, normalization, and text features |
+
+Choose the ASR tutorial that matches your language and models. Each tutorial can also run on its bundled examples without the others.
+
+## What Each Pipeline Does
+
+**Metadata extraction** resamples recordings to mono 16 kHz and runs Sortformer diarization, Silero voice activity detection, and CNN14 sound event detection. It then identifies the language with a SpeechBrain, Indic Canary, and Whisper ensemble (`AudioLIDInferenceStage` and `SelectAudioLanguageStage`) and writes one Opus clip per speech segment with `AudioSegmentWriterStage`. It does not transcribe.
+
+**Indic ASR** prepares Hindi clips with `PrepareIndicASRInputStage`, transcribes each clip with `InferenceIndicCanaryStage` (primary) and `InferenceParakeetStage` (recovery candidate), and checks both with `WhisperHallucinationStage`. `SelectBestPredictionStage` picks the final text, which `RegexSubstitutionStage` and `AbbreviationConcatStage` clean, and `GetPairwiseWerStage` scores against the reference.
+
+**Qwen Omni ASR** transcribes with `ASRStage` and the `QwenOmniASRAdapter`, flags suspicious text with `WhisperHallucinationStage`, falls back to the existing transcript when the generated text is flagged, and cleans the selected text.
+
+**Text pipeline** reads no audio. Seven `AudioTextLLMStage` instances send transcripts to a shared inference server to recover entities, restore punctuation, verify the language, normalize text, and compute text features.
+
+## Run a Tutorial
+
+All four tutorials use the standard YAML entry point. Run from the repository root; `--config-path` is relative to `nemo_curator/config/run.py`:
+
+```bash
+python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/granary_v2/qwen_omni_asr \
+  --config-name pipeline \
+  manifest_path="$PWD/work/data/manifest.jsonl" \
+  output_path="$PWD/work/output.jsonl" \
+  workspace_dir="$PWD/work/workspace"
+```
+
+Each README lists the required arguments for its pipeline and an optional Ray Data variant (`backend=ray_data`).
+
+## Environment
+
+The metadata and Indic ASR tutorials share an image built from the `granary` target of `docker/audio/Dockerfile.trt_llm`, because Indic Canary needs TensorRT-LLM. Refer to [Indic Canary TensorRT-LLM Image](/reference/infra/container-environments#indic-canary-tensorrt-llm-image). The Qwen Omni ASR and text pipelines have their own environment requirements, described in their READMEs. The published configurations target one node with eight H100 80 GB GPUs.
+
+## Related Topics
+
+- [Audio Stage Reference](/curate-audio/process-data/stage-reference): parameters for the stages these pipelines use
+- [ASR Inference](/curate-audio/process-data/asr-inference): adapter-based ASR stages
+- [Audio Text Integration](/curate-audio/process-data/text-integration): working with transcripts

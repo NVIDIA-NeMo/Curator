@@ -19,8 +19,6 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from loguru import logger
-from nemo.collections.asr.metrics.wer import word_error_rate_detail
-from nemo_text_processing.text_normalization import Normalizer
 
 from nemo_curator.backends.base import WorkerMetadata
 from nemo_curator.stages.audio._agent._agent_ready import (
@@ -34,6 +32,13 @@ from nemo_curator.stages.audio._agent._agent_ready import (
 from nemo_curator.stages.audio.metrics._common import metrics_mapping, validate_metric_keys
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask
+
+
+def word_error_rate_detail(*args: object, **kwargs: object) -> tuple:
+    """NeMo's ``word_error_rate_detail``, imported on first use so importing this module stays light."""
+    from nemo.collections.asr.metrics.wer import word_error_rate_detail as _word_error_rate_detail
+
+    return _word_error_rate_detail(*args, **kwargs)
 
 
 @dataclass
@@ -209,6 +214,8 @@ class ComputeWERStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         """Setup stage."""
         if self._normalizer is None:
+            from nemo_text_processing.text_normalization import Normalizer
+
             self._normalizer = Normalizer(input_case="cased", lang=self.language.lower())
 
     def normalize_text(self, text: str) -> str:

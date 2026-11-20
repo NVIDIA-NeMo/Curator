@@ -27,9 +27,7 @@ import torch
 from fsspec.core import url_to_fs
 from loguru import logger
 
-# Import pyannote components
-from pyannote.audio import Pipeline as PyAnnotePipeline
-from pyannote.audio.pipelines.utils.hook import ProgressHook
+# pyannote.core is light; pyannote.audio (torch/lightning) is imported only when a model is used.
 from pyannote.core import Segment
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
@@ -61,6 +59,18 @@ from nemo_curator.stages.audio.tagging.utils import add_non_speaker_segments
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
+
+
+def _load_pyannote_pipeline(model_name: str, token: str | None) -> Any:  # noqa: ANN401
+    from pyannote.audio import Pipeline as PyAnnotePipeline
+
+    return PyAnnotePipeline.from_pretrained(model_name, token=token)
+
+
+def ProgressHook() -> Any:  # noqa: ANN401, N802 - module attribute kept for callers and tests that replace it
+    from pyannote.audio.pipelines.utils.hook import ProgressHook as _ProgressHook
+
+    return _ProgressHook()
 
 
 def has_overlap(turn: Segment, overlaps: list) -> bool:
@@ -423,7 +433,7 @@ class PyAnnoteDiarizationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
     ) -> None:
         """Download model weights (called once per node)."""
         if self._pipeline is None:
-            self._pipeline = PyAnnotePipeline.from_pretrained(self.model_name, token=self.hf_token)
+            self._pipeline = _load_pyannote_pipeline(self.model_name, self.hf_token)
         if self._vad_model is None:
             self._vad_model = WhisperXVADModel(
                 device="cpu",
@@ -434,7 +444,7 @@ class PyAnnoteDiarizationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
     def setup(self, _: WorkerMetadata | None = None) -> None:
         """Load models to device (called per replica before processing)."""
         if self._pipeline is None:
-            self._pipeline = PyAnnotePipeline.from_pretrained(self.model_name, token=self.hf_token)
+            self._pipeline = _load_pyannote_pipeline(self.model_name, self.hf_token)
         self._pipeline.segmentation_batch_size = self.segmentation_batch_size
         self._pipeline.embedding_batch_size = self.embedding_batch_size
 
