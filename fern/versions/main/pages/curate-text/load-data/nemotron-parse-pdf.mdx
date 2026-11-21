@@ -764,7 +764,7 @@ in the extraction contract's `render` section. A smaller raster can reduce
 fine detail, so validate extraction quality on representative documents.
 
 Use `--persistent-rendering` to reuse a CPU-only PDFium process across render
-ranges on POSIX with PyPDFium2 5.7.1. The helper resets its PDFium library between
+ranges on POSIX with PyPDFium2 5.7.1 or 5.15.0. The helper resets its PDFium library between
 ranges after its native handles have closed. If reuse is unavailable or the
 helper cannot safely reset, Curator uses a fresh child with the remaining
 render time.

@@ -16,7 +16,11 @@
 
 import io
 import json
+import multiprocessing
+import queue
+import signal
 import threading
+import time
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -255,6 +259,84 @@ def test_render_child_crash_returns_without_waiting_full_timeout(monkeypatch: py
     assert not timed_out
     assert count is None
     assert time.monotonic() - started < 5
+
+
+@pytest.mark.parametrize(
+    ("resumes_after", "past_deadline"),
+    [("empty_poll", False), ("empty_poll", True), ("liveness_check", True)],
+)
+def test_result_of_a_child_that_exits_between_parent_checks_is_kept(
+    monkeypatch: pytest.MonkeyPatch, resumes_after: str, past_deadline: bool
+):
+    stage = preprocess.PDFPreprocessStage(retain_failures=True, dpi=72, raster_max_size=(64, 64))
+    expected, _, _ = stage._render_once(pdf_bytes(), [0])
+    fork = multiprocessing.get_context("fork")
+    release = fork.Event()
+    render = preprocess.render_pdf_pages
+    result = fork.Queue()
+    get = result.get
+    observed = SimpleNamespace(child=None, empty_poll=False, resume_at=0.0)
+
+    def render_when_released(*args: object, **kwargs: object) -> list[Image.Image | None]:
+        assert release.wait(10)
+        return render(*args, **kwargs)
+
+    def child_delivers_and_exits() -> None:
+        release.set()
+        observed.child.join(10)
+        assert observed.child.exitcode == 0
+        time.sleep(max(0.0, observed.resume_at - time.monotonic()))
+
+    def poll(*args: object, **kwargs: object) -> list[Image.Image | None]:
+        try:
+            return get(*args, **kwargs)
+        except queue.Empty:
+            if resumes_after == "empty_poll" and not observed.empty_poll:
+                child_delivers_and_exits()
+            observed.empty_poll = True
+            raise
+
+    def process(**kwargs: object) -> multiprocessing.Process:
+        observed.child = fork.Process(**kwargs)
+        is_alive = observed.child.is_alive
+
+        def stale_liveness() -> bool:
+            alive = is_alive()
+            if resumes_after == "liveness_check" and observed.empty_poll and not release.is_set():
+                child_delivers_and_exits()
+            return alive
+
+        observed.child.is_alive = stale_liveness
+        return observed.child
+
+    result.get = poll
+    queues = iter([result, fork.Queue()])
+    context = SimpleNamespace(Queue=queues.__next__, Process=process)
+    monkeypatch.setattr(preprocess.multiprocessing, "get_context", lambda *_args: context)
+    monkeypatch.setattr(preprocess, "render_pdf_pages", render_when_released)
+    observed.resume_at = time.monotonic() + 1.05 if past_deadline else 0.0
+    pages, timed_out, _ = stage._render_once(pdf_bytes(), [0], timeout_s=1)
+    assert not timed_out
+    assert [page.tobytes() for page in pages] == [page.tobytes() for page in expected]
+
+
+def test_live_render_child_past_the_deadline_times_out_and_is_reaped(monkeypatch: pytest.MonkeyPatch):
+    fork = multiprocessing.get_context("fork")
+    children = []
+
+    def process(**kwargs: object) -> multiprocessing.Process:
+        children.append(fork.Process(**kwargs))
+        return children[-1]
+
+    context = SimpleNamespace(Queue=fork.Queue, Process=process)
+    monkeypatch.setattr(preprocess.multiprocessing, "get_context", lambda *_args: context)
+    monkeypatch.setattr(preprocess, "render_pdf_pages", lambda *_a, **_k: time.sleep(60))
+    started = time.monotonic()
+    result = preprocess.PDFPreprocessStage(retain_failures=True)._render_once(pdf_bytes(), [2], timeout_s=0.3)
+    assert result == ([], True, None)
+    assert time.monotonic() - started < 5
+    (child,) = children
+    assert child.exitcode == -signal.SIGKILL
 
 
 @pytest.mark.parametrize("failure", ["start", "join", "kill", "surviving_child"])

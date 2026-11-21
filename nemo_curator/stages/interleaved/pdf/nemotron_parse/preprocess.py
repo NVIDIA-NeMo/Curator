@@ -311,16 +311,21 @@ class PDFPreprocessStage(ProcessingStage[FileGroupTask, InterleavedBatch]):
         try:
             proc.start()
             # Read before joining: a large result can fill the pipe and block the child feeder.
-            while (remaining := deadline - time.monotonic()) > 0:
+            while True:
                 check_cancel(cancel_event)
+                remaining = deadline - time.monotonic()
+                # Sampled after the clock: an exited child has flushed its result, so one
+                # nonblocking read is final even when the parent resumes past the deadline.
+                exited = not proc.is_alive()
+                if remaining <= 0 and not exited:
+                    timed_out = True
+                    break
                 try:
-                    pages = result_q.get(timeout=min(0.1, remaining))
+                    pages = result_q.get_nowait() if exited else result_q.get(timeout=min(0.1, remaining))
                     break
                 except queue.Empty:
-                    if not proc.is_alive():
+                    if exited:
                         break
-            else:
-                timed_out = proc.is_alive()
         finally:
             try:
                 if proc.pid is not None:

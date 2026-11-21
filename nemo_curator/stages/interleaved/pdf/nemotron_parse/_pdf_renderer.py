@@ -8,6 +8,7 @@ from __future__ import annotations
 import atexit
 import contextlib
 import gc
+import json
 import os
 import pickle
 import socket
@@ -17,8 +18,9 @@ import sys
 import threading
 import time
 import weakref
-from importlib.metadata import PackageNotFoundError, version
+from importlib.metadata import PackageNotFoundError, distribution, version
 
+from loguru import logger
 from PIL import Image
 
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.utils import render_pdf_pages
@@ -30,7 +32,9 @@ _DIMENSIONS = struct.Struct("!II")
 _MAX_FRAME_BYTES = 256 * 1024**2
 _POLL_SECONDS = 0.1
 _RGB_CHANNELS = 3
-_PDFIUM_RESET_VERSION = "5.7.1"
+# Qualified PyPDFium2 releases, and whether the release also closes the live
+# objects in its tracker when the library is destroyed.
+_PDFIUM_RESET_VERSIONS = {"5.7.1": False, "5.15.0": True}
 
 RenderOptions = tuple[int, int, tuple[int, int], bool, list[int] | None, bool]
 RenderResult = tuple[list[Image.Image | None], bool, int | None]
@@ -163,22 +167,53 @@ def _page_count(pdf: bytes) -> int:
         return len(document)
 
 
-def _supports_pdfium_reset() -> bool:
-    # The native reset and handle check depend on private wrapper internals.
+def _wrapper_version() -> str | None:
     # Read package metadata without importing PDFium in the owning process.
     try:
-        return version("pypdfium2") == _PDFIUM_RESET_VERSION
+        return version("pypdfium2")
     except PackageNotFoundError:
-        return False
+        return None
+
+
+def _supports_pdfium_reset() -> bool:
+    # The native reset and handle check depend on private wrapper internals.
+    return _wrapper_version() in _PDFIUM_RESET_VERSIONS
+
+
+def _native_pdfium_version() -> str | None:
+    # The wheel records its PDFium build beside the bindings, whose import would load PDFium.
+    try:
+        build = json.loads(distribution("pypdfium2").locate_file("pypdfium2_raw/version.json").read_text())
+        return ".".join(str(build[field]) for field in ("major", "minor", "build", "patch"))
+    except (PackageNotFoundError, OSError, ValueError, KeyError, TypeError):
+        return None
 
 
 def _has_live_pdfium_handles() -> bool:
-    # In the qualified wrapper, every native handle registers a PDFium finalizer.
+    from pypdfium2 import internal
+    from pypdfium2.version import PYPDFIUM_INFO
+
+    # The helper asks the wrapper it loaded; package metadata would cost a path scan per range.
+    # The tag matches that metadata, whereas the full version also names how the wrapper was built.
+    tracks_objects = _PDFIUM_RESET_VERSIONS.get(PYPDFIUM_INFO.tag)
+    if tracks_objects is None:
+        msg = "The loaded PyPDFium2 release is not qualified for a renderer reset"
+        raise RenderWorkerUnavailableError(msg)
+    # In the qualified wrappers, every self-closing native handle registers a PDFium finalizer.
     registry = getattr(weakref.finalize, "_registry", None)
     if not isinstance(registry, dict):
         msg = "The PDFium finalizer registry is unavailable"
         raise RenderWorkerUnavailableError(msg)
-    return any(getattr(info.func, "__module__", "").startswith("pypdfium2.") for info in tuple(registry.values()))
+    if any(getattr(info.func, "__module__", "").startswith("pypdfium2.") for info in tuple(registry.values())):
+        return True
+    if not tracks_objects:
+        return False
+    # The tracker also holds handles without a finalizer, such as system fonts under the None key.
+    tracker = getattr(internal, "ObjectTracker", None)
+    if not isinstance(tracker, dict):
+        msg = "The PDFium object tracker is unavailable"
+        raise RenderWorkerUnavailableError(msg)
+    return any(ref() is not None for refs in tuple(tracker.values()) for ref in tuple(refs))
 
 
 def _reset_pdfium_library() -> None:
@@ -235,6 +270,14 @@ class PersistentPdfRenderer:
         self._lock = threading.Lock()
         self._failed_reap = False
         self._supports_reset = _supports_pdfium_reset()
+        # A stage is built on the driver, so only its worker knows which renderer it gets.
+        report = "PDF rendering: requested=persistent effective={} pypdfium2={} pdfium={}"
+        versions = _wrapper_version(), _native_pdfium_version()
+        if self._supports_reset:
+            logger.info(report, "persistent", *versions)
+        else:
+            reason = " reason=renderer reuse is qualified only for pypdfium2 " + ", ".join(_PDFIUM_RESET_VERSIONS)
+            logger.warning(report + reason, "fresh", *versions)
 
     @property
     def worker_pid(self) -> int | None:
