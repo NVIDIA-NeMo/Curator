@@ -87,7 +87,16 @@ class IdGenerator(IdGeneratorBase):
 
 
 def get_id_generator_actor() -> ActorHandle[IdGenerator]:
-    return ray.get_actor(name=CURATOR_ID_GENERATOR_ACTOR_NAME, namespace=CURATOR_ID_GENERATOR_ACTOR_NAME)
+    try:
+        return ray.get_actor(name=CURATOR_ID_GENERATOR_ACTOR_NAME, namespace=CURATOR_ID_GENERATOR_ACTOR_NAME)
+    except ValueError as e:
+        msg = (
+            f"ID generator actor '{CURATOR_ID_GENERATOR_ACTOR_NAME}' was not found. "
+            "Create it with create_id_generator_actor() while a Ray cluster is running in a separate process, "
+            "for example one started with RayClient().start(). If no such cluster was running, "
+            "the actor was removed when create_id_generator_actor() shut down the Ray instance it used."
+        )
+        raise ValueError(msg) from e
 
 
 def kill_id_generator_actor() -> None:

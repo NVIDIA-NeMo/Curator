@@ -261,6 +261,11 @@ class TestIdGeneratorActor:
                 assert result_file2 == 0
                 assert result_file1 == 5
 
+    def test_missing_actor_error_explains_how_to_start_ray(self):
+        with ray.init(ignore_reinit_error=True), pytest.raises(ValueError, match="RayClient") as exc_info:
+            get_id_generator_actor()
+        assert isinstance(exc_info.value.__cause__, ValueError)
+
     def test_id_generator_creation_is_synchronous(self, tmp_path: Path):
         """Test if create_id_generator_actor actor creation is synchronous. To do so we:
 
