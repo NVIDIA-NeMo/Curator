@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import os
 import uuid
 from abc import ABC
 from dataclasses import dataclass, field
@@ -22,6 +23,7 @@ from typing import Any, Literal
 import pandas as pd
 import pyarrow as pa
 from fsspec.core import url_to_fs
+from fsspec.implementations.local import LocalFileSystem
 from loguru import logger
 
 from nemo_curator.stages.base import ProcessingStage
@@ -48,6 +50,16 @@ class BaseInterleavedWriter(ProcessingStage[InterleavedBatch, FileGroupTask], AB
 
     Use *schema* or *schema_overrides* only when strict column control is needed
     (e.g. to prevent heterogeneous-schema crashes).
+
+    Set *reject_unknown_columns* with a declared schema to reject extra fields
+    instead of dropping them. Parquet then also preserves declared nullability.
+    *atomic_local_write* writes a temporary sibling before atomic replacement;
+    it requires a locally addressed filesystem and does not provide crash
+    durability, no-clobber publication or a multi-file transaction. A completed
+    retry replaces the same destination; interrupted temporary files are retained.
+    A local filesystem interface does not establish the backing mount type.
+    *use_output_file_id* opts into validated deterministic IDs from task metadata;
+    ordinary writers ignore that metadata by default.
     """
 
     path: str
@@ -60,12 +72,21 @@ class BaseInterleavedWriter(ProcessingStage[InterleavedBatch, FileGroupTask], AB
     on_materialize_error: Literal["error", "warn", "drop_row", "drop_sample"] = "error"
     schema: pa.Schema | None = None
     schema_overrides: dict[str, pa.DataType] | None = None
+    atomic_local_write: bool = field(default=False, kw_only=True)
+    reject_unknown_columns: bool = field(default=False, kw_only=True)
+    use_output_file_id: bool = field(default=False, kw_only=True)
 
     def __post_init__(self) -> None:
         if self.schema is not None or self.schema_overrides is not None:
             self.schema = resolve_schema(self.schema, self.schema_overrides)
         self.storage_options = (self.write_kwargs or {}).get("storage_options", {})
         self.fs, self._fs_path = url_to_fs(self.path, **self.storage_options)
+        if self.atomic_local_write and not isinstance(self.fs, LocalFileSystem):
+            msg = "atomic_local_write requires a local filesystem"
+            raise ValueError(msg)
+        if self.reject_unknown_columns and self.schema is None:
+            msg = "reject_unknown_columns requires an explicit schema"
+            raise ValueError(msg)
         check_output_mode(self.mode, self.fs, self._fs_path, append_mode_implemented=self.append_mode_implemented)
         self._effective_write_kwargs = {k: v for k, v in self.write_kwargs.items() if k != "storage_options"}
         self._effective_write_kwargs["index"] = False  # pandas index must never leak into output files
@@ -115,6 +136,10 @@ class BaseInterleavedWriter(ProcessingStage[InterleavedBatch, FileGroupTask], AB
         """Reconcile or align *df* to the declared schema."""
         table = pa.Table.from_pandas(df, preserve_index=False)
         if self.schema is not None:
+            unexpected = set(table.column_names) - set(self.schema.names)
+            if self.reject_unknown_columns and unexpected:
+                msg = f"Undeclared output columns: {sorted(unexpected)}"
+                raise ValueError(msg)
             table = align_table(table, self.schema)
         else:
             table = table.cast(reconcile_schema(table.schema))
@@ -139,17 +164,40 @@ class BaseInterleavedWriter(ProcessingStage[InterleavedBatch, FileGroupTask], AB
         df = self._align_output(df)
         self._write_dataframe(df, file_path, self._effective_write_kwargs)
 
-    def process(self, task: InterleavedBatch) -> FileGroupTask:
+    def _get_filename(self, task: InterleavedBatch) -> str:
+        """Allow versioned fan-in stages to supply a layout-independent identity."""
+        if self.use_output_file_id:
+            output_id = task._metadata.get("output_file_id")
+            digest_length = 64
+            if (
+                not isinstance(output_id, str)
+                or len(output_id) != digest_length
+                or any(c not in "0123456789abcdef" for c in output_id)
+            ):
+                msg = "output_file_id must be a lowercase SHA256 hex digest"
+                raise ValueError(msg)
+            return output_id
         if source_files := task._metadata.get("source_files"):
-            filename = get_deterministic_hash(source_files, task.task_id)
-        else:
-            logger.warning("The task does not have source_files in metadata, using UUID for base filename")
-            filename = uuid.uuid4().hex
+            return get_deterministic_hash(source_files, task.task_id)
+        logger.warning("The task does not have source_files in metadata, using UUID for base filename")
+        return uuid.uuid4().hex
 
+    def process(self, task: InterleavedBatch) -> FileGroupTask:
+        filename = self._get_filename(task)
         file_path = self.fs.sep.join([self._fs_path, f"{filename}.{self.file_extension}"])
         file_path_with_protocol = self.fs.unstrip_protocol(file_path) if is_remote_url(self.path) else file_path
 
-        self.write_data(task, file_path_with_protocol)
+        if self.atomic_local_write:
+            self.fs.makedirs(self._fs_path, exist_ok=True)
+            temporary_path = self.fs.sep.join(
+                [self._fs_path, f".{filename}.{uuid.uuid4().hex}.{self.file_extension}.partial"]
+            )
+            # Retain interrupted files without a data suffix so ordinary input
+            # listing cannot consume them before atomic publication.
+            self.write_data(task, temporary_path)
+            os.replace(temporary_path, file_path)
+        else:
+            self.write_data(task, file_path_with_protocol)
         return FileGroupTask(
             dataset_name=task.dataset_name,
             data=[file_path_with_protocol],

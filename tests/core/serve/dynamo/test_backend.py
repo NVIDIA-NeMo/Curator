@@ -23,11 +23,13 @@ from typing import Any
 from unittest import mock
 
 import pytest
+import ray
 
 import nemo_curator.core.serve.dynamo.backend as dynamo_backend
-from nemo_curator.core.serve import DynamoServerConfig, DynamoVLLMModelConfig, InferenceServer
+from nemo_curator.core.serve import DynamoServerConfig, DynamoVLLMModelConfig, InferenceServer, subprocess_mgr
 from nemo_curator.core.serve.dynamo.backend import DynamoBackend
 from nemo_curator.core.serve.dynamo.config import DynamoRoleConfig, DynamoRouterConfig
+from nemo_curator.core.serve.dynamo.constants import NEMO_CURATOR_DYNAMO_NAMESPACE
 
 # ---------------------------------------------------------------------------
 # Backend-level validators
@@ -35,6 +37,45 @@ from nemo_curator.core.serve.dynamo.config import DynamoRoleConfig, DynamoRouter
 
 
 class TestDynamoBackendValidateGpuRequirementsDisagg:
+    def test_fractional_and_full_gpu_models_share_capacity_accounting(self) -> None:
+        models = [
+            DynamoVLLMModelConfig(model_identifier="shared", num_replicas=8, gpu_fraction=0.5),
+            DynamoVLLMModelConfig(model_identifier="tp", engine_kwargs={"tensor_parallel_size": 2}),
+        ]
+        with mock.patch.object(dynamo_backend, "check_total_gpu_capacity") as capacity:
+            DynamoBackend._validate_gpu_requirements(models, topology=[{"num_gpus": 6}])
+        assert capacity.call_args.args == (6.0,)
+
+    @pytest.mark.parametrize(
+        "reservations",
+        [
+            [(1, 0.2), (1, 0.4), (1, 0.3), (1, 0.1)],
+            [(1, 0.1), (1, 0.2), (1, 0.7)],
+            [(7, 0.1), (3, 0.1)],
+        ],
+    )
+    def test_fractional_reservations_fill_one_gpu(
+        self, monkeypatch: pytest.MonkeyPatch, reservations: list[tuple[int, float]]
+    ) -> None:
+        monkeypatch.setattr("nemo_curator.backends.utils.get_available_cpu_gpu_resources", lambda **_: (1.0, 1.0))
+        models = [
+            DynamoVLLMModelConfig(model_identifier=f"model-{index}", num_replicas=count, gpu_fraction=fraction)
+            for index, (count, fraction) in enumerate(reservations)
+        ]
+        DynamoBackend._validate_gpu_requirements(models, topology=[{"num_gpus": 1}])
+
+    @pytest.mark.parametrize("fraction", [0.1001, 0.11])
+    def test_fractional_reservations_reject_overcapacity(
+        self, monkeypatch: pytest.MonkeyPatch, fraction: float
+    ) -> None:
+        monkeypatch.setattr("nemo_curator.backends.utils.get_available_cpu_gpu_resources", lambda **_: (1.0, 1.0))
+        models = [
+            DynamoVLLMModelConfig(model_identifier="first", num_replicas=9, gpu_fraction=0.1),
+            DynamoVLLMModelConfig(model_identifier="last", gpu_fraction=fraction),
+        ]
+        with pytest.raises(RuntimeError, match=r"cluster has 1\.0 available"):
+            DynamoBackend._validate_gpu_requirements(models, topology=[{"num_gpus": 1}])
+
     def test_rejects_disagg_tp_larger_than_node(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr("nemo_curator.core.serve.dynamo.backend.check_total_gpu_capacity", lambda *_, **__: None)
         server = InferenceServer(
@@ -203,20 +244,9 @@ class TestResolveEffectiveRouter:
         assert kv_events is False
 
 
-# ---------------------------------------------------------------------------
-# Backend ``start()`` teardown ordering (locked in by eb6416d8 — the
-# killpg-only subprocess_mgr rewrite depends on this order).
-# ---------------------------------------------------------------------------
-
-
 class TestDynamoBackendStart:
-    def test_sweeps_orphan_actors_before_removing_placement_groups(self) -> None:
-        """``remove_named_pgs_with_prefix`` force-kills actors scheduled into
-        the reaped PGs; sweeping named actors first lets ``graceful_stop_actors``
-        ``killpg`` each process group cleanly. Also asserts the override
-        fan-out runs *before* any worker-spawning step — the actor venv
-        install on each worker reads the file from the local filesystem,
-        so it must exist by the time the first actor lands."""
+    def test_installs_runtime_overrides_before_deploying_workers(self) -> None:
+        """Actor environment setup reads the override file from the worker node."""
         server = InferenceServer(
             models=[DynamoVLLMModelConfig(model_identifier="m")],
             backend=DynamoServerConfig(
@@ -240,17 +270,11 @@ class TestDynamoBackendStart:
                 "ensure_actor_overrides_on_all_nodes",
                 side_effect=lambda **_kw: order.append("overrides"),
             ),
-            mock.patch.object(backend, "_sweep_orphan_actors", side_effect=lambda: order.append("actors")),
-            mock.patch.object(
-                dynamo_backend,
-                "remove_named_pgs_with_prefix",
-                side_effect=lambda _prefix: order.append("pgs"),
-            ),
             mock.patch.object(backend, "_deploy_and_healthcheck", side_effect=lambda *_a: order.append("deploy")),
         ):
             backend.start()
 
-        assert order == ["overrides", "actors", "pgs", "deploy"]
+        assert order == ["overrides", "deploy"]
 
 
 class TestDynamoBackendDeploy:
@@ -460,6 +484,7 @@ class TestDynamoBackendLaunchFrontend:
             "nats",
         ]
         assert captured_spawn[0]["subprocess_env"] == {}
+        assert captured_spawn[0]["namespace"] == NEMO_CURATOR_DYNAMO_NAMESPACE
 
     def test_tcp_request_plane_and_timeout_env_passthrough(self, captured_spawn: list[dict[str, Any]]) -> None:
         backend_cfg = DynamoServerConfig(request_plane="tcp")
@@ -531,3 +556,199 @@ class TestDynamoBackendLaunchFrontend:
         assert python_args[python_args.index("--router-mode") + 1] == "kv"
         assert "--router-kv-events" in python_args
         assert "--no-router-kv-events" not in python_args
+
+
+@pytest.mark.parametrize("ambient_namespace", ["anonymous-driver-job", "existing-user-namespace"])
+def test_failed_dynamo_deploy_stops_children_before_removing_pg(ambient_namespace: str) -> None:
+    module = dynamo_backend
+    server = InferenceServer(models=[DynamoVLLMModelConfig(model_identifier="model")], backend=DynamoServerConfig())
+    backend = module.DynamoBackend(server)
+    registry, children_alive, events, spawn_options = {}, {}, [], []
+    pg = mock.Mock()
+
+    def factory(_label: str) -> mock.Mock:
+        def options(**kwargs: object) -> mock.Mock:
+            spawn_options.append(kwargs)
+            actor = mock.Mock()
+            key = (kwargs.get("namespace") or ambient_namespace, kwargs["name"])
+            registry[key] = actor
+            children_alive[key] = True
+            actor.initialize.remote.return_value = "initialized"
+            actor.run.remote.return_value = "running"
+
+            def stop() -> str:
+                children_alive[key] = False
+                events.append(("stop-child", key))
+                return "stopped"
+
+            actor.stop.remote.side_effect = stop
+            return mock.Mock(remote=mock.Mock(return_value=actor))
+
+        return mock.Mock(options=options)
+
+    def get_actor(name: str, namespace: str) -> mock.Mock:
+        try:
+            return registry[(namespace, name)]
+        except KeyError as exc:
+            msg = "actor not in requested namespace"
+            raise ValueError(msg) from exc
+
+    def remove_pg(_pg: object) -> None:
+        events.append(("remove-pg", sum(children_alive.values())))
+
+    def deploy(*_: object) -> None:
+        backend._infra_pg = pg
+        backend._infra_ip = "127.0.0.1"
+        backend._etcd_actor = backend._start_infra_service(
+            label="Dynamo_ETCD", bundle_index=0, port=1234, command=["etcd"]
+        )
+        backend._nats_actor = backend._start_infra_service(
+            label="Dynamo_NATS", bundle_index=1, port=1235, command=["nats-server"]
+        )
+        msg = "worker runtime serialization failed before model load"
+        raise TypeError(msg)
+
+    context = mock.Mock()
+    context.get_temp_dir.return_value = "/unused"
+    context.get_session_name.return_value = "no-runtime-created"
+    with (
+        mock.patch.object(module, "_check_binary"),
+        mock.patch.object(module.ray, "init", return_value=contextlib.nullcontext()),
+        mock.patch.object(module.ray, "get_runtime_context", return_value=context),
+        mock.patch.object(module.ray, "get", side_effect=lambda value, **_: value),
+        mock.patch.object(module.ray, "wait", side_effect=lambda refs, **_: (refs, [])),
+        mock.patch.object(module.ray, "get_actor", side_effect=get_actor),
+        mock.patch.object(module.ray, "kill"),
+        mock.patch.object(module.ray.util, "remove_placement_group", side_effect=remove_pg),
+        mock.patch.object(module.os, "makedirs"),
+        mock.patch.object(module, "ensure_actor_overrides_on_all_nodes"),
+        mock.patch.object(module, "remove_named_pgs_with_prefix"),
+        mock.patch.object(module, "_wait_for_port"),
+        mock.patch.object(subprocess_mgr, "_define_subprocess_actor", side_effect=factory),
+        mock.patch.object(module, "sweep_orphan_actors_by_prefix"),
+        mock.patch.object(backend, "_deploy_and_healthcheck", side_effect=deploy),
+        pytest.raises(TypeError, match="worker runtime serialization"),
+    ):
+        backend.start()
+    assert not any(children_alive.values()), {"alive": children_alive, "events": events}
+    assert events[-1] == ("remove-pg", 0)
+    assert all(options.get("namespace") == NEMO_CURATOR_DYNAMO_NAMESPACE for options in spawn_options)
+
+
+@pytest.mark.usefixtures("shared_ray_client")
+def test_dynamo_preserves_callers_ray_session() -> None:
+    backend = DynamoBackend(
+        InferenceServer(
+            models=[DynamoVLLMModelConfig(model_identifier="m")],
+            backend=DynamoServerConfig(etcd_endpoint="http://etcd:2379", nats_url="nats://nats:4222"),
+        )
+    )
+    job = ray.get_runtime_context().get_job_id()
+    with (
+        mock.patch.object(dynamo_backend, "ensure_actor_overrides_on_all_nodes"),
+        mock.patch.object(backend, "_deploy_and_healthcheck"),
+    ):
+        backend.start()
+        assert ray.is_initialized()
+        assert ray.get_runtime_context().get_job_id() == job
+        backend.stop()
+        assert ray.is_initialized()
+        assert ray.get_runtime_context().get_job_id() == job
+
+
+def test_same_name_dynamo_deployments_keep_independent_lifecycles() -> None:
+    def make_backend() -> DynamoBackend:
+        return DynamoBackend(
+            InferenceServer(
+                models=[DynamoVLLMModelConfig(model_identifier="m")],
+                backend=DynamoServerConfig(etcd_endpoint="http://etcd:2379", nats_url="nats://nats:4222"),
+            )
+        )
+
+    first, second = make_backend(), make_backend()
+    actor_names: set[str] = set()
+    pg_names: set[str] = set()
+    cleanup: list[tuple[str, str]] = []
+
+    def create(backend: DynamoBackend) -> None:
+        actor_names.add(f"{backend._actor_name_prefix}_Dynamo_Frontend")
+        pg_names.add(f"{backend._actor_name_prefix}_pg_infra")
+
+    def fail_after_creating(*_: object) -> None:
+        create(second)
+        msg = "second deployment interrupted"
+        raise KeyboardInterrupt(msg)
+
+    def sweep(*, prefix: str, namespace: str) -> None:
+        assert namespace == NEMO_CURATOR_DYNAMO_NAMESPACE
+        cleanup.append(("actors", prefix))
+        actor_names.difference_update({name for name in actor_names if name.startswith(prefix)})
+
+    def remove(prefix: str) -> None:
+        cleanup.append(("pgs", prefix))
+        pg_names.difference_update({name for name in pg_names if name.startswith(prefix)})
+
+    context = mock.Mock()
+    context.get_temp_dir.return_value = "/unused"
+    context.get_session_name.return_value = "no-runtime-created"
+    with (
+        mock.patch.object(dynamo_backend.ray, "init", return_value=contextlib.nullcontext()),
+        mock.patch.object(dynamo_backend.ray, "get_runtime_context", return_value=context),
+        mock.patch.object(dynamo_backend.os, "makedirs"),
+        mock.patch.object(dynamo_backend, "ensure_actor_overrides_on_all_nodes"),
+        mock.patch.object(dynamo_backend, "sweep_orphan_actors_by_prefix", side_effect=sweep),
+        mock.patch.object(dynamo_backend, "remove_named_pgs_with_prefix", side_effect=remove),
+        mock.patch.object(first, "_deploy_and_healthcheck", side_effect=lambda *_: create(first)),
+        mock.patch.object(second, "_deploy_and_healthcheck", side_effect=fail_after_creating),
+    ):
+        first.start()
+        assert not cleanup
+        with pytest.raises(KeyboardInterrupt, match="second deployment interrupted"):
+            second.start()
+        first_prefix = f"{first._actor_name_prefix}_"
+        second_prefix = f"{second._actor_name_prefix}_"
+        assert first_prefix != second_prefix
+        for prefix in (first_prefix, second_prefix):
+            assert prefix.endswith("_default_")
+            assert len(prefix.split("_")[1]) == 32
+        assert actor_names == {f"{first_prefix}Dynamo_Frontend"}
+        assert pg_names == {f"{first_prefix}pg_infra"}
+        assert cleanup == [("actors", second_prefix), ("pgs", second_prefix)]
+        first.stop()
+        assert not actor_names
+        assert not pg_names
+        assert cleanup[-2:] == [("actors", first_prefix), ("pgs", first_prefix)]
+
+
+@pytest.mark.parametrize("cleanup_raises", [False, True])
+def test_infrastructure_readiness_failure_stops_unreturned_child(cleanup_raises: bool):
+    server = InferenceServer(models=[DynamoVLLMModelConfig(model_identifier="unused")], backend=DynamoServerConfig())
+    backend = DynamoBackend(server)
+    backend._infra_pg = mock.Mock()
+    backend._infra_ip = "127.0.0.1"
+    proc = mock.Mock()
+    events = []
+
+    def stop_child() -> None:
+        events.append("stop-child")
+        if cleanup_raises:
+            msg = "cleanup error must not mask the readiness timeout"
+            raise RuntimeError(msg)
+
+    proc.stop.side_effect = stop_child
+    with (
+        mock.patch.object(dynamo_backend.ManagedSubprocess, "spawn", return_value=proc),
+        mock.patch.object(dynamo_backend, "_wait_for_port", side_effect=TimeoutError("infra readiness failed")),
+        mock.patch.object(dynamo_backend, "reacquire_detached_actor_handles", side_effect=lambda procs, **_: procs),
+        mock.patch.object(dynamo_backend.ManagedSubprocess, "stop_many"),
+        mock.patch.object(
+            dynamo_backend.ray.util, "remove_placement_group", side_effect=lambda _: events.append("remove-pg")
+        ),
+    ):
+        with pytest.raises(TimeoutError, match="infra readiness failed"):
+            backend._etcd_actor = backend._start_infra_service(
+                label="Dynamo_ETCD", bundle_index=0, port=12345, command=["unused"]
+            )
+        backend._teardown_actors_and_pgs()
+    assert events == ["stop-child", "remove-pg"]
+    proc.stop.assert_called_once_with()

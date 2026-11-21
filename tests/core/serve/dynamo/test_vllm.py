@@ -36,6 +36,22 @@ _TWO_NODES_4GPU = [
 ]
 
 
+@pytest.mark.parametrize("version", ["2.11.0+cpu", "2.11.0+cu129", "2.11.0+cu130"])
+def test_actor_replaces_only_inherited_cpu_torch(version: str) -> None:
+    with mock.patch.object(dynamo_vllm.importlib.metadata, "version", return_value=version):
+        options = dynamo_vllm._cpu_torch_reinstall_options()
+    assert options == (
+        ["--reinstall-package", "torch", "--reinstall-package", "torchvision"] if version.endswith("+cpu") else []
+    )
+
+
+def test_actor_without_driver_torch_uses_fresh_resolution() -> None:
+    with mock.patch.object(
+        dynamo_vllm.importlib.metadata, "version", side_effect=dynamo_vllm.importlib.metadata.PackageNotFoundError
+    ):
+        assert dynamo_vllm._cpu_torch_reinstall_options() == []
+
+
 @pytest.mark.parametrize(
     ("router_mode", "router_kv_events", "expected"),
     [
@@ -55,6 +71,29 @@ def test_aggregated_model_uses_exact_kv_events(router_mode: str, router_kv_event
 
 
 class TestLaunchReplicas:
+    def test_fractional_bundle_and_actor_reservations_match(self, captured_spawn: list[dict[str, Any]]) -> None:
+        mc = DynamoVLLMModelConfig(model_identifier="generic-model", num_replicas=8, gpu_fraction=0.5)
+        with (
+            mock.patch.object(dynamo_vllm, "build_replica_pg", return_value=object()) as build,
+            mock.patch.object(dynamo_vllm, "get_free_port_in_bundle", return_value=24567),
+        ):
+            _, _, entries = dynamo_vllm.launch_replicas(
+                mc,
+                base_env={},
+                namespace="test",
+                request_plane="tcp",
+                event_plane="nats",
+                runtime_dir="/tmp/rt",  # noqa: S108
+                actor_name_prefix="fractional_test",
+                router_mode="round_robin",
+                router_kv_events=False,
+                topology=[{"node_id": "n1", "num_gpus": 4, "is_head": False}],
+            )
+        assert len(captured_spawn) == build.call_count == len(entries) == 8
+        assert all(call.args[0].bundles == [{"CPU": 1, "GPU": 0.5}] for call in build.call_args_list)
+        assert all(spawn["num_gpus"] == 0.5 for spawn in captured_spawn)
+        assert all(entry["gpus_per_node"] == 1 and entry["gpu_reservation_per_node"] == 0.5 for entry in entries)
+
     @staticmethod
     def _launch(
         model_config: DynamoVLLMModelConfig,
@@ -402,17 +441,41 @@ class TestEnsureActorOverridesOnAllNodes:
     """Tests for the multi-node fan-out that materializes the actor-venv
     ``--override`` constraints file before workers are spawned."""
 
-    def test_writes_current_ray_version_at_path(self, shared_ray_client: None, tmp_path: Path) -> None:
-        """The fan-out writes ``ray=={ray.__version__}`` plus the nixl-cu13
-        exclusion at the configured path on every alive node. Catches
-        regressions where the content is hardcoded and silently drifts after
-        a Curator ray bump.
-        """
-        override_path = tmp_path / "override.txt"
-        with mock.patch.object(dynamo_vllm, "_ACTOR_VENV_OVERRIDES_PATH", override_path):
-            dynamo_vllm.ensure_actor_overrides_on_all_nodes()
+    def test_installer_uses_driver_constraints(self, shared_ray_client: None) -> None:
+        options = dynamo_vllm.DYNAMO_VLLM_RUNTIME_ENV["uv"]["uv_pip_install_options"]
+        path, body = dynamo_vllm._actor_overrides(dynamo_vllm._ACTOR_VENV_CUDA_TAG, ray.__version__)
+        assert options[options.index("--override") + 1] == str(path)
+        dynamo_vllm.ensure_actor_overrides_on_all_nodes()
+        assert path.read_text() == body
 
-        assert override_path.read_text() == f"ray=={ray.__version__}\n{dynamo_vllm._ACTOR_VENV_NIXL_CU13_EXCLUSION}\n"
+    def test_concurrent_installers_preserve_their_pins(self, shared_ray_client: None, tmp_path: Path) -> None:
+        with mock.patch.object(dynamo_vllm.tempfile, "gettempdir", return_value=str(tmp_path)):
+            cu129 = dynamo_vllm._actor_overrides("cu129", ray.__version__)
+            cu130 = dynamo_vllm._actor_overrides("cu130", ray.__version__)
+            other_ray = dynamo_vllm._actor_overrides("cu129", "2.0.0")
+        assert len({cu129[0], cu130[0], other_ray[0]}) == 3
+        assert cu129[1] == f"ray=={ray.__version__}\n{dynamo_vllm._ACTOR_VENV_NIXL_CU13_EXCLUSION}\n"
+        assert cu130[1] == f"ray=={ray.__version__}\n"
+        ray.get(
+            [
+                dynamo_vllm._write_actor_overrides_file.remote(str(path), body)
+                for path, body in [cu129, cu130, other_ray, cu129]
+            ]
+        )
+        for path, body in (cu129, cu130, other_ray):
+            assert path.read_text() == body
+
+    @pytest.mark.parametrize("unsafe", ["shared", "symlink"])
+    def test_refuses_unsafe_staging_directory(self, shared_ray_client: None, tmp_path: Path, unsafe: str) -> None:
+        directory = tmp_path / "staging"
+        if unsafe == "symlink":
+            directory.symlink_to(tmp_path, target_is_directory=True)
+        else:
+            directory.mkdir()
+            directory.chmod(0o777)
+        with pytest.raises(ray.exceptions.RayTaskError, match="private directory"):
+            ray.get(dynamo_vllm._write_actor_overrides_file.remote(str(directory / "overrides.txt"), "ray==1.0\n"))
+        assert not (directory / "overrides.txt").exists()
 
 
 def test_dynamo_runtime_env_matches_base_environment() -> None:
@@ -426,3 +489,73 @@ def test_dynamo_runtime_env_matches_base_environment() -> None:
     assert dynamo_vllm.DYNAMO_VLLM_RUNTIME_ENV["uv"]["packages"] == expected_packages
     assert "https://pypi.nvidia.com" not in dynamo_vllm._ACTOR_VENV_UV_OPTIONS
     assert "--prerelease" not in dynamo_vllm._ACTOR_VENV_UV_OPTIONS
+
+
+@pytest.mark.parametrize(
+    ("mode", "fail_at"), [("aggregate", 1), ("aggregate", 2), ("disagg", 2), ("disagg", 3), ("disagg", 4)]
+)
+@pytest.mark.parametrize("cleanup_raises", [False, True])
+def test_unreturned_worker_and_pg_cleanup(mode: str, fail_at: int, cleanup_raises: bool) -> None:
+    model = (
+        DynamoVLLMModelConfig(model_identifier="fixture", num_replicas=3)
+        if mode == "aggregate"
+        else DynamoVLLMModelConfig(
+            model_identifier="fixture",
+            mode="disagg",
+            decode=DynamoRoleConfig(num_replicas=2),
+            prefill=DynamoRoleConfig(num_replicas=2),
+        )
+    )
+    pgs, workers, events = [], [], []
+
+    def build(*_args: object, **_kwargs: object) -> str:
+        pg = f"pg-{len(pgs)}"
+        pgs.append(pg)
+        return pg
+
+    def spawn(*args: object, **_kwargs: object) -> mock.Mock:
+        if len(pgs) == fail_at:
+            msg = "original-launch-failure"
+            raise TypeError(msg)
+        proc = mock.Mock(label=f"worker-{len(workers)}")
+        proc._probe_pg = args[1]
+        workers.append(proc)
+        return proc
+
+    def stop_many(procs: list[mock.Mock]) -> None:
+        events.extend(("stop", p._probe_pg) for p in procs)
+        if cleanup_raises:
+            msg = "cleanup failure must not replace original launch failure"
+            raise RuntimeError(msg)
+
+    def remove(pg: object) -> None:
+        events.append(("remove", pg))
+        if cleanup_raises:
+            msg = "PG cleanup failure must not replace original launch failure"
+            raise RuntimeError(msg)
+
+    arguments = {
+        "base_env": {},
+        "namespace": "discovery",
+        "request_plane": "tcp",
+        "event_plane": "nats",
+        "runtime_dir": "/unused",
+        "actor_name_prefix": "unique",
+        "topology": [{"node_id": "node", "num_gpus": 8, "is_head": False}],
+    }
+    if mode == "aggregate":
+        arguments.update(router_mode="round_robin", router_kv_events=False)
+    function = dynamo_vllm.launch_replicas if mode == "aggregate" else dynamo_vllm.launch_disagg_replicas
+    with (
+        mock.patch.object(dynamo_vllm, "build_replica_pg", side_effect=build),
+        mock.patch.object(dynamo_vllm, "get_free_port_in_bundle", return_value=12345),
+        mock.patch.object(dynamo_vllm.ManagedSubprocess, "spawn", side_effect=spawn),
+        mock.patch.object(dynamo_vllm.ManagedSubprocess, "stop_many", side_effect=stop_many),
+        mock.patch.object(dynamo_vllm.ray.util, "remove_placement_group", side_effect=remove),
+        pytest.raises(TypeError, match="original-launch-failure"),
+    ):
+        function(model, **arguments)
+    assert {pg for action, pg in events if action == "remove"} == set(pgs), events
+    assert {pg for action, pg in events if action == "stop"} == {p._probe_pg for p in workers}, events
+    for proc in workers:
+        assert events.index(("stop", proc._probe_pg)) < events.index(("remove", proc._probe_pg))
