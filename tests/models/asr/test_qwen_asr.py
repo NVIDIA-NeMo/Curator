@@ -123,6 +123,13 @@ def test_download_weights_on_node_downloads_snapshot_without_constructing_model(
     snapshot_download.assert_called_once_with("Qwen/Qwen3-ASR-0.6B", revision="abc123")
 
 
+def test_download_weights_on_node_reuses_local_directory(tmp_path: Path) -> None:
+    adapter = QwenASRAdapter(model_id=str(tmp_path))
+    with patch("nemo_curator.models.asr.qwen_asr.snapshot_download") as snapshot_download:
+        adapter.download_weights_on_node()
+    snapshot_download.assert_not_called()
+
+
 def test_asr_stage_prefetches_qwen_adapter_with_adapter_owned_revision() -> None:
     stage = ASRStage(
         adapter_target="nemo_curator.models.asr.qwen_asr.QwenASRAdapter",

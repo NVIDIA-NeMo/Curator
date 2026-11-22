@@ -25,6 +25,7 @@ from __future__ import annotations
 import gc
 from copy import deepcopy
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -120,6 +121,8 @@ class QwenASRAdapter:
 
     def download_weights_on_node(self) -> None:
         """Populate the local Hugging Face cache without allocating a GPU."""
+        if Path(self.model_id).is_dir():
+            return
         kwargs: dict[str, Any] = {}
         if self.revision is not None:
             kwargs["revision"] = self.revision
