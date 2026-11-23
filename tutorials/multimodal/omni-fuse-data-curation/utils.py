@@ -22,17 +22,9 @@ from typing import TYPE_CHECKING, Any
 
 from nemo_curator.backends.ray_data import RayDataExecutor
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.tasks import EmptyTask
 
 from omnifuse_tutorial.config import ExperimentConfig, languagebind_root, load_config
-from omnifuse_tutorial.data import (
-    load_records,
-    make_batch,
-    read_jsonl,
-    task_records,
-    write_json,
-    write_jsonl,
-)
+from omnifuse_tutorial.data import load_records, task_records, write_json, write_jsonl
 from omnifuse_tutorial.stages import (
     DatablendRankingStage,
     EEEEmbeddingStage,
@@ -84,44 +76,44 @@ def validate_inputs(config: ExperimentConfig) -> dict[str, Any]:
 
 
 def run_sns(config: ExperimentConfig) -> dict[str, Any]:
-    task = _run(config, "1-sns", [PairManifestReaderStage(config), SNSStage(config)], EmptyTask())
+    task = _run(config, "1-sns", [PairManifestReaderStage(config), SNSStage(config)])
     records = write_jsonl(config.run_dir / "sns" / "records.jsonl", task_records(task))
     return {**_outputs(config, task, "sns_manifest_path"), "sns_records_path": str(records)}
 
 
 def run_eee(config: ExperimentConfig) -> dict[str, Any]:
-    task = _run(config, "2-embed", [EEEEmbeddingStage(config)], _load(config, "sns", "1_sns.py"))
+    task = _run(config, "2-embed", [_reader(config, "sns", "1_sns.py"), EEEEmbeddingStage(config)])
     records = write_jsonl(config.run_dir / "embeddings" / "records.jsonl", task_records(task))
     return {**_outputs(config, task, "embedding_metadata_path"), "embedding_records_path": str(records)}
 
 
 def run_projection(config: ExperimentConfig) -> dict[str, Any]:
-    task = _run(config, "3-project", [ProjectionTrainingStage(config)], _load(config, "embeddings", "2_embed.py"))
+    task = _run(config, "3-project", [_reader(config, "embeddings", "2_embed.py"), ProjectionTrainingStage(config)])
     records = write_jsonl(config.run_dir / "projection" / "records.jsonl", task_records(task))
     keys = ("projection_model_path", "projection_metrics_path", "projected_embeddings_path")
     return {**_outputs(config, task, *keys), "projection_records_path": str(records)}
 
 
 def run_datablend(config: ExperimentConfig) -> dict[str, Any]:
-    task = _run(config, "4-datablend", [DatablendRankingStage(config)], _load(config, "projection", "3_project.py"))
+    task = _run(config, "4-datablend", [_reader(config, "projection", "3_project.py"), DatablendRankingStage(config)])
     return _outputs(config, task, "datablend_ranked_path", "datablend_topk_path", "datablend_size")
 
 
-def _run(config: ExperimentConfig, step: str, stages: list[Any], initial_task: Any) -> Any:
+def _run(config: ExperimentConfig, step: str, stages: list[Any]) -> Any:
     name = f"{config.experiment_id}-{step}"
     tasks = Pipeline(name=name, description=f"Omni-Fuse tutorial step: {name}", stages=stages).run(
-        executor=RayDataExecutor(), initial_tasks=[initial_task]
+        executor=RayDataExecutor()
     )
     if not tasks:
         raise RuntimeError(f"Curator pipeline {name} produced no output tasks")
     return tasks[-1]
 
 
-def _load(config: ExperimentConfig, step: str, script: str) -> Any:
+def _reader(config: ExperimentConfig, step: str, script: str) -> PairManifestReaderStage:
     path = config.run_dir / step / "records.jsonl"
     if not path.exists():
         raise FileNotFoundError(f"Missing {path}. Run {script} first.")
-    return make_batch(config.experiment_id, read_jsonl(path), {"experiment_id": config.experiment_id})
+    return PairManifestReaderStage(config, records_path=path)
 
 
 def _outputs(config: ExperimentConfig, task: Any, *keys: str) -> dict[str, Any]:

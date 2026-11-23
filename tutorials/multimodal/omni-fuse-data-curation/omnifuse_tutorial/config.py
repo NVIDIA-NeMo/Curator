@@ -93,7 +93,7 @@ class EEEConfig:
     nvidia_image_describer_model: str = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
     nvidia_video_describer_model: str = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
     nvidia_audio_describer_model: str = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
-    nvidia_embedding_model: str = "nvidia/llama-nemotron-embed-vl-1b-v2"
+    nvidia_embedding_model: str = "nvidia/nemotron-3.5-embed-1b"
     nvidia_multimodal_model: str = "nvidia/omni-embed-nemotron-3b"
 
     def __post_init__(self) -> None:

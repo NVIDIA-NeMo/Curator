@@ -29,15 +29,13 @@ from nemo_curator.stages.resources import Resources
 
 from omnifuse_tutorial.data import (
     expert_file,
-    load_records,
-    make_batch,
     read_jsonl,
     task_records,
     write_json,
     write_jsonl,
     write_npy,
 )
-from omnifuse_tutorial.stages import EEEEmbeddingStage, SNSStage
+from omnifuse_tutorial.stages import EEEEmbeddingStage, PairManifestReaderStage, SNSStage
 
 if TYPE_CHECKING:
     from omnifuse_tutorial.config import ExperimentConfig
@@ -48,18 +46,8 @@ def run_parallel_sns_eee(config: ExperimentConfig) -> dict[str, Any]:
     parallel = config.parallelism
     if not parallel.enabled:
         raise ValueError("Set parallelism.enabled: true to run the parallel SNS/EEE tutorial step")
-    records, size = load_records(config.data_pools), parallel.records_per_shard
-    if not records:
-        raise ValueError("Parallel SNS/EEE requires at least one input record")
-    shards = [
-        make_batch(
-            config.experiment_id,
-            records[start : start + size],
-            {"experiment_id": config.experiment_id, "shard_index": index},
-        )
-        for index, start in enumerate(range(0, len(records), size))
-    ]
     stages = [
+        PairManifestReaderStage(config, sharded=True),
         SNSStage(
             config, Resources(cpus=1.0, gpus=parallel.sns_gpus_per_worker), sharded=True, workers=parallel.sns_workers
         ),
@@ -73,9 +61,9 @@ def run_parallel_sns_eee(config: ExperimentConfig) -> dict[str, Any]:
         description="Sharded pipeline-parallel Omni-Fuse SNS and EEE tutorial steps",
         stages=stages,
     )
-    tasks = pipeline.run(executor=RayDataExecutor(), initial_tasks=shards) or []
+    tasks = pipeline.run(executor=RayDataExecutor()) or []
     summary = {
-        **_merge(config, tasks, len(shards)),
+        **_merge(config, tasks),
         "started_at": started_at.isoformat(),
         "completed_at": datetime.now(UTC).isoformat(),
         "elapsed_seconds": time.perf_counter() - started,
@@ -83,12 +71,12 @@ def run_parallel_sns_eee(config: ExperimentConfig) -> dict[str, Any]:
     return {**summary, "summary_path": str(write_json(config.run_dir / "parallelism" / "summary.json", summary))}
 
 
-def _merge(config: ExperimentConfig, tasks: list[Any], shard_count: int | None = None) -> dict[str, Any]:
-    """Order shards by shard_index and write merged outputs in original record order."""
-    tasks = sorted(tasks, key=lambda task: task._metadata.get("shard_index", -1))
-    expected = len(tasks) if shard_count is None else shard_count
-    if (indices := [task._metadata.get("shard_index") for task in tasks]) != list(range(expected)):
-        raise ValueError(f"Parallel output shards must be unique and contiguous, got {indices}")
+def _merge(config: ExperimentConfig, tasks: list[Any]) -> dict[str, Any]:
+    """Merge completed shards into the canonical SNS and EEE output files."""
+    expected = tasks[0]._metadata.get("shard_count", len(tasks)) if tasks else 0
+    indices = [task._metadata.get("shard_index") for task in tasks]
+    if not tasks or len(indices) != expected or set(indices) != set(range(expected)):
+        raise ValueError(f"Parallel output shards must be unique and complete, got {indices}")
     records, manifest, errors = [], [], []
     for task in tasks:
         records += task_records(task)

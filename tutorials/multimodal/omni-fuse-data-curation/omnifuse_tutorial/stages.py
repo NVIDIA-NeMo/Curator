@@ -33,6 +33,7 @@ from omnifuse_tutorial.data import (
     load_records,
     make_batch,
     raw_text,
+    read_jsonl,
     task_records,
     with_records,
     write_json,
@@ -84,6 +85,8 @@ class _ModelStage(_Stage):
 @dataclass
 class PairManifestReaderStage(_Stage):
     name = "PairManifestReader"
+    sharded: bool = False
+    records_path: Path | None = None
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], []
@@ -91,10 +94,25 @@ class PairManifestReaderStage(_Stage):
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], ["pair_id", "raw_path", "annotation", "modality"]
 
-    def process(self, task: Any) -> DocumentBatch:
+    def is_fanout_stage(self) -> bool:
+        return self.sharded
+
+    def process(self, task: Any) -> DocumentBatch | list[DocumentBatch]:
         experiment = self.config.experiment_id
-        records = load_records(self.config.data_pools)
-        return make_batch(experiment, records, {"experiment_id": experiment})
+        records = read_jsonl(self.records_path) if self.records_path else load_records(self.config.data_pools)
+        if not self.sharded:
+            return make_batch(experiment, records, {"experiment_id": experiment})
+        if not records:
+            raise ValueError("Parallel SNS/EEE requires at least one input record")
+        starts = range(0, len(records), size := self.config.parallelism.records_per_shard)
+        return [
+            make_batch(
+                experiment,
+                records[start : start + size],
+                {"experiment_id": experiment, "shard_index": index, "shard_count": len(starts)},
+            )
+            for index, start in enumerate(starts)
+        ]
 
 
 @dataclass

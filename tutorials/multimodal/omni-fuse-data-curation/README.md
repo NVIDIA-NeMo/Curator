@@ -41,7 +41,8 @@ server, such as vLLM or NIM. Keep their GPUs separate from the ones the pipeline
 ```bash
 vllm serve nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16 --served-model-name nvidia/nemotron-3-nano-omni-30b-a3b-reasoning \
   --trust-remote-code --tensor-parallel-size 2 --max-model-len 32768 --port 8000
-vllm serve nvidia/llama-nemotron-embed-vl-1b-v2 --trust-remote-code --max-model-len 10240 --port 8001
+vllm serve nvidia/Nemotron-3.5-Embed-1B-BF16 --served-model-name nvidia/nemotron-3.5-embed-1b \
+  --dtype bfloat16 --max-model-len 32768 --port 8001
 ```
 
 Then set `NVIDIA_API_BASE_URL=http://localhost:8000/v1` and `NVIDIA_EMBEDDING_BASE_URL=http://localhost:8001/v1` in
@@ -88,7 +89,7 @@ API-backed components:
 - Modality descriptions for backward SNS and the text-based EEE expert:
   - `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning` for image, video, and audio.
 - Text embeddings:
-  - `nvidia/llama-nemotron-embed-vl-1b-v2`.
+  - `nvidia/nemotron-3.5-embed-1b`.
 
 Local components:
 
@@ -186,7 +187,7 @@ GPU 1: EEE:                    shard 0 -> shard 1 -> ...
 As soon as SNS completes one shard, Curator can send it to EEE while SNS begins
 the next shard. Shard outputs use distinct paths, so concurrent workers do not
 overwrite manifests or embedding arrays. After the streaming pipeline finishes,
-the driver merges shards in original record order and writes the same canonical
+the driver merges the completed shards and writes the same canonical
 `sns/` and `embeddings/` files consumed by Step 3.
 
 Enable and tune the parallel path in the config:
