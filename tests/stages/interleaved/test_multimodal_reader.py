@@ -1184,3 +1184,16 @@ def test_source_files_for_split_null_sample_ids_fallback(caplog) -> None:  # noq
         result = BaseInterleavedReader._source_files_for_split(split, 2, {}, ["/a.parquet", "/b.parquet"])
     assert result == ["/a.parquet::split_00002", "/b.parquet::split_00002"]
     assert any("falling back" in r.message for r in caplog.records)
+
+
+def test_parquet_reader_reads_text_columns_as_large_strings(tmp_path: Path) -> None:
+    """A batch of several files can hold more than the 2 GiB one `string` array allows."""
+    rows = {"sample_id": ["s1", "s1"], "position": [-1, 0], "modality": ["metadata", "text"], "text_content": [None, "t"]}
+    schema = pa.schema(
+        [("sample_id", pa.string()), ("position", pa.int32()), ("modality", pa.string()), ("text_content", pa.string())]
+    )
+    path = str(tmp_path / "strings.parquet")
+    pq.write_table(pa.table(rows, schema=schema), path)
+    table = InterleavedParquetReaderStage().process(FileGroupTask(dataset_name="d", data=[path])).to_pyarrow()
+    for name in ("sample_id", "modality", "content_type", "text_content", "source_ref", "materialize_error"):
+        assert table.schema.field(name).type == pa.large_string(), name

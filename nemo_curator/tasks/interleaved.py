@@ -54,16 +54,17 @@ from nemo_curator.utils.column_utils import pyarrow_to_pandas_dtype
 
 from .tasks import Task
 
+# Text columns are large_string: one `string` array holds at most 2 GiB, which a batch of several files exceeds.
 INTERLEAVED_SCHEMA = pa.schema(
     [
-        pa.field("sample_id", pa.string(), nullable=False),
+        pa.field("sample_id", pa.large_string(), nullable=False),
         pa.field("position", pa.int32(), nullable=False),
-        pa.field("modality", pa.string(), nullable=False),
-        pa.field("content_type", pa.string(), nullable=True),
-        pa.field("text_content", pa.string(), nullable=True),
+        pa.field("modality", pa.large_string(), nullable=False),
+        pa.field("content_type", pa.large_string(), nullable=True),
+        pa.field("text_content", pa.large_string(), nullable=True),
         pa.field("binary_content", pa.large_binary(), nullable=True),
-        pa.field("source_ref", pa.string(), nullable=True),
-        pa.field("materialize_error", pa.string(), nullable=True),
+        pa.field("source_ref", pa.large_string(), nullable=True),
+        pa.field("materialize_error", pa.large_string(), nullable=True),
     ]
 )
 
