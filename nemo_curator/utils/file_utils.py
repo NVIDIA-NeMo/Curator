@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import os
 import posixpath
+from glob import has_magic
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -207,11 +208,17 @@ def _gather_file_records(  # noqa: PLR0913
         }
     )
     normalize = fs.unstrip_protocol if is_remote_url(path) else (lambda x: x)
-    roots = fs.expand_path(path, recursive=False)
+    # A plain path is its own root; expand_path() would spend a request checking that it exists.
+    roots = fs.expand_path(path, recursive=False) if has_magic(path) else [fs._strip_protocol(path)]
     records = []
 
     for root in roots:
-        if fs.isdir(root):
+        # One lookup per root: on object stores isdir(), exists() and info() are each a separate round trip.
+        try:
+            root_info = fs.info(root)
+        except FileNotFoundError:
+            continue
+        if root_info.get("type") == "directory":
             listing = fs.find(
                 root,
                 maxdepth=None if recurse_subdirectories else 1,
@@ -223,10 +230,8 @@ def _gather_file_records(  # noqa: PLR0913
             else:
                 entries = [(p, None) for p in listing]
 
-        elif fs.exists(root):
-            entries = [(root, fs.info(root).get("size") if include_size else None)]
         else:
-            entries = []
+            entries = [(root, root_info.get("size") if include_size else None)]
 
         for raw_path, raw_size in entries:
             if (allowed_exts is None) or (_gather_extention(raw_path) in allowed_exts):

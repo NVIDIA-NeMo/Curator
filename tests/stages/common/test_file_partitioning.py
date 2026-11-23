@@ -281,3 +281,15 @@ class TestFilePartitioningStage:
         assert task._metadata["total_partitions"] == 2
         assert task._metadata["source_files"] == [test_files[0]]
         assert task.reader_config == {}
+
+
+def test_explicit_file_list_is_looked_up_in_parallel_and_kept_whole(tmp_path: Path) -> None:
+    paths = []
+    for i in range(100):
+        path = tmp_path / f"part-{i:03d}.parquet"
+        path.write_bytes(b"x" * (i + 1))
+        paths.append(str(path))
+    stage = FilePartitioningStage(file_paths=list(reversed(paths)), files_per_partition=7)
+    assert stage._get_file_list_with_sizes(sort_by_size=False) == [(p, i + 1) for i, p in enumerate(paths)]
+    groups = [task.data for task in stage.process(EmptyTask)]
+    assert [p for group in groups for p in group] == paths
