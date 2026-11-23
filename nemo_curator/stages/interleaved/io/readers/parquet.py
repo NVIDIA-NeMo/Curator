@@ -115,8 +115,13 @@ class InterleavedParquetReaderStage(BaseInterleavedReader):
             columns = self._columns_to_read(file_schema)
             # Fetch only the byte ranges of the selected columns. A plain remote file object reads ahead in
             # large blocks around every column chunk, which made a projected read many times slower.
-            with open_parquet_file(path, fs=fs, columns=columns, engine="pyarrow") as source:
-                table = pq.read_table(source, columns=columns)
+            try:
+                with open_parquet_file(path, fs=fs, columns=columns, engine="pyarrow") as source:
+                    table = pq.read_table(source, columns=columns)
+            except (OSError, TypeError):
+                # A byte range that failed to download is kept as its exception and raises when read.
+                # The plain file object is slower but retries each request.
+                table = pq.read_table(path, columns=columns, filesystem=pa_fs)
             for sid in table["sample_id"].unique().to_pylist():
                 sample_id_to_path.setdefault(sid, path)
             tables.append(table)
