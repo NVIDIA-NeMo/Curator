@@ -14,6 +14,7 @@
 
 from importlib import import_module
 
+from nemo_curator.stages.interleaved.image_urls import InterleavedRemoteImageUrlStage
 from nemo_curator.stages.interleaved.stages import (
     BaseInterleavedAnnotatorStage,
     BaseInterleavedFilterStage,
@@ -31,6 +32,7 @@ __all__ = [
     "InterleavedAspectRatioFilterStage",
     "InterleavedLanceReader",
     "InterleavedLanceReaderStage",
+    "InterleavedRemoteImageUrlStage",
 ]
 
 

@@ -55,6 +55,10 @@ class InterleavedParquetReaderStage(BaseInterleavedReader):
 
     def __post_init__(self) -> None:
         super().__post_init__()
+        if unknown := set(self.reserved_columns or ()) - RESERVED_COLUMNS:
+            # A misspelt name would leave the column unread and null-filled, which reads as "no data".
+            msg = f"reserved_columns must name reserved columns, got {sorted(unknown)}"
+            raise ValueError(msg)
         self._storage_options = resolve_storage_options(io_kwargs=self.read_kwargs)
 
     def _columns_to_read(self, file_schema: pa.Schema) -> list[str] | None:

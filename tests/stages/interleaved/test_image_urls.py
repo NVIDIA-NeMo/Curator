@@ -17,6 +17,7 @@ from pathlib import Path
 
 import pyarrow as pa
 import pyarrow.parquet as pq
+import pytest
 
 from nemo_curator.stages.interleaved.image_urls import InterleavedRemoteImageUrlStage
 from nemo_curator.stages.interleaved.io.readers.parquet import InterleavedParquetReaderStage
@@ -59,6 +60,8 @@ def test_reader_reserved_columns_leaves_the_rest_unread(tmp_path: Path) -> None:
     assert set(INTERLEAVED_SCHEMA.names) <= set(table.schema.names)  # unread reserved columns are null-filled
     assert table["text_content"].null_count == table.num_rows
     assert "unused" not in table.schema.names
+    with pytest.raises(ValueError, match="source_refs"):
+        InterleavedParquetReaderStage(reserved_columns=("source_refs",))  # a typo must not read as "no data"
     everything = InterleavedParquetReaderStage(reserved_columns=("source_ref",))  # no fields: every user column
     assert everything._columns_to_read(pq.read_schema(task.data[0]))[4:] == ["url", "score", "linked", "unused"]
 
