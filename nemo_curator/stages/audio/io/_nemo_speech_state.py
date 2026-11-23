@@ -42,7 +42,7 @@ def write_json_if_absent(fs: AbstractFileSystem, path: str, payload: Any) -> boo
 
     if isinstance(fs, LocalFileSystem):
         return write_json_atomically_if_absent(Path(path), payload, separators=(",", ":"))
-    # Not every backend makes a small ``xb`` upload conditional (s3fs 2024.12 does a plain PUT).
+    # s3fs<2025.7 (allowed outside the audio extras) and other backends may send a small ``xb`` upload as a plain PUT.
     if fs.exists(path):
         return False
     try:
