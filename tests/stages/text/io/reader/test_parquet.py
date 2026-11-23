@@ -13,7 +13,6 @@
 # limitations under the License.
 
 from pathlib import Path
-from unittest.mock import patch
 
 import pandas as pd
 import pyarrow as pa
@@ -73,34 +72,15 @@ def _make_file_group_task(files: list[str]) -> FileGroupTask:
 
 
 def test_parquet_reader_stage_pandas_reads_and_concatenates(sample_parquet_files: list[str]):
-    # Use the first two files from the fixture
     task = _make_file_group_task(sample_parquet_files[:2])
     stage = ParquetReaderStage(fields=None)
-
-    # Track calls to pd.read_parquet and pd.concat using mock.patch with wraps
-    with (
-        patch(
-            "nemo_curator.stages.text.io.reader.parquet.pd.read_parquet", wraps=pd.read_parquet
-        ) as mock_read_parquet,
-        patch("nemo_curator.stages.text.io.reader.parquet.pd.concat", wraps=pd.concat) as mock_concat,
-    ):
-        out = stage.process(task)
-        assert isinstance(out, DocumentBatch)
-        assert out._metadata == {"source_files": sample_parquet_files[:2]}
-
-        df = out.to_pandas()
-        assert isinstance(df, pd.DataFrame)
-        assert len(df) == 4  # 2 files * 2 records each = 4 records
-        assert {"text", "category", "score"}.issubset(set(df.columns))
-
-        # Verify pd.read_parquet was called once per file
-        assert mock_read_parquet.call_count == 2
-        assert mock_read_parquet.call_args_list[0][0][0] == sample_parquet_files[0]
-        assert mock_read_parquet.call_args_list[1][0][0] == sample_parquet_files[1]
-
-        # Verify pd.concat was called once with ignore_index=True
-        assert mock_concat.call_count == 1
-        assert mock_concat.call_args[1].get("ignore_index") is True
+    out = stage.process(task)
+    assert isinstance(out, DocumentBatch)
+    assert out._metadata == {"source_files": sample_parquet_files[:2]}
+    df = out.to_pandas()
+    assert isinstance(df, pd.DataFrame)
+    assert len(df) == 4
+    assert {"text", "category", "score"}.issubset(set(df.columns))
 
 
 class TestParquetReaderStorageOptionsAndColumns:
@@ -180,33 +160,13 @@ def test_parquet_reader_stage_pyarrow_reads_and_concatenates(tmp_path: Path):
     f2 = tmp_path / "b.parquet"
     _write_parquet_file(f1, _sample_records(0, 1))
     _write_parquet_file(f2, _sample_records(1, 2))
-
     task = _make_file_group_task([str(f1), str(f2)])
     stage = ParquetReaderStage(read_kwargs={"engine": "pyarrow"}, fields=None)
-
-    # Track calls to pd.read_parquet and pd.concat using mock.patch with wraps
-    with (
-        patch(
-            "nemo_curator.stages.text.io.reader.parquet.pd.read_parquet", wraps=pd.read_parquet
-        ) as mock_read_parquet,
-        patch("nemo_curator.stages.text.io.reader.parquet.pd.concat", wraps=pd.concat) as mock_concat,
-    ):
-        out = stage.process(task)
-        table = out.to_pyarrow()
-        assert isinstance(table, pa.Table)
-        assert table.num_rows == 3
-        assert {"text", "category", "score"}.issubset(set(table.column_names))
-
-        # Verify pd.read_parquet was called once per file
-        assert mock_read_parquet.call_count == 2
-        assert mock_read_parquet.call_args_list[0][0][0] == str(f1)
-        assert mock_read_parquet.call_args_list[1][0][0] == str(f2)
-        # Verify engine was passed correctly
-        assert mock_read_parquet.call_args_list[0][1].get("engine") == "pyarrow"
-
-        # Verify pd.concat was called once with ignore_index=True
-        assert mock_concat.call_count == 1
-        assert mock_concat.call_args[1].get("ignore_index") is True
+    out = stage.process(task)
+    table = out.to_pyarrow()
+    assert isinstance(table, pa.Table)
+    assert table.num_rows == 3
+    assert {"text", "category", "score"}.issubset(set(table.column_names))
 
 
 def test_parquet_reader_stage_pyarrow_errors_when_some_columns_missing(tmp_path: Path):
@@ -310,3 +270,52 @@ def test_parquet_reader_with_blocksize_limit(tmp_path: Path, caplog: pytest.LogC
     with caplog.at_level("WARNING"):
         file_partitioning_stage.process(EmptyTask)
     assert "File group task has exceeded the storage limit per partition" in caplog.text
+
+
+@pytest.mark.parametrize("case", ["numeric", "string_numeric", "category", "index", "missing"])
+def test_multifile_matches_pandas_reference(tmp_path: Path, case: str):
+    paths = []
+    for i in range(2):
+        frame = pd.DataFrame({"text": [f"doc-{i}", None], "score": [i, i + 1]})
+        if case == "numeric":
+            frame["score"] = frame["score"].astype("int32" if i else "float64")
+        if case == "string_numeric" and i:
+            frame["score"] = frame["score"].astype(str)
+        if case == "category":
+            frame["text"] = frame["text"].astype("category")
+        if case == "index":
+            frame.index = pd.Index([10, 20], name="row_id")
+        if case == "missing" and i:
+            frame["extra"] = "x"
+        path = str(tmp_path / f"{i}.parquet")
+        frame.to_parquet(path, index=case == "index")
+        paths.append(path)
+    expected = pd.concat(
+        [pd.read_parquet(path, engine="pyarrow", dtype_backend="pyarrow") for path in paths],
+        ignore_index=True,
+    )
+    pd.testing.assert_frame_equal(ParquetReaderStage().read_data(paths), expected)
+
+
+@pytest.mark.parametrize("kwargs", [{"filters": [("score", ">", 0)]}, {"use_threads": False}])
+def test_extra_read_options_match_pandas(tmp_path: Path, kwargs: dict):
+    paths = []
+    for i in range(2):
+        path = str(tmp_path / f"{i}.parquet")
+        pd.DataFrame({"text": ["a", "b"], "score": [0, i + 1]}).to_parquet(path, index=False)
+        paths.append(path)
+    expected = pd.concat(
+        [pd.read_parquet(p, engine="pyarrow", dtype_backend="pyarrow", **kwargs) for p in paths],
+        ignore_index=True,
+    )
+    pd.testing.assert_frame_equal(ParquetReaderStage().read_data(paths, read_kwargs=kwargs), expected)
+
+
+def test_memory_protocol_matches_pandas(tmp_path: Path):
+    paths = [f"memory://{tmp_path.name}/{i}.parquet" for i in range(2)]
+    for i, path in enumerate(paths):
+        pd.DataFrame({"text": [str(i)], "score": [i]}).to_parquet(path, index=False)
+    expected = pd.concat(
+        [pd.read_parquet(p, engine="pyarrow", dtype_backend="pyarrow") for p in paths], ignore_index=True
+    )
+    pd.testing.assert_frame_equal(ParquetReaderStage().read_data(paths), expected)
