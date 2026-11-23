@@ -261,7 +261,7 @@ class ScoreFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
         return ["data"], self.text_field
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], self.text_field + self.score_field if self.score_field is not None else []
+        return ["data"], self.text_field + [field for field in self.score_field if field is not None]
 
     def ray_stage_spec(self) -> dict[str, Any]:
         requires_setup = any(
