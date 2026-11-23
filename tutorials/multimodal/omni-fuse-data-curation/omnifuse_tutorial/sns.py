@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import functools
 import importlib.util
-import logging
 import re
 import sys
 import types
@@ -29,6 +28,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 import torch
 import torch.nn.functional as F
+from loguru import logger
 
 from omnifuse_tutorial.data import annotation_text, cosine, fingerprint, raw_text, text_or_none, unit
 from omnifuse_tutorial.models import OmniEmbed, resolve_device
@@ -39,7 +39,6 @@ if TYPE_CHECKING:
 
     from omnifuse_tutorial.config import ExperimentConfig, SNSConfig
 
-logger = logging.getLogger(__name__)
 SENTENCE_RE = re.compile(r"(?<=[.!?])\s+|\n+")
 MEDIA = ("image", "audio", "video")
 SNS_PROMPTS = {
@@ -74,7 +73,7 @@ class SNS:
         except Exception as exc:
             if not self.config.continue_on_error:
                 raise
-            logger.warning("[%s] SNS failed, keeping original: %s: %s", record.get("pair_id"), type(exc).__name__, exc)
+            logger.warning("[{}] SNS failed, keeping original: {}: {}", record.get("pair_id"), type(exc).__name__, exc)
             output = {
                 **record,
                 "sns_raw_text": text_or_none(record.get("raw_text")),

@@ -17,11 +17,11 @@
 from __future__ import annotations
 
 import json
-import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+from loguru import logger
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
@@ -45,8 +45,6 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from omnifuse_tutorial.config import ExperimentConfig
-
-logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -181,7 +179,7 @@ class EEEEmbeddingStage(_ModelStage):
             if not self.config.eee.continue_on_error:
                 raise
             pair_id, kind = str(record.get("pair_id", "unknown")), type(exc).__name__
-            logger.warning("[%s] %s %s embedding failed, using zero vector: %s: %s", pair_id, expert, side, kind, exc)
+            logger.warning("[{}] {} {} embedding failed, using zero vector: {}: {}", pair_id, expert, side, kind, exc)
             modality = str(record.get("modality", "unknown"))
             errors.append(
                 {
