@@ -48,21 +48,10 @@ if TYPE_CHECKING:
 
 
 @dataclass
-class _Stage(ProcessingStage[DocumentBatch, DocumentBatch]):
-    config: ExperimentConfig
-    resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
-
-    def inputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], []
-
-    def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], []
-
-
-@dataclass
-class _ModelStage(_Stage):
+class _ModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     """Keeps its models resident across tasks; `sharded` writes per-shard outputs for the parallel step."""
 
+    config: ExperimentConfig
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0, gpus=1.0))
     sharded: bool = False
     workers: int | None = None
@@ -81,8 +70,9 @@ class _ModelStage(_Stage):
 
 
 @dataclass
-class PairManifestReaderStage(_Stage):
+class PairManifestReaderStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     name = "PairManifestReader"
+    config: ExperimentConfig
     sharded: bool = False
     records_path: Path | None = None
 
@@ -142,6 +132,9 @@ class EEEEmbeddingStage(_ModelStage):
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], ["pair_id", "sns_annotation", "modality"]
 
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return ["data"], []
+
     def setup(self, _worker: Any = None) -> None:
         from omnifuse_tutorial.eee import EEEBackend
 
@@ -195,12 +188,19 @@ class EEEEmbeddingStage(_ModelStage):
 
 
 @dataclass
-class ProjectionTrainingStage(_Stage):
+class ProjectionTrainingStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     name = "ProjectionTraining"
+    config: ExperimentConfig
 
     def __post_init__(self) -> None:
         projection = self.config.projection
         self.resources = Resources(cpus=1.0, gpus=float(projection.num_gpus if projection.device != "cpu" else 0))
+
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return ["data"], []
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return ["data"], []
 
     def process(self, task: DocumentBatch) -> DocumentBatch:
         from omnifuse_tutorial.projection import train_projection
@@ -227,8 +227,12 @@ class ProjectionTrainingStage(_Stage):
 
 
 @dataclass
-class DatablendRankingStage(_Stage):
+class DatablendRankingStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     name = "DatablendRanking"
+    config: ExperimentConfig
+
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return ["data"], []
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], ["rank", "score"]
@@ -237,12 +241,11 @@ class DatablendRankingStage(_Stage):
         from omnifuse_tutorial.eee import EEEBackend
 
         projected_path, blend = self.config.run_dir / "projection" / "projected_embeddings.npy", self.config.datablend
-        if not projected_path.exists():
-            raise FileNotFoundError(f"Missing {projected_path}. Run 3_project.py first.")
+        projected_rows = np.load(projected_path)
         anchor = json.loads(projected_path.with_name("model.json").read_text(encoding="utf-8"))["anchor_expert"]
         query = EEEBackend(self.config.eee, self.config.runtime).embed_query(blend.query, anchor)
         ranked = []
-        for index, (record, projected) in enumerate(zip(task_records(task), np.load(projected_path))):
+        for index, (record, projected) in enumerate(zip(task_records(task), projected_rows)):
             row = {
                 "score": cosine(projected, query),
                 "pair_id": record["pair_id"],
