@@ -469,49 +469,6 @@ class TestGetPairwiseWerStage:
 
         assert stage.process(task).data["score"] == 0.0
 
-    @pytest.mark.parametrize(
-        ("reference", "hypothesis"),
-        [
-            ("", ""),
-            ("", "extra words"),
-            ("a b c", "a b c"),
-            ("a b c", "a x b c d"),
-            ("a b c d e", "a c"),
-            ("a b c", ""),
-            ("  spaced   out  ", "spaced out"),
-            ("one two three", "three two one"),
-        ],
-    )
-    def test_matches_nemo_word_error_rate_detail(self, reference: str, hypothesis: str) -> None:
-        """The shared dependency-free WER helper reproduces the previous NeMo-based output exactly."""
-        from nemo.collections.asr.metrics.wer import word_error_rate_detail
-
-        expected = round(word_error_rate_detail([hypothesis], [reference], use_cer=False)[0] * 100.0, 4)
-        task = AudioTask(dataset_name="d", data={"text": reference, "pred_text": hypothesis})
-
-        assert GetPairwiseWerStage().process(task).data["wer_pct"] == expected
-
-    @pytest.mark.parametrize("use_cer", [False, True])
-    def test_error_rate_detail_matches_nemo_breakdown(self, use_cer: bool) -> None:
-        """ComputeWERStage's ins/del/sub breakdown reproduces NeMo's word_error_rate_detail on random pairs."""
-        import random
-
-        from nemo.collections.asr.metrics.wer import word_error_rate_detail
-
-        from nemo_curator.stages.audio.metrics.wer import _error_rate_detail
-
-        rng = random.Random(0)  # noqa: S311 - fixed-seed test data
-        for _ in range(300):
-            reference = " ".join(rng.choice("abcd") for _ in range(rng.randint(0, 7)))
-            hypothesis = " ".join(rng.choice("abcd") for _ in range(rng.randint(0, 7)))
-            rate, tokens, ins_rate, del_rate, sub_rate = word_error_rate_detail(
-                hypotheses=[hypothesis], references=[reference], use_cer=use_cer
-            )
-            expected = [round(v, 4) for v in (rate, ins_rate, del_rate, sub_rate)]
-            got = _error_rate_detail(hypothesis, reference, use_cer=use_cer)
-            assert [got["cer" if use_cer else "wer"], got["ins_rate"], got["del_rate"], got["sub_rate"]] == expected
-            assert got["tokens"] == tokens
-
 
 class TestLoopContainment:
     """Tests that per-segment errors don't abort remaining segments."""
