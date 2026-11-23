@@ -172,6 +172,7 @@ class SEDInferenceStage(AgentReady, AdapterInferenceStage[SEDAdapter]):
         outputs = [self.framewise_output_key, self.valid_frames_key, self.fps_key]
         if self.save_npz:
             outputs.append(self.npz_filepath_key)
+        prepared = f"'{self.skip_me_key}' is empty and the row's audio is prepared"
         return StageContract(
             reads=IOSpec(
                 data_keys=self.inputs()[1],
@@ -181,10 +182,12 @@ class SEDInferenceStage(AgentReady, AdapterInferenceStage[SEDAdapter]):
                 data_keys=[self.skip_me_key, self.audio_filepath_key, *(outputs if self.skip_if_output_exists else [])]
             ),
             conditional_writes=[
+                # The frame matrix is a NumPy array: a JSON sink must not get it until a stage removes it.
                 ConditionalWrite(
-                    writes=IOSpec(data_keys=outputs),
-                    condition=f"'{self.skip_me_key}' is empty and the row's audio is prepared",
+                    writes=IOSpec(data_keys=[self.framewise_output_key], produces=["tensor"]),
+                    condition=prepared,
                 ),
+                ConditionalWrite(writes=IOSpec(data_keys=outputs[1:]), condition=prepared),
                 ConditionalWrite(
                     writes=IOSpec(data_keys=[self.skip_me_key]),
                     condition="audio loading or preparation fails for the row",

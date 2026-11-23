@@ -130,7 +130,10 @@ read that is met only by a conditional key is reported as a `conditional_read`
 *warning* (the pipeline composes, `report.ok` stays true, but the key is never
 added to `produced_keys`); a read nothing even possibly writes remains an
 `unsatisfied_reads` error. And a conditional write with `produces=["tensor"]`
-seeds tensor residency for the JSON-sink gate. Set `requires_keys` on a
+seeds tensor residency for the JSON-sink gate. Residency follows the write's
+`waveform`-role keys; a write that names none tracks every key it names, so give
+a non-audio tensor (such as SED's frame matrix) its own `IOSpec`. A later stage
+that lists the key in `removes_keys` ends its residency. Set `requires_keys` on a
 `ConditionalWrite` when its branch can only run if some literal key already
 exists upstream (in the write's own scope): the planner then ignores the branch
 -- for both purposes -- on inputs that cannot reach it. File hydration that only

@@ -527,6 +527,20 @@ def test_conditional_tensor_write_is_not_guaranteed_but_still_blocks_json_sink(t
     assert any(issue.code == "tensor_into_sink" and issue.severity == "error" for issue in report.issues)
 
 
+@pytest.mark.parametrize("postprocess", [False, True])
+def test_sed_frame_matrix_blocks_a_json_sink_until_a_stage_removes_it(tmp_path: Path, postprocess: bool) -> None:
+    from nemo_curator.stages.audio.inference.sed.stage import SEDInferenceStage
+    from nemo_curator.stages.audio.postprocessing.sed_postprocessing import SEDPostprocessingStage
+
+    # The matrix is a non-waveform tensor; SEDPostprocessingStage's removes_keys ends its residency.
+    middle = [SEDPostprocessingStage()] if postprocess else []
+    writer = ManifestWriterStage(output_path=str(tmp_path / "out.jsonl"))
+    report = validate_pipeline([SEDInferenceStage(adapter_target="unused.Adapter"), *middle, writer])
+
+    assert report.ok is postprocess, report.summary()
+    assert any(issue.code == "tensor_into_sink" for issue in report.issues) is not postprocess
+
+
 def test_unknown_role_selector_requires_its_exact_conditional_key() -> None:
     producer = _ConfiguredContractStage(
         StageContract(
