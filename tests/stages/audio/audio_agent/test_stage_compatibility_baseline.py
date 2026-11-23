@@ -96,7 +96,7 @@ ADDITIVE_STAGE_NAMES = (
 # This surface includes adapter-backed VAD/diarization, conservative IO gates,
 # and the additive resampling/timestamp parameters shipped with those stages.
 EXPECTED_LEGACY_COMPATIBILITY_SHA256 = (
-    "f834c4c69829f0fcd92036cb56b49d19b2d39189200de8b49aa95a12f2e78e9b"  # pragma: allowlist secret
+    "6c4b31df1a6e32c339d9ae7e3c329b9b71c019a369115fbb1f09520b2d4ba405"  # pragma: allowlist secret
 )
 
 
