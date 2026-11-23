@@ -280,11 +280,24 @@ class ForwardExtractor:
 
         image = ImageOps.exif_transpose(Image.open(raw)).convert("RGB")
         components, tau = annotation_components(annotation, self.config), self.config.tau_forward_image
+        hint = f"Image forward extraction requires Grounding-DINO ({self.config.grounding_dino_model_id})."
+        processor, model = self._model("Grounding-DINO", self._load_grounding_dino, hint)
         boxes, scores = [], []
         for component in components:
-            found, found_scores = grounding_dino_boxes(image, component, self.config.grounding_dino_model_id, tau)
-            boxes += found
-            scores += found_scores
+            prompt = component.strip()
+            if not prompt:
+                continue
+            inputs = processor(
+                images=image, text=prompt if prompt.endswith(".") else f"{prompt}.", return_tensors="pt"
+            )
+            inputs = {key: value.to(self.device) if hasattr(value, "to") else value for key, value in inputs.items()}
+            with torch.inference_mode():
+                outputs = model(**inputs)
+            result = processor.post_process_grounded_object_detection(
+                outputs, inputs["input_ids"], threshold=tau, target_sizes=[image.size[::-1]]
+            )[0]
+            boxes += [(x0, y0, x1 - x0, y1 - y0) for x0, y0, x1, y1 in result["boxes"].cpu().tolist()]
+            scores += [float(score) for score in result["scores"].cpu().tolist()]
         if not boxes:
             return raw, {"reason": "no_bboxes_above_threshold", "components": components, "threshold": tau}
         xs = [value for x, _, width, _ in boxes for value in (x, x + width)]
@@ -467,38 +480,17 @@ class ForwardExtractor:
             model.load_state_dict(state_dict, strict=False, assign=True)
         return model.eval()
 
+    def _load_grounding_dino(self) -> tuple[Any, Any]:
+        from transformers import AutoModelForZeroShotObjectDetection, AutoProcessor
 
-@functools.lru_cache(maxsize=4)
-def _grounding_dino(model_id: str) -> tuple[Any, Any, torch.device]:
-    from transformers import AutoModelForZeroShotObjectDetection, AutoProcessor
-
-    device = torch.device(
-        "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
-    )
-    try:
-        processor = AutoProcessor.from_pretrained(model_id, local_files_only=True)
-        model = AutoModelForZeroShotObjectDetection.from_pretrained(model_id, local_files_only=True).to(device)
-    except (OSError, ValueError):
-        processor = AutoProcessor.from_pretrained(model_id)
-        model = AutoModelForZeroShotObjectDetection.from_pretrained(model_id).to(device)
-    return processor, model.eval(), device
-
-
-def grounding_dino_boxes(image: Any, prompt: str, model_id: str, threshold: float) -> tuple[list[tuple], list[float]]:
-    """Grounding-DINO boxes as (x, y, width, height) tuples, plus their confidence scores."""
-    prompt = prompt.strip()
-    if not prompt:
-        raise ValueError("Grounding-DINO prompt cannot be empty")
-    processor, model, device = _grounding_dino(model_id)
-    inputs = processor(images=image, text=prompt if prompt.endswith(".") else f"{prompt}.", return_tensors="pt")
-    inputs = {key: value.to(device) if hasattr(value, "to") else value for key, value in inputs.items()}
-    with torch.inference_mode():
-        outputs = model(**inputs)
-    result = processor.post_process_grounded_object_detection(
-        outputs, inputs["input_ids"], threshold=threshold, target_sizes=[image.size[::-1]]
-    )[0]
-    boxes = [(x0, y0, x1 - x0, y1 - y0) for x0, y0, x1, y1 in result["boxes"].cpu().tolist()]
-    return boxes, [float(score) for score in result["scores"].cpu().tolist()]
+        model_id = self.config.grounding_dino_model_id
+        try:
+            processor = AutoProcessor.from_pretrained(model_id, local_files_only=True)
+            model = AutoModelForZeroShotObjectDetection.from_pretrained(model_id, local_files_only=True)
+        except (OSError, ValueError):
+            processor = AutoProcessor.from_pretrained(model_id)
+            model = AutoModelForZeroShotObjectDetection.from_pretrained(model_id)
+        return processor, model.to(self.device).eval()
 
 
 @functools.lru_cache(maxsize=1)
