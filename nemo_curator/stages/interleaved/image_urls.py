@@ -54,8 +54,12 @@ class InterleavedRemoteImageUrlStage(ProcessingStage[InterleavedBatch, DocumentB
         urls = pa.array(remote, pa.large_string())
         links = pa.table({"sample_id": images["sample_id"], "image_url": urls}).filter(pc.is_valid(urls))
         links = links.group_by(["sample_id", "image_url"]).aggregate([])
-        samples = t.filter(pc.equal(t["modality"], "metadata")).select(["sample_id", *self.sample_fields])
-        out = links.join(samples, keys="sample_id", join_type="left outer") if self.sample_fields else links
+        # A lookup rather than a join: a field the file lacks is null-typed, which Arrow joins reject.
+        samples = t.filter(pc.equal(t["modality"], "metadata"))
+        rows = pc.index_in(links["sample_id"], value_set=samples["sample_id"])
+        out = links
+        for name in self.sample_fields:
+            out = out.append_column(name, samples[name].take(rows))
         return DocumentBatch(
             dataset_name=task.dataset_name, data=out, _metadata=task._metadata, _stage_perf=task._stage_perf
         )

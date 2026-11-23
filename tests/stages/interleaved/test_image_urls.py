@@ -72,6 +72,9 @@ def test_remote_image_urls(tmp_path: Path) -> None:
         {"sample_id": "a", "image_url": "http://i/1", "url": "http://p/a", "score": 0.5},
         {"sample_id": "b", "image_url": "https://i/2", "url": "http://p/b", "score": None},
     ]
+    absent = InterleavedParquetReaderStage(fields=("url", "absent"), reserved_columns=("source_ref",)).process(task)
+    filled = InterleavedRemoteImageUrlStage(sample_fields=("url", "absent")).process(absent).to_pyarrow()
+    assert filled["absent"].null_count == filled.num_rows == 2  # a field the file lacks stays null
     bare = InterleavedRemoteImageUrlStage().process(batch).to_pyarrow()
     assert bare.column_names == ["sample_id", "image_url"]
     assert bare.num_rows == 2
