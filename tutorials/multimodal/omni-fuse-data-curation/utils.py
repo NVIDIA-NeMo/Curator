@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Shared helpers for the numbered Omni-Fuse tutorial scripts: each step is one NeMo Curator pipeline."""
+"""Shared CLI helpers for the numbered Omni-Fuse tutorial scripts."""
 
 from __future__ import annotations
 
@@ -20,101 +20,22 @@ import argparse
 import json
 from typing import TYPE_CHECKING, Any
 
-from nemo_curator.backends.ray_data import RayDataExecutor
-from nemo_curator.pipeline import Pipeline
-
-from omnifuse_tutorial.config import ExperimentConfig, languagebind_root, load_config
-from omnifuse_tutorial.data import load_records, task_records, write_json, write_jsonl
-from omnifuse_tutorial.stages import (
-    DatablendRankingStage,
-    EEEEmbeddingStage,
-    PairManifestReaderStage,
-    ProjectionTrainingStage,
-    SNSStage,
-)
+from omnifuse_tutorial.config import load_config
+from omnifuse_tutorial.data import write_json
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from omnifuse_tutorial.config import ExperimentConfig
 
 
-def main(description: str, step: Callable[[ExperimentConfig], dict[str, Any]]) -> None:
-    """Parse --config, record config.resolved.json in the run directory, run the step, and print its outputs."""
+def parse_config(description: str | None) -> ExperimentConfig:
+    """Parse `--config`, load the YAML config, and save `config.resolved.json` in the run directory."""
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument("--config", required=True, help="Path to the Omni-Fuse tutorial YAML config")
     config = load_config(parser.parse_args().config)
     write_json(config.run_dir / "config.resolved.json", config.to_dict())
-    print(json.dumps(step(config), indent=2, sort_keys=True))
+    return config
 
 
-def validate_inputs(config: ExperimentConfig) -> dict[str, Any]:
-    records = load_records(config.data_pools)
-    missing = ["NV_BUILD_API_KEY"] if config.eee.needs_api_key else []
-    if "fusion" in config.eee.experts and not languagebind_root().exists():
-        missing.append("LANGUAGEBIND_ROOT")
-    video_forward = config.sns.direction in {"forward", "bidirectional"} and any(
-        pool.modality == "video" for pool in config.data_pools
-    )
-    if config.sns.enabled and video_forward and not config.sns.cg_detr_checkpoint.exists():
-        missing.append(str(config.sns.cg_detr_checkpoint))
-    if missing:
-        raise RuntimeError("Missing required API keys or local assets: " + ", ".join(missing))
-    parallel = config.parallelism
-    return {
-        "experiment_id": config.experiment_id,
-        "run_dir": str(config.run_dir),
-        "records": len(records),
-        "modalities": sorted({record["modality"] for record in records}),
-        "sns_embedding_batch_size": config.sns.embedding_batch_size,
-        "experts": config.eee.experts,
-        "parallelism": {
-            "enabled": parallel.enabled,
-            "records_per_shard": parallel.records_per_shard,
-            "sns_workers": parallel.sns_workers,
-            "eee_workers": parallel.eee_workers,
-        },
-    }
-
-
-def run_sns(config: ExperimentConfig) -> dict[str, Any]:
-    task = _run(config, "1-sns", [PairManifestReaderStage(config), SNSStage(config)])
-    records = write_jsonl(config.run_dir / "sns" / "records.jsonl", task_records(task))
-    return {**_outputs(config, task, "sns_manifest_path"), "sns_records_path": str(records)}
-
-
-def run_eee(config: ExperimentConfig) -> dict[str, Any]:
-    task = _run(config, "2-embed", [_reader(config, "sns", "1_sns.py"), EEEEmbeddingStage(config)])
-    records = write_jsonl(config.run_dir / "embeddings" / "records.jsonl", task_records(task))
-    return {**_outputs(config, task, "embedding_metadata_path"), "embedding_records_path": str(records)}
-
-
-def run_projection(config: ExperimentConfig) -> dict[str, Any]:
-    task = _run(config, "3-project", [_reader(config, "embeddings", "2_embed.py"), ProjectionTrainingStage(config)])
-    records = write_jsonl(config.run_dir / "projection" / "records.jsonl", task_records(task))
-    keys = ("projection_model_path", "projection_metrics_path", "projected_embeddings_path")
-    return {**_outputs(config, task, *keys), "projection_records_path": str(records)}
-
-
-def run_datablend(config: ExperimentConfig) -> dict[str, Any]:
-    task = _run(config, "4-datablend", [_reader(config, "projection", "3_project.py"), DatablendRankingStage(config)])
-    return _outputs(config, task, "datablend_ranked_path", "datablend_topk_path", "datablend_size")
-
-
-def _run(config: ExperimentConfig, step: str, stages: list[Any]) -> Any:
-    name = f"{config.experiment_id}-{step}"
-    tasks = Pipeline(name=name, description=f"Omni-Fuse tutorial step: {name}", stages=stages).run(
-        executor=RayDataExecutor()
-    )
-    if not tasks:
-        raise RuntimeError(f"Curator pipeline {name} produced no output tasks")
-    return tasks[-1]
-
-
-def _reader(config: ExperimentConfig, step: str, script: str) -> PairManifestReaderStage:
-    path = config.run_dir / step / "records.jsonl"
-    if not path.exists():
-        raise FileNotFoundError(f"Missing {path}. Run {script} first.")
-    return PairManifestReaderStage(config, records_path=path)
-
-
-def _outputs(config: ExperimentConfig, task: Any, *keys: str) -> dict[str, Any]:
-    return {"run_dir": str(config.run_dir), **{key: task._metadata.get(key) for key in keys}}
+def print_result(result: dict[str, Any]) -> None:
+    """Print a step's output paths and summary metrics as formatted JSON."""
+    print(json.dumps(result, indent=2, sort_keys=True))

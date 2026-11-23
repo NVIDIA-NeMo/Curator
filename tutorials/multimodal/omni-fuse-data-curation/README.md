@@ -272,25 +272,24 @@ outputs/<experiment_id>/datablend/datablend_ranked.jsonl
 outputs/<experiment_id>/datablend/datablend_topk.jsonl
 ```
 
-## End-to-End Script
+## Running End-to-End
 
-Run every step in order:
+Run every step in order (prefix with `uv run` if not using an activated environment):
 
 ```bash
-CONFIG=configs/omni_fuse_hybrid.yaml bash e2e.sh
+CONFIG=configs/omni_fuse_hybrid.yaml
+for step in 0_validate_inputs 1_sns 2_embed 3_project 4_datablend; do
+  python "${step}.py" --config "${CONFIG}" || break
+done
 ```
 
-Set `PYTHON_BIN` if you want to use a specific interpreter:
+For the multi-GPU variant, replace `1_sns` and `2_embed` with `1_2_parallel`:
 
 ```bash
-PYTHON_BIN="uv run python" CONFIG=configs/omni_fuse_hybrid.yaml bash e2e.sh
-```
-
-Run the multi-GPU variant, which replaces the separate SNS and EEE commands
-with `1_2_parallel.py`:
-
-```bash
-PYTHON_BIN="uv run python" CONFIG=configs/omni_fuse_hybrid.yaml bash e2e_parallel.sh
+CONFIG=configs/omni_fuse_hybrid.yaml
+for step in 0_validate_inputs 1_2_parallel 3_project 4_datablend; do
+  python "${step}.py" --config "${CONFIG}" || break
+done
 ```
 
 ## Output Layout

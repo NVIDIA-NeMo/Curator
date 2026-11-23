@@ -12,9 +12,45 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Run Symmetric Nucleus Subsampling over paired multimodal records."""
+"""Step 1: Run Symmetric Nucleus Subsampling (SNS) over paired multimodal records."""
 
-from utils import main, run_sns
+from __future__ import annotations
+
+from nemo_curator.backends.ray_data import RayDataExecutor
+from nemo_curator.pipeline import Pipeline
+
+from omnifuse_tutorial.data import task_records, write_jsonl
+from omnifuse_tutorial.stages import PairManifestReaderStage, SNSStage
+from utils import parse_config, print_result
+
+
+def main() -> None:
+    config = parse_config(__doc__)
+
+    # Read paired records from the configured data pools and refine each pair with SNS.
+    pipeline = Pipeline(
+        name=f"{config.experiment_id}-1-sns",
+        description="Omni-Fuse step 1: Symmetric Nucleus Subsampling",
+        stages=[
+            PairManifestReaderStage(config),
+            SNSStage(config),
+        ],
+    )
+    tasks = pipeline.run(executor=RayDataExecutor())
+    if not tasks:
+        raise RuntimeError(f"Curator pipeline {pipeline.name} produced no output tasks")
+
+    # Save the SNS-refined records for Step 2 (2_embed.py).
+    final_task = tasks[-1]
+    records_path = write_jsonl(config.run_dir / "sns" / "records.jsonl", task_records(final_task))
+    print_result(
+        {
+            "run_dir": str(config.run_dir),
+            "sns_manifest_path": final_task._metadata.get("sns_manifest_path"),
+            "sns_records_path": str(records_path),
+        }
+    )
+
 
 if __name__ == "__main__":
-    main(__doc__, run_sns)
+    main()
