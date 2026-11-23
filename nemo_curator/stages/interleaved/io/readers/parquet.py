@@ -37,7 +37,10 @@ class InterleavedParquetReaderStage(BaseInterleavedReader):
     *fields* lists extra (passthrough) column names to read beyond the reserved
     schema columns.  Any *fields* entry that is absent from a given file is
     null-filled, consistent with how the WebDataset reader handles ``fields``.
-    Reserved columns are always read regardless of *fields*.
+    Reserved columns are always read regardless of *fields*, unless
+    *reserved_columns* names the ones a pipeline needs: the rest are left
+    unread and null-filled, which saves the I/O of large columns such as
+    ``text_content``.  ``sample_id``, ``position`` and ``modality`` are always read.
 
     When *max_batch_bytes* is set, the combined table is split into multiple
     batches so that no single batch exceeds the byte limit.  Each split's
@@ -47,6 +50,7 @@ class InterleavedParquetReaderStage(BaseInterleavedReader):
 
     fields: tuple[str, ...] | None = None
     max_batch_bytes: int | None = None
+    reserved_columns: tuple[str, ...] | None = None
     name: str = "interleaved_parquet_reader"
 
     def __post_init__(self) -> None:
@@ -64,11 +68,15 @@ class InterleavedParquetReaderStage(BaseInterleavedReader):
         that exist in the file; missing declared fields are null-filled after
         the read.
         """
-        if self.fields is None:
+        if self.fields is None and self.reserved_columns is None:
             return None
         file_col_set = set(file_schema.names)
-        cols = [c for c in RESERVED_COLUMNS if c in file_col_set]
-        for f in self.fields:
+        reserved = RESERVED_COLUMNS
+        if self.reserved_columns is not None:
+            reserved = {"sample_id", "position", "modality", *self.reserved_columns}
+        cols = [c for c in RESERVED_COLUMNS if c in file_col_set and c in reserved]
+        fields = self.fields if self.fields is not None else file_schema.names
+        for f in fields:
             if f in file_col_set and f not in RESERVED_COLUMNS:
                 cols.append(f)
         return cols
