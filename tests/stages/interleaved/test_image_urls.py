@@ -86,3 +86,17 @@ def test_remote_image_urls(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, dedu
     with_field = InterleavedParquetReaderStage(fields=("linked",), reserved_columns=("source_ref",)).process(task)
     urls = InterleavedRemoteImageUrlStage(url_field="linked").process(with_field).to_pyarrow()["image_url"].to_pylist()
     assert sorted(urls) == ["http://i/1", "http://i/3", "https://i/2"]
+
+
+def test_reader_falls_back_to_the_plain_read_when_a_byte_range_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def failed_range(*_args: object, **_kwargs: object) -> None:
+        msg = "'OSError' object is not subscriptable"  # what a failed range download raises when read
+        raise TypeError(msg)
+
+    monkeypatch.setattr("nemo_curator.stages.interleaved.io.readers.parquet.open_parquet_file", failed_range)
+    task = FileGroupTask(dataset_name="d", data=[_write(tmp_path)])
+    table = InterleavedParquetReaderStage(fields=("url",), reserved_columns=("source_ref",)).process(task).to_pyarrow()
+    assert table.num_rows == 9
+    assert table["url"].drop_null().to_pylist() == ["http://p/a", "http://p/b"]
