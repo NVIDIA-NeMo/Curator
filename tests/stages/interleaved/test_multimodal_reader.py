@@ -1186,24 +1186,12 @@ def test_source_files_for_split_null_sample_ids_fallback(caplog) -> None:  # noq
     assert any("falling back" in r.message for r in caplog.records)
 
 
-def test_parquet_reader_reads_text_columns_as_large_strings(tmp_path: Path) -> None:
-    """A batch of several files can hold more than the 2 GiB one `string` array allows."""
-    rows = {
-        "sample_id": ["s1", "s1"],
-        "position": [-1, 0],
-        "modality": ["metadata", "text"],
-        "text_content": [None, "t"],
-    }
-    schema = pa.schema(
-        [
-            ("sample_id", pa.string()),
-            ("position", pa.int32()),
-            ("modality", pa.string()),
-            ("text_content", pa.string()),
-        ]
-    )
+def test_parquet_reader_reads_sample_id_as_large_string(tmp_path: Path) -> None:
+    """The reader combines sample_id into one array, which for `string` holds at most 2 GiB."""
+    rows = {"sample_id": ["s1", "s1"], "position": [-1, 0], "modality": ["metadata", "text"]}
+    schema = pa.schema([("sample_id", pa.string()), ("position", pa.int32()), ("modality", pa.string())])
     path = str(tmp_path / "strings.parquet")
     pq.write_table(pa.table(rows, schema=schema), path)
     table = InterleavedParquetReaderStage().process(FileGroupTask(dataset_name="d", data=[path])).to_pyarrow()
-    for name in ("sample_id", "modality", "content_type", "text_content", "source_ref", "materialize_error"):
-        assert table.schema.field(name).type == pa.large_string(), name
+    assert table.schema.field("sample_id").type == pa.large_string()
+    assert table.schema.field("modality").type == pa.string()
