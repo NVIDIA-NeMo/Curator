@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import os
+import threading
 from pathlib import Path
 
 import pytest
@@ -293,3 +294,15 @@ def test_explicit_file_list_is_looked_up_in_parallel_and_kept_whole(tmp_path: Pa
     assert stage._get_file_list_with_sizes(sort_by_size=False) == [(p, i + 1) for i, p in enumerate(paths)]
     groups = [task.data for task in stage.process(EmptyTask)]
     assert [p for group in groups for p in group] == paths
+
+
+def test_explicit_file_list_lookups_overlap(monkeypatch: pytest.MonkeyPatch) -> None:
+    together = threading.Barrier(2, timeout=10)
+
+    def lookup(path: str, **_kwargs: object) -> list[tuple[str, int]]:
+        together.wait()  # returns only while a second lookup is in flight; a serial loop times out here
+        return [(path, 1)]
+
+    monkeypatch.setattr("nemo_curator.stages.file_partitioning.get_all_file_paths_and_size_under", lookup)
+    stage = FilePartitioningStage(file_paths=["a.parquet", "b.parquet"], files_per_partition=1)
+    assert stage._get_file_list_with_sizes(sort_by_size=False) == [("a.parquet", 1), ("b.parquet", 1)]
