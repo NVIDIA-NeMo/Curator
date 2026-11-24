@@ -19,8 +19,13 @@ from dataclasses import dataclass
 import pyarrow as pa
 import pyarrow.compute as pc
 
+from nemo_curator.core.utils import split_table_by_group
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import DocumentBatch, InterleavedBatch
+
+
+# Arrow's group-by aborts the process on several GiB of string keys, so links are deduplicated a slice at a time.
+_DEDUP_ROWS = 4_000_000
 
 
 @dataclass
@@ -53,7 +58,9 @@ class InterleavedRemoteImageUrlStage(ProcessingStage[InterleavedBatch, DocumentB
         remote = [p if isinstance(p, str) and p.startswith(("http://", "https://")) else None for p in paths]
         urls = pa.array(remote, pa.large_string())
         links = pa.table({"sample_id": images["sample_id"], "image_url": urls}).filter(pc.is_valid(urls))
-        links = links.group_by(["sample_id", "image_url"]).aggregate([])
+        # Slices hold whole samples (a sample's rows are consecutive), so the result is the same as one group-by.
+        slices = split_table_by_group(links, "sample_id", max_batch_rows=_DEDUP_ROWS)
+        links = pa.concat_tables([part.group_by(["sample_id", "image_url"]).aggregate([]) for part in slices])
         # A lookup rather than a join: a field the file lacks is null-typed, which Arrow joins reject.
         samples = t.filter(pc.equal(t["modality"], "metadata"))
         rows = pc.index_in(links["sample_id"], value_set=samples["sample_id"])

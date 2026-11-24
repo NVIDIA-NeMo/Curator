@@ -66,7 +66,9 @@ def test_reader_reserved_columns_leaves_the_rest_unread(tmp_path: Path) -> None:
     assert everything._columns_to_read(pq.read_schema(task.data[0]))[4:] == ["url", "score", "linked", "unused"]
 
 
-def test_remote_image_urls(tmp_path: Path) -> None:
+@pytest.mark.parametrize("dedup_rows", [4_000_000, 1])  # 1: every sample is deduplicated in its own slice
+def test_remote_image_urls(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, dedup_rows: int) -> None:
+    monkeypatch.setattr("nemo_curator.stages.interleaved.image_urls._DEDUP_ROWS", dedup_rows)
     task = FileGroupTask(dataset_name="d", data=[_write(tmp_path)])
     batch = InterleavedParquetReaderStage(fields=("url", "score"), reserved_columns=("source_ref",)).process(task)
     out = InterleavedRemoteImageUrlStage(sample_fields=("url", "score")).process(batch).to_pyarrow()
