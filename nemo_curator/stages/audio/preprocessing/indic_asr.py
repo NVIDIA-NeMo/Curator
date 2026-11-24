@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Input preparation for the Hindi Indic Canary pipeline."""
+"""Input preparation for the Hindi Indic Transcribe pipeline."""
 
 from __future__ import annotations
 
@@ -154,7 +154,7 @@ class PrepareIndicASRInputStage(AgentReady, ProcessingStage[AudioTask, AudioTask
 
         notes = data.get(self.notes_key)
         notes = notes if isinstance(notes, dict) else {}
-        notes.update({"primary_model": "indic_canary", "recovery_model": "parakeet_riva"})
+        notes.update({"primary_model": "indic_transcribe", "recovery_model": "parakeet_riva"})
         data[self.notes_key] = notes
         data[self.granary_v1_prediction_key] = reference_text
         data[self.reference_text_key] = reference_text

@@ -85,6 +85,10 @@ selected by the presence of `segments_key`.
 
 ### Conditional/data-dependent writes
 
+Use `invalidates_prior_writes=IOSpec(...)` when processing clears an inherited field
+before trying to replace it. Declare task and segment keys in their respective scopes;
+the planner retracts the old guarantee before accounting for the stage's own writes.
+
 Keep `writes` as the existing mechanical output declaration. When a listed
 field is only written on a runtime branch—or a non-preserving stage may copy an
 upstream field only when it is present—add factual possibility metadata:

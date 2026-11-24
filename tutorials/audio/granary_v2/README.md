@@ -7,7 +7,7 @@ environment, sample data, input and output fields, and validation commands.
 | Step | Tutorial | Result |
 | --- | --- | --- |
 | Prepare recordings | [Metadata extraction](metadata/README.md) | Opus speech clips with speaker, sound-event and language metadata |
-| Transcribe Hindi clips | [Indic ASR](indic_asr/README.md) | Canary and Parakeet predictions, selected and cleaned transcripts, and WER |
+| Transcribe Hindi clips | [Indic ASR](indic_asr/README.md) | Indic Transcribe and Parakeet predictions, selected and cleaned transcripts, and WER |
 | Transcribe with Qwen3-Omni | [Qwen Omni ASR](qwen_omni_asr/README.md) | Transcripts checked for hallucinations and cleaned for downstream use |
 | Process transcripts | [Text pipeline](text_pipeline/README.md) | Entity recovery, punctuation, language verification, normalization and text features |
 

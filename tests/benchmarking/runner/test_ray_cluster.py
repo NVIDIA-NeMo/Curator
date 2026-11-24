@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import gzip
+import json
 import os
 import subprocess
 import sys
@@ -24,7 +25,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "benchmarking"))
 
-from runner.ray_cluster import _compress_large_logs, _start_ray_client_with_log_level
+from runner.ray_cluster import _compress_large_logs, _start_ray_client_with_environment
 
 
 def test_compress_large_logs_preserves_content_and_small_files(tmp_path: Path) -> None:
@@ -83,28 +84,46 @@ def test_mid_copy_failure_does_not_publish_partial_archive(tmp_path: Path, monke
 
 @pytest.mark.parametrize(("parent_level", "entry_level"), [(None, "INFO"), ("WARNING", "DEBUG"), ("WARNING", None)])
 @pytest.mark.parametrize("fail_start", [False, True])
-def test_cluster_start_inherits_log_level_and_restores_parent(
+@pytest.mark.parametrize("configured_address", [None, "", "other-cluster:6379"])
+def test_cluster_start_inherits_environment_and_restores_parent(
     monkeypatch: pytest.MonkeyPatch,
     parent_level: str | None,
     entry_level: str | None,
     fail_start: bool,
+    configured_address: str | None,
 ) -> None:
     if parent_level is None:
         monkeypatch.delenv("RAY_DATA_LOG_LEVEL", raising=False)
     else:
         monkeypatch.setenv("RAY_DATA_LOG_LEVEL", parent_level)
     monkeypatch.delenv("RAY_ADDRESS", raising=False)
+    monkeypatch.setenv("BENCHMARK_EXISTING", "parent")
+    monkeypatch.delenv("BENCHMARK_NEW", raising=False)
+    monkeypatch.setenv("BENCHMARK_EMPTY", "")
+    environment = {"BENCHMARK_EXISTING": "entry", "BENCHMARK_NEW": "new", "BENCHMARK_EMPTY": "set"}
+    if configured_address is not None:
+        environment["RAY_ADDRESS"] = configured_address
+    if entry_level is not None:
+        environment["RAY_DATA_LOG_LEVEL"] = entry_level
     observed = []
 
     class Client:
         """Capture the environment inherited by a real child process at Ray startup."""
 
         def start(self) -> None:
+            assert "RAY_ADDRESS" not in os.environ
             observed.append(
-                subprocess.check_output(  # noqa: S603
-                    [sys.executable, "-c", "import os; print(os.environ.get('RAY_DATA_LOG_LEVEL', 'unset'))"],
-                    text=True,
-                ).strip()
+                json.loads(
+                    subprocess.check_output(  # noqa: S603
+                        [
+                            sys.executable,
+                            "-c",
+                            "import json, os; print(json.dumps({k: os.environ.get(k) for k in "
+                            "['RAY_DATA_LOG_LEVEL', 'BENCHMARK_EXISTING', 'BENCHMARK_NEW', 'BENCHMARK_EMPTY']}))",
+                        ],
+                        text=True,
+                    )
+                )
             )
             os.environ["RAY_ADDRESS"] = "127.0.0.1:6379"
             if fail_start:
@@ -112,9 +131,18 @@ def test_cluster_start_inherits_log_level_and_restores_parent(
                 raise RuntimeError(msg)
 
     with pytest.raises(RuntimeError, match="Startup failed") if fail_start else nullcontext():
-        _start_ray_client_with_log_level(Client(), entry_level)
+        _start_ray_client_with_environment(Client(), environment)
 
-    assert observed == [entry_level or parent_level or "unset"]
+    assert observed == [
+        {
+            "RAY_DATA_LOG_LEVEL": entry_level or parent_level,
+            "BENCHMARK_EXISTING": "entry",
+            "BENCHMARK_NEW": "new",
+            "BENCHMARK_EMPTY": "set",
+        }
+    ]
     assert os.environ.get("RAY_DATA_LOG_LEVEL") == parent_level
-    if not fail_start:
-        assert os.environ["RAY_ADDRESS"] == "127.0.0.1:6379"
+    assert os.environ["BENCHMARK_EXISTING"] == "parent"
+    assert "BENCHMARK_NEW" not in os.environ
+    assert os.environ["BENCHMARK_EMPTY"] == ""
+    assert os.environ["RAY_ADDRESS"] == "127.0.0.1:6379"

@@ -1045,6 +1045,42 @@ def _task_type_issue(walk: _Walk, site: _Site, contract: StageContract) -> list[
     ]
 
 
+def _revoke_prior_writes(walk: _Walk, contract: StageContract) -> None:
+    scopes = (
+        (
+            contract.invalidates_prior_writes.data_keys,
+            walk.available_keys,
+            walk.possible_keys,
+            walk.key_roles,
+            walk.possible_key_roles,
+            walk.key_producer,
+            walk.unkeyed_roles,
+            walk.tensor_keys,
+        ),
+        (
+            contract.invalidates_prior_writes.segment_data_keys,
+            walk.segment_available_keys,
+            walk.possible_segment_keys,
+            walk.segment_key_roles,
+            walk.possible_segment_key_roles,
+            walk.segment_key_producer,
+            walk.unkeyed_segment_roles,
+            walk.segment_tensor_keys,
+        ),
+    )
+    for keys, live, possible, roles, possible_roles, producers, unkeyed, tensors in scopes:
+        for key in keys:
+            unkeyed.difference_update(roles.get(key, set()))
+            unkeyed.discard(contract.key_roles.get(key, role_for_value(key)))
+            live.discard(key)
+            possible.discard(key)
+            roles.pop(key, None)
+            possible_roles.pop(key, None)
+            producers.pop(key, None)
+            tensors.discard(key)
+    _refresh_role_provenance(walk, contract, set(), set(), [])
+
+
 def _advance(walk: _Walk, contract: StageContract, name: str) -> None:  # noqa: C901, PLR0915
     """Fold one stage's writes, removals and tensor residency into the running state."""
     produced = _roles_for_keys(contract, contract.writes.data_keys)
@@ -1054,14 +1090,11 @@ def _advance(walk: _Walk, contract: StageContract, name: str) -> None:  # noqa: 
     # Judged against the INPUT state, before this stage's own possible writes are folded in:
     # a branch must not be made reachable by the key it would itself write.
     reachable_conditionals = _reachable_conditional_writes(walk, contract)
-    # Keys this stage drops on its main path. A conditional write of the same key (a branch that
-    # happens to keep it, or re-emits it with a different meaning such as a tar member name) must
-    # not resurrect it for planning: removal is the guarantee-level fact, the branch the exception.
+    if contract.invalidates_prior_writes.data_keys or contract.invalidates_prior_writes.segment_data_keys:
+        _revoke_prior_writes(walk, contract)
+    # Explicit removals/invalidation dominate conditional writes. Rebuilding a row clears
+    # inherited keys below, but its declared conditional outputs remain possible outputs.
     blocked_keys = set(contract.removes_keys) | set(contract.invalidates_keys)
-    blocked_segment_keys: set[str] = set()
-    if not contract.preserves_upstream_keys:
-        blocked_keys |= walk.available_keys - written
-        blocked_segment_keys |= walk.segment_available_keys - segment_written
     if not contract.preserves_upstream_keys:
         # A stage that rebuilds the task rather than adding to it: whatever it does not write
         # is not downstream. Folding its writes into the inherited state would keep every
@@ -1107,7 +1140,7 @@ def _advance(walk: _Walk, contract: StageContract, name: str) -> None:  # noqa: 
         # Possible, not guaranteed: kept in the ``possible_*`` sets so a downstream read met
         # only from here surfaces as a ``conditional_read`` warning.
         possible = set(reachable.writes.data_keys) - blocked_keys
-        possible_segment = set(reachable.writes.segment_data_keys) - blocked_segment_keys
+        possible_segment = set(reachable.writes.segment_data_keys)
         walk.possible_keys |= possible
         walk.possible_segment_keys |= possible_segment
         walk.possible_roles |= _roles_for_keys(contract, possible)

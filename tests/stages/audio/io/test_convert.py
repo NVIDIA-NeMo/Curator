@@ -108,6 +108,13 @@ def test_process_batch_single_task() -> None:
     assert result[0].data.iloc[0]["text"] == "hi"
 
 
+def test_process_batch_no_source_files_yields_empty_metadata() -> None:
+    tasks = [AudioTask(dataset_name="ds", data={"audio_filepath": "/a.wav"})]
+    stage = AudioToDocumentStage()
+    result = stage.process_batch(tasks)
+    assert result[0]._metadata == {}
+
+
 class TestAudioToDocumentSerializationBoundary:
     """Nothing that cannot be JSON-encoded may cross into a DocumentBatch.
 

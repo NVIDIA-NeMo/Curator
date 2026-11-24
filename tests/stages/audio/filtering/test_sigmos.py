@@ -575,3 +575,24 @@ def test_sigmos_consumes_file_and_waveform_residencies(tmp_path: Path) -> None:
             data={"waveform": torch.zeros(1, 32), "sample_rate": 16000},
         ),
     )
+
+
+@pytest.mark.parametrize("mode", ["task", "segments"])
+def test_rescoring_unscorable_input_retracts_the_owned_score(mode: str) -> None:
+    stage = SIGMOSFilterStage(mode=mode, action="annotate", input_residency="file", noise_key="owned_score")
+    row = {"audio_filepath": "/missing/source.wav", "owned_score": 4.0, "unrelated": "retained"}
+    task = AudioTask(data=row if mode == "task" else {"segments": [row], "owned_score": 99.0})
+
+    assert stage.process(task) is task
+    output = task.data if mode == "task" else task.data["segments"][0]
+    assert "owned_score" not in output
+    assert output["unrelated"] == "retained"
+    if mode == "segments":
+        assert task.data["owned_score"] == 99.0
+    invalidation = stage.describe().invalidates_prior_writes
+    assert invalidation.data_keys == (
+        ["owned_score", "sigmos_ovrl", "sigmos_sig", "sigmos_col", "sigmos_disc", "sigmos_loud", "sigmos_reverb"]
+        if mode == "task"
+        else []
+    )
+    assert "owned_score" in (invalidation.segment_data_keys if mode == "segments" else invalidation.data_keys)

@@ -271,6 +271,8 @@ class StageContract:
     # False when a stage reconstructs child dictionaries while preserving task.data.
     # The task-wide preservation flag still takes precedence when it is False.
     preserves_upstream_segment_keys: bool = True
+    # Retract inherited guarantees before this stage's own replacement writes.
+    invalidates_prior_writes: IOSpec = field(default_factory=IOSpec)
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-safe dict of this contract (``json.dumps`` never raises)."""
@@ -302,6 +304,11 @@ class StageContract:
             "produces_task_type": self.produces_task_type,
             "removes_keys": list(self.removes_keys),
             **({"invalidates_keys": list(self.invalidates_keys)} if self.invalidates_keys else {}),
+            **(
+                {"invalidates_prior_writes": asdict(self.invalidates_prior_writes)}
+                if self.invalidates_prior_writes.data_keys or self.invalidates_prior_writes.segment_data_keys
+                else {}
+            ),
             **(
                 {
                     "conditional_reads": [
