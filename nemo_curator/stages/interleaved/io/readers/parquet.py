@@ -30,7 +30,6 @@ from nemo_curator.tasks.interleaved import INTERLEAVED_SCHEMA, RESERVED_COLUMNS
 
 from .base import BaseInterleavedReader
 
-
 # Byte ranges closer than this are fetched as one request. Object stores are latency-bound: a few large
 # requests per file cost about the same time as dozens of small ones, and far fewer requests are in flight.
 _RANGE_MERGE_GAP = 16 * 1024 * 1024

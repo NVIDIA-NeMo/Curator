@@ -23,7 +23,6 @@ from nemo_curator.core.utils import split_table_by_group
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import DocumentBatch, InterleavedBatch
 
-
 # Arrow's group-by aborts the process on several GiB of string keys, so links are deduplicated a slice at a time.
 _DEDUP_ROWS = 4_000_000
 
