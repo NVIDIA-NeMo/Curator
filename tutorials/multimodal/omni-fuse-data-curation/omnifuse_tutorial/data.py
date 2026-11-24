@@ -24,9 +24,12 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pandas as pd
+
 from nemo_curator.tasks import DocumentBatch
 
 if TYPE_CHECKING:
+    from numpy.typing import ArrayLike
+
     from omnifuse_tutorial.config import DataPoolConfig
 
 # Mapping columns the loader consumes; every other column is kept as record metadata.
@@ -51,7 +54,7 @@ def read_jsonl(path: str | Path) -> list[dict[str, Any]]:
         return [json.loads(line) for line in handle if line.strip()]
 
 
-def write_json(path: Path, payload: Any) -> Path:
+def write_json(path: Path, payload: object) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return path
@@ -63,7 +66,7 @@ def write_jsonl(path: Path, rows: list[dict[str, Any]]) -> Path:
     return path
 
 
-def write_npy(path: Path, rows: Any) -> Path:
+def write_npy(path: Path, rows: ArrayLike) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     np.save(path, np.asarray(rows, dtype=np.float64))
     return path
@@ -74,7 +77,7 @@ def expert_file(directory: Path, expert: str, kind: str) -> Path:
     return directory / f"{expert.replace('-', '_')}_{kind}.npy"
 
 
-def text_or_none(value: Any) -> str | None:
+def text_or_none(value: object) -> str | None:
     return (value.strip() or None) if isinstance(value, str) else None
 
 
@@ -86,7 +89,7 @@ def annotation_text(record: dict[str, Any]) -> str:
     return text_or_none(record.get("sns_annotation")) or text_or_none(record.get("annotation")) or ""
 
 
-def unit(vector: Any, dim: int, dtype: type = np.float32) -> np.ndarray:
+def unit(vector: ArrayLike, dim: int, dtype: type = np.float32) -> np.ndarray:
     """Zero-pad or truncate to `dim`, then L2-normalize (zero vectors stay zero)."""
     values = np.asarray(vector, dtype=dtype).reshape(-1)[:dim]
     values = np.pad(values, (0, dim - values.size))
@@ -94,7 +97,7 @@ def unit(vector: Any, dim: int, dtype: type = np.float32) -> np.ndarray:
     return values / norm if norm > 0 else values
 
 
-def cosine(left: Any, right: Any) -> float:
+def cosine(left: ArrayLike, right: ArrayLike) -> float:
     left, right = np.asarray(left, dtype=np.float64), np.asarray(right, dtype=np.float64)
     norm = np.linalg.norm(left) * np.linalg.norm(right)
     return float(left @ right / norm) if norm else 0.0
@@ -115,7 +118,8 @@ def load_records(pools: list[DataPoolConfig]) -> list[dict[str, Any]]:
     for pool in pools:
         mapping = pool.root_dir / pool.mapping_file
         if not mapping.exists():
-            raise FileNotFoundError(f"Mapping file not found: {mapping}")
+            msg = f"Mapping file not found: {mapping}"
+            raise FileNotFoundError(msg)
         rows = read_jsonl(mapping)
         pool_records = [record for index, row in enumerate(rows) if (record := _record(pool, row, index))]
         if pool.shuffle:
@@ -127,17 +131,20 @@ def load_records(pools: list[DataPoolConfig]) -> list[dict[str, Any]]:
 def _record(pool: DataPoolConfig, row: dict[str, Any], index: int) -> dict[str, Any] | None:
     raw_rel, ann_rel, annotation = row.get("data_path"), row.get("annotation_path"), row.get("annotation") or None
     if not raw_rel:
-        raise ValueError(f"Mapping row missing data_path in pool {pool.name}: {row}")
+        msg = f"Mapping row missing data_path in pool {pool.name}: {row}"
+        raise ValueError(msg)
     raw_path = _resolve(pool.root_dir, raw_rel)
     if not raw_path.exists():
-        raise FileNotFoundError(f"Raw data file not found for pool {pool.name}: {raw_path}")
+        msg = f"Raw data file not found for pool {pool.name}: {raw_path}"
+        raise FileNotFoundError(msg)
     if pool.max_file_size_mb is not None and raw_path.stat().st_size > pool.max_file_size_mb * 1024 * 1024:
         return None
     annotation_path = _resolve(pool.root_dir, ann_rel) if ann_rel else None
     if annotation is None and annotation_path:
         annotation = annotation_path.read_text(encoding="utf-8").strip()
     if annotation is None:
-        raise ValueError(f"Mapping row has no annotation text/path in pool {pool.name}: {row}")
+        msg = f"Mapping row has no annotation text/path in pool {pool.name}: {row}"
+        raise ValueError(msg)
     stable_id = "\x1f".join((pool.name, str(raw_rel), str(ann_rel or annotation)))
     return {
         "pair_id": str(row.get("id") or hashlib.sha256(stable_id.encode("utf-8")).hexdigest()[:16]),
@@ -152,6 +159,6 @@ def _record(pool: DataPoolConfig, row: dict[str, Any], index: int) -> dict[str, 
     }
 
 
-def _resolve(root: Path, value: Any) -> Path:
+def _resolve(root: Path, value: object) -> Path:
     path = Path(str(value))
     return path if path.is_absolute() else (root / path).resolve()

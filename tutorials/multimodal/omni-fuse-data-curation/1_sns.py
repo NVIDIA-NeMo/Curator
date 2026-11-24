@@ -16,12 +16,12 @@
 
 from __future__ import annotations
 
-from nemo_curator.backends.ray_data import RayDataExecutor
-from nemo_curator.pipeline import Pipeline
-
 from omnifuse_tutorial.data import task_records, write_jsonl
 from omnifuse_tutorial.stages import PairManifestReaderStage, SNSStage
 from utils import parse_config, print_result
+
+from nemo_curator.backends.ray_data import RayDataExecutor
+from nemo_curator.pipeline import Pipeline
 
 
 def main() -> None:
@@ -38,7 +38,8 @@ def main() -> None:
     )
     tasks = pipeline.run(executor=RayDataExecutor())
     if not tasks:
-        raise RuntimeError(f"Curator pipeline {pipeline.name} produced no output tasks")
+        msg = f"Curator pipeline {pipeline.name} produced no output tasks"
+        raise RuntimeError(msg)
 
     # Save the SNS-refined records for Step 2 (2_embed.py).
     final_task = tasks[-1]

@@ -22,11 +22,11 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 from loguru import logger
+
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import DocumentBatch
-
 from omnifuse_tutorial.data import (
     cosine,
     expert_file,
@@ -44,6 +44,8 @@ from omnifuse_tutorial.data import (
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from nemo_curator.backends.base import WorkerMetadata
+    from nemo_curator.tasks import EmptyTask
     from omnifuse_tutorial.config import ExperimentConfig
 
 
@@ -85,13 +87,14 @@ class PairManifestReaderStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     def is_fanout_stage(self) -> bool:
         return self.sharded
 
-    def process(self, task: Any) -> DocumentBatch | list[DocumentBatch]:
+    def process(self, _task: EmptyTask | DocumentBatch | None) -> DocumentBatch | list[DocumentBatch]:
         experiment = self.config.experiment_id
         records = read_jsonl(self.records_path) if self.records_path else load_records(self.config.data_pools)
         if not self.sharded:
             return make_batch(experiment, records, {"experiment_id": experiment})
         if not records:
-            raise ValueError("Parallel SNS/EEE requires at least one input record")
+            msg = "Parallel SNS/EEE requires at least one input record"
+            raise ValueError(msg)
         starts = range(0, len(records), size := self.config.parallelism.records_per_shard)
         return [
             make_batch(
@@ -113,7 +116,7 @@ class SNSStage(_ModelStage):
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], ["sns_annotation", "sns_raw_text"]
 
-    def setup(self, _worker: Any = None) -> None:
+    def setup(self, _worker: WorkerMetadata | None = None) -> None:
         from omnifuse_tutorial.sns import SNS
 
         self._engine = SNS(self.config)
@@ -135,7 +138,7 @@ class EEEEmbeddingStage(_ModelStage):
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
 
-    def setup(self, _worker: Any = None) -> None:
+    def setup(self, _worker: WorkerMetadata | None = None) -> None:
         from omnifuse_tutorial.eee import EEEBackend
 
         self._engine = EEEBackend(self.config.eee, self.config.runtime)
@@ -164,7 +167,7 @@ class EEEEmbeddingStage(_ModelStage):
         paths = {"embedding_metadata_path": str(metadata_path), "embedding_errors_path": str(errors_path)}
         return with_records(task, records, {**metadata, **paths})
 
-    def _embed(self, record: dict[str, Any], expert: str, side: str, errors: list[dict[str, str]]) -> Any:
+    def _embed(self, record: dict[str, Any], expert: str, side: str, errors: list[dict[str, str]]) -> np.ndarray:
         """Embed one side of a pair; with `continue_on_error`, failures become zero vectors listed in errors.json."""
         try:
             return (self._engine.embed_raw if side == "raw" else self._engine.embed_annotation)(record, expert)
@@ -207,7 +210,8 @@ class ProjectionTrainingStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
         embeddings, output = self.config.run_dir / "embeddings", self.config.run_dir / "projection"
         if not (embeddings / "metadata.json").exists():
-            raise FileNotFoundError(f"Missing {embeddings / 'metadata.json'}. Run 2_embed.py first.")
+            msg = f"Missing {embeddings / 'metadata.json'}. Run 2_embed.py first."
+            raise FileNotFoundError(msg)
         experts = json.loads((embeddings / "metadata.json").read_text(encoding="utf-8"))["experts"]
         interleaved = {expert: np.load(expert_file(embeddings, expert, "interleaved")) for expert in experts}
         if self.config.projection.save_weights_path is None:
@@ -245,7 +249,7 @@ class DatablendRankingStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         anchor = json.loads(projected_path.with_name("model.json").read_text(encoding="utf-8"))["anchor_expert"]
         query = EEEBackend(self.config.eee, self.config.runtime).embed_query(blend.query, anchor)
         ranked = []
-        for index, (record, projected) in enumerate(zip(task_records(task), projected_rows)):
+        for index, (record, projected) in enumerate(zip(task_records(task), projected_rows, strict=True)):
             row = {
                 "score": cosine(projected, query),
                 "pair_id": record["pair_id"],

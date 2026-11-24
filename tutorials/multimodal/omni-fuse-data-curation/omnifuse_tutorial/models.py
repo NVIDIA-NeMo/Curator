@@ -24,11 +24,13 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import torch
-import torch.nn.functional as F
+from torch.nn import functional
 
 from omnifuse_tutorial.config import TUTORIAL_DIR, languagebind_root
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from omnifuse_tutorial.config import RuntimeConfig
 
 OMNI_PROCESSOR_FILES = ["*.json", "*.txt", "*.model", "*.py", "*.jinja", "additional_chat_templates/*.jinja"]
@@ -50,7 +52,7 @@ def resolve_device(runtime: RuntimeConfig) -> str:
 def mean_pool(hidden: torch.Tensor, mask: torch.Tensor) -> np.ndarray:
     """Attention-masked mean pooling followed by L2 normalization."""
     hidden = hidden.masked_fill(~mask[..., None].bool(), 0.0)
-    return F.normalize(hidden.sum(dim=1) / mask.sum(dim=1)[..., None], dim=-1).float().cpu().numpy()
+    return functional.normalize(hidden.sum(dim=1) / mask.sum(dim=1)[..., None], dim=-1).float().cpu().numpy()
 
 
 class OmniEmbed:
@@ -110,7 +112,8 @@ class OmniEmbed:
         elif modality == "video":
             item = {"type": "video", "video": str(path), "fps": 1.0, "max_pixels": 128 * 128 * 64}
         else:
-            raise ValueError(f"Unsupported modality for Omni-Embed: {modality}")
+            msg = f"Unsupported modality for Omni-Embed: {modality}"
+            raise ValueError(msg)
         messages = [{"role": "user", "content": [item]}]
         videos = process_vision_info(messages, return_video_kwargs=True)[1] if modality == "video" else None
         text = self.processor.apply_chat_template(messages, add_generation_prompt=False, tokenize=False)
@@ -120,7 +123,7 @@ class OmniEmbed:
         )
         return self._pool(batch)[0]
 
-    def _pool(self, batch: Any) -> np.ndarray:
+    def _pool(self, batch: Mapping[str, Any]) -> np.ndarray:
         batch = {key: value.to(self.device) for key, value in batch.items() if value is not None}
         with torch.inference_mode():
             return mean_pool(self.model(**batch, output_hidden_states=True).hidden_states[-1], batch["attention_mask"])
@@ -130,10 +133,11 @@ def bootstrap_languagebind() -> None:
     """Make the LanguageBind checkout importable on current torch/transformers releases."""
     root = languagebind_root()
     if not root.exists():
-        raise RuntimeError(
+        msg = (
             f"LanguageBind source not found at {root}. Clone https://github.com/PKU-YuanGroup/LanguageBind to "
             f"{TUTORIAL_DIR / 'third_party' / 'LanguageBind'} or set LANGUAGEBIND_ROOT."
         )
+        raise RuntimeError(msg)
     tmp = TUTORIAL_DIR / "tmp"
     for name, directory in (
         ("TMPDIR", tmp),
@@ -150,7 +154,7 @@ def bootstrap_languagebind() -> None:
     from transformers.modeling_attn_mask_utils import AttentionMaskConverter
 
     if not hasattr(torchaudio, "set_audio_backend"):
-        torchaudio.set_audio_backend = lambda *args, **kwargs: None
+        torchaudio.set_audio_backend = lambda *_args, **_kwargs: None
     with contextlib.suppress(ImportError):
         import torchvision.transforms._functional_tensor as functional_tensor
 
@@ -163,13 +167,14 @@ def bootstrap_languagebind() -> None:
 
 
 def _clip_vision_embeddings_forward(
-    self: Any, pixel_values: torch.Tensor, interpolate_pos_encoding: bool = False
-) -> Any:
+    self: torch.nn.Module, pixel_values: torch.Tensor, interpolate_pos_encoding: bool = False
+) -> torch.Tensor:
     """CLIP vision embeddings that cast pixels to the patch-embedding dtype, as LanguageBind expects."""
     batch_size, _, height, width = pixel_values.shape
     expected = tuple(self.image_size) if isinstance(self.image_size, (tuple, list)) else (self.image_size,) * 2
     if not interpolate_pos_encoding and (height, width) != expected:
-        raise ValueError(f"Input image size ({height}*{width}) doesn't match model ({expected[0]}*{expected[1]}).")
+        msg = f"Input image size ({height}*{width}) doesn't match model ({expected[0]}*{expected[1]})."
+        raise ValueError(msg)
     patch_embeds = self.patch_embedding(pixel_values.to(dtype=self.patch_embedding.weight.dtype))
     embeddings = torch.cat(
         [self.class_embedding.expand(batch_size, 1, -1), patch_embeds.flatten(2).transpose(1, 2)], dim=1
@@ -221,11 +226,11 @@ class LanguageBind:
         )
         with torch.inference_mode():
             features = model.get_text_features(**{key: value.to(self.device) for key, value in batch.items()})
-        return F.normalize(features, dim=-1)[0].float().cpu().numpy()
+        return functional.normalize(features, dim=-1)[0].float().cpu().numpy()
 
     def encode_media(self, path: str, modality: str) -> np.ndarray:
         model, processor = self._modality(modality)
         batch = processor(images=[path], return_tensors="pt")
         with torch.inference_mode():
             features = model.get_image_features(**{key: value.to(self.device) for key, value in batch.items()})
-        return F.normalize(features, dim=-1)[0].float().cpu().numpy()
+        return functional.normalize(features, dim=-1)[0].float().cpu().numpy()

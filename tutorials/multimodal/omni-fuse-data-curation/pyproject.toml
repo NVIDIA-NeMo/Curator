@@ -64,22 +64,3 @@ torchcodec = { index = "pytorch-cu128", marker = "sys_platform == 'linux'" }
 
 [tool.setuptools]
 packages = ["omnifuse_tutorial"]
-
-[tool.ruff]
-extend = "../../../pyproject.toml"
-
-[tool.ruff.lint]
-extend-ignore = [
-    "ANN401",  # Tutorial glue handles dynamic Curator, torch, and model objects.
-    "ARG002",
-    "ARG005",
-    "B905",
-    "C901",
-    "EM101",
-    "EM102",
-    "N812",
-    "NPY002",
-    "PLR0913",
-    "PLR2004",
-    "TRY004",
-]

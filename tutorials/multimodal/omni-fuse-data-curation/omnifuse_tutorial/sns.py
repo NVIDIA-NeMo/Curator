@@ -23,12 +23,12 @@ import sys
 import types
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeVar
 
 import numpy as np
 import torch
-import torch.nn.functional as F
 from loguru import logger
+from torch.nn import functional
 
 from omnifuse_tutorial.data import annotation_text, cosine, fingerprint, raw_text, text_or_none, unit
 from omnifuse_tutorial.models import OmniEmbed, resolve_device
@@ -37,7 +37,11 @@ from omnifuse_tutorial.nvidia_api import NvidiaApi
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from spacy.language import Language
+
     from omnifuse_tutorial.config import ExperimentConfig, SNSConfig
+
+T = TypeVar("T")
 
 SENTENCE_RE = re.compile(r"(?<=[.!?])\s+|\n+")
 MEDIA = ("image", "audio", "video")
@@ -212,15 +216,15 @@ class SNS:
         }
 
     def _mi_gate(
-        self, modality: str, raw: Any, annotation: str, candidate_raw: Any, candidate_annotation: str
-    ) -> tuple[bool, dict]:
+        self, modality: str, raw: object, annotation: str, candidate_raw: object, candidate_annotation: str
+    ) -> tuple[bool, dict[str, float]]:
         original = self.similarity(raw, modality, annotation)
         candidate = self.similarity(candidate_raw, modality, candidate_annotation)
         threshold = self.config.mi_ratio * max(original, self.config.mi_eps)
         gate = {"original_similarity": original, "candidate_similarity": candidate, "mi_threshold": threshold}
         return candidate >= threshold, gate
 
-    def similarity(self, raw: Any, modality: str, text: str) -> float:
+    def similarity(self, raw: object, modality: str, text: str) -> float:
         """Raw-vs-text Omni-Embed cosine; modalities other than text and media score 0."""
         if modality in MEDIA:
             return cosine(self._embed_media(raw, modality), self._embed_texts([text])[0])
@@ -244,16 +248,16 @@ class SNS:
             self.text_cache.update(zip(missing, [unit(vector, self.dim) for vector in vectors], strict=True))
         return [self.text_cache[text] for text in texts]
 
-    def _embed_media(self, path: Any, modality: str) -> np.ndarray:
+    def _embed_media(self, path: object, modality: str) -> np.ndarray:
         key = (modality, str(path))
         if key not in self.media_cache:
-            self.media_cache[key] = unit(self.omni.encode_media(path, modality), self.dim)
+            self.media_cache[key] = unit(self.omni.encode_media(str(path), modality), self.dim)
         return self.media_cache[key]
 
     def _describe(self, record: dict[str, Any]) -> str:
         return raw_text(record) or self._describe_media(record.get("raw_path"), str(record.get("modality") or "text"))
 
-    def _describe_media(self, value: Any, modality: str) -> str:
+    def _describe_media(self, value: object, modality: str) -> str:
         if modality == "text":
             return text_or_none(value) or ""
         path = Path(value) if isinstance(value, (str, Path)) else None
@@ -341,7 +345,7 @@ class ForwardExtractor:
         for component in components:
             query, mask = model._text_encoder.encode(component)
             if model._feature_name != "resnet_glove":
-                query = F.normalize(query, dim=-1, eps=1e-5)
+                query = functional.normalize(query, dim=-1, eps=1e-5)
             inputs = {
                 "src_vid": features.get("video_feats", features.get("audio_feats")),
                 "src_vid_mask": features.get("video_mask"),
@@ -419,10 +423,11 @@ class ForwardExtractor:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         return self.output_dir / f"{uuid.uuid4()}{suffix}"
 
-    def _model(self, name: str, load: Callable[[], Any], hint: str) -> Any:
+    def _model(self, name: str, load: Callable[[], T], hint: str) -> T:
         """Load a forward model once; a failed load is remembered so later records fail fast."""
         if name in self.failed:
-            raise RuntimeError(f"{name} model is unavailable from a previous load attempt")
+            msg = f"{name} model is unavailable from a previous load attempt"
+            raise RuntimeError(msg)
         if name not in self.models:
             try:
                 self.models[name] = load()
@@ -431,7 +436,7 @@ class ForwardExtractor:
                 raise RuntimeError(hint) from exc
         return self.models[name]
 
-    def _load_cgdetr(self) -> Any:
+    def _load_cgdetr(self) -> object:
         import easydict
         from lighthouse.models import CGDETRPredictor
 
@@ -447,7 +452,7 @@ class ForwardExtractor:
         finally:
             torch.load = torch_load
 
-    def _load_amdetr(self) -> Any:
+    def _load_amdetr(self) -> torch.nn.Module:
         from huggingface_hub import snapshot_download
 
         model_dir = Path(snapshot_download(self.config.amdetr_repo_id))
@@ -462,7 +467,8 @@ class ForwardExtractor:
                 f"{package}.{name}", model_dir / f"{name}.py", submodule_search_locations=[str(model_dir)]
             )
             if spec is None or spec.loader is None:
-                raise ImportError(f"Could not load module spec for {model_dir / f'{name}.py'}")
+                msg = f"Could not load module spec for {model_dir / f'{name}.py'}"
+                raise ImportError(msg)
             module = importlib.util.module_from_spec(spec)
             module.__package__ = package
             sys.modules[f"{package}.{name}"] = sys.modules[name] = module
@@ -493,7 +499,7 @@ class ForwardExtractor:
 
 
 @functools.lru_cache(maxsize=1)
-def _spacy() -> Any:
+def _spacy() -> Language:
     import spacy
 
     return spacy.load("en_core_web_sm")
@@ -506,10 +512,11 @@ def annotation_components(annotation: str, config: SNSConfig) -> list[str]:
     try:
         nlp = _spacy()
     except Exception as exc:
-        raise RuntimeError(
+        msg = (
             "SNS annotation component extraction requires spaCy model en_core_web_sm. Install it with "
             "`python -m spacy download en_core_web_sm`, or set sns.use_ann_components: false to use whole annotations."
-        ) from exc
+        )
+        raise RuntimeError(msg) from exc
     doc = nlp(annotation)
     components = [" ".join(token.text for token in chunk if token.pos_ != "PRON") for chunk in doc.noun_chunks]
     verb_children = {"VERB", "ADV", "NOUN", "PROPN", "ADJ"}

@@ -20,6 +20,7 @@ import base64
 import io
 import time
 import wave
+from http import HTTPStatus
 from typing import TYPE_CHECKING, Any
 
 import requests
@@ -52,7 +53,8 @@ MIME_TYPES = {
 class NvidiaApi:
     def __init__(self, eee: EEEConfig, timeout: int = 120):
         if eee.needs_api_key:
-            raise ValueError("NVIDIA API key required. Set NV_BUILD_API_KEY in .env or eee.nvidia_api_key.")
+            msg = "NVIDIA API key required. Set NV_BUILD_API_KEY in .env or eee.nvidia_api_key."
+            raise ValueError(msg)
         self.base_url, self.embedding_url = eee.base_urls
         self.headers = {"Content-Type": "application/json", "Accept": "application/json"}
         if eee.api_key:
@@ -73,7 +75,11 @@ class NvidiaApi:
                 f"{self.embedding_url}/embeddings", self.headers, self._embed_payload(chunk, input_type)
             )
             # NIM rejects the OpenAI-style payload; vLLM silently ignores input_type, so its prefix goes in the text.
-            if not self.nim_embeddings and response.status_code == 400 and "input_type" in response.text:
+            if (
+                not self.nim_embeddings
+                and response.status_code == HTTPStatus.BAD_REQUEST
+                and "input_type" in response.text
+            ):
                 self.nim_embeddings = True
                 response = self._post(
                     f"{self.embedding_url}/embeddings", self.headers, self._embed_payload(chunk, input_type)
@@ -81,7 +87,8 @@ class NvidiaApi:
             response.raise_for_status()
             data = sorted(response.json()["data"], key=lambda item: int(item.get("index", 0)))
             if len(data) != len(chunk):
-                raise RuntimeError(f"NVIDIA embeddings returned {len(data)} vectors for {len(chunk)} texts")
+                msg = f"NVIDIA embeddings returned {len(data)} vectors for {len(chunk)} texts"
+                raise RuntimeError(msg)
             vectors += [[float(value) for value in item["embedding"]] for item in data]
         return vectors
 
@@ -110,15 +117,17 @@ class NvidiaApi:
         """Audio chat models: inline audio, then an inline opening preview if the full file is too large."""
         payload = _chat(model, [{"role": "user", "content": _inline_audio(path, prompt)}])
         response = self._post(url, self.headers, payload)
-        if response.status_code == 413 or (
-            response.status_code == 400
+        if response.status_code == HTTPStatus.REQUEST_ENTITY_TOO_LARGE or (
+            response.status_code == HTTPStatus.BAD_REQUEST
             and any(hint in response.text.lower() for hint in ("payload", "too large", "request size", "audio_url"))
         ):
             preview = _inline_audio(path, prompt, preview=True)
             response = self._post(url, self.headers, {**payload, "messages": [{"role": "user", "content": preview}]})
         return _response_text(self._resolve(response, self.headers, model, url).json(), model, url)
 
-    def _post(self, url: str, headers: dict[str, str], payload: dict[str, Any], attempts: int = 3) -> Any:
+    def _post(
+        self, url: str, headers: dict[str, str], payload: dict[str, Any], attempts: int = 3
+    ) -> requests.Response:
         for attempt in range(attempts):
             try:
                 response = requests.post(url, headers=headers, json=payload, timeout=self.timeout)
@@ -132,9 +141,11 @@ class NvidiaApi:
             time.sleep(2 * (attempt + 1))
         return response
 
-    def _resolve(self, response: Any, headers: dict[str, str], model: str, url: str) -> Any:
+    def _resolve(
+        self, response: requests.Response, headers: dict[str, str], model: str, url: str
+    ) -> requests.Response:
         """Raise on HTTP errors and poll 202 (accepted) responses until the result is ready."""
-        if response.status_code != 202:
+        if response.status_code != HTTPStatus.ACCEPTED:
             _raise_for_status(response, model, url)
             return response
         headers_in = response.headers
@@ -145,12 +156,16 @@ class NvidiaApi:
             except ValueError:
                 request_id = None
         if not request_id:
-            raise RuntimeError(f"NVIDIA API returned 202 without requestId for model {model}: {response.text[:1000]}")
+            msg = f"NVIDIA API returned 202 without requestId for model {model}: {response.text[:1000]}"
+            raise RuntimeError(msg)
         status_url = f"{self.base_url}/status/{request_id}"
         deadline = time.monotonic() + max(self.timeout, 1)
-        while (response := requests.get(status_url, headers=headers, timeout=self.timeout)).status_code == 202:
+        while (
+            response := requests.get(status_url, headers=headers, timeout=self.timeout)
+        ).status_code == HTTPStatus.ACCEPTED:
             if time.monotonic() >= deadline:
-                raise TimeoutError(f"NVIDIA API polling timed out for model {model} request {request_id}")
+                msg = f"NVIDIA API polling timed out for model {model} request {request_id}"
+                raise TimeoutError(msg)
             time.sleep(2)
         _raise_for_status(response, model, status_url)
         return response
@@ -205,25 +220,29 @@ def _audio_format(path: Path) -> str:
     audio_format = path.suffix.lower().lstrip(".")
     audio_format = "mp3" if audio_format == "mpeg" else audio_format
     if audio_format not in {"wav", "mp3"}:
-        raise ValueError(f"NVIDIA audio descriptions support wav/mp3 only, got {path.suffix} for {path}")
+        msg = f"NVIDIA audio descriptions support wav/mp3 only, got {path.suffix} for {path}"
+        raise ValueError(msg)
     return audio_format
 
 
-def _raise_for_status(response: Any, model: str, url: str) -> None:
-    if response.status_code >= 400:
-        raise RuntimeError(
-            f"NVIDIA API request failed: model={model} url={url} status={response.status_code} body={response.text[:1000]}"
+def _raise_for_status(response: requests.Response, model: str, url: str) -> None:
+    if response.status_code >= HTTPStatus.BAD_REQUEST:
+        msg = (
+            f"NVIDIA API request failed: model={model} url={url} "
+            f"status={response.status_code} body={response.text[:1000]}"
         )
+        raise RuntimeError(msg)
 
 
-def _response_text(payload: Any, model: str, url: str) -> str:
+def _response_text(payload: object, model: str, url: str) -> str:
     choices = payload.get("choices") if isinstance(payload, dict) else None
     content = choices[0].get("message", {}).get("content") if choices else None
     if isinstance(content, str) and content.strip():
         return content.strip()
-    raise RuntimeError(f"NVIDIA API response missing text content: model={model} url={url} body={str(payload)[:1000]}")
+    msg = f"NVIDIA API response missing text content: model={model} url={url} body={str(payload)[:1000]}"
+    raise RuntimeError(msg)
 
 
-def _first_string(payload: Any, keys: tuple[str, ...]) -> str | None:
+def _first_string(payload: object, keys: tuple[str, ...]) -> str | None:
     values = [payload.get(key) for key in keys] if isinstance(payload, dict) else []
     return next((value for value in values if isinstance(value, str) and value), None)

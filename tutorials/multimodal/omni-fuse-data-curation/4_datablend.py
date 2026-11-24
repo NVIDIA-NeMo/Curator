@@ -16,11 +16,11 @@
 
 from __future__ import annotations
 
-from nemo_curator.backends.ray_data import RayDataExecutor
-from nemo_curator.pipeline import Pipeline
-
 from omnifuse_tutorial.stages import DatablendRankingStage, PairManifestReaderStage
 from utils import parse_config, print_result
+
+from nemo_curator.backends.ray_data import RayDataExecutor
+from nemo_curator.pipeline import Pipeline
 
 
 def main() -> None:
@@ -28,7 +28,8 @@ def main() -> None:
 
     projection_records = config.run_dir / "projection" / "records.jsonl"
     if not projection_records.exists():
-        raise FileNotFoundError(f"Missing {projection_records}. Run 3_project.py first.")
+        msg = f"Missing {projection_records}. Run 3_project.py first."
+        raise FileNotFoundError(msg)
 
     # Embed the datablend query with the anchor expert and rank Step 3's projected records.
     pipeline = Pipeline(
@@ -41,7 +42,8 @@ def main() -> None:
     )
     tasks = pipeline.run(executor=RayDataExecutor())
     if not tasks:
-        raise RuntimeError(f"Curator pipeline {pipeline.name} produced no output tasks")
+        msg = f"Curator pipeline {pipeline.name} produced no output tasks"
+        raise RuntimeError(msg)
 
     final_task = tasks[-1]
     print_result(

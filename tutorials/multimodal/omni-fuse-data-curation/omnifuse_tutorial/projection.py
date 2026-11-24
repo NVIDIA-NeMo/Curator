@@ -22,6 +22,8 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 if TYPE_CHECKING:
+    import torch
+
     from omnifuse_tutorial.config import ProjectionConfig
 
 
@@ -30,10 +32,11 @@ def train_projection(
 ) -> dict[str, Any]:
     """MLP on per-expert interleaved (raw, annotation) rows: symmetric contrastive plus modality-bias losses."""
     import torch
-    import torch.nn.functional as F
+    from torch.nn import functional
 
     if not modalities:
-        raise ValueError("Cannot train projection on an empty bundle")
+        msg = "Cannot train projection on an empty bundle"
+        raise ValueError(msg)
     anchor = "text-based" if "text-based" in experts else experts[0]
     torch.manual_seed(0)
     device, gpu_count = _torch_device(config)
@@ -80,7 +83,10 @@ def train_projection(
     model.eval()
     with torch.no_grad():
         projected = torch.cat([model(inputs[i : i + batch_size].to(device)) for i in range(0, count, batch_size)])
-        projected, annotations = F.normalize(projected, dim=1), F.normalize(targets.to(device), dim=1)
+        projected, annotations = (
+            functional.normalize(projected, dim=1),
+            functional.normalize(targets.to(device), dim=1),
+        )
         recall = _recall_torch(annotations, projected, k=min(config.eval_recall_k, count), chunk=batch_size)
     state_dict_path = None
     if config.save_weights_path:
@@ -114,7 +120,7 @@ def train_projection(
     }
 
 
-def _torch_device(config: ProjectionConfig) -> tuple[Any, int]:
+def _torch_device(config: ProjectionConfig) -> tuple[torch.device, int]:
     """Use the GPUs Curator assigned to this worker (exposed through CUDA_VISIBLE_DEVICES)."""
     import torch
 
@@ -122,21 +128,22 @@ def _torch_device(config: ProjectionConfig) -> tuple[Any, int]:
         return torch.device("cpu"), 0
     if not torch.cuda.is_available():
         if config.device == "cuda":
-            raise RuntimeError("Projection requested CUDA, but no CUDA device is visible")
+            msg = "Projection requested CUDA, but no CUDA device is visible"
+            raise RuntimeError(msg)
         return torch.device("cpu"), 0
     return torch.device("cuda:0"), min(config.num_gpus, torch.cuda.device_count())
 
 
-def _contrastive_loss(projected: Any, anchors: Any, temperature: float) -> Any:
+def _contrastive_loss(projected: torch.Tensor, anchors: torch.Tensor, temperature: float) -> torch.Tensor:
     import torch
-    import torch.nn.functional as F
+    from torch.nn import functional
 
-    logits = F.normalize(projected, dim=1) @ F.normalize(anchors, dim=1).T / temperature
+    logits = functional.normalize(projected, dim=1) @ functional.normalize(anchors, dim=1).T / temperature
     labels = torch.arange(projected.shape[0], device=projected.device)
-    return 0.5 * (F.cross_entropy(logits, labels) + F.cross_entropy(logits.T, labels))
+    return 0.5 * (functional.cross_entropy(logits, labels) + functional.cross_entropy(logits.T, labels))
 
 
-def _bias_loss(projected: Any, modalities: list[str], scale: bool) -> Any:
+def _bias_loss(projected: torch.Tensor, modalities: list[str], scale: bool) -> torch.Tensor:
     """Penalize per-modality centroid offsets (scale=False) or spread differences (scale=True) in a batch."""
     import torch
 
@@ -157,11 +164,11 @@ def _bias_loss(projected: Any, modalities: list[str], scale: bool) -> Any:
     return torch.stack(losses).mean()
 
 
-def _recall_torch(annotations: Any, projected: Any, k: int, chunk: int) -> dict[str, float]:
+def _recall_torch(annotations: torch.Tensor, projected: torch.Tensor, k: int, chunk: int) -> dict[str, float]:
     """Retrieval recall@k between matching rows, scoring `chunk` queries at a time so memory stays O(chunk x N)."""
     import torch
 
-    def recall(queries: Any, keys: Any) -> float:
+    def recall(queries: torch.Tensor, keys: torch.Tensor) -> float:
         hits = 0
         for start in range(0, len(queries), chunk):
             top = (queries[start : start + chunk] @ keys.T).topk(k, dim=1).indices

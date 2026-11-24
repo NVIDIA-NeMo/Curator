@@ -23,10 +23,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
-from nemo_curator.backends.ray_data import RayDataExecutor
-from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.resources import Resources
-
 from omnifuse_tutorial.data import (
     expert_file,
     read_jsonl,
@@ -38,6 +34,10 @@ from omnifuse_tutorial.data import (
 from omnifuse_tutorial.stages import EEEEmbeddingStage, PairManifestReaderStage, SNSStage
 from utils import parse_config, print_result
 
+from nemo_curator.backends.ray_data import RayDataExecutor
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.resources import Resources
+
 if TYPE_CHECKING:
     from omnifuse_tutorial.config import ExperimentConfig
 
@@ -46,7 +46,8 @@ def main() -> None:
     config = parse_config(__doc__)
     parallel = config.parallelism
     if not parallel.enabled:
-        raise ValueError("Set parallelism.enabled: true to run the parallel SNS/EEE tutorial step")
+        msg = "Set parallelism.enabled: true to run the parallel SNS/EEE tutorial step"
+        raise ValueError(msg)
 
     # Fan out input records into shards and overlap SNS and EEE on separate GPU worker pools.
     pipeline = Pipeline(
@@ -89,7 +90,8 @@ def _merge(config: ExperimentConfig, tasks: list[Any]) -> dict[str, Any]:
     expected = tasks[0]._metadata.get("shard_count", len(tasks)) if tasks else 0
     indices = [task._metadata.get("shard_index") for task in tasks]
     if not tasks or len(indices) != expected or set(indices) != set(range(expected)):
-        raise ValueError(f"Parallel output shards must be unique and complete, got {indices}")
+        msg = f"Parallel output shards must be unique and complete, got {indices}"
+        raise ValueError(msg)
 
     # Concatenate records, SNS manifests, and EEE errors in the same shard completion order.
     records: list[dict[str, Any]] = []

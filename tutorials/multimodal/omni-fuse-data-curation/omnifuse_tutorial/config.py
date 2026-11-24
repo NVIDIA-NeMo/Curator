@@ -20,12 +20,14 @@ import json
 import os
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, TypeVar
 
 import yaml
 
 TUTORIAL_DIR = Path(__file__).resolve().parents[1]
 EXPERTS = ("text-based", "fusion", "e2e")
+MODALITIES = ("text", "image", "audio", "video")
+T = TypeVar("T")
 
 
 def languagebind_root() -> Path:
@@ -36,21 +38,27 @@ def languagebind_root() -> Path:
     )
 
 
-def _at_least_one(section: str, config: Any, *names: str) -> None:
+def _at_least_one(section: str, config: object, *names: str) -> None:
     for name in names:
         if getattr(config, name) < 1:
-            raise ValueError(f"{section}.{name} must be at least 1")
+            msg = f"{section}.{name} must be at least 1"
+            raise ValueError(msg)
 
 
 @dataclass
 class DataPoolConfig:
     name: str
-    modality: Literal["text", "image", "video", "audio", "point-cloud"]
+    modality: Literal["text", "image", "audio", "video"]
     root_dir: Path
     mapping_file: str = "pair_mapping.jsonl"
     n_samples: int | None = None
     shuffle: bool = False
     max_file_size_mb: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.modality not in MODALITIES:
+            msg = f"Unsupported modality {self.modality!r} for pool {self.name!r}; expected one of {MODALITIES}"
+            raise ValueError(msg)
 
 
 @dataclass
@@ -98,9 +106,11 @@ class EEEConfig:
 
     def __post_init__(self) -> None:
         if not self.experts:
-            raise ValueError("eee.experts cannot be empty")
+            msg = "eee.experts cannot be empty"
+            raise ValueError(msg)
         if unknown := sorted(set(self.experts) - set(EXPERTS)):
-            raise ValueError(f"Unsupported EEE experts: {unknown}")
+            msg = f"Unsupported EEE experts: {unknown}"
+            raise ValueError(msg)
 
     @property
     def api_key(self) -> str | None:
@@ -140,9 +150,11 @@ class ProjectionConfig:
 
     def __post_init__(self) -> None:
         if self.num_gpus < 0:
-            raise ValueError("projection.num_gpus cannot be negative")
+            msg = "projection.num_gpus cannot be negative"
+            raise ValueError(msg)
         if self.device == "cuda" and self.num_gpus == 0:
-            raise ValueError("projection.device=cuda requires projection.num_gpus to be at least 1")
+            msg = "projection.device=cuda requires projection.num_gpus to be at least 1"
+            raise ValueError(msg)
         _at_least_one("projection", self, "num_epochs", "batch_size", "log_every_n_epochs")
 
 
@@ -155,7 +167,8 @@ class DatablendConfig:
 
     def __post_init__(self) -> None:
         if not self.query:
-            raise ValueError("datablend.query is required")
+            msg = "datablend.query is required"
+            raise ValueError(msg)
 
 
 @dataclass
@@ -177,7 +190,8 @@ class ParallelismConfig:
     def __post_init__(self) -> None:
         _at_least_one("parallelism", self, "records_per_shard", "sns_workers", "eee_workers")
         if self.sns_gpus_per_worker <= 0 or self.eee_gpus_per_worker <= 0:
-            raise ValueError("parallelism GPU allocations must be greater than 0")
+            msg = "parallelism GPU allocations must be greater than 0"
+            raise ValueError(msg)
 
 
 @dataclass
@@ -195,13 +209,16 @@ class ExperimentConfig:
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> ExperimentConfig:
         if unknown := sorted(set(value) - {item.name for item in fields(cls)}):
-            raise ValueError(f"Unknown top-level config keys: {unknown}")
+            msg = f"Unknown top-level config keys: {unknown}"
+            raise ValueError(msg)
         pools = [_section(DataPoolConfig, item, "root_dir") for item in value.get("data_pools") or []]
         if not pools:
-            raise ValueError("data_pools cannot be empty")
+            msg = "data_pools cannot be empty"
+            raise ValueError(msg)
         experiment_id = str(value.get("experiment_id", "")).strip()
         if not experiment_id:
-            raise ValueError("experiment_id is required")
+            msg = "experiment_id is required"
+            raise ValueError(msg)
         datablend = value.get("datablend") or {"query": "Describe the media content in detail"}
         return cls(
             experiment_id=experiment_id,
@@ -223,14 +240,14 @@ class ExperimentConfig:
         return _jsonable(asdict(self))
 
 
-def _section(cls: type, value: dict[str, Any] | None, *path_keys: str) -> Any:
+def _section(cls: type[T], value: dict[str, Any] | None, *path_keys: str) -> T:
     """Strict section: unknown keys raise TypeError; empty path values keep the default."""
     value = dict(value or {})
     paths = {key: value.pop(key) for key in path_keys if key in value}
     return cls(**value, **{key: Path(item) for key, item in paths.items() if item})
 
 
-def _jsonable(value: Any, key: str = "") -> Any:
+def _jsonable(value: object, key: str = "") -> object:
     if value and any(marker in key.lower() for marker in ("api_key", "token", "secret", "password")):
         return "***REDACTED***"
     if isinstance(value, dict):
@@ -252,11 +269,13 @@ def load_config(path: str | Path) -> ExperimentConfig:
                     os.environ.setdefault(key.strip(), item.strip().strip('"').strip("'"))
     suffix = path.suffix.lower()
     if suffix not in {".json", ".yaml", ".yml"}:
-        raise ValueError(f"Unsupported config suffix: {path.suffix}")
+        msg = f"Unsupported config suffix: {path.suffix}"
+        raise ValueError(msg)
     text = path.read_text(encoding="utf-8")
     data = json.loads(text) if suffix == ".json" else yaml.safe_load(text)
     if not isinstance(data, dict):
-        raise TypeError(f"Config must be a mapping: {path}")
+        msg = f"Config must be a mapping: {path}"
+        raise TypeError(msg)
     config = ExperimentConfig.from_dict(data)
 
     def resolve(item: Path | None) -> Path | None:
