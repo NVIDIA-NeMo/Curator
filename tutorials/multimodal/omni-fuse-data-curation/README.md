@@ -95,6 +95,20 @@ data_pools:
 
 Use small `n_samples` values while validating the tutorial.
 
+#### Reference Datasets
+
+The Omni-Fuse paper and tutorial runs use the following public datasets across
+the four supported modalities. Each dataset must be formatted into the
+[Data Layout](#data-layout) described above (`raw/`, `annotations/`, and
+`pair_mapping.jsonl`, with ALFRED trajectory frames encoded as `.mp4` videos)
+before pointing `configs/omni_fuse_hybrid.yaml` at it:
+
+- **Image — TextCaps**: [lmms-lab-encoder/TextCaps](https://huggingface.co/datasets/lmms-lab-encoder/TextCaps)
+- **Audio — AudioCaps**: [OpenSound/AudioCaps](https://huggingface.co/datasets/OpenSound/AudioCaps)
+- **Video — ALFRED**: [KoeYe/ALFRED](https://huggingface.co/datasets/KoeYe/ALFRED) (trajectory frames; official full release at [askforalfred/alfred](https://github.com/askforalfred/alfred))
+- **Text (code) — CoNaLa**: [neulab/conala](https://huggingface.co/datasets/neulab/conala)
+- **Text (QA) — TriviaQA**: [mandarjoshi/trivia_qa](https://huggingface.co/datasets/mandarjoshi/trivia_qa)
+
 ### Model Backends
 
 API-backed components:
@@ -291,18 +305,22 @@ Run every step in order (prefix with `uv run` if not using an activated environm
 
 ```bash
 CONFIG=configs/omni_fuse_hybrid.yaml
-for step in 0_validate_inputs 1_sns 2_embed 3_project 4_datablend; do
-  python "${step}.py" --config "${CONFIG}" || break
-done
+(
+  for step in 0_validate_inputs 1_sns 2_embed 3_project 4_datablend; do
+    python "${step}.py" --config "${CONFIG}" || exit "$?"
+  done
+)
 ```
 
 For the multi-GPU variant, replace `1_sns` and `2_embed` with `1_2_parallel`:
 
 ```bash
 CONFIG=configs/omni_fuse_hybrid.yaml
-for step in 0_validate_inputs 1_2_parallel 3_project 4_datablend; do
-  python "${step}.py" --config "${CONFIG}" || break
-done
+(
+  for step in 0_validate_inputs 1_2_parallel 3_project 4_datablend; do
+    python "${step}.py" --config "${CONFIG}" || exit "$?"
+  done
+)
 ```
 
 ## Output Layout
