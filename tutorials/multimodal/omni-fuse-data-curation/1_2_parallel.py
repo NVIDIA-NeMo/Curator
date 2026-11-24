@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+from omnifuse_tutorial.config import EMBEDDING_DIM
 from omnifuse_tutorial.data import (
     expert_file,
     read_jsonl,
@@ -45,9 +46,6 @@ if TYPE_CHECKING:
 def main() -> None:
     config = parse_config(__doc__)
     parallel = config.parallelism
-    if not parallel.enabled:
-        msg = "Set parallelism.enabled: true to run the parallel SNS/EEE tutorial step"
-        raise ValueError(msg)
 
     # Fan out input records into shards and overlap SNS and EEE on separate GPU worker pools.
     pipeline = Pipeline(
@@ -124,7 +122,7 @@ def _merge(config: ExperimentConfig, tasks: list[Any]) -> dict[str, Any]:
         "pair_ids": [record["pair_id"] for record in records],
         "modalities": [record["modality"] for record in records],
         "experts": list(config.eee.experts),
-        "embedding_dim": config.eee.embedding_dim,
+        "embedding_dim": EMBEDDING_DIM,
         "error_count": len(errors),
         "errors_path": str(paths["embedding_errors_path"]),
         "parallel_shards": len(tasks),

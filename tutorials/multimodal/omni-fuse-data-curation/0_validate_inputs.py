@@ -49,10 +49,8 @@ def main() -> None:
             "run_dir": str(config.run_dir),
             "records": len(records),
             "modalities": sorted({record["modality"] for record in records}),
-            "sns_embedding_batch_size": config.sns.embedding_batch_size,
             "experts": config.eee.experts,
             "parallelism": {
-                "enabled": parallel.enabled,
                 "records_per_shard": parallel.records_per_shard,
                 "sns_workers": parallel.sns_workers,
                 "eee_workers": parallel.eee_workers,

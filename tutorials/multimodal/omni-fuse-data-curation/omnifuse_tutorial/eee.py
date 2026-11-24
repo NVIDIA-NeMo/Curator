@@ -22,12 +22,13 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from omnifuse_tutorial.config import EMBEDDING_DIM
 from omnifuse_tutorial.data import annotation_text, fingerprint, raw_text, unit
 from omnifuse_tutorial.models import LanguageBind, OmniEmbed, resolve_device
 from omnifuse_tutorial.nvidia_api import NvidiaApi
 
 if TYPE_CHECKING:
-    from omnifuse_tutorial.config import EEEConfig, RuntimeConfig
+    from omnifuse_tutorial.config import EEEConfig
 
 EEE_PROMPTS = {
     "image": "Describe this image in detail.",
@@ -39,10 +40,10 @@ EEE_PROMPTS = {
 class EEEBackend:
     """The text-based expert embeds NVIDIA API descriptions with the API text encoder; fusion and e2e run locally."""
 
-    def __init__(self, eee: EEEConfig, runtime: RuntimeConfig):
-        self.eee, self.dim, self.api = eee, eee.embedding_dim, NvidiaApi(eee)
-        self.device = resolve_device(runtime)
-        self.omni = OmniEmbed(eee.nvidia_multimodal_model, self.device)
+    def __init__(self, eee: EEEConfig):
+        self.eee, self.dim, self.api = eee, EMBEDDING_DIM, NvidiaApi(eee)
+        self.device = resolve_device()
+        self.omni = OmniEmbed(self.device)
         self.languagebind = self.adapter = None
 
     def embed_raw(self, record: dict[str, Any], expert: str) -> np.ndarray:

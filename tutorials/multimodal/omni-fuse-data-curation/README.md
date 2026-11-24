@@ -20,7 +20,7 @@ The tutorial uses an API-first hybrid setup: NVIDIA Build APIs handle media desc
 
 ## Hardware Requirements
 
-Local models run on GPU by default (CPU works only for tiny smoke tests and is very slow):
+This tutorial requires at least one NVIDIA CUDA GPU (the local SNS and EEE stages reserve GPU resources in Ray):
 
 | Mode | GPUs / VRAM | Notes |
 | --- | --- | --- |
@@ -207,38 +207,28 @@ outputs/<experiment_id>/
 
 ## Configuration Reference
 
-`configs/omni_fuse_hybrid.yaml` ships with tiny smoke-test values (`n_samples: 1`, `num_epochs: 1`, `batch_size: 4`, `top_k: 4`) so you can validate the pipeline quickly. Update the pool paths first, then tune the sections below for full runs (all relative paths in the config resolve relative to the YAML file's directory):
+`configs/omni_fuse_hybrid.yaml` ships with tiny smoke-test overrides (`n_samples: 1`, `num_epochs: 1`, `batch_size: 4`, `hidden_layer_size: 256`, `top_k: 4`) and omits fields that already use sensible defaults. Update the pool paths first, then tune the sections below for full runs (relative paths set in YAML resolve relative to the YAML file's directory):
 
-- **Top-level (`experiment_id`, `output_dir`)**: Artifacts are written to `<output_dir>/<experiment_id>/`. Change `experiment_id` to avoid overwriting earlier runs.
+- **Top-level (`experiment_id`, `output_dir`)**: Artifacts are written to `<output_dir>/<experiment_id>/` (`output_dir` defaults to `outputs/` in the tutorial directory). Change `experiment_id` to avoid overwriting earlier runs.
 - **`data_pools`**: List of input pools. Each entry takes:
-  - `name`, `modality` (`text`, `image`, `audio`, or `video`), `root_dir`, and `mapping_file` (default `pair_mapping.jsonl`).
-  - `n_samples`: cap records loaded per pool (omit or set `null` to load the full pool; start small while testing).
+  - `name`, `modality` (`text`, `image`, `audio`, or `video`), `root_dir`, and optional `mapping_file` (default `pair_mapping.jsonl`).
+  - `n_samples`: cap records loaded per pool (omit or set `null` to load the full pool).
   - `shuffle` (default `false`): deterministically shuffle before applying `n_samples`.
   - `max_file_size_mb` (default `null`): skip raw files exceeding this size in MiB (useful to stay within inline API payload limits).
-- **`sns`**: Controls Symmetric Nucleus Subsampling:
-  - `enabled` (default `true`) and `direction` (`forward`, `backward`, or `bidirectional`).
-  - `mi_ratio` (config: `0.75`, dataclass default: `0.95`) and `mi_eps` (`0.05`): mutual-information gate `sim(candidate) >= mi_ratio * max(sim(original), mi_eps)`. Lower `mi_ratio` accepts more aggressive trims; higher keeps originals unless similarity stays close.
-  - `tau_forward_text`, `tau_forward_image`, `tau_forward_audio`, `tau_forward_video`, `tau_backward`: per-modality relevance thresholds. Higher values prune more aggressively; lower values retain more content.
-  - `max_video_segments` (`5`), `max_audio_segments` (`5`), `min_segment_duration` (`2.0` s), `bbox_padding_px` (`0`): media extraction limits.
-  - `use_ann_components` (`true`): split annotations into spaCy noun/verb phrases for forward extraction (`false` uses the whole annotation).
-  - `embedding_batch_size` (`16`): batch size for local Omni-Embed text encoding.
-  - `require_forward_models` (`true`) and `continue_on_error` (`true`): set `continue_on_error: false` for fail-fast debugging; otherwise per-record failures keep the original pair and log `status: "error"` to `sns/manifest.jsonl`.
-  - Model overrides: `nvidia_model`, `grounding_dino_model_id`, `amdetr_repo_id`, `cg_detr_checkpoint`, `sns_output_dir`.
-- **`eee`**: Controls the Expert Embedding Engine:
+- **`sns`** (optional; defaults apply when omitted):
+  - `enabled` (`true`) and `direction` (`forward`, `backward`, or `bidirectional`).
+  - `mi_ratio` (`0.75`): mutual-information gate `sim(candidate) >= mi_ratio * max(sim(original), 0.05)`. Lower values accept more aggressive trims; higher values keep originals unless similarity stays close.
+  - `tau_forward_text` (`0.05`), `tau_forward_image` (`0.10`), `tau_forward_audio` (`0.10`), `tau_forward_video` (`0.10`), `tau_backward` (`0.10`): per-modality relevance thresholds. Higher values prune more aggressively; lower values retain more content.
+  - `cg_detr_checkpoint`: path to the Lighthouse CG-DETR checkpoint (defaults to `model_files/best.ckpt` in the tutorial directory).
+- **`eee`** (optional; defaults apply when omitted):
   - `experts` (default `["text-based", "fusion", "e2e"]`): subset of experts to run. Dropping `text-based` skips API calls; dropping `fusion` removes the LanguageBind dependency.
-  - `embedding_dim` (`2048`): shared per-expert output dimension (padded/truncated and L2-normalized).
-  - `continue_on_error` (`true`): on per-record failure, writes a zero vector and records details in `embeddings/errors.json` (`false` fails fast).
-  - API & model overrides: `nvidia_api_base_url`, `nvidia_embedding_base_url`, `nvidia_api_key` (prefer `.env` over putting secrets in YAML), `nvidia_{image,audio,video}_describer_model`, `nvidia_embedding_model`, `nvidia_multimodal_model`.
+  - API credentials and self-hosted endpoint overrides are configured via `.env` (`NV_BUILD_API_KEY`, `NVIDIA_API_BASE_URL`, `NVIDIA_EMBEDDING_BASE_URL`).
 - **`parallelism`** (used only by `1_2_parallel.py`):
-  - `enabled` (`true` in config; required for `1_2_parallel.py`), `records_per_shard` (`25`; smaller shards start SNS→EEE overlap sooner with slightly more merge overhead).
-  - `sns_workers`, `eee_workers`, `sns_gpus_per_worker`, `eee_gpus_per_worker`: match to your GPU count and VRAM (see [Hardware Requirements](#hardware-requirements)).
-- **`projection`**: Controls the projection MLP:
-  - `device` (`auto`, `cuda`, `cpu`) and `num_gpus` (`1`; set `0` for CPU, or `> 1` for PyTorch `DataParallel`).
-  - Training hyperparameters: smoke-test config uses `num_epochs: 1`, `batch_size: 4`, `hidden_layer_size: 256`; for full datasets, increase toward the dataclass defaults (`num_epochs: 100`, `batch_size: 128`, `hidden_layer_size: 512`, `num_layers: 3`, `dropout: 0.1`, `learning_rate: 1e-3`).
-  - Loss weights & eval: `contrastive_loss_weight` (`0.99`), `bias_loss_weight` (`0.01`), `scale_loss_weight` (`0.0001`), `contrastive_temperature` (`0.07`), `eval_recall_k` (`10`).
-  - Logging & checkpoints: `verbose` (`false`), `log_every_n_epochs` (`100`), `save_weights_path` (defaults to `<run_dir>/projection/model.pt`).
-- **`datablend`**: Controls final ranking and export:
+  - `records_per_shard` (`25`): smaller shards start SNS→EEE overlap sooner with slightly more merge overhead.
+  - `sns_workers` (`1`), `eee_workers` (`1`), `sns_gpus_per_worker` (`1.0`), `eee_gpus_per_worker` (`1.0`): match to your GPU count and VRAM (see [Hardware Requirements](#hardware-requirements)).
+- **`projection`**:
+  - `num_gpus` (`1`): set `0` for CPU, `1` for single GPU, or `> 1` for PyTorch `DataParallel`.
+  - `num_epochs` (`100`), `batch_size` (`128`), `hidden_layer_size` (`512`): smoke-test config overrides these to `1`, `4`, and `256`; remove those overrides or raise them for full datasets.
+- **`datablend`**:
   - `query` (required): natural-language description of the target blend (e.g., `"natural, real-world scenes containing objects, landscapes, subjects, or people"`).
   - `top_k` or `blend_fraction`: select either the top *K* rows (`top_k` takes precedence) or a fraction of the pool (`0 < blend_fraction <= 1`); if neither is set, all ranked rows are exported.
-  - `include_metadata` (`true`): include original pool metadata columns in output JSONL rows.
-- **`runtime`**: `device` (`auto`, `cuda`, `cpu`, or a specific CUDA device like `cuda:0`) for local SNS/EEE models.

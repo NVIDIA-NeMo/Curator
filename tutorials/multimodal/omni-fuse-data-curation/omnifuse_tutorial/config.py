@@ -25,6 +25,8 @@ from typing import Any, Literal, TypeVar
 import yaml
 
 TUTORIAL_DIR = Path(__file__).resolve().parents[1]
+DEFAULT_API_BASE_URL = "https://integrate.api.nvidia.com/v1"
+EMBEDDING_DIM = 2048
 EXPERTS = ("text-based", "fusion", "e2e")
 MODALITIES = ("text", "image", "audio", "video")
 T = TypeVar("T")
@@ -64,45 +66,19 @@ class DataPoolConfig:
 @dataclass
 class SNSConfig:
     enabled: bool = True
-    continue_on_error: bool = True
     direction: Literal["forward", "backward", "bidirectional"] = "bidirectional"
-    mi_ratio: float = 0.95
-    mi_eps: float = 0.05
-    tau_forward_text: float = 0.30
-    tau_forward_image: float = 0.30
-    tau_forward_video: float = 0.20
-    tau_forward_audio: float = 0.25
-    tau_backward: float = 0.35
-    max_video_segments: int = 5
-    max_audio_segments: int = 5
-    min_segment_duration: float = 2.0
-    bbox_padding_px: int = 0
-    sns_output_dir: Path | None = None
-    grounding_dino_model_id: str = "IDEA-Research/grounding-dino-tiny"
-    cg_detr_checkpoint: Path = Path("model_files/best.ckpt")
-    amdetr_repo_id: str = "lighthouse-emnlp2024/AM-DETR"
-    require_forward_models: bool = True
-    use_ann_components: bool = True
-    nvidia_model: str = "nvidia/omni-embed-nemotron-3b"
-    embedding_batch_size: int = 16
-
-    def __post_init__(self) -> None:
-        _at_least_one("sns", self, "embedding_batch_size")
+    mi_ratio: float = 0.75
+    tau_forward_text: float = 0.05
+    tau_forward_image: float = 0.10
+    tau_forward_audio: float = 0.10
+    tau_forward_video: float = 0.10
+    tau_backward: float = 0.10
+    cg_detr_checkpoint: Path = field(default_factory=lambda: TUTORIAL_DIR / "model_files" / "best.ckpt")
 
 
 @dataclass
 class EEEConfig:
     experts: list[str] = field(default_factory=lambda: list(EXPERTS))
-    continue_on_error: bool = True
-    embedding_dim: int = 2048
-    nvidia_api_key: str | None = None
-    nvidia_api_base_url: str = "https://integrate.api.nvidia.com/v1"
-    nvidia_embedding_base_url: str | None = None
-    nvidia_image_describer_model: str = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
-    nvidia_video_describer_model: str = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
-    nvidia_audio_describer_model: str = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
-    nvidia_embedding_model: str = "nvidia/nemotron-3.5-embed-1b"
-    nvidia_multimodal_model: str = "nvidia/omni-embed-nemotron-3b"
 
     def __post_init__(self) -> None:
         if not self.experts:
@@ -114,13 +90,13 @@ class EEEConfig:
 
     @property
     def api_key(self) -> str | None:
-        return self.nvidia_api_key or os.environ.get("NV_BUILD_API_KEY") or os.environ.get("NVIDIA_API_KEY")
+        return os.environ.get("NV_BUILD_API_KEY") or os.environ.get("NVIDIA_API_KEY")
 
     @property
     def base_urls(self) -> tuple[str, str]:
-        """(chat, embeddings) base URLs; env vars override the config, embeddings default to the chat URL."""
-        chat = os.environ.get("NVIDIA_API_BASE_URL") or self.nvidia_api_base_url
-        embed = os.environ.get("NVIDIA_EMBEDDING_BASE_URL") or self.nvidia_embedding_base_url or chat
+        """(chat, embeddings) base URLs from `.env` / environment; embeddings default to the chat URL."""
+        chat = os.environ.get("NVIDIA_API_BASE_URL") or DEFAULT_API_BASE_URL
+        embed = os.environ.get("NVIDIA_EMBEDDING_BASE_URL") or chat
         return chat.rstrip("/"), embed.rstrip("/")
 
     @property
@@ -131,31 +107,16 @@ class EEEConfig:
 
 @dataclass
 class ProjectionConfig:
-    device: Literal["auto", "cpu", "cuda"] = "auto"
     num_gpus: int = 1
     num_epochs: int = 100
     batch_size: int = 128
-    learning_rate: float = 1e-3
-    contrastive_loss_weight: float = 0.99
-    scale_loss_weight: float = 0.0001
-    bias_loss_weight: float = 0.01
-    contrastive_temperature: float = 0.07
-    num_layers: int = 3
     hidden_layer_size: int = 512
-    dropout: float = 0.1
-    save_weights_path: Path | None = None
-    eval_recall_k: int = 10
-    verbose: bool = False
-    log_every_n_epochs: int = 100
 
     def __post_init__(self) -> None:
         if self.num_gpus < 0:
             msg = "projection.num_gpus cannot be negative"
             raise ValueError(msg)
-        if self.device == "cuda" and self.num_gpus == 0:
-            msg = "projection.device=cuda requires projection.num_gpus to be at least 1"
-            raise ValueError(msg)
-        _at_least_one("projection", self, "num_epochs", "batch_size", "log_every_n_epochs")
+        _at_least_one("projection", self, "num_epochs", "batch_size", "hidden_layer_size")
 
 
 @dataclass
@@ -163,24 +124,23 @@ class DatablendConfig:
     query: str
     top_k: int | None = None
     blend_fraction: float | None = None
-    include_metadata: bool = True
 
     def __post_init__(self) -> None:
         if not self.query:
             msg = "datablend.query is required"
             raise ValueError(msg)
-
-
-@dataclass
-class RuntimeConfig:
-    device: str = "auto"
+        if self.top_k is not None and self.top_k < 1:
+            msg = "datablend.top_k must be at least 1"
+            raise ValueError(msg)
+        if self.blend_fraction is not None and not 0 < self.blend_fraction <= 1:
+            msg = "datablend.blend_fraction must be in (0, 1]"
+            raise ValueError(msg)
 
 
 @dataclass
 class ParallelismConfig:
     """Settings for the optional sharded SNS -> EEE streaming pipeline."""
 
-    enabled: bool = False
     records_per_shard: int = 25
     sns_workers: int = 1
     eee_workers: int = 1
@@ -203,7 +163,6 @@ class ExperimentConfig:
     eee: EEEConfig
     projection: ProjectionConfig
     datablend: DatablendConfig
-    runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
     parallelism: ParallelismConfig = field(default_factory=ParallelismConfig)
 
     @classmethod
@@ -219,16 +178,16 @@ class ExperimentConfig:
         if not experiment_id:
             msg = "experiment_id is required"
             raise ValueError(msg)
+        output_dir = Path(value["output_dir"]) if value.get("output_dir") else TUTORIAL_DIR / "outputs"
         datablend = value.get("datablend") or {"query": "Describe the media content in detail"}
         return cls(
             experiment_id=experiment_id,
-            output_dir=Path(value.get("output_dir", "outputs")),
+            output_dir=output_dir,
             data_pools=pools,
-            sns=_section(SNSConfig, value.get("sns"), "sns_output_dir", "cg_detr_checkpoint"),
+            sns=_section(SNSConfig, value.get("sns"), "cg_detr_checkpoint"),
             eee=_section(EEEConfig, value.get("eee")),
-            projection=_section(ProjectionConfig, value.get("projection"), "save_weights_path"),
+            projection=_section(ProjectionConfig, value.get("projection")),
             datablend=_section(DatablendConfig, datablend),
-            runtime=_section(RuntimeConfig, value.get("runtime")),
             parallelism=_section(ParallelismConfig, value.get("parallelism")),
         )
 
@@ -247,11 +206,9 @@ def _section(cls: type[T], value: dict[str, Any] | None, *path_keys: str) -> T:
     return cls(**value, **{key: Path(item) for key, item in paths.items() if item})
 
 
-def _jsonable(value: object, key: str = "") -> object:
-    if value and any(marker in key.lower() for marker in ("api_key", "token", "secret", "password")):
-        return "***REDACTED***"
+def _jsonable(value: object) -> object:
     if isinstance(value, dict):
-        return {name: _jsonable(item, name) for name, item in value.items()}
+        return {name: _jsonable(item) for name, item in value.items()}
     if isinstance(value, list):
         return [_jsonable(item) for item in value]
     return str(value) if isinstance(value, Path) else value
@@ -278,13 +235,11 @@ def load_config(path: str | Path) -> ExperimentConfig:
         raise TypeError(msg)
     config = ExperimentConfig.from_dict(data)
 
-    def resolve(item: Path | None) -> Path | None:
-        return item if item is None or item.is_absolute() else (path.parent / item).resolve()
+    def resolve(item: Path) -> Path:
+        return item if item.is_absolute() else (path.parent / item).resolve()
 
     config.output_dir = resolve(config.output_dir)
-    config.sns.sns_output_dir = resolve(config.sns.sns_output_dir)
     config.sns.cg_detr_checkpoint = resolve(config.sns.cg_detr_checkpoint)
-    config.projection.save_weights_path = resolve(config.projection.save_weights_path)
     for pool in config.data_pools:
         pool.root_dir = resolve(pool.root_dir)
     return config

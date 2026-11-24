@@ -27,6 +27,7 @@ from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import DocumentBatch
+from omnifuse_tutorial.config import EMBEDDING_DIM
 from omnifuse_tutorial.data import (
     cosine,
     expert_file,
@@ -141,7 +142,7 @@ class EEEEmbeddingStage(_ModelStage):
     def setup(self, _worker: WorkerMetadata | None = None) -> None:
         from omnifuse_tutorial.eee import EEEBackend
 
-        self._engine = EEEBackend(self.config.eee, self.config.runtime)
+        self._engine = EEEBackend(self.config.eee)
 
     def process(self, task: DocumentBatch) -> DocumentBatch:
         records, errors, metadata = task_records(task), [], dict(task._metadata)
@@ -159,7 +160,7 @@ class EEEEmbeddingStage(_ModelStage):
             "pair_ids": [record["pair_id"] for record in records],
             "modalities": [record["modality"] for record in records],
             "experts": experts,
-            "embedding_dim": self.config.eee.embedding_dim,
+            "embedding_dim": EMBEDDING_DIM,
             "error_count": len(errors),
             "errors_path": str(errors_path),
         }
@@ -168,12 +169,10 @@ class EEEEmbeddingStage(_ModelStage):
         return with_records(task, records, {**metadata, **paths})
 
     def _embed(self, record: dict[str, Any], expert: str, side: str, errors: list[dict[str, str]]) -> np.ndarray:
-        """Embed one side of a pair; with `continue_on_error`, failures become zero vectors listed in errors.json."""
+        """Embed one side of a pair; failures become zero vectors listed in errors.json."""
         try:
             return (self._engine.embed_raw if side == "raw" else self._engine.embed_annotation)(record, expert)
-        except Exception as exc:
-            if not self.config.eee.continue_on_error:
-                raise
+        except Exception as exc:  # noqa: BLE001
             pair_id, kind = str(record.get("pair_id", "unknown")), type(exc).__name__
             logger.warning("[{}] {} {} embedding failed, using zero vector: {}: {}", pair_id, expert, side, kind, exc)
             modality = str(record.get("modality", "unknown"))
@@ -187,7 +186,7 @@ class EEEEmbeddingStage(_ModelStage):
                     "message": str(exc)[:1000],
                 }
             )
-            return np.zeros(self.config.eee.embedding_dim)
+            return np.zeros(EMBEDDING_DIM)
 
 
 @dataclass
@@ -196,8 +195,7 @@ class ProjectionTrainingStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     config: ExperimentConfig
 
     def __post_init__(self) -> None:
-        projection = self.config.projection
-        self.resources = Resources(cpus=1.0, gpus=float(projection.num_gpus if projection.device != "cpu" else 0))
+        self.resources = Resources(cpus=1.0, gpus=float(self.config.projection.num_gpus))
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
@@ -214,11 +212,13 @@ class ProjectionTrainingStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             raise FileNotFoundError(msg)
         experts = json.loads((embeddings / "metadata.json").read_text(encoding="utf-8"))["experts"]
         interleaved = {expert: np.load(expert_file(embeddings, expert, "interleaved")) for expert in experts}
-        if self.config.projection.save_weights_path is None:
-            self.config.projection.save_weights_path = output / "model.pt"
         records = task_records(task)
         result = train_projection(
-            self.config.projection, experts, interleaved, [str(record.get("modality", "")) for record in records]
+            self.config.projection,
+            experts,
+            interleaved,
+            [str(record.get("modality", "")) for record in records],
+            weights_path=output / "model.pt",
         )
         paths = {
             "projected_embeddings_path": write_npy(output / "projected_embeddings.npy", result["projected"]),
@@ -247,21 +247,23 @@ class DatablendRankingStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         projected_path, blend = self.config.run_dir / "projection" / "projected_embeddings.npy", self.config.datablend
         projected_rows = np.load(projected_path)
         anchor = json.loads(projected_path.with_name("model.json").read_text(encoding="utf-8"))["anchor_expert"]
-        query = EEEBackend(self.config.eee, self.config.runtime).embed_query(blend.query, anchor)
+        query = EEEBackend(self.config.eee).embed_query(blend.query, anchor)
         ranked = []
         for index, (record, projected) in enumerate(zip(task_records(task), projected_rows, strict=True)):
-            row = {
-                "score": cosine(projected, query),
-                "pair_id": record["pair_id"],
-                "pool": record["pool"],
-                "modality": record["modality"],
-                "raw_path": record["raw_path"],
-                "raw_text": raw_text(record),
-                "annotation": record.get("sns_annotation") or record.get("annotation"),
-                "original_annotation": record.get("annotation"),
-                "source_index": index,
-            }
-            ranked.append({**row, "metadata": record.get("metadata", {})} if blend.include_metadata else row)
+            ranked.append(
+                {
+                    "score": cosine(projected, query),
+                    "pair_id": record["pair_id"],
+                    "pool": record["pool"],
+                    "modality": record["modality"],
+                    "raw_path": record["raw_path"],
+                    "raw_text": raw_text(record),
+                    "annotation": record.get("sns_annotation") or record.get("annotation"),
+                    "original_annotation": record.get("annotation"),
+                    "source_index": index,
+                    "metadata": record.get("metadata", {}),
+                }
+            )
         ranked.sort(key=lambda row: row["score"], reverse=True)
         for rank, row in enumerate(ranked, start=1):
             row["rank"] = rank

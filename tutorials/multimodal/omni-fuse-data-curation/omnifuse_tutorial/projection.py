@@ -22,13 +22,29 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     import torch
 
     from omnifuse_tutorial.config import ProjectionConfig
 
+LEARNING_RATE = 1e-3
+CONTRASTIVE_LOSS_WEIGHT = 0.99
+BIAS_LOSS_WEIGHT = 0.01
+SCALE_LOSS_WEIGHT = 0.0001
+CONTRASTIVE_TEMPERATURE = 0.07
+NUM_LAYERS = 3
+DROPOUT = 0.1
+EVAL_RECALL_K = 10
+LOG_EVERY_N_EPOCHS = 100
+
 
 def train_projection(
-    config: ProjectionConfig, experts: list[str], interleaved: dict[str, np.ndarray], modalities: list[str]
+    config: ProjectionConfig,
+    experts: list[str],
+    interleaved: dict[str, np.ndarray],
+    modalities: list[str],
+    weights_path: Path | None = None,
 ) -> dict[str, Any]:
     """MLP on per-expert interleaved (raw, annotation) rows: symmetric contrastive plus modality-bias losses."""
     import torch
@@ -46,13 +62,12 @@ def train_projection(
     inputs = torch.tensor(raw, dtype=torch.float32)
     targets = torch.tensor(interleaved[anchor][1::2], dtype=torch.float32)
     layers, width = [], inputs.shape[1]
-    for _ in range(max(0, config.num_layers - 1)):
-        layers += [torch.nn.Linear(width, config.hidden_layer_size), torch.nn.ReLU()]
-        layers += [torch.nn.Dropout(config.dropout)] if config.dropout > 0 else []
+    for _ in range(max(0, NUM_LAYERS - 1)):
+        layers += [torch.nn.Linear(width, config.hidden_layer_size), torch.nn.ReLU(), torch.nn.Dropout(DROPOUT)]
         width = config.hidden_layer_size
     base_model = torch.nn.Sequential(*layers, torch.nn.Linear(width, targets.shape[1])).to(device)
     model = torch.nn.DataParallel(base_model) if gpu_count > 1 else base_model
-    optimizer = torch.optim.AdamW(model.parameters(), lr=config.learning_rate)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=LEARNING_RATE)
     batch_size, epochs, count = max(1, min(config.batch_size, len(inputs))), max(1, config.num_epochs), len(inputs)
     print(
         f"Projection training: {count} records, {epochs} epochs, batch size {batch_size}, device {device}, GPUs {gpu_count}",
@@ -67,17 +82,16 @@ def train_projection(
             batch_targets = targets[index].to(device, non_blocking=True)
             batch_modalities = [modalities[int(item)] for item in index]
             loss = (
-                config.contrastive_loss_weight
-                * _contrastive_loss(projected, batch_targets, config.contrastive_temperature)
-                + config.bias_loss_weight * _bias_loss(projected, batch_modalities, scale=False)
-                + config.scale_loss_weight * _bias_loss(projected, batch_modalities, scale=True)
+                CONTRASTIVE_LOSS_WEIGHT * _contrastive_loss(projected, batch_targets, CONTRASTIVE_TEMPERATURE)
+                + BIAS_LOSS_WEIGHT * _bias_loss(projected, batch_modalities, scale=False)
+                + SCALE_LOSS_WEIGHT * _bias_loss(projected, batch_modalities, scale=True)
             )
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
             epoch_losses.append(float(loss.detach().cpu()))
         losses.append(sum(epoch_losses) / len(epoch_losses))
-        if config.verbose and (epoch == 0 or (epoch + 1) % config.log_every_n_epochs == 0 or epoch + 1 == epochs):
+        if epoch == 0 or (epoch + 1) % LOG_EVERY_N_EPOCHS == 0 or epoch + 1 == epochs:
             elapsed = time.monotonic() - started
             print(f"Projection epoch {epoch + 1}/{epochs}: loss={losses[-1]:.6f}, elapsed={elapsed:.1f}s", flush=True)
     model.eval()
@@ -87,25 +101,25 @@ def train_projection(
             functional.normalize(projected, dim=1),
             functional.normalize(targets.to(device), dim=1),
         )
-        recall = _recall_torch(annotations, projected, k=min(config.eval_recall_k, count), chunk=batch_size)
+        recall = _recall_torch(annotations, projected, k=min(EVAL_RECALL_K, count), chunk=batch_size)
     state_dict_path = None
-    if config.save_weights_path:
-        config.save_weights_path.parent.mkdir(parents=True, exist_ok=True)
-        torch.save(base_model.state_dict(), config.save_weights_path)
-        state_dict_path = str(config.save_weights_path)
+    if weights_path:
+        weights_path.parent.mkdir(parents=True, exist_ok=True)
+        torch.save(base_model.state_dict(), weights_path)
+        state_dict_path = str(weights_path)
     model_info = {
         "type": "torch_mlp_projection",
         "experts": experts,
         "input_dim": int(inputs.shape[1]),
         "embedding_dim": int(interleaved[experts[0]].shape[1]),
         "hidden_layer_size": config.hidden_layer_size,
-        "num_layers": config.num_layers,
-        "dropout": config.dropout,
+        "num_layers": NUM_LAYERS,
+        "dropout": DROPOUT,
         "anchor_expert": anchor,
-        "contrastive_loss_weight": config.contrastive_loss_weight,
-        "bias_loss_weight": config.bias_loss_weight,
-        "scale_loss_weight": config.scale_loss_weight,
-        "contrastive_temperature": config.contrastive_temperature,
+        "contrastive_loss_weight": CONTRASTIVE_LOSS_WEIGHT,
+        "bias_loss_weight": BIAS_LOSS_WEIGHT,
+        "scale_loss_weight": SCALE_LOSS_WEIGHT,
+        "contrastive_temperature": CONTRASTIVE_TEMPERATURE,
         "device": str(device),
         "num_gpus": gpu_count,
         "parallelism": "data_parallel" if gpu_count > 1 else "single_device",
@@ -124,13 +138,11 @@ def _torch_device(config: ProjectionConfig) -> tuple[torch.device, int]:
     """Use the GPUs Curator assigned to this worker (exposed through CUDA_VISIBLE_DEVICES)."""
     import torch
 
-    if config.device == "cpu" or config.num_gpus == 0:
+    if config.num_gpus == 0:
         return torch.device("cpu"), 0
     if not torch.cuda.is_available():
-        if config.device == "cuda":
-            msg = "Projection requested CUDA, but no CUDA device is visible"
-            raise RuntimeError(msg)
-        return torch.device("cpu"), 0
+        msg = "Projection requested GPU training (num_gpus >= 1), but no CUDA device is visible"
+        raise RuntimeError(msg)
     return torch.device("cuda:0"), min(config.num_gpus, torch.cuda.device_count())
 
 

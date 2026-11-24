@@ -30,6 +30,8 @@ if TYPE_CHECKING:
 
     from omnifuse_tutorial.config import EEEConfig
 
+DESCRIBER_MODEL = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
+EMBEDDING_MODEL = "nvidia/nemotron-3.5-embed-1b"
 AUDIO_INLINE_PREVIEW_BYTES = 160 * 1024
 RETRYABLE_STATUS = {500, 502, 503, 504}
 MIME_TYPES = {
@@ -53,19 +55,14 @@ MIME_TYPES = {
 class NvidiaApi:
     def __init__(self, eee: EEEConfig, timeout: int = 120):
         if eee.needs_api_key:
-            msg = "NVIDIA API key required. Set NV_BUILD_API_KEY in .env or eee.nvidia_api_key."
+            msg = "NVIDIA API key required. Set NV_BUILD_API_KEY in .env."
             raise ValueError(msg)
         self.base_url, self.embedding_url = eee.base_urls
         self.headers = {"Content-Type": "application/json", "Accept": "application/json"}
         if eee.api_key:
             self.headers["Authorization"] = f"Bearer {eee.api_key}"
         self.nim_embeddings = False
-        self.models = {
-            "image": eee.nvidia_image_describer_model,
-            "audio": eee.nvidia_audio_describer_model,
-            "video": eee.nvidia_video_describer_model,
-        }
-        self.embedding_model, self.timeout = eee.nvidia_embedding_model, timeout
+        self.timeout = timeout
 
     def embed(self, texts: list[str], input_type: str, batch_size: int = 1) -> list[list[float]]:
         vectors = []
@@ -93,14 +90,14 @@ class NvidiaApi:
         return vectors
 
     def _embed_payload(self, chunk: list[str], input_type: str) -> dict[str, Any]:
-        payload = {"model": self.embedding_model, "encoding_format": "float"}
+        payload = {"model": EMBEDDING_MODEL, "encoding_format": "float"}
         if self.nim_embeddings:
             return {**payload, "input": chunk, "input_type": input_type, "truncate": "END"}
         return {**payload, "input": [f"{input_type}: {text}" for text in chunk]}
 
     def describe(self, path: Path, modality: str, prompt: str) -> str:
         """Describe an image, audio, or video file sent inline as base64."""
-        model, url = self.models[modality], f"{self.base_url}/chat/completions"
+        model, url = DESCRIBER_MODEL, f"{self.base_url}/chat/completions"
         mime = MIME_TYPES.get(path.suffix.lower(), "application/octet-stream")
         if modality == "audio":
             return self._describe_audio(path, model, prompt, url)

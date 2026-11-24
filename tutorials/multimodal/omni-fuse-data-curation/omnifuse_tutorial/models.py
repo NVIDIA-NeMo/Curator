@@ -26,13 +26,12 @@ import numpy as np
 import torch
 from torch.nn import functional
 
-from omnifuse_tutorial.config import TUTORIAL_DIR, languagebind_root
+from omnifuse_tutorial.config import EMBEDDING_DIM, TUTORIAL_DIR, languagebind_root
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from omnifuse_tutorial.config import RuntimeConfig
-
+OMNI_EMBED_MODEL = "nvidia/omni-embed-nemotron-3b"
 OMNI_PROCESSOR_FILES = ["*.json", "*.txt", "*.model", "*.py", "*.jinja", "additional_chat_templates/*.jinja"]
 LANGUAGEBIND_REPOS = {
     "image": "LanguageBind/LanguageBind_Image",
@@ -43,9 +42,7 @@ LANGUAGEBIND_REPOS = {
 logging.getLogger().addFilter(lambda record: not str(record.msg).startswith("System prompt modified, audio output"))
 
 
-def resolve_device(runtime: RuntimeConfig) -> str:
-    if runtime.device and runtime.device != "auto":
-        return runtime.device
+def resolve_device() -> str:
     return "cuda" if torch.cuda.is_available() else "cpu"
 
 
@@ -58,7 +55,7 @@ def mean_pool(hidden: torch.Tensor, mask: torch.Tensor) -> np.ndarray:
 class OmniEmbed:
     """Lazy nvidia/omni-embed-nemotron-3b runtime for text, image, audio, and video embeddings."""
 
-    def __init__(self, model_name: str, device: str):
+    def __init__(self, device: str, model_name: str = OMNI_EMBED_MODEL):
         self.model_name, self.device = model_name, device
         self.model = self.processor = None
 
@@ -95,7 +92,7 @@ class OmniEmbed:
                 prompts, return_tensors="pt", truncation=True, padding=True, max_length=2048
             )
             batches.append(self._pool(tokens))
-        return np.concatenate(batches) if batches else np.empty((0, 2048), dtype=np.float32)
+        return np.concatenate(batches) if batches else np.empty((0, EMBEDDING_DIM), dtype=np.float32)
 
     def encode_media(self, path: str, modality: str) -> np.ndarray:
         import librosa

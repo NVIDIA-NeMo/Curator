@@ -30,6 +30,7 @@ import torch
 from loguru import logger
 from torch.nn import functional
 
+from omnifuse_tutorial.config import EMBEDDING_DIM
 from omnifuse_tutorial.data import annotation_text, cosine, fingerprint, raw_text, text_or_none, unit
 from omnifuse_tutorial.models import OmniEmbed, resolve_device
 from omnifuse_tutorial.nvidia_api import NvidiaApi
@@ -43,6 +44,13 @@ if TYPE_CHECKING:
 
 T = TypeVar("T")
 
+MI_EPS = 0.05
+EMBEDDING_BATCH_SIZE = 16
+MAX_VIDEO_SEGMENTS = 5
+MAX_AUDIO_SEGMENTS = 5
+MIN_SEGMENT_DURATION = 2.0
+GROUNDING_DINO_MODEL_ID = "IDEA-Research/grounding-dino-tiny"
+AMDETR_REPO_ID = "lighthouse-emnlp2024/AM-DETR"
 SENTENCE_RE = re.compile(r"(?<=[.!?])\s+|\n+")
 MEDIA = ("image", "audio", "video")
 SNS_PROMPTS = {
@@ -56,27 +64,23 @@ class SNS:
     """Forward SNS trims the raw side to annotation-relevant content; backward SNS trims annotation sentences.
 
     A candidate is kept only if it passes the mutual-information gate
-    `sim(candidate) >= mi_ratio * max(sim(original), mi_eps)`.
+    `sim(candidate) >= mi_ratio * max(sim(original), MI_EPS)`.
     Descriptions come from the NVIDIA API, similarity from local Omni-Embed, and media extraction from
     Grounding-DINO (image), AM-DETR (audio), and CG-DETR (video).
     """
 
     def __init__(self, config: ExperimentConfig):
-        self.config, self.dim, self.api = config.sns, config.eee.embedding_dim, NvidiaApi(config.eee)
-        device = resolve_device(config.runtime)
-        self.omni = OmniEmbed(config.sns.nvidia_model, device)
-        self.extractor = ForwardExtractor(
-            config.sns, config.sns.sns_output_dir or config.run_dir / "sns" / "media", device
-        )
+        self.config, self.dim, self.api = config.sns, EMBEDDING_DIM, NvidiaApi(config.eee)
+        device = resolve_device()
+        self.omni = OmniEmbed(device)
+        self.extractor = ForwardExtractor(config.sns, config.run_dir / "sns" / "media", device)
         self.text_cache, self.media_cache, self.descriptions = {}, {}, {}
 
     def process_record(self, record: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
         """Return the SNS-updated record and its manifest row."""
         try:
             return self._process(record)
-        except Exception as exc:
-            if not self.config.continue_on_error:
-                raise
+        except Exception as exc:  # noqa: BLE001
             logger.warning("[{}] SNS failed, keeping original: {}: {}", record.get("pair_id"), type(exc).__name__, exc)
             output = {
                 **record,
@@ -124,7 +128,10 @@ class SNS:
             "original_annotation": original.get("annotation"),
             "sns_raw_text": output.get("sns_raw_text"),
             "sns_annotation": output.get("sns_annotation"),
-            "thresholds": {key: value for key, value in vars(self.config).items() if key.startswith(("mi_", "tau_"))},
+            "thresholds": {
+                "mi_eps": MI_EPS,
+                **{key: value for key, value in vars(self.config).items() if key.startswith(("mi_", "tau_"))},
+            },
         }
 
     def _forward(self, record: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -132,12 +139,7 @@ class SNS:
         if record["modality"] != "text":
             return self._forward_media(record, annotation)
         raw = text_or_none(record.get("raw_text")) or ""
-        try:
-            components = annotation_components(annotation, self.config)
-        except RuntimeError:
-            if self.config.require_forward_models:
-                raise
-            components = [annotation] if annotation.strip() else []
+        components = annotation_components(annotation)
         sentences = _sentences(raw)
         kept = self._keep(sentences, components, self.config.tau_forward_text)
         if not kept:
@@ -191,13 +193,7 @@ class SNS:
                 "reason": "unsupported_media_modality",
                 "modality": modality,
             }
-        try:
-            candidate, extraction = getattr(self.extractor, modality)(raw, annotation)
-        except RuntimeError as exc:
-            if self.config.require_forward_models:
-                raise
-            unavailable = {"reason": "forward_model_unavailable", "modality": modality, "error": str(exc)}
-            return record, {"direction": "forward", "accepted": False, **unavailable}
+        candidate, extraction = getattr(self.extractor, modality)(raw, annotation)
         decision = {"direction": "forward", "accepted": False, "modality": modality, "extraction": extraction}
         if candidate is None or str(candidate) == str(raw):
             return record, {**decision, "reason": extraction.get("reason", "no_media_nucleus")}
@@ -220,7 +216,7 @@ class SNS:
     ) -> tuple[bool, dict[str, float]]:
         original = self.similarity(raw, modality, annotation)
         candidate = self.similarity(candidate_raw, modality, candidate_annotation)
-        threshold = self.config.mi_ratio * max(original, self.config.mi_eps)
+        threshold = self.config.mi_ratio * max(original, MI_EPS)
         gate = {"original_similarity": original, "candidate_similarity": candidate, "mi_threshold": threshold}
         return candidate >= threshold, gate
 
@@ -244,7 +240,7 @@ class SNS:
 
     def _embed_texts(self, texts: list[str]) -> list[np.ndarray]:
         if missing := list(dict.fromkeys(text for text in texts if text not in self.text_cache)):
-            vectors = self.omni.encode_texts(missing, self.config.embedding_batch_size)
+            vectors = self.omni.encode_texts(missing, EMBEDDING_BATCH_SIZE)
             self.text_cache.update(zip(missing, [unit(vector, self.dim) for vector in vectors], strict=True))
         return [self.text_cache[text] for text in texts]
 
@@ -282,8 +278,8 @@ class ForwardExtractor:
         from PIL import Image, ImageOps
 
         image = ImageOps.exif_transpose(Image.open(raw)).convert("RGB")
-        components, tau = annotation_components(annotation, self.config), self.config.tau_forward_image
-        hint = f"Image forward extraction requires Grounding-DINO ({self.config.grounding_dino_model_id})."
+        components, tau = annotation_components(annotation), self.config.tau_forward_image
+        hint = f"Image forward extraction requires Grounding-DINO ({GROUNDING_DINO_MODEL_ID})."
         processor, model = self._model("Grounding-DINO", self._load_grounding_dino, hint)
         boxes, scores = [], []
         for component in components:
@@ -305,13 +301,7 @@ class ForwardExtractor:
             return raw, {"reason": "no_bboxes_above_threshold", "components": components, "threshold": tau}
         xs = [value for x, _, width, _ in boxes for value in (x, x + width)]
         ys = [value for _, y, _, height in boxes for value in (y, y + height)]
-        left, upper = min(xs), min(ys)
-        width, height = max(xs) - left, max(ys) - upper
-        right, lower, padding = left + width, upper + height, self.config.bbox_padding_px
-        if padding > 0:
-            left, upper = max(0, left - padding), max(0, upper - padding)
-            right, lower = min(image.width, right + padding), min(image.height, lower + padding)
-        crop_box = (int(left), int(upper), int(right), int(lower))
+        crop_box = (int(min(xs)), int(min(ys)), int(max(xs)), int(max(ys)))
         output = self._output_path(".jpg")
         image.crop(crop_box).save(output)
         return output, {
@@ -321,19 +311,18 @@ class ForwardExtractor:
             "scores": scores,
             "union_bbox": crop_box,
             "threshold": tau,
-            "bbox_padding_px": padding,
         }
 
     def audio(self, raw: str, annotation: str) -> tuple[Any, dict[str, Any]]:
         import librosa
         import soundfile as sf
 
-        components, tau = annotation_components(annotation, self.config), self.config.tau_forward_audio
+        components, tau = annotation_components(annotation), self.config.tau_forward_audio
         waveform, rate = librosa.load(str(raw), sr=None, mono=False)
         waveform = waveform[None, :] if waveform.ndim == 1 else waveform
         hint = (
             "Audio forward extraction requires AM-DETR. Install SNS/Lighthouse extras and allow Hugging Face access "
-            f"or cache {self.config.amdetr_repo_id}."
+            f"or cache {AMDETR_REPO_ID}."
         )
         model = self._model("AM-DETR", self._load_amdetr, hint)
         device = next(model.parameters()).device
@@ -359,7 +348,7 @@ class ForwardExtractor:
             windows += [
                 (float(start), float(end), float(score)) for start, end, score in moments if float(score) >= tau
             ]
-        selected = _select_windows(windows, self.config.max_audio_segments, self.config.min_segment_duration)
+        selected = _select_windows(windows, MAX_AUDIO_SEGMENTS, MIN_SEGMENT_DURATION)
         if not selected:
             return raw, {"reason": "no_audio_segments_above_threshold", "total_segments": len(windows)}
         clip = np.concatenate([waveform[:, int(start * rate) : int(end * rate)] for start, end in selected], axis=1)
@@ -377,7 +366,7 @@ class ForwardExtractor:
     def video(self, raw: str, annotation: str) -> tuple[Any, dict[str, Any]]:
         import cv2
 
-        components, tau = annotation_components(annotation, self.config), self.config.tau_forward_video
+        components, tau = annotation_components(annotation), self.config.tau_forward_video
         hint = (
             "Video forward extraction requires CG-DETR from the lighthouse package and a checkpoint at "
             f"{self.config.cg_detr_checkpoint}. Place the QVHighlights clip checkpoint there or set sns.cg_detr_checkpoint."
@@ -400,7 +389,7 @@ class ForwardExtractor:
             for start, end, score in model.predict(component, features).get("pred_relevant_windows", [])
             if float(score) >= tau
         ]
-        selected = _select_windows(windows, self.config.max_video_segments, self.config.min_segment_duration)
+        selected = _select_windows(windows, MAX_VIDEO_SEGMENTS, MIN_SEGMENT_DURATION)
         if not selected:
             return raw, {"reason": "no_video_segments_above_threshold", "total_segments": len(windows)}
         video = np.asarray(frames)
@@ -455,7 +444,7 @@ class ForwardExtractor:
     def _load_amdetr(self) -> torch.nn.Module:
         from huggingface_hub import snapshot_download
 
-        model_dir = Path(snapshot_download(self.config.amdetr_repo_id))
+        model_dir = Path(snapshot_download(AMDETR_REPO_ID))
         package = "omnifuse_amdetr_runtime"
         if package not in sys.modules:
             module = types.ModuleType(package)
@@ -488,13 +477,12 @@ class ForwardExtractor:
     def _load_grounding_dino(self) -> tuple[Any, Any]:
         from transformers import AutoModelForZeroShotObjectDetection, AutoProcessor
 
-        model_id = self.config.grounding_dino_model_id
         try:
-            processor = AutoProcessor.from_pretrained(model_id, local_files_only=True)
-            model = AutoModelForZeroShotObjectDetection.from_pretrained(model_id, local_files_only=True)
+            processor = AutoProcessor.from_pretrained(GROUNDING_DINO_MODEL_ID, local_files_only=True)
+            model = AutoModelForZeroShotObjectDetection.from_pretrained(GROUNDING_DINO_MODEL_ID, local_files_only=True)
         except (OSError, ValueError):
-            processor = AutoProcessor.from_pretrained(model_id)
-            model = AutoModelForZeroShotObjectDetection.from_pretrained(model_id)
+            processor = AutoProcessor.from_pretrained(GROUNDING_DINO_MODEL_ID)
+            model = AutoModelForZeroShotObjectDetection.from_pretrained(GROUNDING_DINO_MODEL_ID)
         return processor, model.to(self.device).eval()
 
 
@@ -505,16 +493,14 @@ def _spacy() -> Language:
     return spacy.load("en_core_web_sm")
 
 
-def annotation_components(annotation: str, config: SNSConfig) -> list[str]:
+def annotation_components(annotation: str) -> list[str]:
     """Noun chunks (without pronouns) and verb phrases of an annotation, deduplicated case-insensitively."""
-    if not config.use_ann_components:
-        return [annotation] if annotation.strip() else []
     try:
         nlp = _spacy()
     except Exception as exc:
         msg = (
-            "SNS annotation component extraction requires spaCy model en_core_web_sm. Install it with "
-            "`python -m spacy download en_core_web_sm`, or set sns.use_ann_components: false to use whole annotations."
+            "SNS annotation component extraction requires spaCy model en_core_web_sm. "
+            "Install it with `python -m spacy download en_core_web_sm`."
         )
         raise RuntimeError(msg) from exc
     doc = nlp(annotation)
