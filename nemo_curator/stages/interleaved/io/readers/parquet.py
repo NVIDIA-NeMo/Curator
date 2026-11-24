@@ -31,6 +31,11 @@ from nemo_curator.tasks.interleaved import INTERLEAVED_SCHEMA, RESERVED_COLUMNS
 from .base import BaseInterleavedReader
 
 
+# Byte ranges closer than this are fetched as one request. Object stores are latency-bound: a few large
+# requests per file cost about the same time as dozens of small ones, and far fewer requests are in flight.
+_RANGE_MERGE_GAP = 16 * 1024 * 1024
+
+
 @dataclass
 class InterleavedParquetReaderStage(BaseInterleavedReader):
     """Read interleaved Parquet files into an ``InterleavedBatch``.
@@ -116,7 +121,9 @@ class InterleavedParquetReaderStage(BaseInterleavedReader):
             # Fetch only the byte ranges of the selected columns. A plain remote file object reads ahead in
             # large blocks around every column chunk, which made a projected read many times slower.
             try:
-                with open_parquet_file(path, fs=fs, columns=columns, engine="pyarrow") as source:
+                with open_parquet_file(
+                    path, fs=fs, columns=columns, engine="pyarrow", max_gap=_RANGE_MERGE_GAP
+                ) as source:
                     table = pq.read_table(source, columns=columns)
             except (OSError, TypeError):
                 # A byte range that failed to download is kept as its exception and raises when read.
