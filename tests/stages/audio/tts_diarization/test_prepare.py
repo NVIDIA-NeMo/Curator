@@ -189,6 +189,89 @@ def test_generated_recipes_execute_with_exported_word_alignments(aligned_manifes
             assert Path(row.data["rttm_filepath"]).stat().st_size > 0
 
 
+@pytest.mark.parametrize("speakers", [1, 4])
+def test_default_augmentation_generates_noisy_reverberant_meetings(  # noqa: PLR0915
+    aligned_manifest: Path, tmp_path: Path, speakers: int
+):
+    pytest.importorskip("fastmss")
+    pytest.importorskip("pyroomacoustics")
+    sample_rate = 16000
+    musan = tmp_path / "musan"
+    rng = np.random.default_rng(42)
+    noise_files = set()
+    for subset in ("noise", "music"):
+        directory = musan / subset
+        directory.mkdir(parents=True)
+        path = directory / "sample.wav"
+        sf.write(path, rng.normal(0, 0.05, sample_rate * 4), sample_rate)
+        noise_files.add(str(path))
+    export_cutset(aligned_manifest, tmp_path / "corpus")
+    recipes = prepare_recipes(
+        tmp_path / "corpus",
+        tmp_path / "recipes",
+        musan,
+        count_unit=1,
+        duration=2,
+        min_utterances=1,
+    )
+    recipe = recipes[speakers - 1]
+    config = OmegaConf.load(recipe)
+    assert config.noise_probability_global == config.reverb_prob == 0.5
+    stage = FastMSSSimulationStage(
+        output_dir=str(tmp_path / "mixtures"),
+        isolate_work_dirs=True,
+        max_meetings=1,
+        timeout_seconds=90,
+        overrides=[
+            "noise_probability_global=1",
+            "reverb_prob=1",
+            "n_rirs=1",
+            "n_pos_rirs=4",
+            "save_spk=true",
+            "save_anechoic=true",
+        ],
+    )
+    outputs = stage.process(FileGroupTask(data=[str(recipe)], dataset_name="augmented-paper-smoke"))
+    rows = FastMSSManifestReaderStage().process(outputs[0])
+    assert len(rows) == 1
+    run_dir = Path(outputs[0].data[0]).parent
+    effective = json.loads((run_dir / "effective_config.json").read_text())
+    assert effective["add_noise"]
+    assert effective["reverberate"]
+    assert effective["noise_probability_global"] == effective["reverb_prob"] == 1
+    assert set((run_dir / "manifests/noise_files.txt").read_text().splitlines()) == noise_files
+    rooms = json.loads((run_dir / "rir/all_rooms.json").read_text())
+    assert len(rooms) == 1
+    assert len(rooms[0]) == 4
+    assert all(Path(path).is_file() for path in rooms[0])
+
+    row = rows[0].data
+    audio_path = Path(row["audio_filepath"])
+    waveform, rate = sf.read(audio_path)
+    assert rate == sample_rate
+    assert waveform.ndim == 1
+    assert np.isfinite(waveform).all()
+    assert np.max(np.abs(waveform)) > 0
+    assert row["duration"] == pytest.approx(len(waveform) / rate, abs=1e-5)
+    assert row["text"].strip()
+    assert row["num_speakers"] == speakers
+    labels = {line.split()[7] for line in Path(row["rttm_filepath"]).read_text().splitlines()}
+    assert len(labels) == speakers
+    assert labels <= {f"speaker{i}" for i in range(4)}
+    speech = np.zeros_like(waveform)
+    for speaker in labels:
+        reverberant, reverb_rate = sf.read(audio_path.with_stem(f"{audio_path.stem}-spk-{speaker}"))
+        dry, dry_rate = sf.read(audio_path.with_stem(f"{audio_path.stem}-spk-{speaker}-anechoic"))
+        assert reverb_rate == dry_rate == rate
+        assert reverberant.shape == dry.shape == waveform.shape
+        assert np.isfinite(reverberant).all()
+        assert np.isfinite(dry).all()
+        assert not np.allclose(reverberant, dry, atol=2 / 32768)
+        speech += reverberant
+    # PCM16 quantization alone cannot account for the residual mixture energy.
+    assert np.sqrt(np.mean((waveform - speech) ** 2)) > (speakers + 1) / 32768
+
+
 @pytest.mark.parametrize("name", ["tts", "align", "simulate"])
 def test_stage_yamls_instantiate_with_shared_runner(tmp_path: Path, name: str):
     config_dir = Path(__file__).resolve().parents[4] / "tutorials/audio/tts_diarization/configs"

@@ -209,7 +209,7 @@ pytest tests/stages/audio/tts_diarization tests/stages/audio/simulation \
   tests/stages/audio/alignment/test_mfa_alignment.py -m 'not gpu' -q
 ```
 
-The installed-engine tests skip when the optional FastMSS dependencies are absent. Install `audio_simulation` to exercise them. The small tutorial simulation test runs all four speaker-count shards and validates 20 generated meetings. Charts can be checked separately with the regeneration command above.
+The installed-engine tests skip when the optional FastMSS dependencies are absent. Install `audio_simulation` to exercise them. The small tutorial simulation test runs all four speaker-count shards and validates 20 generated meetings. Two additional one- and four-speaker cases use generated `noise/` and `music/` fixtures, force noise and reverberation probabilities to 1, and generate a small artificial RIR pool. Saved per-speaker reverberant and anechoic waveforms verify the reverb effect; the mixture's residual over the reverberant speaker sum verifies added noise. These test overrides leave the paper recipe's independent 50% probabilities intact. Charts can be checked separately with the regeneration command above.
 
 The pinned FastMSS recipe seeds are recorded, but its worker initialization also incorporates process IDs. A fixed configured seed is not a promise of byte-identical output across different worker counts or executions. Preserve the effective configs, source inventories, generated artifacts, model versions, and training seeds with each experiment.
 
