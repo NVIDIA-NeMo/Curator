@@ -1,0 +1,24 @@
+defaults:
+  - _self_
+  - override hydra/job_logging: none
+  - override hydra/hydra_logging: none
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+recipes_dir: ???
+output_dir: ???
+backend: ray_data
+execution_mode: batch
+python_executable: python
+jobs_per_config: 1
+stages:
+  - _target_: nemo_curator.stages.audio.simulation.FastMSS
+    config_paths: ${recipes_dir}/*.yaml
+    output_dir: ${output_dir}/runs
+    python_executable: ${python_executable}
+    jobs_per_config: ${jobs_per_config}
+    isolate_work_dirs: true
+    timeout_seconds: 86400.0
+  - _target_: nemo_curator.stages.audio.common.ManifestWriterStage
+    output_path: ${output_dir}/mixtures.jsonl

@@ -1,0 +1,35 @@
+defaults:
+  - _self_
+  - override hydra/job_logging: none
+  - override hydra/hydra_logging: none
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+input_manifest: ???
+output_dir: ???
+backend: ray_data
+execution_mode: batch
+mfa_command: mfa
+mfa_root_dir: ???
+num_jobs: 1
+stages:
+  - _target_: nemo_curator.stages.audio.common.ManifestReader
+    manifest_path: ${input_manifest}
+  - _target_: nemo_curator.stages.audio.alignment.MFAAlignmentStage
+    output_dir: ${output_dir}
+    mfa_command: ${mfa_command}
+    mfa_root_dir: ${mfa_root_dir}
+    acoustic_model: english_us_arpa
+    dictionary: english_us_arpa
+    g2p_model: ""
+    text_key: text
+    speaker_key: speaker
+    max_gap_for_merge: 0.2
+    num_jobs: ${num_jobs}
+    batch_size: 256
+    align_timeout_seconds: 3600.0
+    create_rttm: true
+    create_ctm: true
+  - _target_: nemo_curator.stages.audio.common.ManifestWriterStage
+    output_path: ${output_dir}/aligned.jsonl

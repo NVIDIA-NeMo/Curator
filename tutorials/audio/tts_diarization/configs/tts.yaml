@@ -1,0 +1,30 @@
+defaults:
+  - _self_
+  - override hydra/job_logging: none
+  - override hydra/hydra_logging: none
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+input_manifest: ???
+output_dir: ???
+backend: ray_data
+execution_mode: batch
+exaggeration: [0.5, 1.0]
+device: cuda
+stages:
+  - _target_: nemo_curator.stages.audio.common.ManifestReader
+    manifest_path: ${input_manifest}
+  - _target_: tutorials.audio.tts_diarization.stages.PaperChatterboxTTSStage
+    output_audio_dir: ${output_dir}/audio
+    min_reference_duration: 5.0
+    language: null
+    device: ${device}
+    sample_rate: 24000
+    temperature: 0.8
+    cfg_weight: 0.5
+    exaggeration: ${exaggeration}
+    normalize_audio: true
+    normalize_level: -20.0
+  - _target_: nemo_curator.stages.audio.common.ManifestWriterStage
+    output_path: ${output_dir}/utterances.jsonl

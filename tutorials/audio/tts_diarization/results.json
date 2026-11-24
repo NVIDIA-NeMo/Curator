@@ -1,0 +1,385 @@
+{
+  "provenance": {
+    "title": "Exploring Text-to-Speech as a Data Source for Speaker Diarization",
+    "source": "Author-provided manuscript, Tables I–IV, pages 5–6",
+    "metric": "DER percent, zero-second collar; average of three training seeds",
+    "spread": "± values transcribed as reported; the manuscript does not define them as confidence intervals",
+    "benchmarks": [
+      "NSF1 MHM",
+      "NSF1 SC",
+      "AMI MHM",
+      "AMI SDM",
+      "AliMeeting Near",
+      "AliMeeting Far",
+      "DIHARD-III",
+      "MSDWild"
+    ]
+  },
+  "I": [
+    {
+      "label": "LibriSpeech",
+      "der": {
+        "NSF1 MHM": 20.7,
+        "NSF1 SC": 25.9,
+        "AMI MHM": 22.0,
+        "AMI SDM": 23.9,
+        "AliMeeting Near": 21.5,
+        "AliMeeting Far": 22.9,
+        "DIHARD-III": 16.3,
+        "MSDWild": 24.3
+      },
+      "macro": 22.2,
+      "spread": 0.2
+    },
+    {
+      "label": "Chatterbox TTS",
+      "der": {
+        "NSF1 MHM": 19.3,
+        "NSF1 SC": 27.4,
+        "AMI MHM": 21.5,
+        "AMI SDM": 24.7,
+        "AliMeeting Near": 18.6,
+        "AliMeeting Far": 22.5,
+        "DIHARD-III": 17.2,
+        "MSDWild": 28.6
+      },
+      "macro": 22.5,
+      "spread": 0.3
+    },
+    {
+      "label": "Qwen TTS",
+      "der": {
+        "NSF1 MHM": 18.8,
+        "NSF1 SC": 27.3,
+        "AMI MHM": 22.1,
+        "AMI SDM": 26.2,
+        "AliMeeting Near": 18.3,
+        "AliMeeting Far": 22.1,
+        "DIHARD-III": 18.2,
+        "MSDWild": 28.8
+      },
+      "macro": 22.7,
+      "spread": 0.2
+    },
+    {
+      "label": "LS + Chatterbox",
+      "der": {
+        "NSF1 MHM": 19.3,
+        "NSF1 SC": 26.2,
+        "AMI MHM": 22.6,
+        "AMI SDM": 24.8,
+        "AliMeeting Near": 20.5,
+        "AliMeeting Far": 21.9,
+        "DIHARD-III": 17.0,
+        "MSDWild": 25.4
+      },
+      "macro": 22.2,
+      "spread": 0.1
+    },
+    {
+      "label": "LS + Qwen",
+      "der": {
+        "NSF1 MHM": 20.0,
+        "NSF1 SC": 26.4,
+        "AMI MHM": 22.4,
+        "AMI SDM": 24.6,
+        "AliMeeting Near": 22.0,
+        "AliMeeting Far": 21.9,
+        "DIHARD-III": 17.5,
+        "MSDWild": 25.5
+      },
+      "macro": 22.6,
+      "spread": 0.2
+    },
+    {
+      "label": "LS + Qwen + Chatterbox",
+      "der": {
+        "NSF1 MHM": 19.4,
+        "NSF1 SC": 25.3,
+        "AMI MHM": 21.9,
+        "AMI SDM": 25.0,
+        "AliMeeting Near": 20.3,
+        "AliMeeting Far": 22.7,
+        "DIHARD-III": 17.0,
+        "MSDWild": 26.1
+      },
+      "macro": 22.2,
+      "spread": 0.2
+    }
+  ],
+  "II": [
+    {
+      "label": "LibriSpeech",
+      "der": {
+        "NSF1 MHM": 20.7,
+        "NSF1 SC": 25.9,
+        "AMI MHM": 22.0,
+        "AMI SDM": 23.9,
+        "AliMeeting Near": 21.5,
+        "AliMeeting Far": 22.9,
+        "DIHARD-III": 16.3,
+        "MSDWild": 24.3
+      },
+      "macro": 22.2,
+      "spread": 0.2
+    },
+    {
+      "label": "MLS3 TTS · 0.5–0.7",
+      "der": {
+        "NSF1 MHM": 17.3,
+        "NSF1 SC": 24.6,
+        "AMI MHM": 21.5,
+        "AMI SDM": 26.0,
+        "AliMeeting Near": 18.1,
+        "AliMeeting Far": 21.1,
+        "DIHARD-III": 17.5,
+        "MSDWild": 29.3
+      },
+      "macro": 21.9,
+      "spread": 0.2
+    },
+    {
+      "label": "MLS3 TTS · 0.8–1.0",
+      "der": {
+        "NSF1 MHM": 18.0,
+        "NSF1 SC": 25.5,
+        "AMI MHM": 20.9,
+        "AMI SDM": 25.7,
+        "AliMeeting Near": 17.3,
+        "AliMeeting Far": 20.2,
+        "DIHARD-III": 17.1,
+        "MSDWild": 26.8
+      },
+      "macro": 21.4,
+      "spread": 0.2
+    },
+    {
+      "label": "LS + MLS3 · 0.5–0.7",
+      "der": {
+        "NSF1 MHM": 19.1,
+        "NSF1 SC": 25.7,
+        "AMI MHM": 21.7,
+        "AMI SDM": 24.3,
+        "AliMeeting Near": 18.8,
+        "AliMeeting Far": 21.8,
+        "DIHARD-III": 16.6,
+        "MSDWild": 24.7
+      },
+      "macro": 21.6,
+      "spread": 0.1
+    },
+    {
+      "label": "LS + MLS3 · 0.8–1.0",
+      "der": {
+        "NSF1 MHM": 17.8,
+        "NSF1 SC": 25.4,
+        "AMI MHM": 20.9,
+        "AMI SDM": 24.2,
+        "AliMeeting Near": 18.1,
+        "AliMeeting Far": 20.5,
+        "DIHARD-III": 16.2,
+        "MSDWild": 25.0
+      },
+      "macro": 21.0,
+      "spread": 0.2
+    },
+    {
+      "label": "LS + MLS3 · 0.5–1.0",
+      "der": {
+        "NSF1 MHM": 16.5,
+        "NSF1 SC": 25.8,
+        "AMI MHM": 21.4,
+        "AMI SDM": 24.1,
+        "AliMeeting Near": 17.8,
+        "AliMeeting Far": 20.1,
+        "DIHARD-III": 15.9,
+        "MSDWild": 24.7
+      },
+      "macro": 20.8,
+      "spread": 0.2
+    },
+    {
+      "label": "LS + CL8 · 0.5–1.0",
+      "der": {
+        "NSF1 MHM": 18.4,
+        "NSF1 SC": 25.5,
+        "AMI MHM": 22.0,
+        "AMI SDM": 24.8,
+        "AliMeeting Near": 17.5,
+        "AliMeeting Far": 20.4,
+        "DIHARD-III": 16.0,
+        "MSDWild": 26.1
+      },
+      "macro": 21.4,
+      "spread": 0.2
+    }
+  ],
+  "III": [
+    {
+      "label": "LibriSpeech",
+      "der": {
+        "NSF1 MHM": 20.7,
+        "NSF1 SC": 25.9,
+        "AMI MHM": 22.0,
+        "AMI SDM": 23.9,
+        "AliMeeting Near": 21.5,
+        "AliMeeting Far": 22.9,
+        "DIHARD-III": 16.3,
+        "MSDWild": 24.3
+      },
+      "out_of_domain": 21.9,
+      "out_spread": 0.3
+    },
+    {
+      "label": "LS + AMI · excluding test",
+      "der": {
+        "NSF1 MHM": 18.3,
+        "NSF1 SC": 26.0,
+        "AMI MHM": 20.1,
+        "AMI SDM": 23.1,
+        "AliMeeting Near": 18.3,
+        "AliMeeting Far": 22.0,
+        "DIHARD-III": 16.5,
+        "MSDWild": 24.3
+      },
+      "out_of_domain": 20.9,
+      "out_spread": 0.4
+    },
+    {
+      "label": "LS + AMI · all references",
+      "der": {
+        "NSF1 MHM": 17.8,
+        "NSF1 SC": 26.3,
+        "AMI MHM": 19.9,
+        "AMI SDM": 23.4,
+        "AliMeeting Near": 18.6,
+        "AliMeeting Far": 22.1,
+        "DIHARD-III": 15.4,
+        "MSDWild": 24.0
+      },
+      "out_of_domain": 20.7,
+      "out_spread": 0.2
+    }
+  ],
+  "IV": [
+    {
+      "label": "LibriSpeech",
+      "der": {
+        "NSF1 MHM": 20.7,
+        "NSF1 SC": 25.9,
+        "AMI MHM": 22.0,
+        "AMI SDM": 23.9,
+        "AliMeeting Near": 21.5,
+        "AliMeeting Far": 22.9,
+        "DIHARD-III": 16.3,
+        "MSDWild": 24.3
+      },
+      "out_of_domain": 22.2,
+      "out_spread": 0.3,
+      "in_domain": 22.2,
+      "in_spread": 0.5
+    },
+    {
+      "label": "Test · IHM",
+      "der": {
+        "NSF1 MHM": 17.3,
+        "NSF1 SC": 26.3,
+        "AMI MHM": 21.4,
+        "AMI SDM": 24.1,
+        "AliMeeting Near": 15.8,
+        "AliMeeting Far": 20.4,
+        "DIHARD-III": 16.6,
+        "MSDWild": 24.3
+      },
+      "out_of_domain": 21.7,
+      "out_spread": 0.2,
+      "in_domain": 18.1,
+      "in_spread": 0.2
+    },
+    {
+      "label": "Test · SDM",
+      "der": {
+        "NSF1 MHM": 18.6,
+        "NSF1 SC": 26.7,
+        "AMI MHM": 21.1,
+        "AMI SDM": 24.7,
+        "AliMeeting Near": 17.7,
+        "AliMeeting Far": 20.6,
+        "DIHARD-III": 16.5,
+        "MSDWild": 24.2
+      },
+      "out_of_domain": 22.0,
+      "out_spread": 0.3,
+      "in_domain": 19.1,
+      "in_spread": 0.2
+    },
+    {
+      "label": "Train · IHM",
+      "der": {
+        "NSF1 MHM": 17.1,
+        "NSF1 SC": 26.3,
+        "AMI MHM": 20.9,
+        "AMI SDM": 24.4,
+        "AliMeeting Near": 15.7,
+        "AliMeeting Far": 20.1,
+        "DIHARD-III": 16.7,
+        "MSDWild": 24.9
+      },
+      "out_of_domain": 21.7,
+      "out_spread": 0.3,
+      "in_domain": 17.9,
+      "in_spread": 0.2
+    },
+    {
+      "label": "Train · SDM",
+      "der": {
+        "NSF1 MHM": 18.8,
+        "NSF1 SC": 26.5,
+        "AMI MHM": 21.4,
+        "AMI SDM": 23.9,
+        "AliMeeting Near": 18.1,
+        "AliMeeting Far": 20.9,
+        "DIHARD-III": 16.1,
+        "MSDWild": 23.7
+      },
+      "out_of_domain": 21.7,
+      "out_spread": 0.3,
+      "in_domain": 19.5,
+      "in_spread": 0.3
+    },
+    {
+      "label": "All · IHM",
+      "der": {
+        "NSF1 MHM": 16.7,
+        "NSF1 SC": 27.0,
+        "AMI MHM": 21.5,
+        "AMI SDM": 24.4,
+        "AliMeeting Near": 16.1,
+        "AliMeeting Far": 20.7,
+        "DIHARD-III": 16.5,
+        "MSDWild": 24.1
+      },
+      "out_of_domain": 21.7,
+      "out_spread": 0.3,
+      "in_domain": 18.4,
+      "in_spread": 0.2
+    },
+    {
+      "label": "All · IHM + SDM",
+      "der": {
+        "NSF1 MHM": 17.3,
+        "NSF1 SC": 26.1,
+        "AMI MHM": 20.1,
+        "AMI SDM": 23.6,
+        "AliMeeting Near": 16.2,
+        "AliMeeting Far": 20.1,
+        "DIHARD-III": 16.5,
+        "MSDWild": 24.1
+      },
+      "out_of_domain": 21.3,
+      "out_spread": 0.3,
+      "in_domain": 18.2,
+      "in_spread": 0.1
+    }
+  ]
+}
