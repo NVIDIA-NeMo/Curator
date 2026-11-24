@@ -32,7 +32,7 @@ class InterleavedRemoteImageUrlStage(ProcessingStage[InterleavedBatch, DocumentB
     """Interleaved rows -> one row per (sample, remote image URL).
 
     An image row is remote when nothing has stored its bytes: its ``source_ref`` path is still an http(s) URL,
-    or it has no ``source_ref`` and ``url_field`` (a user column) holds the URL it was linked by.
+    or its ``source_ref`` has no path and ``url_field`` (a user column) holds the URL it was linked by.
     Output columns are ``sample_id``, ``image_url`` and each of ``sample_fields`` taken from the sample's
     metadata row (for example the page URL or a page score). An image repeated within a sample is listed once.
     """
@@ -49,19 +49,21 @@ class InterleavedRemoteImageUrlStage(ProcessingStage[InterleavedBatch, DocumentB
 
     def process(self, task: InterleavedBatch) -> DocumentBatch:
         t = task.to_pyarrow()
-        images = t.filter(pc.equal(t["modality"], "image"))
+        # Select before filtering: a filter copies every column it is given, image bytes included.
+        needed = ["sample_id", "source_ref", *([self.url_field] if self.url_field else [])]
+        images = t.select(needed).filter(pc.equal(t["modality"], "image"))
         refs = images["source_ref"].to_pylist()
         linked = images[self.url_field].to_pylist() if self.url_field else [None] * len(refs)
-        pairs = zip(refs, linked, strict=True)
-        paths = [InterleavedBatch.parse_source_ref(ref)["path"] if ref else url for ref, url in pairs]
-        remote = [p if isinstance(p, str) and p.startswith(("http://", "https://")) else None for p in paths]
+        # The WebDataset reader writes a source_ref with a null path for an image it has no file for.
+        paths = [InterleavedBatch.parse_source_ref(ref)["path"] or url for ref, url in zip(refs, linked, strict=True)]
+        remote = [p if p and p[:8].lower().startswith(("http://", "https://")) else None for p in paths]
         urls = pa.array(remote, pa.large_string())
         links = pa.table({"sample_id": images["sample_id"], "image_url": urls}).filter(pc.is_valid(urls))
         # Slices hold whole samples (a sample's rows are consecutive), so the result is the same as one group-by.
         slices = split_table_by_group(links, "sample_id", max_batch_rows=_DEDUP_ROWS)
         links = pa.concat_tables([part.group_by(["sample_id", "image_url"]).aggregate([]) for part in slices])
         # A lookup rather than a join: a field the file lacks is null-typed, which Arrow joins reject.
-        samples = t.filter(pc.equal(t["modality"], "metadata"))
+        samples = t.select(list({"sample_id", *self.sample_fields})).filter(pc.equal(t["modality"], "metadata"))
         rows = pc.index_in(links["sample_id"], value_set=samples["sample_id"])
         out = links
         for name in self.sample_fields:

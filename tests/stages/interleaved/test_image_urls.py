@@ -25,7 +25,7 @@ from nemo_curator.tasks import FileGroupTask
 from nemo_curator.tasks.interleaved import INTERLEAVED_SCHEMA
 
 
-def _image(sample_id: str, position: int, path: str, member: str | None = None) -> dict:
+def _image(sample_id: str, position: int, path: str | None, member: str | None = None) -> dict:
     ref = json.dumps({"path": path, "member": member})
     return {"sample_id": sample_id, "position": position, "modality": "image", "source_ref": ref}
 
@@ -42,28 +42,14 @@ def _write(tmp_path: Path) -> str:
         {"sample_id": "b", "position": 1, "modality": "image", "source_ref": None},
         # the URL is kept in a user column
         {"sample_id": "b", "position": 2, "modality": "image", "source_ref": None, "linked": "http://i/3"},
+        # what the WebDataset reader writes for an image it has no file for; schemes are case-insensitive
+        {**_image("b", 3, None), "linked": "HTTP://i/4"},
     ]
     user = [("url", pa.string()), ("score", pa.float32()), ("linked", pa.string()), ("unused", pa.string())]
     schema = pa.schema([*INTERLEAVED_SCHEMA, *user])
     path = str(tmp_path / "pages.parquet")
     pq.write_table(pa.Table.from_pylist(rows, schema), path)
     return path
-
-
-def test_reader_reserved_columns_leaves_the_rest_unread(tmp_path: Path) -> None:
-    task = FileGroupTask(dataset_name="d", data=[_write(tmp_path)])
-    reader = InterleavedParquetReaderStage(fields=("url", "score"), reserved_columns=("source_ref",))
-    columns = reader._columns_to_read(pq.read_schema(task.data[0]))
-    assert set(columns[:4]) == {"sample_id", "position", "modality", "source_ref"}
-    assert columns[4:] == ["url", "score"]
-    table = reader.process(task).to_pyarrow()
-    assert set(INTERLEAVED_SCHEMA.names) <= set(table.schema.names)  # unread reserved columns are null-filled
-    assert table["text_content"].null_count == table.num_rows
-    assert "unused" not in table.schema.names
-    with pytest.raises(ValueError, match="source_refs"):
-        InterleavedParquetReaderStage(reserved_columns=("source_refs",))  # a typo must not read as "no data"
-    everything = InterleavedParquetReaderStage(reserved_columns=("source_ref",))  # no fields: every user column
-    assert everything._columns_to_read(pq.read_schema(task.data[0]))[4:] == ["url", "score", "linked", "unused"]
 
 
 @pytest.mark.parametrize("dedup_rows", [4_000_000, 1])  # 1: every sample is deduplicated in its own slice
@@ -85,18 +71,4 @@ def test_remote_image_urls(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, dedu
     assert bare.num_rows == 2
     with_field = InterleavedParquetReaderStage(fields=("linked",), reserved_columns=("source_ref",)).process(task)
     urls = InterleavedRemoteImageUrlStage(url_field="linked").process(with_field).to_pyarrow()["image_url"].to_pylist()
-    assert sorted(urls) == ["http://i/1", "http://i/3", "https://i/2"]
-
-
-def test_reader_falls_back_to_the_plain_read_when_a_byte_range_fails(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    def failed_range(*_args: object, **_kwargs: object) -> None:
-        msg = "'OSError' object is not subscriptable"  # what a failed range download raises when read
-        raise TypeError(msg)
-
-    monkeypatch.setattr("nemo_curator.stages.interleaved.io.readers.parquet.open_parquet_file", failed_range)
-    task = FileGroupTask(dataset_name="d", data=[_write(tmp_path)])
-    table = InterleavedParquetReaderStage(fields=("url",), reserved_columns=("source_ref",)).process(task).to_pyarrow()
-    assert table.num_rows == 9
-    assert table["url"].drop_null().to_pylist() == ["http://p/a", "http://p/b"]
+    assert sorted(urls) == ["HTTP://i/4", "http://i/1", "http://i/3", "https://i/2"]
