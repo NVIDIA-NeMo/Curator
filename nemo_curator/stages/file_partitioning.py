@@ -28,6 +28,8 @@ from nemo_curator.utils.file_utils import (
     parse_bytes_string_to_int,
 )
 
+# Lookups of an explicit file list that run at once. A store client may send fewer: s3fs sends at most
+# ``max_pool_connections`` (10 by default), which ``storage_options={"config_kwargs": {...}}`` can raise.
 _LISTING_THREADS = 32
 
 
