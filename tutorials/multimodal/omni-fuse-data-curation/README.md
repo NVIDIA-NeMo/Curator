@@ -16,19 +16,32 @@ current implementation needs local model execution.
 
 ## Setup
 
-Install the tutorial dependencies from the tutorial directory:
+Install the tutorial dependencies from the tutorial directory with `uv`:
 
 ```bash
 cd tutorials/multimodal/omni-fuse-data-curation/
 uv sync
 ```
 
-You will need to do the following before you're able to run the tutorial:
-- Ensure `ffmpeg` is installed and added to `PATH`.
+Or build and run the provided `Dockerfile` (includes Python 3.12, `ffmpeg`,
+`LanguageBind`, and the `pyproject.toml` environment):
+
+```bash
+cd tutorials/multimodal/omni-fuse-data-curation/
+docker build -t omnifuse-tutorial .
+docker run --gpus all --ipc=host --shm-size=16g --rm -it \
+  -v "$PWD:/workspace" \
+  -v /path/to/data:/data \
+  -v "$HOME/.cache/huggingface:/root/.cache/huggingface" \
+  omnifuse-tutorial
+```
+
+Before running the tutorial, complete the following:
+- Ensure `ffmpeg` is installed and added to `PATH` (included in the Docker image).
 - Log in to Hugging Face using `hf auth login`
 - Copy `.env.example` to `.env` in this tutorial directory.
 - Create an API key at `build.nvidia.com` and set the `NV_BUILD_API_KEY` variable in the `.env` file.
-- Clone the [LanguageBind](https://github.com/pku-yuangroup/languagebind) repository. Either clone it to `third_party/` or set the `LANGUAGEBIND_ROOT` variable in the `.env` file.
+- Clone the [LanguageBind](https://github.com/pku-yuangroup/languagebind) repository into `third_party/` or set `LANGUAGEBIND_ROOT` in `.env` (already cloned to `/opt/LanguageBind` in the Docker image).
 - Download pre-trained weights for CG-DETR model from [Lighthouse](https://github.com/line/lighthouse#pre-trained-weights) and save it to `model_files/best.ckpt` We use `cg_detr/qvhighlight/clip/best.ckpt`.
 - We recommend using GPUs as we run several local models
 - Set the paths to the datasets you want to use in `configs/omni_fuse_hybrid.yaml` and change other settings as you see fit.
@@ -210,7 +223,7 @@ scheduling and merge overhead; 25 records is the tutorial default.
 Run only the combined parallel steps:
 
 ```bash
-uv run python 1_2_parallel.py --config configs/omni_fuse_hybrid.yaml
+python 1_2_parallel.py --config configs/omni_fuse_hybrid.yaml
 ```
 
 The combined stage timing and worker/shard configuration are written to:

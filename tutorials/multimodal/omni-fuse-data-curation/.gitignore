@@ -2,6 +2,9 @@
 /model_files/
 /third_party/
 
+# Generated locally by uv sync
+/uv.lock
+
 # Generated when running the pipeline
 /outputs/
 /tmp/
