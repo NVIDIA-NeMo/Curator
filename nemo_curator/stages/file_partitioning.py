@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any
 
@@ -26,6 +27,10 @@ from nemo_curator.utils.file_utils import (
     infer_dataset_name_from_path,
     parse_bytes_string_to_int,
 )
+
+# Lookups of an explicit file list that run at once. A store client may send fewer: s3fs sends at most
+# ``max_pool_connections`` (10 by default), which ``storage_options={"config_kwargs": {...}}`` can raise.
+_LISTING_THREADS = 32
 
 
 @dataclass
@@ -207,17 +212,19 @@ class FilePartitioningStage(ProcessingStage[EmptyTask, FileGroupTask]):
                 sort_by_size=sort_by_size,
             )
         elif isinstance(self.file_paths, list):
-            output_ls = []
-            for path in self.file_paths:
-                output_ls.extend(
-                    get_all_file_paths_and_size_under(
-                        path,
-                        recurse_subdirectories=False,
-                        keep_extensions=self.file_extensions,
-                        storage_options=self.storage_options,
-                        sort_by_size=sort_by_size,
-                    )
+
+            def one(path: str) -> list[tuple[str, int]]:
+                return get_all_file_paths_and_size_under(
+                    path,
+                    recurse_subdirectories=False,
+                    keep_extensions=self.file_extensions,
+                    storage_options=self.storage_options,
+                    sort_by_size=sort_by_size,
                 )
+
+            # Each path costs a few storage requests; on an object store they are latency-bound, so run them together.
+            with ThreadPoolExecutor(_LISTING_THREADS) as pool:
+                output_ls = [record for records in pool.map(one, self.file_paths) for record in records]
         else:
             msg = f"Invalid file paths: {self.file_paths}, must be a string or list of strings"
             raise TypeError(msg)

@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING
 
 import fsspec
@@ -281,6 +282,26 @@ class TestGetAllFilePathsAndSizeUnder:
 
         result = get_all_file_paths_and_size_under(str(test_file))
         assert result == [(str(test_file), 42)]
+
+    def test_missing_path_lists_nothing(self, tmp_path: Path):
+        """A path that does not exist, or lies below a file, is skipped."""
+        test_file = tmp_path / "single.jsonl"
+        _write_test_file(test_file)
+
+        assert get_all_file_paths_and_size_under(str(tmp_path / "missing.jsonl")) == []
+        assert get_all_file_paths_and_size_under(str(test_file / "below_a_file.jsonl")) == []
+
+    @pytest.mark.skipif(os.geteuid() == 0, reason="root can read every path")
+    def test_unreadable_path_raises(self, tmp_path: Path):
+        """A path that cannot be looked up fails the listing instead of being dropped from it."""
+        locked = tmp_path / "locked"
+        _write_test_file(locked / "data.jsonl")
+        locked.chmod(0o000)
+        try:
+            with pytest.raises(PermissionError):
+                get_all_file_paths_and_size_under(str(locked / "data.jsonl"))
+        finally:
+            locked.chmod(0o755)
 
 
 class TestFilePartitioningStageGetters:

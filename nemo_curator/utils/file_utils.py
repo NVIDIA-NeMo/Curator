@@ -211,7 +211,12 @@ def _gather_file_records(  # noqa: PLR0913
     records = []
 
     for root in roots:
-        if fs.isdir(root):
+        # One lookup per root: on object stores isdir(), exists() and info() are each a separate round trip.
+        try:
+            root_info = fs.info(root)
+        except (FileNotFoundError, NotADirectoryError):  # NotADirectoryError: a path below a file
+            continue
+        if root_info.get("type") == "directory":
             listing = fs.find(
                 root,
                 maxdepth=None if recurse_subdirectories else 1,
@@ -223,10 +228,8 @@ def _gather_file_records(  # noqa: PLR0913
             else:
                 entries = [(p, None) for p in listing]
 
-        elif fs.exists(root):
-            entries = [(root, fs.info(root).get("size") if include_size else None)]
         else:
-            entries = []
+            entries = [(root, root_info.get("size") if include_size else None)]
 
         for raw_path, raw_size in entries:
             if (allowed_exts is None) or (_gather_extention(raw_path) in allowed_exts):
