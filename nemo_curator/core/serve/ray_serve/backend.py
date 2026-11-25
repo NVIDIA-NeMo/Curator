@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import os
+import time
 from typing import TYPE_CHECKING, Any
 
 from loguru import logger
@@ -59,6 +60,7 @@ class RayServeBackend(InferenceBackend):
     def _deploy(self) -> None:
         """Deploy models onto the connected Ray cluster."""
         server = self._server
+        deadline = time.monotonic() + server.health_check_timeout_s
         server.port = get_free_port(server.port)
 
         model_names = [model.resolved_model_name for model in server.models]
@@ -88,11 +90,16 @@ class RayServeBackend(InferenceBackend):
         app = build_openai_app(build_args)
         # ``serve.run()`` does not accept ``http_options`` and would otherwise
         # default to port 8000, so the controller must be started explicitly.
-        serve.start(http_options={"port": server.port}, logging_config=logging_config)
-
         try:
-            serve.run(app, name=server.name, blocking=False, logging_config=logging_config)
-            server._wait_for_healthy()
+            serve.start(http_options={"port": server.port}, logging_config=logging_config)
+            # serve.run(blocking=False) still waits for replicas to initialize.
+            # Submit without either readiness wait so our deadline covers startup.
+            serve.run_many(
+                [serve.RunTarget(target=app, name=server.name, logging_config=logging_config)],
+                wait_for_ingress_deployment_creation=False,
+                wait_for_applications_running=False,
+            )
+            server._wait_for_healthy(deadline=deadline)
         except Exception:
             self._cleanup_failed_deploy()
             raise

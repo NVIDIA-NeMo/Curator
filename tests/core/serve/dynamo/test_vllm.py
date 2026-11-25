@@ -426,3 +426,40 @@ def test_dynamo_runtime_env_matches_base_environment() -> None:
     assert dynamo_vllm.DYNAMO_VLLM_RUNTIME_ENV["uv"]["packages"] == expected_packages
     assert "https://pypi.nvidia.com" not in dynamo_vllm._ACTOR_VENV_UV_OPTIONS
     assert "--prerelease" not in dynamo_vllm._ACTOR_VENV_UV_OPTIONS
+
+
+def test_prebuilt_environment_reaches_workers_and_frontend(shared_ray_client: None) -> None:  # noqa: ARG001
+    import sys
+
+    env = {"py_executable": sys.executable, "env_vars": {"CUDA_CACHE_PATH": "/cache/cuda"}}
+    model = DynamoVLLMModelConfig(model_identifier="m", runtime_env=env)
+
+    @ray.remote
+    def inspect_environment() -> tuple[str, str]:
+        import os
+        import sys
+
+        return sys.executable, os.environ["CUDA_CACHE_PATH"]
+
+    for runtime_env in (dynamo_vllm.dynamo_runtime_env(model), dynamo_vllm.merge_model_runtime_envs([model])):
+        assert "uv" not in runtime_env
+        result = ray.get(inspect_environment.options(runtime_env=runtime_env).remote(), timeout=30)
+        assert result == (sys.executable, "/cache/cuda")
+
+
+@pytest.mark.parametrize("installer", ["pip", "uv"])
+def test_prebuilt_environment_rejects_runtime_installs(installer: str) -> None:
+    model = DynamoVLLMModelConfig(
+        model_identifier="m", runtime_env={"py_executable": "/opt/dynamo/bin/python", installer: ["plugin"]}
+    )
+    with pytest.raises(ValueError, match="cannot be combined"):
+        dynamo_vllm.dynamo_runtime_env(model)
+
+
+def test_frontend_rejects_inconsistent_prebuilt_environments() -> None:
+    models = [
+        DynamoVLLMModelConfig(model_identifier="m", runtime_env={"py_executable": "/opt/dynamo/bin/python"}),
+        DynamoVLLMModelConfig(model_identifier="n"),
+    ]
+    with pytest.raises(ValueError, match="same py_executable"):
+        dynamo_vllm.merge_model_runtime_envs(models)

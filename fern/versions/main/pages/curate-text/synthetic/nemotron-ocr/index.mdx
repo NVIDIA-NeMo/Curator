@@ -41,7 +41,15 @@ The included runner starts a Ray cluster and uses `XennaExecutor`; it does not e
 
 ## Installation and Model Access
 
-Build and run an image as described in [Build an Image](/reference/infra/container-environments#build-an-image). The [Curator Dockerfile](https://github.com/NVIDIA-NeMo/Curator/blob/main/docker/Dockerfile) builds the `nemotron-ocr` C++/CUDA extension from the upstream [`nvidia/nemotron-ocr-v2` source](https://huggingface.co/nvidia/nemotron-ocr-v2). Installing `sdg_cuda12` or `image_cuda12` alone does not provide this extension.
+Nemotron OCR currently requires Python 3.12. Build and run an image as described in [Build an Image](/reference/infra/container-environments#build-an-image), adding these OCR-specific build arguments:
+
+```bash
+docker build -f docker/Dockerfile -t nemo-curator:ocr \
+  --build-arg PYTHON_VERSION=3.12 \
+  --build-arg INSTALL_NEMOTRON_OCR=true .
+```
+
+The [Curator Dockerfile](https://github.com/NVIDIA-NeMo/Curator/blob/main/docker/Dockerfile) builds the `nemotron-ocr` C++/CUDA extension from pinned upstream [`nvidia/nemotron-ocr-v2` source](https://huggingface.co/nvidia/nemotron-ocr-v2). Its install is constrained to the existing environment's package versions so it cannot silently replace Curator's PyTorch/CUDA stack. The default Python 3.13 image and the `sdg_cuda12` or `image_cuda12` extras alone do not provide this extension. A plain PyPI install is not a substitute for this source build.
 
 After you activate `/opt/venv`, verify the extension import:
 
