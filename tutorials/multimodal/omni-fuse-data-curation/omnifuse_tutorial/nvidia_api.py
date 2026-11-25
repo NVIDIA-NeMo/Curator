@@ -54,17 +54,21 @@ MIME_TYPES = {
 
 class NvidiaApi:
     def __init__(self, eee: EEEConfig, timeout: int = 120):
-        if eee.needs_api_key:
-            msg = "NVIDIA API key required. Set NV_BUILD_API_KEY in .env."
-            raise ValueError(msg)
         self.base_url, self.embedding_url = eee.base_urls
         self.headers = {"Content-Type": "application/json", "Accept": "application/json"}
+        self.has_api_key = bool(eee.api_key)
         if eee.api_key:
             self.headers["Authorization"] = f"Bearer {eee.api_key}"
         self.nim_embeddings = False
         self.timeout = timeout
 
+    def _require_key(self, url: str) -> None:
+        if not self.has_api_key and "api.nvidia.com" in url:
+            msg = "NVIDIA API key required. Set NV_BUILD_API_KEY in .env."
+            raise ValueError(msg)
+
     def embed(self, texts: list[str], input_type: str, batch_size: int = 1) -> list[list[float]]:
+        self._require_key(self.embedding_url)
         vectors = []
         for start in range(0, len(texts), batch_size):
             chunk = texts[start : start + batch_size]
@@ -97,6 +101,7 @@ class NvidiaApi:
 
     def describe(self, path: Path, modality: str, prompt: str) -> str:
         """Describe an image, audio, or video file sent inline as base64."""
+        self._require_key(self.base_url)
         model, url = DESCRIBER_MODEL, f"{self.base_url}/chat/completions"
         mime = MIME_TYPES.get(path.suffix.lower(), "application/octet-stream")
         if modality == "audio":

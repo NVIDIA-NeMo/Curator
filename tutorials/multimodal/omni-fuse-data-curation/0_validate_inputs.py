@@ -29,7 +29,7 @@ def main() -> None:
 
     # Check required API credentials and local model assets before launching GPU jobs.
     missing: list[str] = []
-    if config.eee.needs_api_key:
+    if config.needs_api_key:
         missing.append("NV_BUILD_API_KEY")
     if "fusion" in config.eee.experts and not languagebind_root().exists():
         missing.append("LANGUAGEBIND_ROOT")

@@ -70,7 +70,7 @@ class SNS:
     """
 
     def __init__(self, config: ExperimentConfig):
-        self.config, self.dim, self.api = config.sns, EMBEDDING_DIM, NvidiaApi(config.eee)
+        self.config, self.dim, self._eee, self.api = config.sns, EMBEDDING_DIM, config.eee, None
         device = resolve_device()
         self.omni = OmniEmbed(device)
         self.extractor = ForwardExtractor(config.sns, config.run_dir / "sns" / "media", device)
@@ -263,8 +263,13 @@ class SNS:
             return f"modality {modality} {' '.join(re.findall(r'[a-zA-Z0-9]+', path.stem))} {fingerprint(path)}"
         key = f"{modality}:{path}"
         if key not in self.descriptions:
-            self.descriptions[key] = self.api.describe(path, modality, SNS_PROMPTS[modality])
+            self.descriptions[key] = self._api().describe(path, modality, SNS_PROMPTS[modality])
         return self.descriptions[key]
+
+    def _api(self) -> NvidiaApi:
+        if self.api is None:
+            self.api = NvidiaApi(self._eee)
+        return self.api
 
 
 class ForwardExtractor:

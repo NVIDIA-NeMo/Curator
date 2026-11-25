@@ -99,10 +99,13 @@ class EEEConfig:
         embed = os.environ.get("NVIDIA_EMBEDDING_BASE_URL") or chat
         return chat.rstrip("/"), embed.rstrip("/")
 
-    @property
-    def needs_api_key(self) -> bool:
+    def needs_api_key(self, *, chat: bool = True, embeddings: bool = True) -> bool:
         """Only NVIDIA-hosted endpoints require a key; self-hosted servers may run without auth."""
-        return not self.api_key and any("api.nvidia.com" in url for url in self.base_urls)
+        if self.api_key:
+            return False
+        chat_url, embed_url = self.base_urls
+        urls = [url for enabled, url in ((chat, chat_url), (embeddings, embed_url)) if enabled]
+        return any("api.nvidia.com" in url for url in urls)
 
 
 @dataclass
@@ -194,6 +197,17 @@ class ExperimentConfig:
     @property
     def run_dir(self) -> Path:
         return self.output_dir / self.experiment_id
+
+    @property
+    def needs_api_key(self) -> bool:
+        """Whether any enabled SNS or EEE path calls an NVIDIA-hosted API endpoint without credentials."""
+        has_media = any(pool.modality != "text" for pool in self.data_pools)
+        uses_text_expert = "text-based" in self.eee.experts
+        uses_backward_media = self.sns.enabled and self.sns.direction in {"backward", "bidirectional"} and has_media
+        return self.eee.needs_api_key(
+            chat=uses_backward_media or (uses_text_expert and has_media),
+            embeddings=uses_text_expert,
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return _jsonable(asdict(self))

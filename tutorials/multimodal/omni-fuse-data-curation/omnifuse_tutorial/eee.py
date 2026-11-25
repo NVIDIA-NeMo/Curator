@@ -41,7 +41,7 @@ class EEEBackend:
     """The text-based expert embeds NVIDIA API descriptions with the API text encoder; fusion and e2e run locally."""
 
     def __init__(self, eee: EEEConfig):
-        self.eee, self.dim, self.api = eee, EMBEDDING_DIM, NvidiaApi(eee)
+        self.eee, self.dim, self.api = eee, EMBEDDING_DIM, None
         self.device = resolve_device()
         self.omni = OmniEmbed(self.device)
         self.languagebind = self.adapter = None
@@ -62,7 +62,7 @@ class EEEBackend:
 
     def embed_query(self, text: str, expert: str = "text-based") -> np.ndarray:
         if expert == "text-based":
-            return unit(self.api.embed([text], "query")[0], self.dim, np.float64)
+            return unit(self._api().embed([text], "query")[0], self.dim, np.float64)
         if expert == "fusion":
             return self._adapt(self._languagebind().encode_text(text))
         return unit(self.omni.encode_texts([text], batch_size=1)[0], self.dim)
@@ -74,7 +74,12 @@ class EEEBackend:
         path = Path(record["raw_path"]) if record.get("raw_path") else None
         if modality not in EEE_PROMPTS or path is None or not path.exists():
             return feature_text(record)
-        return self.api.describe(path, modality, EEE_PROMPTS[modality])
+        return self._api().describe(path, modality, EEE_PROMPTS[modality])
+
+    def _api(self) -> NvidiaApi:
+        if self.api is None:
+            self.api = NvidiaApi(self.eee)
+        return self.api
 
     def _languagebind(self) -> LanguageBind:
         if self.languagebind is None:

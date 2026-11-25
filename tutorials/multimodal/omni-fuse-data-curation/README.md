@@ -221,7 +221,7 @@ outputs/<experiment_id>/
   - `tau_forward_text` (`0.05`), `tau_forward_image` (`0.10`), `tau_forward_audio` (`0.10`), `tau_forward_video` (`0.10`), `tau_backward` (`0.10`): per-modality relevance thresholds. Higher values prune more aggressively; lower values retain more content.
   - `cg_detr_checkpoint`: path to the Lighthouse CG-DETR checkpoint (defaults to `model_files/best.ckpt` in the tutorial directory).
 - **`eee`** (optional; defaults apply when omitted):
-  - `experts` (default `["text-based", "fusion", "e2e"]`): subset of experts to run. Dropping `text-based` skips API calls; dropping `fusion` removes the LanguageBind dependency.
+  - `experts` (default `["text-based", "fusion", "e2e"]`): subset of experts to run.
   - API credentials and self-hosted endpoint overrides are configured via `.env` (`NV_BUILD_API_KEY`, `NVIDIA_API_BASE_URL`, `NVIDIA_EMBEDDING_BASE_URL`).
 - **`parallelism`** (used only by `1_2_parallel.py`):
   - `records_per_shard` (`25`): smaller shards start SNS→EEE overlap sooner with slightly more merge overhead.
