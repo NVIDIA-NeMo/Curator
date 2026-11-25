@@ -258,11 +258,15 @@ class Pipeline:
         Args:
             executor (BaseExecutor): Executor to use
             initial_tasks (list[Task], optional): Initial tasks to start the pipeline with. Defaults to None.
-            checkpoint_path (str | Path, optional): Resumability directory. Must
-                be a LOCAL filesystem path (the LMDB state is written locally),
-                not a remote/cloud URI. When set, completed source partitions are
-                tracked (in a ``.nemo_curator_metadata`` subdir) and skipped on
-                rerun. Multiple runs (e.g. a SLURM array) may share the directory
+            checkpoint_path (str | Path, optional): Resumability directory. When
+                set, completed source partitions are tracked (in a
+                ``.nemo_curator_metadata`` subdir) and skipped on rerun. Requires
+                a Ray cluster already running (``RayClient().start()``) and every
+                stage marked ``is_resumable``. Must be a filesystem path, not a
+                remote/cloud URI, on a filesystem that supports memory-mapped I/O
+                — local disk, Lustre, GPFS, or BeeGFS. NFS and other remote
+                filesystems are unsupported by LMDB and can wedge the checkpoint
+                actor. Multiple runs (e.g. a SLURM array) may share the directory
                 — each writes its own LMDB file, so there is no contention.
 
         Returns:

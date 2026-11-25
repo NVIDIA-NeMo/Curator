@@ -87,9 +87,12 @@ def run(
         initial_tasks: Initial tasks to start the pipeline.
         checkpoint_path: Optional resumability directory. Completed source
             partitions are recorded under `.nemo_curator_metadata` and skipped
-            when the pipeline runs again with the same path. In multi-node or
-            distributed runs, this must resolve to the same durable shared
-            filesystem location on every worker and node.
+            when the pipeline runs again with the same path. Requires a Ray
+            cluster started before `run()` and every stage marked
+            `is_resumable`. In multi-node or distributed runs, this must
+            resolve to the same durable location on every worker and node, on
+            a filesystem that supports memory-mapped I/O (local disk, Lustre,
+            GPFS, BeeGFS — not NFS).
 
     Returns:
         List of output tasks from the final stage, or None.
@@ -154,11 +157,20 @@ results = pipeline.run(executor=executor)
 
 ### Resume an Interrupted Run
 
+Resumability requires a Ray cluster that is already running, so start one before `run()`:
+
 ```python
-results = pipeline.run(checkpoint_path="./checkpoints/text-curation")
+from nemo_curator.core.client import RayClient
+
+ray_client = RayClient()
+ray_client.start()
+try:
+    results = pipeline.run(checkpoint_path="./checkpoints/text-curation")
+finally:
+    ray_client.stop()
 ```
 
-Run the same pipeline with the same path after an interruption. Sources recorded as completed are skipped; incomplete sources restart from the source stage.
+Run the same pipeline with the same path after an interruption. Sources recorded as completed are skipped; incomplete sources restart from the source stage. Refer to [Resumable Processing](/reference/infra/resumable-processing) for the full set of prerequisites.
 
 ### Pipeline Configuration
 
