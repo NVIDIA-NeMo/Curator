@@ -15,7 +15,7 @@ dependencies = [
     "pyyaml>=6.0",
     "requests>=2.31",
     "spacy>=3.8.14,<4",
-    "torch>=2.2",
+    "torch>=2.11,<2.12",
     "accelerate>=0.26",
     "einops>=0.6",
     "easydict>=1.13",
@@ -33,10 +33,10 @@ dependencies = [
     "sentence-transformers>=2.2,<4",
     "soundfile>=0.12",
     "torchlibrosa",
-    "torchcodec",
+    "torchcodec>=0.11,<0.12",
     "clip @ git+https://github.com/openai/CLIP.git",
-    "torchaudio>=2.2",
-    "torchvision>=0.17",
+    "torchaudio>=2.11,<2.12",
+    "torchvision>=0.26,<0.27",
     "transformers>=4.57,<5",
     "en-core-web-sm",
     "peft>=0.19.1",
@@ -60,7 +60,7 @@ en-core-web-sm = { url = "https://github.com/explosion/spacy-models/releases/dow
 torch = { index = "pytorch-cu128", marker = "sys_platform == 'linux'" }
 torchaudio = { index = "pytorch-cu128", marker = "sys_platform == 'linux'" }
 torchvision = { index = "pytorch-cu128", marker = "sys_platform == 'linux'" }
-torchcodec = { index = "pytorch-cu128", marker = "sys_platform == 'linux'" }
+# Pull torchcodec from PyPI (CPU FFmpeg build) rather than pytorch-cu128, whose wheel links libnppicc.so.12.
 
 [tool.setuptools]
 packages = ["omnifuse_tutorial"]

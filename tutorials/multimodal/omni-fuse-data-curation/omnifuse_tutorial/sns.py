@@ -399,11 +399,10 @@ class ForwardExtractor:
             return raw, {"reason": "no_video_segments_above_threshold", "total_segments": len(windows)}
         video = np.asarray(frames)
         clip = np.concatenate([video[int(start * fps) : int(end * fps)] for start, end in selected])
+        if not len(clip):
+            return raw, {"reason": "empty_video_segments", "total_segments": len(windows)}
         output = self._output_path(".mp4")
-        writer = cv2.VideoWriter(str(output), cv2.VideoWriter_fourcc(*"mp4v"), fps, (clip.shape[2], clip.shape[1]))
-        for frame in clip:
-            writer.write(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
-        writer.release()
+        _write_h264_mp4(clip, fps, output)
         return output, {
             "reason": "video_cgdetr_segments",
             "components": components,
@@ -537,6 +536,25 @@ def _select_windows(
             if len(selected) >= max_segments:
                 break
     return sorted(selected, key=lambda item: item[0])
+
+
+def _write_h264_mp4(clip: np.ndarray, fps: float, output: Path) -> None:
+    """Write an RGB frame array as an H.264 MP4 compatible with hosted video describers."""
+    import ffmpeg
+
+    height, width = clip.shape[1], clip.shape[2]
+    try:
+        (
+            ffmpeg.input("pipe:", format="rawvideo", pix_fmt="rgb24", s=f"{width}x{height}", r=fps)
+            .filter("pad", "ceil(iw/2)*2", "ceil(ih/2)*2")
+            .output(str(output), vcodec="libx264", pix_fmt="yuv420p", movflags="+faststart")
+            .overwrite_output()
+            .run(input=np.ascontiguousarray(clip, dtype=np.uint8).tobytes(), capture_stdout=True, capture_stderr=True)
+        )
+    except ffmpeg.Error as exc:
+        stderr = exc.stderr.decode("utf-8", errors="replace")[-500:] if exc.stderr else str(exc)
+        msg = f"ffmpeg failed to encode H.264 video {output}: {stderr}"
+        raise RuntimeError(msg) from exc
 
 
 def _sentences(text: str) -> list[str]:
