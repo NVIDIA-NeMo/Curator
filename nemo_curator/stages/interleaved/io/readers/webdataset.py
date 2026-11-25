@@ -434,7 +434,9 @@ class InterleavedWebdatasetReaderStage(BaseInterleavedReader):
                 read_ctx = _ReadContext(
                     tar_path=tar_path,
                     member_names=member_names,
-                    member_info={m.name: m for m in members},
+                    # offset_data points into the decompressed stream, so it is only a valid
+                    # byte range in the file when the tar is not compressed.
+                    member_info={m.name: m for m in members} if tf.fileobj is fobj else {},
                     storage_options=self._storage_options,
                     byte_cache={},
                 )

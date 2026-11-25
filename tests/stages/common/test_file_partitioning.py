@@ -156,6 +156,16 @@ class TestFilePartitioningStage:
         assert result[1].data == test_files[2:]
         assert result[0]._metadata["task_weight"] == sum(Path(path).stat().st_size for path in test_files[:2])
 
+    def test_process_with_multi_part_file_extension(self, empty_task: EmptyTask, tmp_path: Path):
+        """Test that a directory input keeps files matching a multi-part extension such as .jsonl.gz."""
+        for name in ["a.jsonl.gz", "b.jsonl.gz", "c.jsonl"]:
+            (tmp_path / name).write_text("{}\n")
+        stage = FilePartitioningStage(file_paths=str(tmp_path), file_extensions=[".jsonl.gz"])
+
+        result = stage.process(empty_task)
+
+        assert [task.data for task in result] == [[str(tmp_path / "a.jsonl.gz")], [str(tmp_path / "b.jsonl.gz")]]
+
     def test_process_with_limit(self, empty_task: EmptyTask, tmp_path: Path):
         """Test processing with limit parameter - this is the main test for the limit functionality."""
         test_files = _create_test_jsonl_files(tmp_path, num_files=10, subdir="path")

@@ -12,9 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import bz2
+import gzip
 import json
 import logging
 import tarfile
+from collections.abc import Callable
 from io import BytesIO
 from pathlib import Path
 
@@ -31,6 +34,7 @@ from nemo_curator.stages.interleaved.io.readers.parquet import InterleavedParque
 from nemo_curator.stages.interleaved.io.readers.webdataset import InterleavedWebdatasetReaderStage
 from nemo_curator.stages.interleaved.io.writers.tabular import InterleavedParquetWriterStage
 from nemo_curator.stages.interleaved.io.writers.webdataset import InterleavedWebdatasetWriterStage
+from nemo_curator.stages.interleaved.utils.materialization import materialize_task_binary_content
 from nemo_curator.tasks import FileGroupTask, InterleavedBatch
 from nemo_curator.tasks.interleaved import INTERLEAVED_SCHEMA
 
@@ -760,6 +764,36 @@ def test_reader_multi_tar(tmp_path: Path) -> None:
     else:
         df = result.to_pandas()
     assert df["sample_id"].nunique() == 2
+
+
+@pytest.mark.parametrize(
+    ("suffix", "compress", "has_byte_range"),
+    [
+        (".tar", None, True),
+        (".tar.gz", gzip.compress, False),
+        (".tgz", gzip.compress, False),
+        (".tar.bz2", bz2.compress, False),
+    ],
+)
+def test_reader_lazy_materialize_matches_member_bytes(
+    tmp_path: Path, suffix: str, compress: Callable[[bytes], bytes] | None, has_byte_range: bool
+) -> None:
+    """Lazily materialized images must match the member bytes for plain and compressed shards."""
+    image_bytes = b"\xff\xd8\xff\xe0" + bytes(range(256)) * 8
+    tar_path = tmp_path / "plain.tar"
+    _write_tar_sample(tar_path, {"texts": ["hello"], "images": ["image.jpg"]}, image_bytes=image_bytes)
+    shard_path = tmp_path / f"shard{suffix}"
+    data = tar_path.read_bytes()
+    shard_path.write_bytes(data if compress is None else compress(data))
+
+    batch = InterleavedWebdatasetReaderStage().process(task_for_tar(str(shard_path)))
+    df = materialize_task_binary_content(batch).to_pandas()
+    image_row = df[df["modality"] == "image"].iloc[0]
+
+    assert pd.isna(image_row["materialize_error"])
+    assert image_row["binary_content"] == image_bytes
+    ref = InterleavedBatch.parse_source_ref(image_row["source_ref"])
+    assert (ref["byte_offset"] is not None) is has_byte_range
 
 
 def test_reader_max_batch_bytes_splits(tmp_path: Path) -> None:
