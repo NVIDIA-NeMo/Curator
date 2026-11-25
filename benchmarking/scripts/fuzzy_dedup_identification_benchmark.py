@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from loguru import logger
+from text_metrics import count_registry_documents
 from utils import parse_memory_size, write_benchmark_results
 
 from nemo_curator.stages.deduplication.fuzzy.workflow import FuzzyDeduplicationWorkflow
@@ -75,6 +76,9 @@ def run_duplicate_identification_benchmark(  # noqa: PLR0913
 
     run_time_taken = time.perf_counter() - run_start_time
 
+    registry_path = workflow_run_result.metadata.get("id_generator_path")
+    num_input_documents = count_registry_documents(registry_path)
+
     # Extract metrics
     workflow_total_time = workflow_run_result.metadata.get("total_time")
     minhash_time = workflow_run_result.metadata.get("minhash_time")
@@ -96,8 +100,15 @@ def run_duplicate_identification_benchmark(  # noqa: PLR0913
     logger.success(f"Benchmark completed in {run_time_taken:.2f}s")
 
     return {
+        "params": {
+            "input_denominator_source": registry_path,
+            "input_denominator_basis": "inclusive document-ID ranges allocated by successful MinHash reads; text bytes unmeasured",
+            "timing_boundary": "workflow construction and run; excludes registry-count aggregation and result serialization",
+        },
         "metrics": {
             "is_success": True,
+            "num_input_documents": num_input_documents,
+            "input_text_bytes": None,
             "time_taken_s": run_time_taken,
             "workflow_total_time": workflow_total_time,
             "minhash_time": minhash_time,
@@ -177,7 +188,9 @@ def main() -> int:
         "tasks": [],
     }
     try:
-        result_dict.update(run_duplicate_identification_benchmark(**vars(args)))
+        measured = run_duplicate_identification_benchmark(**vars(args))
+        measured["params"] = {**result_dict["params"], **measured["params"]}
+        result_dict.update(measured)
         success_code = 0 if result_dict["metrics"]["is_success"] else 1
     finally:
         write_benchmark_results(result_dict, args.benchmark_results_path, save_tasks=save_tasks)

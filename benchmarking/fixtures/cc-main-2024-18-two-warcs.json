@@ -1,0 +1,17 @@
+{
+  "snapshot": "CC-MAIN-2024-18",
+  "selection": "First two complete objects in the published warc.paths.gz listing; convenience sample, not representative or random",
+  "manifest_source": "https://data.commoncrawl.org/crawl-data/CC-MAIN-2024-18/warc.paths.gz",
+  "objects": [
+    {
+      "url": "https://data.commoncrawl.org/crawl-data/CC-MAIN-2024-18/segments/1712296815919.75/warc/CC-MAIN-20240412101354-20240412131354-00000.warc.gz",
+      "size_bytes": 957397367,
+      "etag": "\"1d0927b807c1ab534b3c4de9ca7f92f7-15\""
+    },
+    {
+      "url": "https://data.commoncrawl.org/crawl-data/CC-MAIN-2024-18/segments/1712296815919.75/warc/CC-MAIN-20240412101354-20240412131354-00001.warc.gz",
+      "size_bytes": 967029035,
+      "etag": "\"b48fb3ba66d98206d443b58f6f17e482-15\""
+    }
+  ]
+}
