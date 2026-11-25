@@ -426,3 +426,49 @@ def test_dynamo_runtime_env_matches_base_environment() -> None:
     assert dynamo_vllm.DYNAMO_VLLM_RUNTIME_ENV["uv"]["packages"] == expected_packages
     assert "https://pypi.nvidia.com" not in dynamo_vllm._ACTOR_VENV_UV_OPTIONS
     assert "--prerelease" not in dynamo_vllm._ACTOR_VENV_UV_OPTIONS
+
+
+def test_preinstalled_runtime_env_reaches_workers_and_shared_frontend() -> None:
+    runtime_env = {
+        "py_executable": "/opt/dynamo/bin/python",
+        "env_vars": {"CUDA_CACHE_PATH": "/cache/cuda"},
+        "config": {"setup_timeout_seconds": 120},
+    }
+    first = DynamoVLLMModelConfig(model_identifier="first", runtime_env=runtime_env)
+    second = DynamoVLLMModelConfig(
+        model_identifier="second",
+        runtime_env={
+            "py_executable": runtime_env["py_executable"],
+            "env_vars": {"TRITON_CACHE_DIR": "/cache/triton"},
+        },
+    )
+
+    assert dynamo_vllm.dynamo_runtime_env(first) == runtime_env
+    assert dynamo_vllm.dynamo_runtime_env(second) == second.runtime_env
+    assert dynamo_vllm.merge_model_runtime_envs([first, second]) == {
+        **runtime_env,
+        "env_vars": {"CUDA_CACHE_PATH": "/cache/cuda", "TRITON_CACHE_DIR": "/cache/triton"},
+    }
+    assert runtime_env["env_vars"] == {"CUDA_CACHE_PATH": "/cache/cuda"}
+
+
+@pytest.mark.parametrize("other_env", [{}, {"py_executable": "/opt/other/bin/python"}])
+def test_shared_frontend_rejects_conflicting_interpreters(other_env: dict[str, Any]) -> None:
+    models = [
+        DynamoVLLMModelConfig(model_identifier="first", runtime_env={"py_executable": "/opt/dynamo/bin/python"}),
+        DynamoVLLMModelConfig(model_identifier="second", runtime_env=other_env),
+    ]
+    with pytest.raises(ValueError, match="same runtime_env py_executable"):
+        dynamo_vllm.merge_model_runtime_envs(models)
+
+
+def test_managed_runtime_env_preserves_dynamo_and_model_dependencies() -> None:
+    model = DynamoVLLMModelConfig(
+        model_identifier="model",
+        runtime_env={"uv": {"packages": ["model-loader"]}, "env_vars": {"HF_HOME": "/cache/huggingface"}},
+    )
+    worker_env = dynamo_vllm.dynamo_runtime_env(model)
+    assert worker_env["uv"]["packages"] == [*dynamo_vllm.DYNAMO_VLLM_RUNTIME_ENV["uv"]["packages"], "model-loader"]
+    assert worker_env["env_vars"] == model.runtime_env["env_vars"]
+    assert dynamo_vllm.merge_model_runtime_envs([model]) == worker_env
+    assert model.runtime_env["uv"]["packages"] == ["model-loader"]
