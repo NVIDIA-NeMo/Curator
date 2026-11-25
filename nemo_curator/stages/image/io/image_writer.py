@@ -88,15 +88,19 @@ class ImageWriterStage(ProcessingStage[ImageBatch, FileGroupTask]):
             img = np.clip(img, 0, 255).astype(np.uint8)
         channels_gray = 2
         channels_rgb = 3
-        channels_rgba = 4
+        ndim_hwc = 3
+        max_gray_channels = 2
+
+        if img.ndim == ndim_hwc and img.shape[2] <= max_gray_channels:
+            # (H, W, 1) gray or (H, W, 2) gray+alpha: keep the gray channel
+            img = img[..., 0]
 
         if img.ndim == channels_gray:
             mode = "L"
         elif img.shape[2] == channels_rgb:
             mode = "RGB"
-        elif img.shape[2] == channels_rgba:
-            mode = "RGBA"
         else:
+            # JPEG has no alpha channel (PIL raises on RGBA), so keep the first three channels
             mode = "RGB"
             img = img[..., :channels_rgb]
 
