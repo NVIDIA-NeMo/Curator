@@ -110,15 +110,15 @@ You can configure uv with the following commands:
 uv sync
 ```
 
-You can additionally sync optional dependency groups:
+You can additionally sync optional dependency groups. Most modalities have a CPU and a CUDA 12 variant (for example `text_cpu` and `text_cuda12`); see `[project.optional-dependencies]` in `pyproject.toml` for the full list:
 
 ```bash
-uv sync --extra text
+uv sync --extra text_cpu
 
 # Sync multiple dependency groups
-uv sync --extra text --extra video
+uv sync --extra text_cpu --extra video_cpu
 
-# Sync all (includes audio_cuda12, deduplication_cuda12, image_cuda12, text_cuda12, video_cuda12)
+# Sync all (installs the CUDA 12 variants of every modality; intended for machines with an NVIDIA GPU)
 uv sync --extra all
 ```
 
@@ -153,7 +153,7 @@ Pull requests should cover at least 80% of its changes with tests. CI will rejec
     git push --force
     ```
     Replace `N` in the first line with the number of commits you want to undo. To undo the latest commit, do `git reset --soft HEAD~1`.
-4) Make sure all unittests finish successfully before sending PR ``pytest`` or (if your dev box does not have GPU) ``pytest --cpu`` from the root folder
+4) Make sure all unittests finish successfully before sending PR ``pytest`` or (if your dev box does not have GPU) ``pytest -m 'not gpu'`` from the root folder
 5) Send your PR and request a review
 
 ### Updating Package Dependencies
