@@ -14,6 +14,7 @@
 
 import atexit
 import contextlib
+import glob
 import os
 import shutil
 import signal
@@ -70,6 +71,7 @@ class RayClient:
         enable_object_spilling: Whether to enable object spilling.
         ray_stdouterr_capture_file: The file to capture stdout/stderr to.
         metrics_dir: The directory for Prometheus/Grafana metrics data. If None, uses the per-user default.
+        cleanup_ray_session_dir: Delete the Ray session directory of the cluster this client started on `stop()`.
 
     Note:
         To start monitoring services (Prometheus and Grafana), use the standalone
@@ -89,8 +91,12 @@ class RayClient:
     enable_object_spilling: bool = False
     ray_stdouterr_capture_file: str | None = None
     metrics_dir: str | None = None
+    cleanup_ray_session_dir: bool = False
 
     ray_process: subprocess.Popen | None = field(init=False, default=None)
+    _sessions_before: set[str] = field(init=False, default_factory=set, repr=False)
+    _session_root: str = field(init=False, default="", repr=False)
+    _own_sessions: set[str] = field(init=False, default_factory=set, repr=False)
 
     def __post_init__(self) -> None:
         if self.ray_stdouterr_capture_file and os.path.exists(self.ray_stdouterr_capture_file):
@@ -148,6 +154,13 @@ class RayClient:
             )
             ip_address = socket.gethostbyname(socket.gethostname())
 
+            # Drop state from any earlier run so a flag flipped on later cannot target its directory.
+            self._session_root, self._sessions_before, self._own_sessions = "", set(), set()
+            if self.cleanup_ray_session_dir:
+                # Pin a relative temp dir to the cwd Ray starts in, so a later chdir() cannot retarget cleanup.
+                # ray_temp_dir itself stays as the caller gave it, so a restart resolves it from the new cwd.
+                self._session_root = os.path.abspath(self.ray_temp_dir)
+                self._sessions_before = set(glob.glob(os.path.join(glob.escape(self._session_root), "session_*")))
             self.ray_process = init_cluster(
                 ray_port=self.ray_port,
                 ray_temp_dir=self.ray_temp_dir,
@@ -163,6 +176,9 @@ class RayClient:
                 ip_address=ip_address,
                 stdouterr_capture_file=self.ray_stdouterr_capture_file,
             )
+            if self.cleanup_ray_session_dir:
+                # Record our dirs now, while the pid is provably ours.
+                self._own_sessions = self._own_session_dirs(self.ray_process.pid)
             # Set environment variable for RAY_ADDRESS
             os.environ["RAY_ADDRESS"] = f"{ip_address}:{self.ray_port}"
             # Verify that Ray cluster actually started successfully
@@ -180,6 +196,14 @@ class RayClient:
                 logger.debug("Could not remove Ray metrics service discovery during shutdown.")
 
         if self.ray_process:
+            # Dirs seen at start stay ours even if the caller reaped the process; a dir that shows up later is
+            # matched by pid only while it is unreaped, since a reaped pid may belong to another cluster.
+            # _session_root is only set by start() when the flag was on; if the flag was flipped afterwards there is
+            # nothing recorded, and an empty root would make the globs below search the cwd.
+            cleanup = self.cleanup_ray_session_dir and bool(self._session_root)
+            own_sessions = set(self._own_sessions)
+            if cleanup and self.ray_process.returncode is None:
+                own_sessions |= self._own_session_dirs(self.ray_process.pid)
             # Kill the entire process group to ensure child processes are terminated
             try:
                 os.killpg(os.getpgid(self.ray_process.pid), signal.SIGTERM)
@@ -195,6 +219,10 @@ class RayClient:
             except (ProcessLookupError, OSError):
                 # Process group not found or process group already terminated
                 pass
+            if cleanup:
+                self._remove_session_dirs(own_sessions)
+            # Cleanup state belongs to this run only.
+            self._session_root, self._sessions_before, self._own_sessions = "", set(), set()
             # Reset the environment variable for RAY_ADDRESS
             os.environ.pop("RAY_ADDRESS", None)
             # Currently there is no good way of stopping a particular Ray cluster. https://github.com/ray-project/ray/issues/54989
@@ -205,6 +233,27 @@ class RayClient:
             logger.info(msg)
             # Clear the process to prevent double execution (atexit handler)
             self.ray_process = None
+
+    def _own_session_dirs(self, pid: int) -> set[str]:
+        # `ray start` names its session dir session_<date>_<pid of ray start> (ray/_private/node.py), so the pid
+        # keeps the dirs of other clusters sharing ray_temp_dir, and the pre-start snapshot keeps older dirs of
+        # a reused pid. glob.escape keeps metacharacters in ray_temp_dir from matching other directories.
+        own = set(glob.glob(os.path.join(glob.escape(self._session_root), f"session_*_{pid}"))) - self._sessions_before
+        if not own:
+            logger.debug(f"No Ray session directory for pid {pid} found in {self._session_root}.")
+        return own
+
+    def _remove_session_dirs(self, own: set[str]) -> None:
+        for session_dir in own:
+            try:
+                shutil.rmtree(session_dir)
+            except OSError as e:
+                logger.warning(f"Could not remove Ray session directory {session_dir}: {e}")
+        # Ray does not replace a dangling session_latest link, so drop it once its target is gone.
+        latest = os.path.join(self._session_root, "session_latest")
+        if os.path.islink(latest) and not os.path.exists(latest):
+            with contextlib.suppress(OSError):
+                os.unlink(latest)
 
     def __enter__(self):
         self.start()
