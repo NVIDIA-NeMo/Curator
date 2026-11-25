@@ -86,7 +86,7 @@ For executor options and configuration, refer to [Execution Backends](/reference
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
 | `language` | str | "en" | Language code for Wikipedia dump (for example, `en`, `es`, `fr`). Most follow ISO 639‑1, with project-specific exceptions such as `simple`. Refer to Meta‑Wiki [List of Wikipedia language editions](https://meta.wikimedia.org/wiki/List_of_Wikipedias) for supported edition codes and [List of ISO 639 language codes](https://en.wikipedia.org/wiki/List_of_ISO_639_language_codes) for general codes. |
-| `download_dir` | str | "./wikipedia_downloads" | Directory to store downloaded `.bz2` files |
+| `download_dir` | str | "./wikipedia_downloads" | Local directory to store downloaded `.bz2` files. A remote URL such as `s3://...` raises `ValueError` |
 | `dump_date` | Optional[str] | None | Specific dump date in "YYYYMMDD" format (for example, "20240401"). Dumps are published around the first and twentieth of each month. If None, uses the latest available dump |
 | `wikidumps_index_prefix` | str | "https://dumps.wikimedia.org" | Base URL for Wikipedia dumps index |
 | `verbose` | bool | False | Enable verbose logging during download |
