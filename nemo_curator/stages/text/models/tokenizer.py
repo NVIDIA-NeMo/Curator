@@ -156,12 +156,14 @@ class TokenizerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     def process(self, batch: DocumentBatch) -> DocumentBatch:
         df = batch.to_pandas()
 
+        # Truncate only the tokenizer input; the text column is passed through unchanged
+        texts = df[self.text_field]
         if self.max_chars is not None and self.max_chars > 0:
-            df[self.text_field] = df[self.text_field].str.slice(0, self.max_chars)
+            texts = texts.str.slice(0, self.max_chars)
 
         with torch.no_grad():
             tokens = self.tokenizer.batch_encode_plus(
-                df[self.text_field].tolist(),
+                texts.tolist(),
                 max_length=self.max_seq_length,
                 padding="max_length",
                 return_tensors="np",
