@@ -66,7 +66,6 @@ def write_bytes(  # noqa: PLR0913
         desc: Description of the write.
         source_video: Source video.
         verbose: Verbosity.
-        client: Storage client.
         backup_and_overwrite: Backup and overwrite.
         overwrite: Overwrite.
 
@@ -105,7 +104,6 @@ def write_parquet(  # noqa: PLR0913
         desc: Description of the write.
         source_video: Source video.
         verbose: Verbosity.
-        client: Storage client.
         backup_and_overwrite: Whether to backup existing file before overwriting.
         overwrite: Whether to overwrite existing file.
 
@@ -146,7 +144,6 @@ def write_json(  # noqa: PLR0913
         desc: Description of the write.
         source_video: Source video.
         verbose: Verbosity.
-        client: Storage client.
         backup_and_overwrite: Backup and overwrite.
         overwrite: Overwrite.
 
@@ -181,7 +178,6 @@ def write_csv(  # noqa: PLR0913
         source_video: Source video.
         data: Data to write.
         verbose: Verbosity.
-        client: Storage client.
         backup_and_overwrite: Backup and overwrite.
 
     """
