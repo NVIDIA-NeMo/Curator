@@ -62,12 +62,7 @@ class ArxivExtractor(DocumentExtractor):
         macros = {}
         for reg in [non_arg_nc_reg, non_arg_def_reg]:
             for match in reg.finditer(file_content):
-                # convert the macro name and value to a raw string that can be
-                # used in re.sub
-                macro_name = match.group(1).encode("unicode-escape").decode("utf-8")
-                macro_val = match.group(2).encode("unicode-escape").decode("utf-8")
-
-                macros[macro_name] = macro_val
+                macros[match.group(1)] = match.group(2)
 
         return macros
 
@@ -151,10 +146,11 @@ class ArxivExtractor(DocumentExtractor):
             file_content = re.sub(
                 # make pattern grouped to make sure that the macro is not part
                 # of a longer alphanumeric word
-                pattern=r"(" + macro_name + r")" + r"([^a-zA-Z0-9])",
-                # replace the macro with its value and add back the character that
-                # was matched after the macro
-                repl=macro_value + r"\2",
+                pattern=r"(" + re.escape(macro_name) + r")" + r"([^a-zA-Z0-9])",
+                # replace the macro with its literal value (a template string would
+                # interpret its backslashes) and add back the character that was
+                # matched after the macro
+                repl=lambda match, macro_value=macro_value: macro_value + match.group(2),
                 string=file_content,
             )
 
