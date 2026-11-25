@@ -12,6 +12,12 @@ modality: "universal"
 
 Convert PDF datasets into interleaved Parquet output using NVIDIA's [Nemotron-Parse](https://huggingface.co/nvidia) vision-language model. Unlike traditional text-only PDF parsers, Nemotron-Parse extracts text, images, and reading order in one pass — producing rows directly compatible with the [interleaved dataset](/curate-text/process-data/interleaved) format.
 
+The served tutorial and benchmark default to **Nemotron Parse 3.5** in `single`
+mode. Choose native vLLM HTTP or Curator-managed Dynamo with vLLM workers and a
+native Rust frontend. Both use the same Curator HTTP extraction pipeline. The
+public reader still defaults to Parse v1.2 with `parse_mode=None`; programmatic
+callers opt into 3.5 explicitly.
+
 ## How it Works
 
 `NemotronParsePDFReader` is a composite stage that expands into four underlying sub-stages:
@@ -21,15 +27,19 @@ Convert PDF datasets into interleaved Parquet output using NVIDIA's [Nemotron-Pa
 3. **`NemotronParseHTTPClientStage`** (recommended) or **`NemotronParseInferenceStage`** — calls an OpenAI-compatible `InferenceServer`, or runs vLLM/Hugging Face Transformers in process.
 4. **`NemotronParsePostprocessStage`** — parses model output, aligns images and captions, crops images, and emits the final interleaved rows.
 
+Prefer `NemotronParsePDFReader` to compose served Parse 3.5 stages. Manual
+composition must use `PDFPreprocessStage(retain_failures=True)` to preserve
+physical `page_number` values; the HTTP stage rejects input without that column.
+
 The output is interleaved Parquet ready to be filtered with [Interleaved Filters](/curate-text/process-data/interleaved/filters) and written to MINT-1T-style WebDataset shards.
 
 ## Before You Start
 
 Choose your PDF source and confirm the prerequisites:
 
-- **GPU**: Required. Use one inference-server model replica per GPU.
-- **Inference server**: Recommended for production. It lets the serving layer batch page requests across pipeline tasks while rendering and postprocessing scale independently. Internal PDF-pipeline comparisons found this to be the better default; benchmark your corpus before further tuning.
-- **In-process inference**: Retained for local validation and debugging. Use vLLM when possible, or set `backend="hf"` when vLLM is unavailable.
+- **GPU**: Required by the model server. The Curator client can run on CPU with a remote endpoint. Start with one model replica per serving GPU.
+- **Inference server**: Choose native vLLM HTTP or managed Dynamo. Both batch page requests across pipeline tasks while Curator handles PDF rendering and postprocessing. Benchmark your corpus before tuning.
+- **In-process inference**: Retained for Parse v1.2 validation and debugging. Use vLLM when possible, or set `backend="hf"` when vLLM is unavailable. Served Parse 3.5 uses the HTTP stage.
 - **`pypdfium2`**: Required Python dependency for PDF rendering. Installed automatically with the `interleaved_cpu` or `interleaved_cuda12` extras (e.g., `uv sync --extra interleaved_cuda12`).
 - **OpenCV**: Required for PDF rendering plus the postprocessing color conversion and resizing paths. Install the optional extra with `uv pip install "nemo-curator[cv2]"` (or add `--extra cv2` to a source checkout).
 - **Manifest**: A JSONL file listing the PDFs to process. Each line should specify the PDF location relative to the source directory you choose.
@@ -48,23 +58,28 @@ Pass exactly one of `pdf_dir`, `zip_base_dir`, or `jsonl_base_dir` so the prepro
 
 | Topology | When to Use |
 |---------|-------------|
-| Dynamo `InferenceServer` + `NemotronParseHTTPClientStage` (recommended) | Production pipelines. Dynamo owns GPU replicas and batches requests across pipeline tasks. |
-| In-process `vllm` | Small local runs or debugging without a separate server lifecycle. |
-| In-process `hf` | Compatibility fallback when vLLM is unavailable. |
+| Native vLLM HTTP + `NemotronParseHTTPClientStage` | Run vLLM independently and pass its OpenAI-compatible endpoint to Curator. |
+| Curator-managed Dynamo + `NemotronParseHTTPClientStage` | Curator owns server startup and shutdown. Dynamo routes through its native Rust frontend to vLLM model workers. |
 
-For the recommended topology, use a fixed HTTP stage pool of `4 * num_gpus` workers and start with `inference_batch_size=32` concurrent page requests per worker. We validated both 32 and 64 on 8 H100 GPUs and retained 32 because 64 improved aggregate page throughput only slightly while increasing individual request latency. Because the best value depends on the GPU and corpus, benchmark 64 on the target workload and keep it only when it improves throughput without request failures or out-of-memory errors. The in-process stage retries transient port collisions when starting vLLM; non-retryable startup failures fail immediately.
+The Python vLLM compatibility chat processor is an advanced Dynamo alternative,
+not a separate primary serving path. In-process `vllm` and `hf` remain available
+for legacy Parse v1.2 validation and debugging.
+
+For managed serving, use a fixed HTTP stage pool of `4 * num_gpus` workers and start with `inference_batch_size=32` concurrent page requests per worker. The original tutorial validation compared 32 and 64 on 8 H100 GPUs and retained 32 because 64 improved aggregate page throughput only slightly while increasing individual request latency. Because the best value depends on the GPU and corpus, benchmark 64 on the target workload and keep it only when it improves throughput without request failures or out-of-memory errors. The in-process stage retries transient port collisions when starting vLLM; non-retryable startup failures fail immediately.
 
 ---
 
 ## Usage
 
-The tutorial entry point starts Dynamo, waits for its OpenAI-compatible endpoint, runs the PDF pipeline, and stops the server. From a source checkout, install both dependency groups:
+`main.py` uses served Parse 3.5 single-pass mode by default. Provide an existing
+OpenAI-compatible endpoint, or a complete local model repository for managed
+Dynamo. First install Curator's CPU PDF dependencies and the matching model-team
+parser package as described in [Served Nemotron Parse 3.5](#served-nemotron-parse-35).
+The parser package must match the revision served by the endpoint.
 
-```bash
-uv sync --extra interleaved_cuda12 --extra inference_server
-```
-
-Dynamo starts local `etcd` and `nats-server` processes. Images built from the current repository Dockerfile include both binaries. For a source environment or another image, run the [Dynamo dependency installation script](https://github.com/NVIDIA-NeMo/Curator/blob/main/docker/common/install_etcd_nats.sh) before you run the entry point.
+The tutorial and generic benchmark open the manifest before GPU discovery or
+managed-server startup. Missing, unreadable, and directory paths fail early;
+manifest records are validated later by the pipeline.
 
 Create a manifest with one PDF filename per line:
 
@@ -72,21 +87,27 @@ Create a manifest with one PDF filename per line:
 {"file_name": "document.pdf"}
 ```
 
-Start Dynamo and run the pipeline with one command:
+**Choice 1 — Native vLLM HTTP:** run the model server separately and pass its
+Parse 3.5 endpoint to Curator:
 
 ```bash
-uv run python tutorials/interleaved/nemotron_parse_pdf/main.py \
+python tutorials/interleaved/nemotron_parse_pdf/main.py \
     --manifest ./pdfs.jsonl \
     --pdf-dir /data/pdfs \
     --output-dir ./parsed_pdfs \
-    --model-path nvidia/NVIDIA-Nemotron-Parse-v1.2 \
+    --inference-server-endpoint http://localhost:8000/v1 \
+    --model-path nvidia/Nemotron-3.5-Parse \
+    --inference-server-model-name nemotron-parse \
     --inference-batch-size 32
 ```
 
-The entry point detects the Ray-visible GPUs and configures one
-`DynamoVLLMModelConfig` replica per GPU. It passes the resulting
-`server.endpoint` to `create_nemotron_parse_pdf_pipeline`, fixes the HTTP stage
-pool at `4 * num_gpus` workers, and uses Ray Data for the pipeline. Use
+With an existing endpoint, the entry point starts no model server and uses four
+HTTP client workers by default; set `--client-num-workers` for your topology.
+**Choice 2 — [Curator-managed Dynamo](#curator-managed-dynamo):** pass a complete local repository
+through `--nemotron-parse-path` and `--model-path`. The entry point detects the
+Ray-visible GPUs, creates one `DynamoVLLMModelConfig` replica per GPU, waits for
+readiness, runs the pipeline, and stops the server. Its managed HTTP stage pool
+is `4 * num_gpus`, and the pipeline uses Ray Data. Use
 `CUDA_VISIBLE_DEVICES` or your Ray cluster resources to select the GPUs. The
 entry point defaults to 32 concurrent requests per HTTP worker; pass
 `--inference-batch-size 64` to compare the higher concurrency on your corpus.
@@ -95,15 +116,29 @@ The server configuration uses Dynamo's TCP request plane, enables multimodal
 vLLM, and sets the frontend and model-worker options needed by Nemotron-Parse.
 The shared `create_nemotron_parse_inference_server` helper owns those
 model-specific settings so tutorials and benchmarks use the same configuration.
-It does not use `dyn_chat_processor`. See the runnable
+For managed Parse 3.5, it selects `dyn_chat_processor="dynamo"` and configures
+Curator's bundled native multimodal chat template on the vLLM workers. The Rust
+selector applies to frontend chat processing; PDF rendering and model-side image
+processing do not thereby become Rust. The Python compatibility processor is an
+explicit alternative below. The v1.2 path leaves that processor setting unset. See the runnable
 [`main.py`](https://github.com/NVIDIA-NeMo/Curator/blob/main/tutorials/interleaved/nemotron_parse_pdf/main.py)
 source for the complete lifecycle and [Inference Server](/curate-text/synthetic/inference-server)
 for the underlying configuration objects. For executor options, refer to
 [Execution Backends](/reference/infra/execution-backends).
 
-`main.py` always starts Dynamo with vLLM and does not expose a backend option.
-For local validation without an inference server, run `inprocess.py` with
-`--backend vllm` or `--backend hf`.
+`main.py` does not expose a backend option. For Parse v1.2 validation without an
+inference server, run `inprocess.py` with `--backend vllm` or `--backend hf`; that
+entry point retains the v1.2 default. To use the served tutorial with v1.2,
+select `--legacy-parse` and provide its model explicitly:
+
+```bash
+python tutorials/interleaved/nemotron_parse_pdf/main.py \
+    --manifest ./pdfs.jsonl --pdf-dir /data/pdfs --output-dir ./parsed_v12 \
+    --legacy-parse --model-path nvidia/NVIDIA-Nemotron-Parse-v1.2
+```
+
+Use a v1.2-compatible inference-server environment for that command. The
+`--legacy-parse` and `--parse-mode` options are mutually exclusive.
 
 The in-process and Ray Serve paths automatically select Triton attention on
 Ampere GPUs, following the Nemotron-Parse model's A100/A10 guidance. They also
@@ -112,8 +147,10 @@ FlashInfer/TRTLLM path. Ray Serve bases this choice on the driver-visible GPU
 and assumes its architecture matches the serving replicas. Explicit settings
 always take precedence.
 
-For programmatic use, the helper returns an unstarted `InferenceServer`; use it
-as a context manager to start it, wait for health, and stop it:
+For programmatic Parse 3.5 use, prepare the complete local repository as shown
+below. The helper returns an unstarted `InferenceServer`; use it as a context
+manager to start it, wait for health, and stop it. Both the helper and reader keep
+their existing public defaults, so pass the 3.5 model and parse mode explicitly:
 
 ```python
 from nemo_curator.backends.utils import get_available_cpu_gpu_resources
@@ -124,15 +161,22 @@ from nemo_curator.stages.interleaved.pdf.nemotron_parse import (
 
 _, available_gpus = get_available_cpu_gpu_resources(init_and_shutdown=True)
 num_gpus = int(available_gpus)
+model_path = "/path/to/nemotron-parse"
+model_name = "nemotron-parse"
 
 with create_nemotron_parse_inference_server(
-    model_path="nvidia/NVIDIA-Nemotron-Parse-v1.2",
+    model_path=model_path,
+    model_name=model_name,
+    nemotron_parse_path=model_path,
     num_replicas=num_gpus,
 ) as server:
     reader = NemotronParsePDFReader(
         manifest_path="./pdfs.jsonl",
         pdf_dir="/data/pdfs",
+        model_path=model_path,
+        parse_mode="single",
         inference_server_endpoint=server.endpoint,
+        inference_server_model_name=model_name,
         inference_server_client_num_workers=4 * num_gpus,
         inference_batch_size=32,
     )
@@ -146,6 +190,8 @@ Parse a Common Crawl PDF dump from its zip hierarchy:
 NemotronParsePDFReader(
     manifest_path="./cc_pdfs.jsonl",
     zip_base_dir="/data/CC-MAIN-2021-31-PDF-UNTRUNCATED",
+    model_path=model_path,
+    parse_mode="single",
     file_names_field="cc_pdf_file_names",
     pdfs_per_task=20,
     inference_server_endpoint=server.endpoint,
@@ -163,6 +209,8 @@ Parse a JSONL-encoded dataset (e.g., GitHub-hosted PDFs where each line contains
 NemotronParsePDFReader(
     manifest_path="./github_pdfs.jsonl",
     jsonl_base_dir="/data/github_pdfs",
+    model_path=model_path,
+    parse_mode="single",
     inference_server_endpoint=server.endpoint,
     inference_server_model_name=model_name,
     inference_server_client_num_workers=4 * num_gpus,
@@ -172,6 +220,11 @@ NemotronParsePDFReader(
 
 ### Parameters
 
+These are public `NemotronParsePDFReader` defaults. The served tutorial and
+benchmark CLI instead default to model `nvidia/Nemotron-3.5-Parse` and
+`parse_mode="single"`. New Parse 3.5 and PNG-reuse options are keyword-only;
+existing positional reader and HTTP-client calls remain compatible.
+
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
 | `manifest_path` | str \| None | `None` | JSONL manifest listing PDF entries. |
@@ -180,6 +233,7 @@ NemotronParsePDFReader(
 | `jsonl_base_dir` | str \| None | `None` | Root directory of JSONL-encoded PDF datasets. |
 | `model_path` | str | `"nvidia/NVIDIA-Nemotron-Parse-v1.2"` | Local path or HF repo ID for the Nemotron-Parse weights. |
 | `backend` | str | `"vllm"` | In-process inference backend (`vllm` or `hf`); ignored by the HTTP stage. |
+| `parse_mode` | str \| None | `None` | Public reader opt-in to served Parse 3.5 `single`, `double`, or `triple` mode. |
 | `pdfs_per_task` | int | `10` | Number of PDFs grouped into each `FileGroupTask`. |
 | `max_pdfs` | int \| None | `None` | Hard cap on total PDFs processed (debug aid). |
 | `dpi` | int | `300` | Render DPI for PDF pages. |
@@ -198,9 +252,13 @@ NemotronParsePDFReader(
 | `inference_server_model_name` | str \| None | `None` | Served model name; defaults to `model_path`. |
 | `inference_server_client_num_workers` | int | `4` | Fixed HTTP stage workers. Set to `4 * num_gpus` for production. |
 | `inference_server_request_timeout_s` | float | `300.0` | Per-page HTTP request timeout. |
-| `inference_server_max_retries` | int | `3` | Retries for transient HTTP failures. |
+| `inference_server_max_retries` | int | `3` | Outer Curator retries for errors its client recognizes as rate limits or connection failures; separate from OpenAI SDK retries. |
+| `inference_server_reuse_encoded_images` | bool | `False` | Reuse verified PNG bytes for served Parse 3.5 single-pass full-page requests; see [PNG reuse](#reuse-rendered-png-bytes). |
 
 ### Failure Behavior
+
+The following describes the public reader's v1.2 path with `parse_mode` unset. Served Parse 3.5
+retains page errors as described in its section below.
 
 PDF read and render failures happen in `PDFPreprocessStage`, before inference,
 so they behave identically for in-process and inference-server runs: the bad PDF
@@ -353,6 +411,8 @@ print(f"{output_tokens_per_second:.2f} output tokens/s")
 
 ### Metric Reference
 
+This table describes in-process inference and HTTP inference with `parse_mode` unset. Served Parse 3.5 records the page and request counts described below.
+
 | Custom metric | Backends | Description |
 | --- | --- | --- |
 | `image_load_time` | vLLM, HF | Seconds spent decoding page-image bytes for the task. |
@@ -372,7 +432,22 @@ print(f"{output_tokens_per_second:.2f} output tokens/s")
 The HF backend records image-loading and page-count metrics, but it does not expose token, character, truncation, or retry metrics. The HTTP stage reports server-request time rather than in-process image-loading or vLLM-engine time.
 </Note>
 
-Use the quality signals alongside throughput. A high `num_output_length_truncated` value means outputs are reaching the configured `max_tokens` limit (8,192 by default) and warrants inspection of those pages; `num_empty_outputs` and `num_skipped_pages` identify model-output and image failures that raw pages-per-second figures can hide. HTTP request failures are not counted as partial successes: after retries are exhausted, the task raises.
+Use the quality signals alongside throughput. A high `num_output_length_truncated` value means outputs are reaching the configured `max_tokens` limit (8,192 by default) and warrants inspection of those pages; `num_empty_outputs` and `num_skipped_pages` identify model-output and image failures that raw pages-per-second figures can hide. With `parse_mode` unset, an HTTP request that exhausts its retries raises the task. Served Parse 3.5 retains that page as an error row instead.
+
+With `parse_mode` set, the HTTP stage records these additive custom metrics:
+
+| Custom metric | Description |
+| --- | --- |
+| `num_input_pages` | Rows with a known physical page number, including failed pages. Document-level errors without a page number are excluded. |
+| `num_valid_pages` | Successfully parsed pages without a materialization error. Use this count for successful-page throughput. |
+| `num_error_pages` | Failed pages with a known physical page number. |
+| `num_requests` | Model requests made by the parser, including crop and detection passes. Internal HTTP retry attempts are not counted separately. |
+| `num_failed_requests` | Parser requests that still raise after HTTP retries. A response that fails output validation can fail the page without failing the HTTP request. |
+| `total_prompt_tokens`, `total_output_tokens` | Reported token usage across parser requests, including responses from pages that later fail. Missing usage is not estimated. |
+| `inference_server_request_time` | Wall time spent processing the task's pages in the HTTP stage. |
+| `image_reuse_count` | Full-page requests that reused verified producer PNG bytes. |
+| `image_encode_count` | Requests whose image was encoded normally. |
+| `image_reuse_fallback_count` | Requests encoded normally because PNG reuse was enabled but its checks did not pass. This is a subset of `image_encode_count`. |
 
 ## Retry Behavior
 
@@ -380,23 +455,226 @@ There are three separate retry paths:
 
 1. **Engine startup:** `create_vllm_llm()` chooses a new `MASTER_PORT` and retries up to `max_port_retries=3` times for direct address-in-use errors or vLLM v1's wrapped `Engine core initialization failed` error. Retries wait two to five seconds with jitter. Known non-retryable failures, including out-of-memory, device-side assertion, and invalid configuration errors, are raised immediately.
 2. **Inference:** vLLM generation is attempted up to three times. After a failed attempt, the stage resets the engine before retrying. Successful retries contribute to the `vllm_retries` task metric; the final exception is raised after the third failed attempt.
-3. **HTTP requests:** `NemotronParseHTTPClientStage` uses the existing `AsyncOpenAIClient` exponential-backoff retry behavior. Configure the retry count with `inference_server_max_retries`; a request that still fails raises the task so the pipeline cannot silently emit a partial document.
+3. **HTTP requests:** `NemotronParseHTTPClientStage` uses two retry layers. `inference_server_max_retries` controls the outer Curator client, which recognizes rate-limit and connection errors from their exception text and retries them with exponential backoff. The underlying OpenAI SDK independently retries eligible failures, including HTTP 500 responses and timeouts, twice by default. Setting the Curator option to `0` therefore does not disable SDK retries or guarantee one server attempt. A request that still fails raises the task when `parse_mode` is unset; served Parse 3.5 keeps an error row for the failed page and retains successful pages.
 
 If startup retries are exhausted, first check the worker log for the original failure. For repeated port collisions, reduce the number of vLLM replicas starting simultaneously or set a larger stage-level `max_port_retries` through `engine_kwargs`. Do not mask CUDA out-of-memory or invalid-model errors by increasing retries; tune memory-related engine settings or correct the model configuration instead.
 
+## Served Nemotron Parse 3.5
+
+One-token MTP is the model package's default for the documented vLLM setup and
+remains unchanged by Curator. DFlash2 is an optional Parse 3.5 acceleration path
+that requires a compatible serving runtime and a matching drafter configured
+separately; any throughput improvement depends on the workload.
+
+On a runtime with native Parse 3.5 and DFlash2 support, enable it on the vLLM server:
+
+```bash
+vllm serve /models/parse35 \
+    --served-model-name nemotron-parse --trust-remote-code \
+    --speculative-config '{"method":"dflash","model":"/models/parse35/dflash2","num_speculative_tokens":32}'
+```
+
+For a compatible Curator-managed Dynamo **benchmark**, forward the same setting
+with this `--engine-kwargs` option (`main.py` does not accept it):
+
+```text
+--engine-kwargs '{"speculative_config":{"method":"dflash","model":"/models/parse35/dflash2","num_speculative_tokens":32}}'
+```
+
+The matching drafter must exist at that path on the serving workers. `32` is an
+example draft length to tune for the workload. The pinned Dynamo 1.4.2/vLLM 0.26
+recipe below uses MTP and is not DFlash2-qualified; without this opt-in, MTP remains
+the documented default.
+
+The served tutorial and benchmark select `single` by default. In Python, set `parse_mode` to read pages with Nemotron Parse 3.5 through an inference server that you start and stop, or through Curator-managed Dynamo as described in [Curator-Managed Dynamo](#curator-managed-dynamo).
+
+Install the model team's Python package from the model repository, without the weights or its inference dependencies:
+
+```bash
+uv pip install "nemo-curator[interleaved_cpu,text_cpu,cv2]"
+hf download nvidia/Nemotron-3.5-Parse --revision 62cb1e4ba153d113ff64aaf2be6e068c377cf53c \
+    --exclude "*.safetensors" --local-dir nemotron-parse
+uv pip install --no-deps ./nemotron-parse
+```
+
+Use the revision that your server runs. The `text_cpu` extra supplies `beautifulsoup4`, which the parser uses for table conversion. The package is imported only when `parse_mode` is set.
+
+```bash
+python tutorials/interleaved/nemotron_parse_pdf/main.py \
+    --manifest manifest.jsonl --pdf-dir /path/to/pdfs --output-dir /path/to/output \
+    --inference-server-endpoint http://localhost:8000/v1 \
+    --model-path nvidia/Nemotron-3.5-Parse \
+    --inference-server-model-name nemotron-parse \
+    --parse-mode single --inference-batch-size 32 --client-num-workers 4 \
+    --executor ray-data
+```
+
+Use `--executor xenna` to run the same pipeline on Xenna. The endpoint must serve the named model; each HTTP worker checks `/v1/models` at startup and fails if the model is not listed. For two GPUs, run the model team's server with `--data-parallel-size 2` behind one endpoint; Curator does not route across endpoints.
+
+### Curator-Managed Dynamo
+
+Pass `nemotron_parse_path` to `create_nemotron_parse_inference_server`, or `--nemotron-parse-path` to `main.py`, with a complete local copy of the model repository. Each Dynamo serving worker installs the repository package with its own dependencies. With `nemotron_parse_path` set, the helper's keyword-only `dynamo_chat_processor` defaults to `"dynamo"`: it selects the native Rust frontend and configures the bundled `parse35_dynamo.jinja` template on the vLLM workers. The processor and matching template are selected together. A local `model_path` is also passed to the frontend; a Hugging Face model ID is not, because the frontend accepts only local directories. `nemotron_parse_path` requires the `dynamo` backend.
+
+Dynamo also needs local `etcd` and `nats-server` binaries. Repository container
+images include them; source environments can use the
+[Dynamo dependency installation script](https://github.com/NVIDIA-NeMo/Curator/blob/main/docker/common/install_etcd_nats.sh).
+
+The driver environment needs `ai-dynamo==1.4.2`, which pins vLLM 0.26; Curator's locked release pins a vLLM that is older than Parse 3.5 supports. For CUDA 13 workers, set `NEMO_CURATOR_DYNAMO_CUDA_TAG=cu130`; the default is `cu129`. A CPU-only driver can keep CPU PyTorch: serving workers replace it with the selected CUDA build.
+
+```bash
+hf download nvidia/Nemotron-3.5-Parse --revision 62cb1e4ba153d113ff64aaf2be6e068c377cf53c \
+    --local-dir /path/to/nemotron-parse
+uv pip install --no-deps /path/to/nemotron-parse
+NEMO_CURATOR_DYNAMO_CUDA_TAG=cu130 python tutorials/interleaved/nemotron_parse_pdf/main.py \
+    --manifest manifest.jsonl --pdf-dir /path/to/pdfs --output-dir /path/to/output \
+    --model-path /path/to/nemotron-parse \
+    --nemotron-parse-path /path/to/nemotron-parse \
+    --parse-mode single --executor ray-data
+```
+
+The native template is referenced by its absolute installed path. That path and
+the local model repository must be visible on the serving nodes. Multi-node
+serving requires a consistent, accessible Curator installation path on every node.
+
+For the advanced Python alternative, pass `dynamo_chat_processor="vllm"` to the
+helper so it selects both the compatibility processor and the model repository's
+Python chat template. Do not switch only the router selector. Renderer/cache
+controls require a qualified Dynamo build containing the forwarding fix in
+[ai-dynamo/dynamo#17797](https://github.com/ai-dynamo/dynamo/pull/17797); set them
+through existing router options **before starting** the server:
+
+```python
+from nemo_curator.stages.interleaved.pdf.nemotron_parse import create_nemotron_parse_inference_server
+
+server = create_nemotron_parse_inference_server(
+    backend="dynamo",
+    model_path="/models/parse35",
+    nemotron_parse_path="/models/parse35",
+    dynamo_chat_processor="vllm",
+)
+server.backend.router.router_kwargs.update(renderer_num_workers=4, mm_processor_cache_gb=0)
+```
+
+Start the configured server with `with server:` as usual. Renderer/cache values
+are illustrative: zero intentionally disables the multimodal processor cache;
+omitted renderer/cache options keep the installed vLLM defaults. Renderer workers
+are distinct from multimodal executor workers. Put these frontend options in
+`router_kwargs`, not model-worker `engine_kwargs`. The pinned Dynamo 1.4.2 recipe
+and tags 1.6.1/1.6.2 do not contain that forwarding fix; qualify a build containing
+it before using these renderer/cache controls. Performance requires
+workload-specific validation.
+
+### Reuse Rendered PNG Bytes
+
+For served Parse 3.5 in `single` mode, set
+`inference_server_reuse_encoded_images=True` on `NemotronParsePDFReader` or pass
+`--reuse-encoded-images` to `main.py`. When composing stages directly, set
+`reuse_encoded_images=True` on `NemotronParseHTTPClientStage`. The option is
+`False` by default and requires an inference-server endpoint and `parse_mode="single"`.
+
+The preprocessor already encodes each rendered page as PNG. Reuse avoids encoding
+that image again when preparing the full-page model request. It checks the ordered
+batch provenance, Pillow and zlib versions, image dimensions, and decoded RGB
+pixels before reusing the producer bytes. Crops, changed images, metadata-bearing
+images, or unverified inputs use the ordinary PNG encoding path. Reuse leaves
+rendering, parser settings, page identities, and output handling unchanged.
+
+For example, add the flag to the served single-pass command:
+
+```bash
+python tutorials/interleaved/nemotron_parse_pdf/main.py \
+    --manifest manifest.jsonl --pdf-dir /path/to/pdfs --output-dir /path/to/output \
+    --inference-server-endpoint http://localhost:8000/v1 \
+    --model-path nvidia/Nemotron-3.5-Parse \
+    --inference-server-model-name nemotron-parse \
+    --parse-mode single --reuse-encoded-images --executor ray-data
+```
+
+Use `image_reuse_count`, `image_encode_count`, and `image_reuse_fallback_count` in
+the existing inference-stage custom metrics to confirm whether reuse applies.
+These count image preparations for logical parser backend calls, rather than HTTP
+retry attempts, successful pages, or unique physical pages.
+Aggregate these additive counters with `_sum` as shown in
+[Inspect Inference Metrics](#inspect-inference-metrics). This saves CPU encoding
+work; measure pipeline wall time to determine whether encoding limits your workload.
+It does not require page-based tasking or a separate HTTP-client reuse option.
+
+### Select a Page Subset
+
+Add `selected_page_indices` to a single-PDF manifest entry (`file_name`, or the
+configured `file_name_field`) to render selected physical pages:
+
+```jsonl
+{"file_name": "document.pdf", "selected_page_indices": [0, 4, 12]}
+```
+
+Use a nonempty list of unique, nonnegative integers. Indexes start at zero in the
+original PDF and replace the first-`max_pages` selection for that entry. Rendering
+and inference receive the supplied selection order and preserve physical page
+numbers. PDF-based output orders content and failed-page rows by ascending
+physical page number: selection `[2, 0]` produces output for page `0` before page
+`2`. Served Parse 3.5 retains failed selected pages as error rows; an invalid
+selection records a manifest error for the document.
+
+Grouped `cc_pdf_file_names` records do not carry per-file selection fields through
+expansion. To select pages from a CC-MAIN dump, expand each group into one
+`file_name` record per PDF, copy its source `url`, and add that PDF's
+`selected_page_indices`. Keep the existing `zip_base_dir` storage configuration.
+
+### Parsing Modes and Failures
+
+- `single` reads the whole page.
+- `double` also rereads table and chart crops from that answer.
+- `triple` adds a boxes-only detection request before reading the crops. `--triple-regions union` combines detected regions with nonoverlapping full-page regions; `detector` uses only the detector's regions.
+
+The package's `DocumentParser` owns prompts, sampling, finish checks, region selection, crop merging, text and table cleanup, and geometry. `--text-in-pic` and `--max-tokens` do not override its settings. Curator keeps its 300-DPI render capped at 1664×2048, partitioning, and the writer. The served path uses bounded render recovery as described below. Picture crops use the parser's content-normalized boxes on the rendered page, and tables are written as `text/html`.
+
+Requests use the HTTP stage's [two-layer retry policy](#retry-behavior), but a page that still fails does not raise the task. Each document keeps its metadata row at position -1. A page that fails to render or parse becomes one `text` row with `materialize_error` set and its physical page number; successful pages are kept. A parser response with no decoded blocks also becomes an error row, so malformed output is not counted as a successful blank page. Parse errors retain available raw response details for inspection. A document that cannot be opened records the error on its metadata row. The tutorial writer uses `on_materialize_error="warn"` to keep these rows; a writer with the default `"error"` policy raises. Leaving `parse_mode` unset in the public reader keeps its existing v1.2 behavior. The served CLI uses `--legacy-parse` plus an explicit v1.2 `--model-path` for that path.
+
 ## Render Timeout
 
-The preprocess stage replaces `signal.SIGALRM` with a `multiprocessing` fork-based timeout (`_RENDER_TIMEOUT_S = 60` by default). This is required because Xenna runs stage workers inside Ray actor processes on non-main threads, where `SIGALRM` raises `ValueError: signal only works in main thread`. The forked child inherits the PDF bytes via copy-on-write and is killed if it exceeds the timeout, reliably escaping any hung C-extension code inside `pypdfium2`.
+The preprocess stage uses a `multiprocessing` fork-based timeout (`_RENDER_TIMEOUT_S = 60` by default). Xenna can run stage workers on non-main threads where `signal.SIGALRM` is unavailable. The child inherits PDF bytes through copy-on-write; timeout cleanup kills and reaps that child and closes its queues.
 
-You don't need to configure this — it works automatically. If you find legitimate PDFs that take longer than 60 seconds to render, the constant lives at `nemo_curator/stages/interleaved/pdf/nemotron_parse/preprocess.py`.
+With `parse_mode` unset, rendering uses a single attempt. Served Parse 3.5 can recover a missing, timed-out, or malformed render result by splitting the known page window into smaller windows. Recovery shares an additional 120-second budget, each recovery attempt has at most 60 seconds, and the whole operation uses at most seven child attempts including the initial attempt. Pages that remain unresolved retain their physical page slots and become error rows. If the document cannot be opened and its page count is unknown, the document-level error remains visible instead.
 
 ## Benchmarking
 
-A standalone benchmark script ships at `benchmarking/scripts/nemotron_parse_pdf_benchmark.py`. It uses `TaskPerfUtils` to report stage-normalized per-GPU pages, input tokens, and output tokens per second for both in-process and inference-server runs. The benchmark harness still records full-script `exec_time_s`, including inference-server startup; `time_taken_s` covers `pipeline.run()`, and `inference_server_startup_s` reports server startup separately. Use a representative manifest and the public tutorial arguments to compare configurations before scaling to your full corpus; the repository's nightly benchmark orchestration is not required.
+The generic benchmark defaults to Parse 3.5 single mode. Without an external
+endpoint it uses managed Dynamo and requires `--nemotron-parse-path`; an existing
+`--inference-server-endpoint` is reused without starting a model server. The shared
+model and parser defaults match `main.py`, and `--benchmark-results-path` is
+required. Use `--legacy-parse --model-path nvidia/NVIDIA-Nemotron-Parse-v1.2` for
+v1.2 runs. The pinned v1.2 regression configurations explicitly select that legacy
+path, preserving their historical model and workload.
+
+For an external endpoint, the benchmark requires positive values for both
+`--num-replicas` and `--inference-server-num-gpus`. The replica count sizes the
+client pool (`replicas × --inference-server-client-workers-per-replica`); the GPU
+count is used only to normalize throughput. The client does not probe its local
+GPUs or discover or verify the remote topology. Supply the actual remote counts;
+they are caller-declared benchmark inputs. Managed-server GPU discovery remains
+unchanged.
+
+For example, declare two replicas sharing one remote GPU:
+
+```bash
+python benchmarking/scripts/nemotron_parse_pdf_benchmark.py \
+    --manifest manifest.jsonl --pdf-dir /path/to/pdfs --output-dir ./benchmark-output \
+    --benchmark-results-path ./benchmark-results \
+    --inference-server-endpoint http://parse-server:8000/v1 \
+    --model-id nemotron-parse --executor ray_data \
+    --num-replicas 2 --inference-server-num-gpus 1
+```
+
+This creates eight HTTP client workers with the default four workers per replica,
+while per-GPU throughput uses one GPU as its denominator. These topology flags
+belong to the benchmark, not `main.py`.
+
+A standalone benchmark script ships at `benchmarking/scripts/nemotron_parse_pdf_benchmark.py`. It uses `TaskPerfUtils` to report stage-normalized per-GPU pages, input tokens, and output tokens per second for both in-process and inference-server runs. The benchmark harness still records full-script `exec_time_s`, including inference-server startup; `time_taken_s` covers `pipeline.run()`, and `inference_server_startup_s` reports server startup separately. Managed Dynamo readiness checks model-name presence in `/v1/models`, not an independent acknowledgment from every replica; confirm per-replica readiness in worker logs when comparing warm throughput. Use a representative manifest and the public tutorial arguments to compare configurations before scaling to your full corpus; the repository's nightly benchmark orchestration is not required.
 
 ## Best Practices
 
-- **Use Dynamo serving for production**: keep one model replica per GPU and four HTTP workers per GPU. Start at 32 concurrent requests per worker, then benchmark any change on the target GPU and corpus. Retain in-process vLLM and HF for small validation runs or debugging.
+- **Use serving for Parse 3.5**: keep one model replica per GPU and four HTTP workers per GPU. Start at 32 concurrent requests per worker, then benchmark any change on the target GPU and corpus. Retain in-process vLLM and HF for small Parse v1.2 validation runs or debugging.
 - **Cap `max_pages` for outliers**: very long PDFs (1000+ pages) can dominate runtime. The default 50 pages handles most academic papers and articles; raise to 200+ for book-length sources.
 - **Tune `pdfs_per_task` for parallelism**: smaller values (5–10) parallelize better across many GPUs; larger values (20–50) reduce per-task overhead on smaller clusters.
 - **Set `enforce_eager=True` in restricted environments**: vLLM's torch.compile path can fail on certain hosts. Disabling compilation trades throughput for compatibility.
