@@ -24,6 +24,7 @@ from nemo_curator.backends.failed_task_markers import (
     configure_failed_task_manifest_dir,
     configure_slurm_array_failed_task_manifest_dir,
     failed_task_manifest_exists,
+    failed_task_runtime_env_vars,
     record_failed_tasks,
 )
 
@@ -69,9 +70,7 @@ class TestFailedTaskManifest:
 
         assert configure_slurm_array_failed_task_manifest_dir(tmp_path / "checkpoint", shard_index=9) == override
 
-    def test_record_failed_tasks_writes_single_manifest(
-        self, tmp_path: Path, monkeypatch: MonkeyPatch
-    ) -> None:
+    def test_record_failed_tasks_writes_single_manifest(self, tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
         manifest_dir = tmp_path / "failed-tasks"
         monkeypatch.setenv(FAILED_TASKS_DIR_ENV_VAR, str(manifest_dir))
 
@@ -125,3 +124,29 @@ class TestFailedTaskManifest:
 
         assert failed_task_manifest_exists(manifest_dir)
         assert not failed_task_manifest_exists(tmp_path / "missing")
+
+    def test_failed_task_runtime_env_vars_forwards_configured_directory(
+        self, tmp_path: Path, monkeypatch: MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv(FAILED_TASKS_DIR_ENV_VAR, str(tmp_path))
+        assert failed_task_runtime_env_vars() == {FAILED_TASKS_DIR_ENV_VAR: str(tmp_path)}
+
+        monkeypatch.delenv(FAILED_TASKS_DIR_ENV_VAR)
+        assert failed_task_runtime_env_vars() == {}
+
+    @pytest.mark.parametrize(
+        "array_env",
+        [
+            {"NEMO_CURATOR_SLURM_ARRAY_SHARD_INDEX": "3", "NEMO_CURATOR_SLURM_ARRAY_TOTAL_SHARDS": "4"},
+            {"SLURM_ARRAY_TASK_ID": "3", "SLURM_ARRAY_TASK_COUNT": "4"},
+        ],
+    )
+    def test_record_failed_tasks_in_slurm_array_run_without_directory_raises(
+        self, monkeypatch: MonkeyPatch, array_env: dict[str, str]
+    ) -> None:
+        monkeypatch.delenv(FAILED_TASKS_DIR_ENV_VAR, raising=False)
+        for key, value in array_env.items():
+            monkeypatch.setenv(key, value)
+
+        with pytest.raises(RuntimeError, match="cannot be recorded"):
+            record_failed_tasks()

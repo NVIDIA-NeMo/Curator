@@ -13,6 +13,17 @@ This tutorial shows how to scale a NeMo Curator pipeline from a single laptop to
 | `retry_array.py` | Finds shards without completion manifests and prints one or more retry array configurations |
 | `submit_array.sh` | `sbatch --array` script for splitting many input files across independent jobs |
 
+### Before you submit
+
+All `submit*.sh` scripts assume you submit from the NeMo Curator repo root and that a `logs/` directory exists there, because Slurm opens the log file before the script starts:
+
+```bash
+cd /path/to/Curator
+mkdir -p logs
+```
+
+`sbatch` runs a copy of the script from a spool directory, so the scripts default `CURATOR_DIR` to the directory you submitted from. If you submit from elsewhere, `export CURATOR_DIR=/path/to/Curator` first.
+
 ---
 
 ## The key concept: RayClient vs SlurmRayClient
@@ -217,7 +228,7 @@ export NEMO_CURATOR_SLURM_ARRAY_ENABLED=0
 
 When no array configuration is present, Curator leaves filtering inactive, so ordinary local and non-array Slurm runs are unaffected.
 
-Single-node array tasks use `RayClient`. If you override the allocation to use more than one node per array task, `submit_array.sh` automatically passes `--slurm` to `array_pipeline.py`, which switches that task to `SlurmRayClient` so the nodes form one Ray cluster:
+Single-node array tasks use `RayClient` with a per-task Ray temp directory, CPUs limited to `--cpus-per-task`, and start-up retries, so several tasks can safely share a node. If you override the allocation to use more than one node per array task, `submit_array.sh` automatically passes `--slurm` to `array_pipeline.py`, which switches that task to `SlurmRayClient` so the nodes form one Ray cluster:
 
 ```bash
 sbatch --array=0-9 --nodes=2 --cpus-per-task=32 tutorials/slurm/submit_array.sh
@@ -380,7 +391,7 @@ sbatch \
 
 Always reuse the original `CHECKPOINT_PATH` for both pipeline-failure retries and `FailedTask` retries. A new checkpoint directory would lose the original run configuration and completed-shard history, causing previously completed shards to appear incomplete.
 
-Do not reuse a previous attempt's `NEMO_CURATOR_FAILED_TASKS_DIR`. Before Ray starts, `array_pipeline.py` automatically derives a fresh directory from `CHECKPOINT_PATH`, `SLURM_JOB_ID`, `SLURM_ARRAY_TASK_ID`, `SLURM_RESTART_COUNT`, and the logical shard index. This keeps the durable run configuration and completion manifests in the shared checkpoint directory while isolating at most one FailedTask manifest for every Slurm job, array task, and restart:
+Do not reuse a previous attempt's `NEMO_CURATOR_FAILED_TASKS_DIR`. When the pipeline runs, Curator automatically derives a fresh directory (and forwards it to Ray workers through the executor's `runtime_env`) from `CHECKPOINT_PATH`, `SLURM_JOB_ID`, `SLURM_ARRAY_TASK_ID`, `SLURM_RESTART_COUNT`, and the logical shard index. This keeps the durable run configuration and completion manifests in the shared checkpoint directory while isolating at most one FailedTask manifest for every Slurm job, array task, and restart:
 
 ```text
 ${CHECKPOINT_PATH}/.nemo_curator_metadata/

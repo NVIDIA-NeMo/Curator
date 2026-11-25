@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -19,6 +19,7 @@ from loguru import logger
 from ray.data import DataContext, Dataset
 
 from nemo_curator.backends.base import BaseExecutor
+from nemo_curator.backends.failed_task_markers import failed_task_runtime_env_vars
 from nemo_curator.backends.utils import execute_setup_on_node, register_loguru_serializer
 from nemo_curator.tasks import EmptyTask, Task
 
@@ -83,7 +84,10 @@ class RayDataExecutor(BaseExecutor):
             # Initialize ray and explicitly set NOSET to empty
             # This ensures if Xenna was used before which was setting NOSET, we end up overriding it.
             ray.init(
-                ignore_reinit_error=True, runtime_env={"env_vars": {"RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES": ""}}
+                ignore_reinit_error=True,
+                runtime_env={
+                    "env_vars": {"RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES": "", **failed_task_runtime_env_vars()}
+                },
             )
 
             # Convert tasks to dataset
