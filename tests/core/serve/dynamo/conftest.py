@@ -19,6 +19,7 @@ from unittest import mock
 
 import pytest
 
+from nemo_curator.core.serve.dynamo.constants import NEMO_CURATOR_DYNAMO_NAMESPACE
 from nemo_curator.core.serve.subprocess_mgr import ManagedSubprocess
 
 if TYPE_CHECKING:
@@ -35,6 +36,7 @@ def captured_spawn() -> Iterator[list[dict[str, Any]]]:
     calls: list[dict[str, Any]] = []
 
     def fake_spawn(label, pg, bundle_index, **kwargs) -> ManagedSubprocess:  # noqa: ANN001
+        assert kwargs["namespace"] == NEMO_CURATOR_DYNAMO_NAMESPACE
         calls.append({"label": label, "pg": pg, "bundle_index": bundle_index, **kwargs})
         return ManagedSubprocess(label=label, actor=object())
 
