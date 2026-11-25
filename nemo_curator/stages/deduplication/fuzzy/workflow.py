@@ -86,6 +86,7 @@ class FuzzyDeduplicationWorkflow(WorkflowBase):
         lsh_spill_memory_limit: int | Literal["auto"] | None = "auto",
         env_vars: dict[str, Any] | None = None,
         use_async_memory: bool = True,
+        minhash_output_format: Literal["raw", "banded"] = "banded",
     ):
         """
         Configuration for MinHash based fuzzy duplicates detection.
@@ -136,6 +137,9 @@ class FuzzyDeduplicationWorkflow(WorkflowBase):
             Whether to use a 32bit or 64bit hash function for minhashing.
         normalize_text: bool
             Whether to normalize text before computing minhashes.
+        minhash_output_format: Literal["raw", "banded"]
+            Format used for the cached MinHash intermediate. Banded output allows
+            LSH iterations to read only the bands they process.
         bands_per_iteration: int
             Number of bands/buckets to shuffle concurrently.
             Larger values process larger batches by processing multiple bands
@@ -175,6 +179,7 @@ class FuzzyDeduplicationWorkflow(WorkflowBase):
         self.seed = seed
         self.char_ngrams = char_ngrams
         self.num_bands = num_bands
+        self.minhash_output_format = minhash_output_format
         self.minhashes_per_band = minhashes_per_band
         self.use_64_bit_hash = use_64_bit_hash
         self.normalize_text = normalize_text
@@ -201,6 +206,9 @@ class FuzzyDeduplicationWorkflow(WorkflowBase):
         if self.perform_removal:
             msg = "Removal is not implemented yet"
             raise NotImplementedError(msg)
+        if self.minhash_output_format not in ("raw", "banded"):
+            msg = "minhash_output_format must be 'raw' or 'banded'"
+            raise ValueError(msg)
         if self.bands_per_iteration < 1 or self.bands_per_iteration > self.num_bands:
             msg = "bands_per_iteration must be between [1, num_bands]"
             raise ValueError(msg)
@@ -225,6 +233,8 @@ class FuzzyDeduplicationWorkflow(WorkflowBase):
                 seed=self.seed,
                 use_64bit_hash=self.use_64_bit_hash,
                 normalize_text=self.normalize_text,
+                output_format=self.minhash_output_format,
+                num_bands=self.num_bands,
                 read_format=self.input_filetype,
                 read_kwargs=self.read_kwargs,
                 write_kwargs=self.cache_kwargs,
@@ -251,6 +261,7 @@ class FuzzyDeduplicationWorkflow(WorkflowBase):
                 LSHStage(
                     num_bands=self.num_bands,
                     minhashes_per_band=self.minhashes_per_band,
+                    input_format=self.minhash_output_format,
                     output_path=self.cache_path,
                     # Reading minhashes from cache_path
                     read_kwargs=self.cache_kwargs,

@@ -47,8 +47,38 @@ entries:
       UCX_TLS: all
       CONTAINER_ENVS: UCX_TLS
 
-  - name: fuzzy_dedup_identification
-    timeout_s: 2400
+  - name: fuzzy_dedup_identification_banded_bands_per_iteration_20
+    timeout_s: 2700
+    environment:
+      UCX_TLS: all
+      CONTAINER_ENVS: UCX_TLS
+
+  - name: fuzzy_dedup_identification_raw_bands_per_iteration_20
+    timeout_s: 2700
+    environment:
+      UCX_TLS: all
+      CONTAINER_ENVS: UCX_TLS
+
+  - name: fuzzy_dedup_identification_banded_bands_per_iteration_5
+    timeout_s: 2700
+    environment:
+      UCX_TLS: all
+      CONTAINER_ENVS: UCX_TLS
+
+  - name: fuzzy_dedup_identification_raw_bands_per_iteration_5
+    timeout_s: 2700
+    environment:
+      UCX_TLS: all
+      CONTAINER_ENVS: UCX_TLS
+
+  - name: fuzzy_dedup_identification_banded_bands_per_iteration_1
+    timeout_s: 2700
+    environment:
+      UCX_TLS: all
+      CONTAINER_ENVS: UCX_TLS
+
+  - name: fuzzy_dedup_identification_raw_bands_per_iteration_1
+    timeout_s: 7200
     environment:
       UCX_TLS: all
       CONTAINER_ENVS: UCX_TLS
