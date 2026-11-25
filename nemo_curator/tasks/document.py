@@ -24,7 +24,7 @@ from nemo_curator.utils.column_utils import pyarrow_string_to_pandas_dtype
 from .tasks import Task
 
 
-@dataclass
+@dataclass(repr=False)  # keep Task.__repr__: Ray formats task reprs on every stage output
 class DocumentBatch(Task[pa.Table | pd.DataFrame]):
     """
     Task for processing batches of text documents.

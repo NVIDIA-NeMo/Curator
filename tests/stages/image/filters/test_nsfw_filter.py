@@ -380,3 +380,24 @@ def test_image_nsfw_filter_on_gpu() -> None:
     assert isinstance(out, ImageBatch)
     assert 1 <= len(out.data) <= len(batch.data)
     assert all(hasattr(img, "nsfw_score") for img in batch.data)
+
+
+@patch("nemo_curator.stages.image.filters.nsfw_filter.NSFWScorer")
+def test_no_threshold_scores_without_filtering(mock_nsfw_scorer: Mock) -> None:
+    rng = np.random.default_rng(0)
+    images = [ImageObject(image_id=f"img_{i}", embedding=rng.random(768)) for i in range(3)]
+    images[1].embedding = None  # e.g. failed to decode
+    mock_nsfw_scorer.return_value.return_value = torch.tensor([0.9, 0.1])
+    stage = ImageNSFWFilterStage(model_dir="test_models/nsfw", score_threshold=None)
+    stage.setup()
+    result = stage.process(ImageBatch(data=images, dataset_name="test"))
+    assert [image.nsfw_score for image in result.data] == pytest.approx([0.9, None, 0.1])
+
+
+@patch("nemo_curator.stages.image.filters.nsfw_filter.NSFWScorer")
+def test_verbose_filtering_with_missing_embedding(mock_nsfw_scorer: Mock) -> None:
+    images = [ImageObject(image_id="ok", embedding=np.ones(768)), ImageObject(image_id="failed")]
+    mock_nsfw_scorer.return_value.return_value = torch.tensor([0.1])
+    stage = ImageNSFWFilterStage(model_dir="test_models/nsfw", score_threshold=0.5, verbose=True)
+    stage.setup()
+    assert [image.image_id for image in stage.process(ImageBatch(data=images, dataset_name="test")).data] == ["ok"]

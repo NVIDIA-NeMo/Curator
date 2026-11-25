@@ -399,3 +399,28 @@ class TestModelIntegration:
 
         # Both should use same CLIP model
         assert clip_model.model_id_names == aesthetic_scorer.model_id_names
+
+
+def test_features_accepts_transformers5_output() -> None:
+    from types import SimpleNamespace
+
+    from nemo_curator.models.clip import _features
+
+    tensor = torch.ones(2, 3)
+    assert _features(tensor) is tensor
+    assert _features(SimpleNamespace(pooler_output=tensor)) is tensor
+
+
+def test_tf32_is_scoped_to_the_call() -> None:
+    from nemo_curator.models.clip import _matmul_tf32
+
+    before = torch.backends.cuda.matmul.allow_tf32
+    torch.backends.cuda.matmul.allow_tf32 = False
+    try:
+        with _matmul_tf32(True):
+            assert torch.backends.cuda.matmul.allow_tf32
+        assert not torch.backends.cuda.matmul.allow_tf32
+        with _matmul_tf32(False):
+            assert not torch.backends.cuda.matmul.allow_tf32
+    finally:
+        torch.backends.cuda.matmul.allow_tf32 = before

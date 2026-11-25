@@ -61,7 +61,11 @@ class ImageNSFWFilterStage(BaseFilterStage):
         """
 
         # Process images in batches to generate scores
-        for batch in self.yield_next_batch(task):
+        for full_batch in self.yield_next_batch(task):
+            # Images without an embedding (e.g. failed to decode) keep a score of None.
+            batch = [img_obj for img_obj in full_batch if img_obj.embedding is not None]
+            if not batch:
+                continue
             # Stack embeddings into batch tensor (N, embedding_dim)
             embeddings = [img_obj.embedding for img_obj in batch]
             batch_tensor = np.stack(embeddings, axis=0)
@@ -79,18 +83,21 @@ class ImageNSFWFilterStage(BaseFilterStage):
                     f"Generated NSFW scores for {len(batch)} images in batch {i}-{i + self.model_inference_batch_size}"
                 )
 
+        if self.score_threshold is None:
+            return task
+
         # Filter images based on NSFW score threshold
         filtered_images = []
         filtered_count = 0
 
         for image_obj in task.data:
-            if image_obj.nsfw_score < self.score_threshold:
+            if image_obj.nsfw_score is not None and image_obj.nsfw_score < self.score_threshold:
                 filtered_images.append(image_obj)
             else:
                 filtered_count += 1
                 if self.verbose:
                     logger.info(
-                        f"Image {image_obj.image_id} (path: {image_obj.image_path}) has NSFW score {image_obj.nsfw_score:.3f} "
+                        f"Image {image_obj.image_id} (path: {image_obj.image_path}) has NSFW score {image_obj.nsfw_score} "
                         f"above threshold {self.score_threshold}, filtered out as NSFW."
                     )
 

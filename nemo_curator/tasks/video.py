@@ -355,7 +355,7 @@ class Video:
         return self.input_video.as_posix()
 
 
-@dataclass
+@dataclass(repr=False)  # keep Task.__repr__: Ray formats task reprs on every stage output
 class VideoTask(Task[Video]):
     """
     Task for processing a single video.
