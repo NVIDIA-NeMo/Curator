@@ -27,7 +27,7 @@ import time
 from dataclasses import dataclass, field
 from functools import partial
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import data_designer.config as dd
 import yaml
@@ -41,6 +41,9 @@ from nemo_curator.stages.synthetic.nemo_data_designer import DataDesignerStage
 from nemo_curator.stages.text.filters import Filter, ScoreFilter
 from nemo_curator.stages.text.io.reader import JsonlReader, ParquetReader
 from nemo_curator.stages.text.io.writer import JsonlWriter, ParquetWriter
+
+if TYPE_CHECKING:
+    from nemo_curator.stages.base import ProcessingStage
 
 DataFormat = Literal["jsonl", "parquet"]
 FilterOperator = Literal["eq", "ne", "gt", "gte", "lt", "lte", "in", "not_in"]
@@ -239,6 +242,10 @@ def build_config_builder(
             judge_kwargs["system_prompt"] = _read_template(str(system_prompt_path), config_path=config_path)
         if trace := judge.get("with_trace"):
             judge_kwargs["with_trace"] = dd.TraceType(trace)
+        if (skip := judge.get("skip")) is not None:
+            judge_kwargs["skip"] = dd.SkipConfig.model_validate(skip)
+        if "propagate_skip" in judge:
+            judge_kwargs["propagate_skip"] = judge["propagate_skip"]
         config_builder.add_column(dd.LLMJudgeColumnConfig(**judge_kwargs))
 
     model_providers = [
@@ -302,6 +309,11 @@ def build_pipeline(  # noqa: PLR0913
     ],
     language_filter_stage: ScoreFilter | None,
     files_per_partition: int | None,
+    preprocessing_stages: list[ProcessingStage] | None = None,
+    postprocessing_stages: list[ProcessingStage] | None = None,
+    run_config: dd.RunConfig | None = None,
+    keep_failed_rows: bool = False,
+    row_id_column: str | None = None,
 ) -> Pipeline:
     """Build a streaming pipeline with an optional language gate, NDD stages, filters, and writer."""
     # TODO: Add an optional TokenLengthFilter stage before NDD stages so prompts
@@ -315,15 +327,26 @@ def build_pipeline(  # noqa: PLR0913
     processing_stages = []
     for stage_name, config_builder, model_providers, runtime_env, num_workers, stage_filters in judge_stages:
         processing_stages.append(
-            DataDesignerStage(config_builder=config_builder, model_providers=model_providers).with_(
-                name=f"ndd_{stage_name}", runtime_env=runtime_env, num_workers=num_workers
-            )
+            DataDesignerStage(
+                config_builder=config_builder,
+                model_providers=model_providers,
+                run_config=run_config,
+                keep_failed_rows=keep_failed_rows,
+                row_id_column=row_id_column,
+            ).with_(name=f"ndd_{stage_name}", runtime_env=runtime_env, num_workers=num_workers)
         )
         processing_stages.extend(_build_filter_stages(stage_filters, name_prefix=f"judge_filter_{stage_name}"))
     return Pipeline(
         name="llm_judge",
         description="Evaluate text records with a config-driven NDD LLM judge.",
-        stages=[reader, *([language_filter_stage] if language_filter_stage else []), *processing_stages, writer],
+        stages=[
+            reader,
+            *([language_filter_stage] if language_filter_stage else []),
+            *(preprocessing_stages or []),
+            *processing_stages,
+            *(postprocessing_stages or []),
+            writer,
+        ],
     )
 
 
@@ -336,7 +359,9 @@ class LLMJudgeWorkflow(WorkflowBase):
     and ``execution.stages``), starts a Dynamo/vLLM inference server hosting
     the configured judge models, then runs one Curator pipeline containing:
     reader -> optional FastText language gate -> one NDD ``DataDesignerStage``
-    (+ its filters) per judge stage -> writer.
+    (+ its filters) per judge stage -> writer. Caller-provided preprocessing
+    stages run after the language gate and before all NDD stages; postprocessing
+    stages run after all NDD stages and their filters, before the writer.
     """
 
     # required args
@@ -357,6 +382,14 @@ class LLMJudgeWorkflow(WorkflowBase):
 
     # execution
     checkpoint_path: str | None = None
+
+    # Passed to every NDD ``DataDesignerStage``; see its docstring.
+    run_config: dd.RunConfig | None = None
+    keep_failed_rows: bool = False
+    row_id_column: str | None = None
+
+    preprocessing_stages: list[ProcessingStage] = field(default_factory=list)
+    postprocessing_stages: list[ProcessingStage] = field(default_factory=list)
 
     config_path: Path = field(init=False)
     config: dict[str, object] = field(init=False)
@@ -434,6 +467,11 @@ class LLMJudgeWorkflow(WorkflowBase):
                 judge_stages=judge_stages,
                 language_filter_stage=language_filter_stage,
                 files_per_partition=self.files_per_partition,
+                preprocessing_stages=self.preprocessing_stages,
+                postprocessing_stages=self.postprocessing_stages,
+                run_config=self.run_config,
+                keep_failed_rows=self.keep_failed_rows,
+                row_id_column=self.row_id_column,
             )
             output_tasks = pipeline.run(executor=executor, checkpoint_path=self.checkpoint_path)
         except Exception as e:

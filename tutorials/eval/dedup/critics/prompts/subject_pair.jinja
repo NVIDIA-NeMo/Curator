@@ -1,0 +1,17 @@
+Compare actual subjects using only the source evidence below. The main judgment,
+coverage result and pair labels are hidden.
+Packet status: {{ subject_packet.status }}; truncated: {{ subject_packet.truncated }}.
+{% for span in subject_packet.spans %}
+{% if span.kind == "SHARED" %}
+[{{ span.span_id }} SHARED: ALIGNED ON BOTH SIDES]
+A chars {{ span.a_start_char }}:{{ span.a_end_char }}: {{ span.a_text }}
+B chars {{ span.b_start_char }}:{{ span.b_end_char }}: {{ span.b_text }}
+{% else %}
+[{{ span.span_id }} {{ span.kind }} CORE chars {{ span.start_char }}:{{ span.end_char }}]
+{{ span.text }}
+[READING CONTEXT FOR {{ span.span_id }}; may include shared text]
+{{ span.context_text }}
+{% endif %}
+{% endfor %}
+Return the concrete seven-field subject comparison. Select own-unique subject
+IDs and own-side/shared predicate IDs. Do not generate quotes or offsets.
