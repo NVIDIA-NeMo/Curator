@@ -16,6 +16,8 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 from nemo_curator.stages.base import CompositeStage
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
@@ -59,6 +61,23 @@ class ParquetReaderStage(BaseFileReader):
         if "dtype_backend" not in read_kwargs:
             update_kwargs["dtype_backend"] = "pyarrow"
         read_kwargs.update(update_kwargs)
+        if (
+            len(paths) > 1
+            and all("://" not in path or path.startswith("file://") for path in paths)
+            and read_kwargs.get("engine") == "pyarrow"
+            and read_kwargs.get("dtype_backend") == "pyarrow"
+            and set(read_kwargs) <= {"engine", "dtype_backend", "columns"}
+        ):
+            tables = [pq.read_table(path, columns=read_kwargs.get("columns")) for path in paths]
+            try:
+                table = pa.concat_tables(tables, promote_options="permissive")
+            except (pa.ArrowInvalid, pa.ArrowTypeError, pa.ArrowNotImplementedError):
+                # Pandas can concatenate some schemas that Arrow cannot unify.
+                return pd.concat(
+                    (table.to_pandas(types_mapper=pd.ArrowDtype) for table in tables),
+                    ignore_index=True,
+                )
+            return table.to_pandas(types_mapper=pd.ArrowDtype).reset_index(drop=True)
         return pd.concat(
             (pd.read_parquet(path, **read_kwargs) for path in paths),
             ignore_index=True,
