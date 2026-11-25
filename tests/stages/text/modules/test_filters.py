@@ -443,13 +443,31 @@ class TestFilterModule:
 
         filtered_data = filters.process(letter_count_data)
 
-        # Empty DataFrame
-        expected_df = pd.DataFrame()
+        # Empty DataFrame that keeps its columns, so later stages still find their input fields
+        expected_df = pd.DataFrame({"documents": pd.Series(dtype="str")})
 
         expected_data = DocumentBatch(
             data=expected_df,
             dataset_name="test_1",
         )
+        assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
+        assert ScoreFilter(LetterCountFilter(), text_field="documents").validate_input(filtered_data)
+
+    def test_filter_all_rows_chain(self) -> None:
+        data = DocumentBatch(
+            data=pd.DataFrame({"documents": ["Two aa", "aaaSeven aaaa"], "a_count": [2, 7], "e_count": [0, 2]}),
+            dataset_name="test_1",
+        )
+        # The first filter removes every row
+        filters = Filter(
+            [LetterCountFilter(letter="a", min_count=8), LetterCountFilter(letter="e", min_count=2)],
+            filter_field=["a_count", "e_count"],
+        )
+
+        filtered_data = filters.process(data)
+
+        expected_df = data.to_pandas().iloc[:0]
+        expected_data = DocumentBatch(data=expected_df, dataset_name="test_1")
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
 
     def test_ray_stage_spec(self) -> None:
