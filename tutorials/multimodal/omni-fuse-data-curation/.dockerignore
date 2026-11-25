@@ -1,0 +1,10 @@
+.env
+.ruff_cache/
+.venv/
+__pycache__/
+*.egg-info/
+model_files/
+outputs/
+third_party/
+tmp/
+uv.lock

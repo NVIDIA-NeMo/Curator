@@ -1,0 +1,32 @@
+experiment_id: "omni-fuse-hybrid-tutorial"
+
+data_pools:
+  - name: "image_caption_pool"
+    modality: "image"
+    root_dir: "/path/to/image_pool"
+    n_samples: 1
+  - name: "audio_caption_pool"
+    modality: "audio"
+    root_dir: "/path/to/audio_pool"
+    n_samples: 1
+  - name: "video_instruction_pool"
+    modality: "video"
+    root_dir: "/path/to/video_pool"
+    n_samples: 1
+  - name: "text_instruction_pool"
+    modality: "text"
+    root_dir: "/path/to/text_pool"
+    n_samples: 1
+
+parallelism:
+  sns_workers: 2
+  sns_gpus_per_worker: 0.5
+
+projection:
+  num_epochs: 1
+  batch_size: 4
+  hidden_layer_size: 256
+
+datablend:
+  query: "high quality multimodal instruction tuning data"
+  top_k: 4
