@@ -16,6 +16,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any, Literal
 
+from nemo_curator.backends.base import Backend
 from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.deduplication.fuzzy.lsh.lsh import LSHActor
@@ -71,6 +72,7 @@ class LSHStage(ProcessingStage[FileGroupTask, FileGroupTask]):
 
     name = "LSHStage"
     resources = Resources(gpus=1.0)
+    supported_backends = frozenset({Backend.RAY_ACTOR_POOL})
     is_resumable = False  # LSH banding fans in across partitions -> not source-attributable
 
     # Core Algo objects

@@ -15,7 +15,8 @@
 import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from enum import StrEnum
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from loguru import logger
 
@@ -36,6 +37,14 @@ from nemo_curator.utils.resumability_client import (
 
 if TYPE_CHECKING:
     from nemo_curator.stages.base import ProcessingStage
+
+
+class Backend(StrEnum):
+    """Built-in pipeline execution backends."""
+
+    XENNA = "xenna"
+    RAY_DATA = "ray_data"
+    RAY_ACTOR_POOL = "ray_actor_pool"
 
 
 def _is_sentinel(task: Task) -> bool:
@@ -66,9 +75,32 @@ class WorkerMetadata:
 class BaseExecutor(ABC):
     """Executor for a pipeline."""
 
+    backend: ClassVar[Backend | str | None] = None
+
     def __init__(self, config: dict[str, Any] | None = None, ignore_head_node: bool = False):
         self.config = config or {}
         self.ignore_head_node = ignore_head_node or ignore_ray_head_node()
+
+    def validate_supported_backends(self, stages: list["ProcessingStage"]) -> None:
+        """Ensure every stage supports this executor's backend."""
+        if self.backend is None:
+            logger.warning(
+                f"Skipping backend compatibility validation for {type(self).__name__}: "
+                "set its 'backend' class attribute to a Backend value or custom string to enable validation."
+            )
+            return
+
+        for stage in stages:
+            supported_backends = stage.supported_backends
+            if supported_backends is None or self.backend in supported_backends:
+                continue
+
+            supported_backend_names = ", ".join(sorted(str(backend) for backend in supported_backends)) or "none"
+            msg = (
+                f"Stage '{stage.name}' does not support the '{self.backend}' backend. "
+                f"Supported backends: {supported_backend_names}."
+            )
+            raise ValueError(msg)
 
     @abstractmethod
     def execute(self, stages: list["ProcessingStage"], initial_tasks: list[Task] | None = None) -> None:
@@ -116,9 +148,7 @@ class BaseStageAdapter:
         is_source_stage = getattr(self.stage, "is_source_stage", False)
         failed_tasks = [r for r in results if isinstance(r, FailedTask)]
         if failed_tasks and is_source_stage:
-            msg = (
-                f"Source stage {self.stage.name} emitted FailedTask, which is not supported."
-            )
+            msg = f"Source stage {self.stage.name} emitted FailedTask, which is not supported."
             raise ValueError(msg)
 
         # Record failed tasks for later inspection or retry bookkeeping.
