@@ -174,6 +174,14 @@ class TestVLLMEmbeddingModelStage:
             with pytest.raises(ValueError, match=message):
                 stage.process(DocumentBatch(dataset_name="test_dataset", data=table))
 
+    def test_text_prefix_is_prepended_before_tokenization(self) -> None:
+        text = pa.chunked_array([["first", None]])
+        stage = VLLMEmbeddingModelStage(model_identifier=TEST_MODEL, pretokenize=False, text_prefix="passage: ")
+        assert stage._prepare_input_chunk(text, 0, 2)[0] == ["passage: first", "passage: "]
+
+        stage = VLLMEmbeddingModelStage(model_identifier=TEST_MODEL, pretokenize=False)
+        assert stage._prepare_input_chunk(text, 0, 2)[0] == ["first", None]
+
     def test_arrow_embeddings_split_before_list_offset_limit(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import nemo_curator.stages.text.embedders.vllm as _vllm_mod
 

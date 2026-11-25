@@ -83,7 +83,8 @@ cv2 = [
     "opencv-python-headless",
 ]
 vllm = [
-    "vllm[flashinfer,runai,otel]==0.22.0+cu129; platform_system == 'Linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",
+    "vllm[flashinfer,runai,otel]==0.34.0; platform_system == 'Linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",
+    "sentence-transformers",  # imported by nemo_curator.stages.text.embedders, which holds the vLLM embedding stage
     "quack-kernels>=0.4.1; platform_system == 'Linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",
 ]
 

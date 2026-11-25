@@ -70,6 +70,8 @@ class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         model_inference_batch_size: int | None = 8192,
         # Keep float32 when feeding semantic dedup; cuDF cannot read nested Float16 Parquet as numeric list values.
         embedding_output_dtype: Literal["float16", "float32", "float64"] = "float32",
+        # Prepended to every text, for models trained with one (e.g. "passage: " / "query: ").
+        text_prefix: str | None = None,
     ):
         self.model_identifier = model_identifier
         self.vllm_init_kwargs = vllm_init_kwargs or {}
@@ -88,6 +90,7 @@ class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             raise ValueError(msg)
         self.model_inference_batch_size = model_inference_batch_size
         self.max_chars = max_chars
+        self.text_prefix = text_prefix
 
         self.cache_dir = cache_dir
         self.hf_token = hf_token
@@ -184,13 +187,15 @@ class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         input_data = text_column.slice(offset, chunk_size).to_pylist()
         if self.max_chars is not None:
             input_data = [text[: self.max_chars] if text is not None else None for text in input_data]
+        if self.text_prefix:
+            input_data = [self.text_prefix + (text or "") for text in input_data]
         if not self.pretokenize:
             return input_data, 0.0
 
         from vllm.inputs import TokensPrompt
 
         t0 = time.perf_counter()
-        tokenized_data = self.tokenizer.batch_encode_plus(
+        tokenized_data = self.tokenizer(  # batch_encode_plus is gone in transformers 5
             input_data,
             truncation=True,
             max_length=self.model.model_config.max_model_len,
