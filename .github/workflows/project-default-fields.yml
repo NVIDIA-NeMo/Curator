@@ -21,11 +21,20 @@ jobs:
       SWQA_FIELD_ID: "PVTSSF_lADODLylHc4A8S01zgxJjL4"
       DOCUMENTATION_STAGE_FIELD_ID: "PVTSSF_lADODLylHc4A8S01zgxJjRA"
       VDR_FIELD_ID: "PVTSSF_lADODLylHc4A8S01zhAFQUA"
+      CATEGORY_FIELD_ID: "PVTSSF_lADODLylHc4A8S01zgxJpuE"
       # Default option IDs
       CONTAINER_BACKLOG_OPTION_ID: "9cc7169c"
       SWQA_DEFAULT_OPTION_ID: "ec62cb4d"
       DOCS_NOT_STARTED_OPTION_ID: "36e5dca1"
       VDR_DEFAULT_OPTION_ID: "894a1a7c"
+      # "Not required" option IDs (used for Benchmarking, CI, Compliance categories)
+      SWQA_NOT_REQUIRED_OPTION_ID: "c31ca202"
+      DOCS_NOT_REQUIRED_OPTION_ID: "96091578"
+      VDR_NOT_REQUIRED_OPTION_ID: "5bacfb09"
+      # Category option IDs that trigger "not required" defaults
+      CATEGORY_BENCHMARKING_ID: "438308b0"
+      CATEGORY_CI_ID: "f861f9c3"
+      CATEGORY_COMPLIANCE_ID: "5155f3fe"
     steps:
       - name: Find recently added items with unset fields and set defaults
         env:
@@ -81,6 +90,9 @@ jobs:
                         vdr: fieldValueByName(name: \"VDR\") {
                           ... on ProjectV2ItemFieldSingleSelectValue { optionId }
                         }
+                        category: fieldValueByName(name: \"Category\") {
+                          ... on ProjectV2ItemFieldSingleSelectValue { optionId }
+                        }
                       }
                     }
                   }
@@ -119,13 +131,20 @@ jobs:
             SWQA_VAL=$(echo "$ITEM" | jq '.swqa')
             DOCS=$(echo "$ITEM" | jq '.docs')
             VDR_VAL=$(echo "$ITEM" | jq '.vdr')
+            CATEGORY=$(echo "$ITEM" | jq -r '.category.optionId // empty')
 
-            # Skip items where all fields are already set
-            if [ "$CV" != "null" ] && [ "$SWQA_VAL" != "null" ] && [ "$DOCS" != "null" ] && [ "$VDR_VAL" != "null" ]; then
+            # Determine if category is Benchmarking, CI, or Compliance
+            NOT_REQUIRED=false
+            if [ "$CATEGORY" = "$CATEGORY_BENCHMARKING_ID" ] || [ "$CATEGORY" = "$CATEGORY_CI_ID" ] || [ "$CATEGORY" = "$CATEGORY_COMPLIANCE_ID" ]; then
+              NOT_REQUIRED=true
+            fi
+
+            # Skip items where all fields are already set AND no category override is needed
+            if [ "$CV" != "null" ] && [ "$SWQA_VAL" != "null" ] && [ "$DOCS" != "null" ] && [ "$VDR_VAL" != "null" ] && [ "$NOT_REQUIRED" = "false" ]; then
               continue
             fi
 
-            echo "Item $ITEM_ID — cv=$CV swqa=$SWQA_VAL docs=$DOCS vdr=$VDR_VAL"
+            echo "Item $ITEM_ID — cv=$CV swqa=$SWQA_VAL docs=$DOCS vdr=$VDR_VAL category=$CATEGORY not_required=$NOT_REQUIRED"
 
             # Set each null field individually to avoid overwriting existing values
             if [ "$CV" = "null" ]; then
@@ -133,19 +152,49 @@ jobs:
               set_field "$ITEM_ID" "$CONTAINER_VERSION_FIELD_ID" "$CONTAINER_BACKLOG_OPTION_ID"
             fi
 
+            # For SWQA: set default if null, or upgrade to not-required if category changed
+            SWQA_OPT=$(echo "$ITEM" | jq -r '.swqa.optionId // empty')
             if [ "$SWQA_VAL" = "null" ]; then
-              echo "  Setting SWQA default"
-              set_field "$ITEM_ID" "$SWQA_FIELD_ID" "$SWQA_DEFAULT_OPTION_ID"
+              if [ "$NOT_REQUIRED" = "true" ]; then
+                echo "  Setting SWQA to Not Required (category: Benchmarking/CI/Compliance)"
+                set_field "$ITEM_ID" "$SWQA_FIELD_ID" "$SWQA_NOT_REQUIRED_OPTION_ID"
+              else
+                echo "  Setting SWQA default"
+                set_field "$ITEM_ID" "$SWQA_FIELD_ID" "$SWQA_DEFAULT_OPTION_ID"
+              fi
+            elif [ "$NOT_REQUIRED" = "true" ] && [ "$SWQA_OPT" = "$SWQA_DEFAULT_OPTION_ID" ]; then
+              echo "  Updating SWQA to Not Required (category changed to Benchmarking/CI/Compliance)"
+              set_field "$ITEM_ID" "$SWQA_FIELD_ID" "$SWQA_NOT_REQUIRED_OPTION_ID"
             fi
 
+            # For Documentation Stage: set default if null, or upgrade to not-required if category changed
+            DOCS_OPT=$(echo "$ITEM" | jq -r '.docs.optionId // empty')
             if [ "$DOCS" = "null" ]; then
-              echo "  Setting Documentation Stage to Not Started"
-              set_field "$ITEM_ID" "$DOCUMENTATION_STAGE_FIELD_ID" "$DOCS_NOT_STARTED_OPTION_ID"
+              if [ "$NOT_REQUIRED" = "true" ]; then
+                echo "  Setting Documentation Stage to Not Required (category: Benchmarking/CI/Compliance)"
+                set_field "$ITEM_ID" "$DOCUMENTATION_STAGE_FIELD_ID" "$DOCS_NOT_REQUIRED_OPTION_ID"
+              else
+                echo "  Setting Documentation Stage to Not Started"
+                set_field "$ITEM_ID" "$DOCUMENTATION_STAGE_FIELD_ID" "$DOCS_NOT_STARTED_OPTION_ID"
+              fi
+            elif [ "$NOT_REQUIRED" = "true" ] && [ "$DOCS_OPT" = "$DOCS_NOT_STARTED_OPTION_ID" ]; then
+              echo "  Updating Documentation Stage to Not Required (category changed to Benchmarking/CI/Compliance)"
+              set_field "$ITEM_ID" "$DOCUMENTATION_STAGE_FIELD_ID" "$DOCS_NOT_REQUIRED_OPTION_ID"
             fi
 
+            # For VDR: set default if null, or upgrade to not-required if category changed
+            VDR_OPT=$(echo "$ITEM" | jq -r '.vdr.optionId // empty')
             if [ "$VDR_VAL" = "null" ]; then
-              echo "  Setting VDR default"
-              set_field "$ITEM_ID" "$VDR_FIELD_ID" "$VDR_DEFAULT_OPTION_ID"
+              if [ "$NOT_REQUIRED" = "true" ]; then
+                echo "  Setting VDR to Not Required (category: Benchmarking/CI/Compliance)"
+                set_field "$ITEM_ID" "$VDR_FIELD_ID" "$VDR_NOT_REQUIRED_OPTION_ID"
+              else
+                echo "  Setting VDR default"
+                set_field "$ITEM_ID" "$VDR_FIELD_ID" "$VDR_DEFAULT_OPTION_ID"
+              fi
+            elif [ "$NOT_REQUIRED" = "true" ] && [ "$VDR_OPT" = "$VDR_DEFAULT_OPTION_ID" ]; then
+              echo "  Updating VDR to Not Required (category changed to Benchmarking/CI/Compliance)"
+              set_field "$ITEM_ID" "$VDR_FIELD_ID" "$VDR_NOT_REQUIRED_OPTION_ID"
             fi
 
             UPDATED=$((UPDATED + 1))
