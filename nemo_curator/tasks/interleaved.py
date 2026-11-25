@@ -54,9 +54,11 @@ from nemo_curator.utils.column_utils import pyarrow_to_pandas_dtype
 
 from .tasks import Task
 
+# sample_id is large_string: readers combine it into one array to split a batch at sample boundaries, and one
+# `string` array holds at most 2 GiB. The other text columns stay chunked, so each chunk only has to fit.
 INTERLEAVED_SCHEMA = pa.schema(
     [
-        pa.field("sample_id", pa.string(), nullable=False),
+        pa.field("sample_id", pa.large_string(), nullable=False),
         pa.field("position", pa.int32(), nullable=False),
         pa.field("modality", pa.string(), nullable=False),
         pa.field("content_type", pa.string(), nullable=True),
