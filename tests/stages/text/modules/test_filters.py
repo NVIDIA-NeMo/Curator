@@ -505,6 +505,19 @@ class TestHeuristicFilters:
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
 
+    def test_symbolswords_hash_runs(self) -> None:
+        # "##" and "###" are made only of hash symbols, like a single "#".
+        dataset = list_to_dataset(["### ### ### ###", "## Setup", "Use #hashtags in a sentence"])
+        filters = ScoreFilter(SymbolsToWordsFilter())
+
+        filtered_data = filters.process(dataset)
+
+        expected_data = DocumentBatch(
+            data=pd.DataFrame({"text": ["Use #hashtags in a sentence"]}),
+            dataset_name="test_1",
+        )
+        assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
+
     def test_symbolswords_zh_with_spaces(self) -> None:
         dataset = list_to_dataset(["我用 Python 写代码。", "... ... 标题"])
         filters = ScoreFilter(SymbolsToWordsFilter(lang="zh"))
