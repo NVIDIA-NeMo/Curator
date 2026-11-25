@@ -430,6 +430,9 @@ def _is_safe_path(path: str, base_path: str) -> bool:
     """
     Check if a path is safe for extraction (no path traversal).
 
+    Symlinks that already exist under ``base_path`` (for example, ones extracted from
+    earlier archive members) are followed, so a path cannot escape through them.
+
     Args:
         path: The path to check
         base_path: The base directory for extraction
@@ -437,9 +440,8 @@ def _is_safe_path(path: str, base_path: str) -> bool:
     Returns:
         True if the path is safe, False otherwise
     """
-    # Normalize paths to handle different path separators and resolve '..' components
-    full_path = os.path.normpath(os.path.join(base_path, path))
-    base_path = os.path.normpath(base_path)
+    full_path = os.path.realpath(os.path.join(base_path, path))
+    base_path = os.path.realpath(base_path)
 
     # Check if the resolved path is within the base directory
     return os.path.commonpath([full_path, base_path]) == base_path
@@ -472,13 +474,22 @@ def tar_safe_extract(tar: tarfile.TarFile, path: str) -> None:
             msg = f"Device files not allowed: {member.name}"
             raise ValueError(msg)
 
-        # For symlinks, check that the target is also safe
+        # For symlinks and hard links, check that the target is also safe
         if member.issym() or member.islnk():
             if os.path.isabs(member.linkname):
                 msg = f"Absolute symlink target not allowed: {member.name} -> {member.linkname}"
                 raise ValueError(msg)
-            if not _is_safe_path(member.linkname, path):
-                msg = f"Symlink target outside extraction directory: {member.name} -> {member.linkname}"
+            if member.issym():
+                # Symlink targets are relative to the link's parent directory. The joined path is
+                # not normalized here: ".." must be resolved after any symlinked parent, which
+                # _is_safe_path does.
+                target = os.path.join(os.path.dirname(member.name), member.linkname)
+                if not _is_safe_path(target, path):
+                    msg = f"Symlink target outside extraction directory: {member.name} -> {member.linkname}"
+                    raise ValueError(msg)
+            # Hard link targets are relative to the archive root
+            elif not _is_safe_path(member.linkname, path):
+                msg = f"Hard link target outside extraction directory: {member.name} -> {member.linkname}"
                 raise ValueError(msg)
 
         # Extract the member
