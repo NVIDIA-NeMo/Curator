@@ -4,6 +4,18 @@ Use this example to add LLM-based evaluations to JSONL or Parquet records. The Y
 
 The included example compares jusText and Trafilatura web-text extractions. The same runner can judge parser output, extraction quality, or any task whose inputs can be rendered into a Jinja prompt.
 
+## Setup
+
+You need a Linux machine with one or more NVIDIA GPUs. From a Curator source checkout, install both CUDA extras and add `pip`, which the local server's Ray workers need and `uv` environments do not include by default:
+
+```bash
+uv sync --extra text_cuda12 --extra sdg_cuda12 --all-groups
+source .venv/bin/activate
+uv pip install pip
+```
+
+The local Dynamo server also starts `etcd` and `nats-server`, so both binaries must be on your `PATH`. The NeMo Curator container includes them. In a source environment outside the container, install them with `docker/common/install_etcd_nats.sh`, or point Dynamo at existing services with `etcd_endpoint` and `nats_url` under `dynamo_server` in the judge config.
+
 ## Quick start
 
 Start by copying and editing the files in `cc_extract_example/`. The YAML refers to adjacent Jinja files by relative path, so keep them together.
@@ -26,9 +38,11 @@ python tutorials/eval/llm_judge/run_llm_judge.py \
   --output-format jsonl
 ```
 
-The bundled [text_extraction_qwen_gemma_judges.yaml](cc_extract_example/text_extraction_qwen_gemma_judges.yaml) runs the same extraction rubrics with both Qwen and Gemma, and as bundled uses **8 GPUs** (two models, each `num_replicas: 4` × `tensor_parallel_size: 1`). Use it when you want to compare model agreement; update the model paths, `num_replicas`/`tensor_parallel_size` per model, and other serving settings for your hardware before running it.
+The bundled [text_extraction_qwen_gemma_judges_8xh100.yaml](cc_extract_example/text_extraction_qwen_gemma_judges_8xh100.yaml) runs the same extraction rubrics with both Qwen and Gemma, and as bundled uses **8 GPUs** (two models, each `num_replicas: 4` × `tensor_parallel_size: 1`) with concurrency settings (`num_workers`, `max_num_seqs`, `max_parallel_requests`) tuned for an 8xH100 node. Use it when you want to compare model agreement; update the model paths, `num_replicas`/`tensor_parallel_size` per model, and other serving settings for your hardware before running it.
 
 Use `--checkpoint-path output/judge_checkpoint` to write Curator checkpoint metadata to a durable location. It is useful for normal pipeline recovery, but you should still inspect input and output counts after a run.
+
+Before Ray or the model server starts, `run_llm_judge.py` checks that every judge's `model_alias` is a configured model, that its `prompt_path` and `system_prompt_path` files exist, and that `--input-path` matches at least one input file. It reports all problems at once and exits, so these mistakes fail immediately instead of after a large model finishes loading. These checks live in the CLI script; calling `LLMJudgeWorkflow` directly (below) skips them.
 
 `run_llm_judge.py` is a thin CLI over `LLMJudgeWorkflow` (`nemo_curator/eval/llm_judge/workflow.py`, importable as `from nemo_curator.eval.llm_judge import LLMJudgeWorkflow`). Each `--flag` above maps to a same-named constructor argument, so call it directly when you want to run a judge pass from your own script instead of the CLI (for example, as one step alongside other Curator workflows):
 
@@ -80,7 +94,7 @@ Data Designer adds one top-level column for each judge. A judge named `extractio
 }
 ```
 
-An input field can be `null`. Make optional Jinja fields null-safe, for example `{{ (trafilatura_text or "")[:8000] }}` rather than `{{ trafilatura_text[:8000] }}`.
+An input field can be `null`. Make optional Jinja fields null-safe, for example `{{ trafilatura_text[:8000] if trafilatura_text is string else "" }}` rather than `{{ trafilatura_text[:8000] }}`. Avoid `{{ (trafilatura_text or "")[:8000] }}`: a null can arrive as a float `NaN`, which is truthy, so `or ""` does not replace it and slicing it raises `'float' object is not subscriptable`.
 
 ## Scaling with Slurm job arrays
 
@@ -156,11 +170,11 @@ execution:
                 5: Excellent.
 ```
 
-Each entry under a stage's `judges:` list is one LLM call per input row, regardless of how many `scores:` it defines — all scores for a judge are returned together in that single call's structured response. Call count scales with the number of judge entries (summed across every stage) and the number of input rows; stage names and `scores:` count do not affect it. For example, `cc_extract_example/text_extraction_qwen_judge.yaml` has 2 judges (2 calls/row), and `cc_extract_example/text_extraction_qwen_gemma_judges.yaml` runs the same rubrics through two models via YAML anchors, giving 4 judges (4 calls/row).
+Each entry under a stage's `judges:` list is one LLM call per input row, regardless of how many `scores:` it defines — all scores for a judge are returned together in that single call's structured response. Call count scales with the number of judge entries (summed across every stage) and the number of input rows; stage names and `scores:` count do not affect it. For example, `cc_extract_example/text_extraction_qwen_judge.yaml` has 2 judges (2 calls/row), and `cc_extract_example/text_extraction_qwen_gemma_judges_8xh100.yaml` runs the same rubrics through two models via YAML anchors, giving 4 judges (4 calls/row).
 
 `alias` is the name judges use to select a served model. `model` is the model identifier or local weights path. `served_model_name` is the API name exposed by Dynamo/vLLM and is useful when it differs from the local path.
 
-Each judge needs a unique `name`, a `prompt_path`, and one or more rubric scores. Score option keys may be numeric or string labels, such as `unclear`. Use bare keys for intentional numeric outputs. Quote string labels that YAML would otherwise coerce to another type, such as `"yes"`, `"no"`, `"true"`, `"false"`, `"on"`, `"off"`, and `"null"`. A judge may omit `model_alias` to use the first configured model.
+Each judge needs a unique `name`, a `prompt_path`, and one or more rubric scores. Score option keys may be numeric or string labels, such as `unclear`. Use bare keys for intentional numeric outputs. Quote string labels that YAML would otherwise coerce to another type, such as `"yes"`, `"no"`, `"true"`, `"false"`, `"on"`, `"off"`, and `"null"`. Do not mix numeric and label options in one score (for example `1` through `5` plus `unresolved`): scores can come back as strings in some output partitions, and a numeric filter such as `gte 4` then silently drops those rows. Keep a numeric score purely numeric and put "unresolved" in a separate label score. A judge may omit `model_alias` to use the first configured model.
 
 The bundled Qwen example disables thinking through `inference_parameters.extra_body.chat_template_kwargs.enable_thinking`. Keep that setting for Qwen structured judging; remove it for providers that do not support it.
 
@@ -224,13 +238,13 @@ filters:
     value: 4
 ```
 
-The example supports `eq`, `ne`, `gt`, `gte`, `lt`, `lte`, `in`, and `not_in`. Multiple filters use AND semantics. Top-level filters are placed immediately after the stage that produces their judge column; a filter can also be placed under a specific execution stage when you deliberately need it later. Before Ray or the model server starts, the runner checks that every filter refers to a configured judge column and score.
+The example supports `eq`, `ne`, `gt`, `gte`, `lt`, `lte`, `in`, and `not_in`. Multiple filters use AND semantics. A row whose score has a type incompatible with the filter `value` (for example the string `"4"` against `gte 4`) is dropped without a warning, so keep each filtered score to one option type. Top-level filters are placed immediately after the stage that produces their judge column; a filter can also be placed under a specific execution stage when you deliberately need it later. Before Ray or the model server starts, the runner checks that every filter refers to a configured judge column and score.
 
 ## Analyzing results
 
 Running the same rubric through multiple LLMs turns judge agreement into a signal, not just a sanity check: where the models agree, the record is likely easy and the score can be trusted with less scrutiny; where they disagree, look into why before trusting the rubric or filter at scale. A disagreement can mean the record is genuinely ambiguous or hard to score — evidence for a human-in-the-loop or an `unresolved`-style rubric option — or it can mean the prompt or rubric wording is too vague or underspecified for a model to apply consistently, which calls for tightening the prompt rather than trusting either score.
 
-The writer emits one or more JSONL/Parquet part files under `--output-path`; load the whole directory with your preferred JSON/Parquet tooling (for example `pandas.read_json(..., lines=True)` per part file, concatenated). Running `text_extraction_qwen_gemma_judges.yaml` writes a column per judge — `qwen3_8_27b_text_extraction_judgment` and `gemma_3_27b_text_extraction_judgment` — each holding the nested `{score_name: {"score": ..., "reasoning": ...}}` structure from [Output shape](#output-shape). Pull each judge's `quality.score` into its own column, subtract the two to get a per-row agreement diff, and sort by the absolute difference to surface the largest disagreements.
+The writer emits one or more JSONL/Parquet part files under `--output-path`; load the whole directory with your preferred JSON/Parquet tooling (for example `pandas.read_json(..., lines=True)` per part file, concatenated). Running `text_extraction_qwen_gemma_judges_8xh100.yaml` writes a column per judge — `qwen3_8_27b_text_extraction_judgment` and `gemma_3_27b_text_extraction_judgment` — each holding the nested `{score_name: {"score": ..., "reasoning": ...}}` structure from [Input and output](#input-and-output). Pull a numeric score from each judge (e.g. `content_fidelity.score` or `boilerplate_removal.score`) into its own column, subtract the two to get a per-row agreement diff, and sort by the absolute difference to surface the largest disagreements.
 
 Read both `reasoning` fields on a disagreement to tell the two causes apart: differing-but-reasonable justifications point to a genuinely hard record, while justifications that latch onto different aspects of the same instructions point to a vague prompt. The same pattern extends to comparing two rubrics on one model, or checking a filter threshold before committing to it.
 
@@ -243,15 +257,15 @@ Add a second Jinja template and a second judge entry in the YAML, same pattern a
 ```jinja
 {# text_extraction_prompt_swapped.jinja #}
 <raw_text>
-{{ (raw_text or "")[:12000] }}
+{{ raw_text[:12000] if raw_text is string else "" }}
 </raw_text>
 
 <candidate_a>
-{{ (trafilatura_text or "")[:8000] }}
+{{ trafilatura_text[:8000] if trafilatura_text is string else "" }}
 </candidate_a>
 
 <candidate_b>
-{{ (justext_text or "")[:8000] }}
+{{ justext_text[:8000] if justext_text is string else "" }}
 </candidate_b>
 ```
 
@@ -269,12 +283,23 @@ Rows where the normalized verdict flips are evidence of position bias rather tha
 
 ## Operating guidance
 
+Read the run logs after every run to see how many rows were dropped. A row whose judge response fails structured-output validation is dropped with only a warning in the log: the run still exits 0 and prints no row count, so the output can contain far fewer rows than the input. Compare input and output row counts, and use the log warnings to understand why rows were lost before trusting the results.
+
 Start with a manually reviewed calibration sample. Confirm rendered prompts, structured results, and context lengths before increasing concurrency. For a model that fits on one GPU, begin with one replica and modest `max_parallel_requests`; increase requests gradually only after checking for context-length errors, malformed outputs, and GPU memory pressure. Add replicas when additional GPUs are available and the workload is large enough to use them.
 
 Before trusting the rubric, poke it with counterfactuals: take a row with a score you already trust, swap the candidates, rename a source field, reformat without changing content, or splice in a sentence that reads like an instruction. Change one variable per fixture. A score that moves when the thing it's supposed to measure didn't change is a prompt or rubric weakness — cheaper to catch on one hand-picked row than to find as noise across a full run.
+
+If the server stops during startup because the host ran out of RAM (compiler processes OOM-killed), the cause can be vLLM's startup kernel compilation, which runs many parallel compiler processes that each use several GB of host RAM. This was seen on a host with many CPU cores and limited RAM; it is not needed on every machine. If you hit it, cap the compile parallelism with `MAX_JOBS` under `dynamo_server.subprocess_env`, sized so the number of jobs times roughly 6 GB fits comfortably in host RAM:
+
+```yaml
+dynamo_server:
+  subprocess_env:
+    DYN_SYSTEM_PORT: "0"
+    MAX_JOBS: "8"
+```
 
 `max_model_len` limits total request context, while `max_tokens` limits only the completion. Increasing `max_model_len` consumes KV-cache capacity; it does not make oversized raw documents safe. `max_num_seqs` should be at least the intended in-flight load, but increasing it by itself does not improve throughput.
 
 The bundled examples set `max_model_len` to the judge model's actual max context length. vLLM would infer that value on its own if the key were omitted; it's spelled out explicitly as a reminder to size prompt truncation (the Jinja character caps) to fit within it.
 
-For the optional FastText language gate, provide `--language`, `--fasttext-langid-model-path`, and optionally `--min-langid-score` and `--language-text-field`. Omitting `--language` skips the stage and does not require FastText.
+For the optional FastText language gate, provide `--language`, `--fasttext-langid-model-path`, and optionally `--min-langid-score` and `--language-text-field`. Omitting `--language` skips the stage and does not require FastText. Do not combine the language gate with a `filters:` score filter if the gate could empty an entire input file (for example, a non-English file): the empty batch reaches the score filter without the judge's column and the run can fail with no output. Split the input so each file is mostly in the target language, or leave `filters:` out and apply the score threshold when you analyze the output.
