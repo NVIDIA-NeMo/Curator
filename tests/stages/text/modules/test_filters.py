@@ -987,6 +987,8 @@ class TestHeuristicFilters:
                 "no url",
                 "fine url https://www.nvidia.com/en-us/",
                 "bad url https://www.pornhub.com/",
+                "mixed case url https://www.PornHub.com/",
+                "upper case url https://WWW.PORNHUB.COM/videos",
             ]
         )
         filters = ScoreFilter(PornographicUrlsFilter())

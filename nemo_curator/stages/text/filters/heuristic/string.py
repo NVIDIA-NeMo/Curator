@@ -459,7 +459,8 @@ class PornographicUrlsFilter(DocumentFilter):
     def score_document(self, text: str) -> int:
         all_urls = self._url_regex.findall(text)
         for url in all_urls:
-            if "porn" in url:
+            # hostnames are case-insensitive, so PornHub.com is the same site as pornhub.com
+            if "porn" in url.lower():
                 return 1
 
         return 0
