@@ -20,14 +20,22 @@ from typing import Any
 import pyarrow as pa
 import pyarrow.parquet as pq
 from fsspec.core import url_to_fs
+from fsspec.parquet import open_parquet_file
+from loguru import logger
 from pyarrow.fs import FSSpecHandler, PyFileSystem
 
 from nemo_curator.core.utils import split_table_by_group
 from nemo_curator.stages.interleaved.utils import resolve_storage_options
 from nemo_curator.tasks import FileGroupTask, InterleavedBatch
 from nemo_curator.tasks.interleaved import INTERLEAVED_SCHEMA, RESERVED_COLUMNS
+from nemo_curator.utils.client_utils import is_remote_url
 
 from .base import BaseInterleavedReader
+
+# Byte ranges closer than this are fetched as one request. Object stores are latency-bound: a few large
+# requests per file cost about the same time as dozens of small ones, and far fewer requests are in flight.
+# The price is bytes: a file whose row groups are smaller than this is fetched whole and held until it is decoded.
+_RANGE_MERGE_GAP = 16 * 1024 * 1024
 
 
 @dataclass
@@ -37,7 +45,14 @@ class InterleavedParquetReaderStage(BaseInterleavedReader):
     *fields* lists extra (passthrough) column names to read beyond the reserved
     schema columns.  Any *fields* entry that is absent from a given file is
     null-filled, consistent with how the WebDataset reader handles ``fields``.
-    Reserved columns are always read regardless of *fields*.
+    Reserved columns are always read regardless of *fields*, unless
+    *reserved_columns* names the ones a pipeline needs: the rest are left
+    undecoded and null-filled, which saves the time and memory of large columns
+    such as ``text_content``.  ``sample_id``, ``position`` and ``modality`` are
+    always read.
+
+    When columns are selected (*fields* or *reserved_columns*) and the file is
+    remote, only their byte ranges are requested.
 
     When *max_batch_bytes* is set, the combined table is split into multiple
     batches so that no single batch exceeds the byte limit.  Each split's
@@ -47,28 +62,38 @@ class InterleavedParquetReaderStage(BaseInterleavedReader):
 
     fields: tuple[str, ...] | None = None
     max_batch_bytes: int | None = None
+    reserved_columns: tuple[str, ...] | None = None
     name: str = "interleaved_parquet_reader"
 
     def __post_init__(self) -> None:
         super().__post_init__()
+        if unknown := set(self.reserved_columns or ()) - RESERVED_COLUMNS:
+            # A misspelt name would leave the column unread and null-filled, which reads as "no data".
+            msg = f"reserved_columns must name reserved columns, got {sorted(unknown)}"
+            raise ValueError(msg)
         self._storage_options = resolve_storage_options(io_kwargs=self.read_kwargs)
 
     def _columns_to_read(self, file_schema: pa.Schema) -> list[str] | None:
         """Return the column list to pass to ``pq.read_table``.
 
-        When *fields* is ``None`` (the default) returns ``None``, which tells
-        PyArrow to read all columns — non-lossy by default, consistent with the
-        WebDataset reader.
+        When *fields* and *reserved_columns* are both ``None`` (the default)
+        returns ``None``, which tells PyArrow to read all columns — non-lossy by
+        default, consistent with the WebDataset reader.
 
-        When *fields* is set, returns reserved columns plus those extra columns
-        that exist in the file; missing declared fields are null-filled after
-        the read.
+        Otherwise returns the reserved columns (all of them, or the identity
+        columns plus *reserved_columns*) and the extra columns (*fields*, or
+        every extra column when *fields* is ``None``) that exist in the file;
+        missing columns are null-filled after the read.
         """
-        if self.fields is None:
+        if self.fields is None and self.reserved_columns is None:
             return None
         file_col_set = set(file_schema.names)
-        cols = [c for c in RESERVED_COLUMNS if c in file_col_set]
-        for f in self.fields:
+        reserved = RESERVED_COLUMNS
+        if self.reserved_columns is not None:
+            reserved = {"sample_id", "position", "modality", *self.reserved_columns}
+        cols = [c for c in RESERVED_COLUMNS if c in file_col_set and c in reserved]
+        fields = self.fields if self.fields is not None else file_schema.names
+        for f in fields:
             if f in file_col_set and f not in RESERVED_COLUMNS:
                 cols.append(f)
         return cols
@@ -100,7 +125,23 @@ class InterleavedParquetReaderStage(BaseInterleavedReader):
             pa_fs = PyFileSystem(FSSpecHandler(fs))
             file_schema = pq.read_schema(path, filesystem=pa_fs)
             columns = self._columns_to_read(file_schema)
-            table = pq.read_table(path, columns=columns, filesystem=pa_fs)
+            table = None
+            # A plain remote file object reads ahead in large blocks around every column chunk, which made a
+            # projected read many times slower, so request the selected columns' byte ranges instead.
+            # The fetched bytes are held until decoded, so a full read (every byte, twice in memory) and a
+            # local read (no round trips to save) keep the plain file object.
+            if columns is not None and is_remote_url(path):
+                try:
+                    with open_parquet_file(
+                        path, fs=fs, columns=columns, engine="pyarrow", max_gap=_RANGE_MERGE_GAP
+                    ) as source:
+                        table = pq.read_table(source, columns=columns)
+                except (OSError, TypeError) as error:
+                    # A byte range that failed to download is kept as its exception and raises when read.
+                    # The plain file object is slower but retries each request.
+                    logger.warning(f"Range read of {path} failed ({error!r}); reading it through a plain file object")
+            if table is None:
+                table = pq.read_table(path, columns=columns, filesystem=pa_fs)
             for sid in table["sample_id"].unique().to_pylist():
                 sample_id_to_path.setdefault(sid, path)
             tables.append(table)

@@ -18,10 +18,12 @@ import tarfile
 from io import BytesIO
 from pathlib import Path
 
+import fsspec
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
+from fsspec.parquet import open_parquet_file
 from PIL import Image
 
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
@@ -996,6 +998,68 @@ def test_parquet_reader_extra_column_excluded_when_fields_set(tmp_path: Path) ->
     assert "text_metadata" in df.columns
     assert "image_metadata" not in df.columns
     assert "sample_metadata" not in df.columns
+
+
+def test_parquet_reader_reserved_columns_leaves_the_rest_unread(tmp_path: Path) -> None:
+    """reserved_columns= reads the identity columns plus the named ones; other reserved columns are null-filled."""
+    pq_path = str(tmp_path / "extra.parquet")
+    pq.write_table(pa.Table.from_pylist(_make_aligned_rows(b"jpg")), pq_path)
+    file_schema = pq.read_schema(pq_path)
+
+    reader = InterleavedParquetReaderStage(fields=("image_metadata",), reserved_columns=("text_content",))
+    assert set(reader._columns_to_read(file_schema)) == {
+        "sample_id",
+        "position",
+        "modality",
+        "text_content",
+        "image_metadata",
+    }
+    df = _as_df(reader.process(FileGroupTask(dataset_name="d", data=[pq_path])))
+    assert df["text_content"].notna().any()
+    assert df["binary_content"].isna().all()  # on disk, but not asked for
+    assert "sample_metadata" not in df.columns
+
+    # fields=None still reads every extra column
+    no_fields = InterleavedParquetReaderStage(reserved_columns=("text_content",))._columns_to_read(file_schema)
+    assert {"sample_metadata", "text_metadata", "image_metadata"} <= set(no_fields)
+    assert "binary_content" not in no_fields
+
+    with pytest.raises(ValueError, match="text_contents"):  # a typo must not read as "no data"
+        InterleavedParquetReaderStage(reserved_columns=("text_contents",))
+
+
+def test_parquet_reader_range_reads_only_projected_remote_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Byte ranges are requested only for a projected read of a remote file; a failed range read falls back."""
+    local = str(tmp_path / "extra.parquet")
+    pq.write_table(pa.Table.from_pylist(_make_aligned_rows(b"jpg")), local)
+    remote = "memory://range_reads/extra.parquet"
+    fsspec.filesystem("memory").put(local, remote)
+    patched = "nemo_curator.stages.interleaved.io.readers.parquet.open_parquet_file"
+    opened: list[str] = []
+
+    def counted(path: str, **kwargs: object) -> object:
+        opened.append(path)
+        return open_parquet_file(path, **kwargs)
+
+    def read(path: str, **reader_kwargs: object) -> pa.Table:
+        task = FileGroupTask(dataset_name="d", data=[path])
+        return InterleavedParquetReaderStage(**reader_kwargs).process(task).to_pyarrow()
+
+    monkeypatch.setattr(patched, counted)
+    expected = read(local, fields=("image_metadata",))
+    assert read(remote).num_rows == expected.num_rows
+    assert opened == []  # a local read and a full read keep the plain file object
+    assert read(remote, fields=("image_metadata",)).equals(expected)
+    assert opened == [remote]
+
+    def failed_range(*_args: object, **_kwargs: object) -> None:
+        msg = "'OSError' object is not subscriptable"  # what a failed range download raises when read
+        raise TypeError(msg)
+
+    monkeypatch.setattr(patched, failed_range)
+    assert read(remote, fields=("image_metadata",)).equals(expected)
 
 
 def test_parquet_reader_wds_to_pq_to_wds_roundtrip(tmp_path: Path) -> None:

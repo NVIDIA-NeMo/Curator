@@ -95,6 +95,7 @@ class InterleavedParquetReader(CompositeStage[EmptyTask, InterleavedBatch]):
     blocksize: int | str | None = None
     fields: tuple[str, ...] | None = None
     max_batch_bytes: int | None = None
+    reserved_columns: tuple[str, ...] | None = None
     read_kwargs: dict[str, Any] = field(default_factory=dict)
     schema: pa.Schema | None = None
     schema_overrides: dict[str, pa.DataType] | None = None
@@ -118,6 +119,7 @@ class InterleavedParquetReader(CompositeStage[EmptyTask, InterleavedBatch]):
                 read_kwargs=self.read_kwargs,
                 fields=self.fields,
                 max_batch_bytes=self.max_batch_bytes,
+                reserved_columns=self.reserved_columns,
                 schema=self.schema,
                 schema_overrides=self.schema_overrides,
             ),

@@ -138,13 +138,15 @@ stages/interleaved/
 ├── __init__.py                     # Exports filter/annotator stages
 ├── stages.py                       # BaseInterleavedAnnotatorStage, BaseInterleavedFilterStage,
 │                                   # InterleavedAspectRatioFilterStage
+├── image_urls.py                   # InterleavedRemoteImageUrlStage: one row per (sample, image URL not yet stored)
 ├── io/
 │   ├── __init__.py                 # Exports InterleavedWebdatasetReader, InterleavedParquetReader,
 │   │                               # InterleavedParquetWriterStage, InterleavedWebdatasetWriterStage
 │   ├── reader.py                   # InterleavedWebdatasetReader, InterleavedParquetReader (CompositeStages)
 │   ├── readers/
 │   │   ├── base.py                 # BaseInterleavedReader
-│   │   ├── parquet.py              # InterleavedParquetReaderStage (ProcessingStage)
+│   │   ├── parquet.py              # InterleavedParquetReaderStage (ProcessingStage); reserved_columns
+│   │   │                           # reads only the reserved columns a pipeline needs
 │   │   └── webdataset.py           # InterleavedWebdatasetReaderStage (ProcessingStage)
 │   └── writers/
 │       ├── base.py                 # BaseInterleavedWriter (filesystem + materialization + process)
