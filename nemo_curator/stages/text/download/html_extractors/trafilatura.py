@@ -119,7 +119,7 @@ class TrafilaturaExtractor(HTMLExtractorAlgorithm):
                     if length == 0:
                         continue
 
-                    stopwords = [word for word in words if word in stop_words]
+                    stopwords = [word for word in words if word.lower() in stop_words]
                     stopword_density = len(stopwords) / length
 
                     if stopword_density >= self.required_stopword_density:
