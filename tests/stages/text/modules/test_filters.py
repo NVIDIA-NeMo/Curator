@@ -1226,6 +1226,25 @@ class TestCodeFilters:
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
 
+    def test_python_comment_to_code_counts_async_docstrings(self) -> None:
+        sync_doc = 'def fetch(url):\n    """Download the page at url and return its body as text."""\n    return client.get(url)\n'
+        async_doc = sync_doc.replace("def fetch", "async def fetch").replace("return client", "return await client")
+        async_method = (
+            "class Client:\n"
+            "    async def fetch(self, url):\n"
+            '        """Download the page at url and return its body as text."""\n'
+            "        return await self.session.get(url)\n"
+        )
+        filter_ = PythonCommentToCodeFilter()
+
+        sync_score = filter_.score_document(sync_doc)
+        docstring = "Download the page at url and return its body as text."
+        assert sync_score == len(docstring) / len(sync_doc)
+        # An async def carries the same docstring, so it scores like the sync version.
+        assert filter_.score_document(async_doc) == len(docstring) / len(async_doc)
+        assert filter_.keep_document(filter_.score_document(async_doc))
+        assert filter_.score_document(async_method) == len(docstring) / len(async_method)
+
     def test_general_commment_to_code(self) -> None:
         doc_1 = '// Good code\nprintf("hello world\\n")'
         doc_2 = 'printf("bad code\\n")'
