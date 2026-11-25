@@ -45,6 +45,28 @@ from nemo_curator.core.serve.subprocess_mgr import (
 )
 
 
+def test_sweep_matches_owner_and_namespace_on_connected_cluster() -> None:
+    entries = [
+        {"namespace": "other", "name": "owner_frontend"},
+        {"namespace": "managed", "name": "sibling_frontend"},
+        {"namespace": "managed", "name": "owner_frontend"},
+        {"namespace": "managed", "name": "owner_exited"},
+    ]
+    actor = mock.sentinel.actor
+    with (
+        mock.patch("ray.util.list_named_actors", return_value=entries) as discover,
+        mock.patch("ray.get_actor", side_effect=[actor, ValueError("already exited")]) as lookup,
+        mock.patch("nemo_curator.core.serve.subprocess_mgr.graceful_stop_actors") as stop,
+    ):
+        assert sweep_orphan_actors_by_prefix(prefix="owner_", namespace="managed") == 1
+    discover.assert_called_once_with(all_namespaces=True)
+    assert lookup.call_args_list == [
+        mock.call("owner_frontend", namespace="managed"),
+        mock.call("owner_exited", namespace="managed"),
+    ]
+    stop.assert_called_once_with([("owner_frontend", actor)])
+
+
 @pytest.mark.gpu
 class TestManagedSubprocess:
     """End-to-end ManagedSubprocess lifecycle against a live GPU replica.
@@ -354,3 +376,29 @@ class TestSubprocessUtils:
             server.listen(1)
             open_port = server.getsockname()[1]
             _wait_for_port("127.0.0.1", open_port, timeout_s=2, label="open")
+
+
+def test_spawn_initialization_failure_reaps_unreturned_actor() -> None:
+    import ray
+
+    from nemo_curator.core.serve import subprocess_mgr
+
+    actor = mock.Mock()
+    actor.initialize.remote.return_value = "initialize"
+    factory = mock.Mock()
+    factory.options.return_value.remote.return_value = actor
+
+    def get(ref: object, **_kwargs: object) -> object:
+        if ref == "initialize":
+            msg = "original-init-failure"
+            raise RuntimeError(msg)
+        return ref
+
+    with (
+        mock.patch.object(subprocess_mgr, "_define_subprocess_actor", return_value=factory),
+        mock.patch.object(ray, "get", side_effect=get),
+        mock.patch.object(subprocess_mgr, "graceful_stop_actors") as stop,
+        pytest.raises(RuntimeError, match="original-init-failure"),
+    ):
+        subprocess_mgr.ManagedSubprocess.spawn("fixture", mock.Mock(), 0, num_gpus=0, command=["placeholder"])
+    stop.assert_called_once_with([("fixture", actor)])

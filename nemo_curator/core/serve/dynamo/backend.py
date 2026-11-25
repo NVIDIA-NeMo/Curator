@@ -24,6 +24,7 @@ from __future__ import annotations
 import contextlib
 import http
 import json
+import math
 import os
 import time
 import urllib.request
@@ -82,12 +83,18 @@ if TYPE_CHECKING:
     from nemo_curator.core.serve.server import InferenceServer
 
 
+def _ray_session() -> contextlib.AbstractContextManager:
+    """Keep a caller-owned Ray connection alive across deployment operations."""
+    if ray.is_initialized():
+        return contextlib.nullcontext()
+    return ray.init(namespace=NEMO_CURATOR_DYNAMO_NAMESPACE)
+
+
 class DynamoBackend(InferenceBackend):
     """Dynamo backend for ``InferenceServer`` — aggregated serving on Ray PGs.
 
-    - ``start()`` enters the ``nemo_curator_dynamo`` namespace, sweeps any
-      leftover actors + PGs from a prior driver session, then deploys
-      infra → workers → frontend and blocks on a ``/v1/models`` health check.
+    - ``start()`` assigns a unique deployment prefix and deploys infra,
+      workers and the frontend before checking ``/v1/models``.
     - ``stop()`` re-enters the same namespace in a fresh Ray session; because
       ``ActorHandle`` objects do not survive a ``ray.shutdown()`` boundary,
       the stored handles are refreshed by name before the parallel
@@ -112,7 +119,6 @@ class DynamoBackend(InferenceBackend):
         self._worker_actors: list[ManagedSubprocess] = []
         self._frontend_actor: ManagedSubprocess | None = None
         self._actor_name_prefix: str = ""
-        self._pg_name_prefix: str = ""
 
     # ------------------------------------------------------------------
     # Entry points
@@ -131,47 +137,36 @@ class DynamoBackend(InferenceBackend):
         if not backend_cfg.nats_url:
             _check_binary("nats-server")
 
-        short_id = uuid.uuid4().hex[:8]
-        self._pg_name_prefix = f"dynamo_{server.name}_"
-        self._actor_name_prefix = f"{self._pg_name_prefix}{short_id}"
+        deployment_id = uuid.uuid4().hex
+        self._actor_name_prefix = f"dynamo_{deployment_id}_{server.name}"
 
-        with ray.init(namespace=NEMO_CURATOR_DYNAMO_NAMESPACE, ignore_reinit_error=True):
+        with _ray_session():
             # Anchor the runtime dir under Ray's session dir so the benchmarking
             # runner (benchmarking/runner/ray_cluster.py) picks up Dynamo
             # subprocess logs / manifests when it copies session_latest/ to the
             # persistent results path before tearing down ray_temp_dir.
             runtime_context = ray.get_runtime_context()
             session_dir = Path(runtime_context.get_temp_dir()) / runtime_context.get_session_name()
-            self._runtime_dir = str(session_dir / f"nemo_curator_dynamo_{short_id}")
+            self._runtime_dir = str(session_dir / f"nemo_curator_dynamo_{deployment_id}")
             os.makedirs(self._runtime_dir, exist_ok=True)
             logger.info(f"Dynamo runtime dir: {self._runtime_dir}")
+            logger.info(f"Dynamo deployment prefix: {self._actor_name_prefix}_")
 
             # Materialize the actor-venv override file on every node before
             # any worker with DYNAMO_VLLM_RUNTIME_ENV is spawned; uv reads the
             # path from the node where the runtime_env install runs.
             ensure_actor_overrides_on_all_nodes(ignore_head_node=ignore_ray_head_node())
 
-            self._sweep_orphan_actors()
-            remove_named_pgs_with_prefix(self._pg_name_prefix)
-
             try:
                 self._deploy_and_healthcheck(server, backend_cfg)
-            except Exception:
+            except BaseException:
                 self._teardown_actors_and_pgs()
                 raise
 
     def stop(self) -> None:
         try:
-            with ray.init(namespace=NEMO_CURATOR_DYNAMO_NAMESPACE, ignore_reinit_error=True):
+            with _ray_session():
                 self._teardown_actors_and_pgs()
-                # Safety net for PGs left behind when the driver crashed
-                # between start() and stop(). Guard against an empty prefix
-                # -- an early-failing ``start()`` (e.g. ``mode="disagg"``)
-                # leaves ``_pg_name_prefix`` unset, and
-                # ``remove_named_pgs_with_prefix("")`` would match every
-                # PG in the namespace.
-                if self._pg_name_prefix:
-                    remove_named_pgs_with_prefix(self._pg_name_prefix)
         except Exception:  # noqa: BLE001
             logger.warning("Dynamo backend shutdown hit an error (cluster may be gone)", exc_info=True)
 
@@ -261,6 +256,7 @@ class DynamoBackend(InferenceBackend):
             placements.extend(entries)
 
         manifest_data = {
+            "deployment_prefix": f"{self._actor_name_prefix}_",
             "models": sorted(expected_models),
             "endpoint": server.endpoint,
             "etcd": etcd_endpoint,
@@ -377,7 +373,7 @@ class DynamoBackend(InferenceBackend):
         TP group would not fit on one node — disagg does not support multi-node TP.
         """
         max_gpus_per_node = max((n["num_gpus"] for n in topology), default=0) if topology else 0
-        total_needed = 0
+        gpu_reservations: list[tuple[int, float]] = []
         for model_config in models:
             model_name = model_config.resolved_model_name
             if model_config.mode == "disagg":
@@ -394,10 +390,13 @@ class DynamoBackend(InferenceBackend):
                                 f"Disaggregated mode does not support multi-node TP."
                             )
                             raise ValueError(msg)
-                total_needed += num_prefill * prefill_tp + num_decode * decode_tp
+                gpu_reservations.extend(((num_prefill, prefill_tp), (num_decode, decode_tp)))
             else:
                 tp_size = model_config.engine_kwargs.get("tensor_parallel_size", 1)
-                total_needed += model_config.num_replicas * tp_size
+                gpu_reservations.append((model_config.num_replicas, tp_size * model_config.gpu_fraction))
+        # Sum individual replica reservations to avoid intermediate multiplication
+        # and addition rounding falsely exceeding an exactly filled GPU.
+        total_needed = math.fsum(fraction for count, fraction in gpu_reservations for _ in range(count))
         check_total_gpu_capacity(total_needed, ignore_head_node=ignore_ray_head_node())
 
     # ------------------------------------------------------------------
@@ -421,11 +420,18 @@ class DynamoBackend(InferenceBackend):
             command=command,
             runtime_dir=self._runtime_dir,
             actor_name_prefix=self._actor_name_prefix,
+            namespace=NEMO_CURATOR_DYNAMO_NAMESPACE,
             subprocess_env=subprocess_env,
         )
         short_label = label.rsplit("_", 1)[-1].lower()
         logger.info(f"Starting {short_label} on port {port} via {self._infra_ip}")
-        _wait_for_port(self._infra_ip, port, timeout_s=30, label=short_label)
+        try:
+            _wait_for_port(self._infra_ip, port, timeout_s=30, label=short_label)
+        except Exception:
+            # The caller receives this handle only after readiness succeeds.
+            with contextlib.suppress(Exception):
+                proc.stop()
+            raise
         logger.info(f"{short_label} is ready")
         return proc
 
@@ -537,6 +543,7 @@ class DynamoBackend(InferenceBackend):
             python_args=python_args,
             runtime_dir=self._runtime_dir,
             actor_name_prefix=self._actor_name_prefix,
+            namespace=NEMO_CURATOR_DYNAMO_NAMESPACE,
             subprocess_env=frontend_env,
             runtime_env=runtime_env,
         )
@@ -655,6 +662,12 @@ class DynamoBackend(InferenceBackend):
         self._etcd_actor = None
         self._nats_actor = None
 
+        # Reap children created before a failed launch returned its handles.
+        # Placement group removal can kill the actors before they reap subprocesses.
+        prefix = f"{self._actor_name_prefix}_" if self._actor_name_prefix else None
+        if prefix:
+            sweep_orphan_actors_by_prefix(prefix=prefix, namespace=NEMO_CURATOR_DYNAMO_NAMESPACE)
+
         for pg in self._replica_pgs:
             with contextlib.suppress(Exception):
                 ray.util.remove_placement_group(pg)
@@ -665,18 +678,8 @@ class DynamoBackend(InferenceBackend):
                 ray.util.remove_placement_group(self._infra_pg)
             self._infra_pg = None
 
-    def _sweep_orphan_actors(self) -> None:
-        """Reap any detached actors left behind by a prior driver session.
-
-        ``remove_named_pgs_with_prefix`` force-kills actors scheduled into
-        the reaped PGs, which would orphan the subprocess tree; sweeping
-        named actors first lets ``graceful_stop_actors`` ``killpg`` each
-        process group cleanly.
-        """
-        sweep_orphan_actors_by_prefix(
-            prefix=self._pg_name_prefix,
-            namespace=NEMO_CURATOR_DYNAMO_NAMESPACE,
-        )
+        if prefix:
+            remove_named_pgs_with_prefix(prefix)
 
     # ------------------------------------------------------------------
     # Manifest
