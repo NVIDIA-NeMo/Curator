@@ -39,6 +39,7 @@ from nemo_curator.stages.audio._agent._agent_ready import (
     StaticHints,
 )
 from nemo_curator.stages.audio.text_filtering.language_utils import verify_language
+from nemo_curator.stages.audio.text_filtering.text_windows import split_text_windows
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -76,6 +77,17 @@ class AudioTextLLMStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     deadline bounds request retries and semaphore waits. Concurrent calls on
     the same stage instance are not supported.
 
+    Long transcripts (opt-in, ``window_target_words`` set): the input is split
+    into consecutive sentence windows of about ``window_target_words`` words
+    (never more than ``window_max_words``), each window is one request, and
+    the outputs are joined with single spaces into ``output_text_key`` of the
+    same row. Fallback is per window: a window whose response fails
+    validation, is empty, or stopped at the token cap (``finish_reason ==
+    "length"``) keeps its input text, so a long row is never truncated or
+    dropped by one bad window; the note reports how many windows fell back.
+    In ``language_id`` mode only the middle window is sent, as a sample.
+    ``recover_entities`` does not support windows.
+
     Args:
         text_key: Transcript for this audio row; no audio samples are sent.
         output_text_key: Model response, or the input transcript after a rewrite
@@ -88,6 +100,8 @@ class AudioTextLLMStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         skip_me_key: Existing skip reason; language verification may set it for
             an unparseable or mismatched single-language prediction. Rows are
             retained, so downstream stages must honor this flag to exclude them.
+        window_target_words: Enable sentence windows of about this many words; None sends the whole text.
+        window_max_words: Hard window cap in words; defaults to 1.4 x window_target_words.
     """
 
     endpoint: str
@@ -117,12 +131,15 @@ class AudioTextLLMStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     skip_me_key: str = "_skipme"
     notes_key: str = "additional_notes"
     skip_if_output_exists: bool = False
+    window_target_words: int | None = None
+    window_max_words: int | None = None
     name: str = "AudioTextLLM"
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
     _runner: asyncio.Runner | None = field(default=None, init=False, repr=False, compare=False)
     _client: AsyncOpenAIClient | None = field(default=None, init=False, repr=False, compare=False)
     _cleanup: weakref.finalize | None = field(default=None, init=False, repr=False, compare=False)
     _runtime_lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False, compare=False)
+    _last_windows: list[str | None] = field(default_factory=list, init=False, repr=False, compare=False)
 
     KEY_ROLE_OVERRIDES: ClassVar[dict[str, Role]] = {
         "output_text_key": "text",
@@ -330,6 +347,25 @@ class AudioTextLLMStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             msg = "prompt requires language_rules"
             raise ValueError(msg)
 
+        if self.window_target_words is not None:
+            if isinstance(self.window_target_words, bool) or not isinstance(self.window_target_words, int):
+                msg = "window_target_words must be a positive integer or None"
+                raise TypeError(msg)
+            if self.window_target_words < 1:
+                msg = "window_target_words must be a positive integer or None"
+                raise ValueError(msg)
+            if self.mode == "recover_entities":
+                msg = "recover_entities does not support window_target_words"
+                raise ValueError(msg)
+            if self.window_max_words is None:
+                self.window_max_words = max(self.window_target_words, round(self.window_target_words * 1.4))
+            if self.window_max_words < self.window_target_words:
+                msg = "window_max_words must be >= window_target_words"
+                raise ValueError(msg)
+        elif self.window_max_words is not None:
+            msg = "window_max_words requires window_target_words"
+            raise ValueError(msg)
+
         if self.operations is not None:
             self._configure_operations()
 
@@ -448,12 +484,13 @@ class AudioTextLLMStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     def process(self, task: AudioTask) -> AudioTask:
         return self.process_batch([task])[0]
 
-    def _prepare_batch(  # noqa: C901
+    def _prepare_batch(  # noqa: C901, PLR0912
         self, tasks: list[AudioTask]
     ) -> tuple[list[tuple[int, str, str]], list[int], list[list[dict[str, str]]]]:
         pending: list[tuple[int, str, str]] = []
         indices: list[int] = []
         messages: list[list[dict[str, str]]] = []
+        self._last_windows = []
         for index, task in enumerate(tasks):
             if not isinstance(task, AudioTask):
                 msg = "AudioTextLLMStage only accepts AudioTask inputs"
@@ -472,6 +509,7 @@ class AudioTextLLMStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                 else:
                     messages.append(self._build_messages(normalized, task.data))
                     indices.append(index)
+                    self._last_windows.append(None)
                 continue
             if task.data.get(self.skip_me_key):
                 pending.append((index, task.data.get(self.output_text_key, ""), "skipped (flagged)"))
@@ -486,14 +524,33 @@ class AudioTextLLMStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             if not text.strip():
                 pending.append((index, text, "skipped (empty)"))
                 continue
-            messages.append(self._build_messages(text, task.data))
-            indices.append(index)
+            if self.window_target_words is None:
+                messages.append(self._build_messages(text, task.data))
+                indices.append(index)
+                self._last_windows.append(None)
+                continue
+            windows = split_text_windows(text, self.window_target_words, self.window_max_words)
+            if self.mode == "language_id":
+                # one representative sample; the response is a label, not a rewrite of the window
+                messages.append(self._build_messages(windows[len(windows) // 2], task.data))
+                indices.append(index)
+                self._last_windows.append(None)
+                continue
+            for window in windows:
+                messages.append(self._build_messages(window, task.data))
+                indices.append(index)
+                self._last_windows.append(window)
         return pending, indices, messages
 
-    def _read_response(self, original: str, response: ChatCompletion) -> tuple[str, str]:
+    def _read_response(self, original: str, response: ChatCompletion, *, windowed: bool = False) -> tuple[str, str]:
         choice = response.choices[0] if response.choices else None
         content = choice.message.content if choice is not None else None
         result = content.strip() if isinstance(content, str) else ""
+        if windowed:
+            if getattr(choice, "finish_reason", None) == "length":
+                return original, "fallback (truncated)"
+            if original.strip() and not result:
+                return original, "fallback (empty_output)"
         if self.mode == "recover_entities":
             result = self._clean_entity_response(result)
             if not result:
@@ -504,6 +561,20 @@ class AudioTextLLMStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             if not ok:
                 return original, f"fallback ({reason})"
         return result, "applied (unchanged)" if result == original else "applied (modified)"
+
+    @staticmethod
+    def _join_windows(parts: list[tuple[str, str]]) -> tuple[str, str]:
+        """Join per-window results in order and summarize their notes in one short string."""
+        text = " ".join(result for result, _ in parts if result)
+        fallbacks = [note[len("fallback (") : -1] for _, note in parts if note.startswith("fallback (")]
+        modified = any(note == "applied (modified)" for _, note in parts)
+        note = "applied (modified)" if modified else "applied (unchanged)"
+        if fallbacks:
+            reasons = sorted({reason.split(":")[0].split(" (")[0] for reason in fallbacks})
+            note += f"; fallback {len(fallbacks)}/{len(parts)} windows ({', '.join(reasons)})"
+        elif len(parts) > 1:
+            note += f"; {len(parts)} windows"
+        return text, note
 
     @staticmethod
     def _clean_entity_response(raw: str) -> str:
@@ -536,14 +607,16 @@ class AudioTextLLMStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         finally:
             self._runtime_lock.release()
 
-    def _process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
+    def _process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:  # noqa: C901
         pending = []
         requests = []
         messages = []
         for operation in self.operation_stages():
             skipped, indices, operation_messages = operation._prepare_batch(tasks)
             pending.extend((operation, *item) for item in skipped)
-            requests.extend((operation, index) for index in indices)
+            requests.extend(
+                (operation, index, window) for index, window in zip(indices, operation._last_windows, strict=True)
+            )
             messages.extend(operation_messages)
         metrics = {
             "num_requests": float(len(messages)),
@@ -567,20 +640,26 @@ class AudioTextLLMStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                 )
                 self._client.setup()
             responses = self._runner.run(
-                self._generate(messages, [operation.generation_config for operation, _ in requests])
+                self._generate(messages, [operation.generation_config for operation, _, _ in requests])
             )
             if len(responses) != len(requests):
                 msg = "Inference response count does not match request count"
                 raise RuntimeError(msg)
-            for (operation, index), response in zip(requests, responses, strict=True):
-                original = tasks[index].data[operation.text_key]
-                result, note = operation._read_response(original, response)
+            windowed: dict[tuple[int, int], tuple[AudioTextLLMStage, list[tuple[str, str]]]] = {}
+            for (operation, index, window), response in zip(requests, responses, strict=True):
+                original = window if window is not None else tasks[index].data[operation.text_key]
+                result, note = operation._read_response(original, response, windowed=window is not None)
                 metrics["num_fallbacks"] += note.startswith("fallback (")
-                pending.append((operation, index, result, note))
+                if window is None:
+                    pending.append((operation, index, result, note))
+                else:
+                    windowed.setdefault((id(operation), index), (operation, []))[1].append((result, note))
                 if response.usage is not None:
                     metrics["num_usage_reports"] += 1
                     metrics["prompt_tokens"] += response.usage.prompt_tokens or 0
                     metrics["completion_tokens"] += response.usage.completion_tokens or 0
+            for (_, index), (operation, parts) in windowed.items():
+                pending.append((operation, index, *self._join_windows(parts)))
 
         # Commit outputs only after every request and response has been handled.
         for operation, index, result, note in pending:

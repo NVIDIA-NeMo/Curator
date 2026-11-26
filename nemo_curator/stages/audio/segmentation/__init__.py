@@ -23,11 +23,12 @@ from __future__ import annotations
 from importlib import import_module
 
 _LAZY = {
+    "LongformCutPlannerStage": "nemo_curator.stages.audio.segmentation.longform_cut_planner",
     "SpeakerSeparationStage": "nemo_curator.stages.audio.segmentation.speaker_separation",
     "VADSegmentationStage": "nemo_curator.stages.audio.segmentation.vad_segmentation",
 }
 
-__all__ = ["SpeakerSeparationStage", "VADSegmentationStage"]
+__all__ = ["LongformCutPlannerStage", "SpeakerSeparationStage", "VADSegmentationStage"]
 
 
 def __getattr__(name: str) -> object:

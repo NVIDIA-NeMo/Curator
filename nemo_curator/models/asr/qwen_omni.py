@@ -272,11 +272,17 @@ class QwenOmniASRAdapter:
                 raise ValueError(msg)
         waveforms = [it["waveform"] for it in items]
         languages = [it.get("language") for it in items]
+        self._last_output_meta = [{} for _ in items]
         pred_texts, skipped_indices = self._run_inference(waveforms, languages)
+        meta = self._last_output_meta if len(self._last_output_meta) == len(items) else [{} for _ in items]
+        # ``extras`` carries generation diagnostics (finish_reason, output_tokens) for items that
+        # reached the engine. ASRStage writes extras only when its ``extras_key`` is configured,
+        # and its planned-segment mode uses them to detect truncated chunk transcripts.
         return [
             ASRResult(
                 text=pred,
                 skipped=(i in skipped_indices),
+                extras=dict(meta[i]),
             )
             for i, pred in enumerate(pred_texts)
         ]
@@ -371,6 +377,21 @@ class QwenOmniASRAdapter:
         return [self._prepare_single(waveform, language) for waveform, language in zip(waveforms, langs, strict=True)]
 
     @staticmethod
+    def _output_meta(output: Any) -> dict[str, Any]:  # noqa: ANN401
+        """Return ``finish_reason`` and ``output_tokens`` of the first sequence, when reported."""
+        sequences = getattr(output, "outputs", None) or []
+        if not sequences:
+            return {}
+        meta: dict[str, Any] = {}
+        finish_reason = getattr(sequences[0], "finish_reason", None)
+        if finish_reason is not None:
+            meta["finish_reason"] = str(finish_reason)
+        token_ids = getattr(sequences[0], "token_ids", None)
+        if token_ids is not None:
+            meta["output_tokens"] = len(token_ids)
+        return meta
+
+    @staticmethod
     def _first_output_text(output: Any) -> str:  # noqa: ANN401
         sequences = getattr(output, "outputs", None) or []
         if not sequences:
@@ -390,10 +411,13 @@ class QwenOmniASRAdapter:
         """
         outputs = self._generate(inputs)
         texts: list[str] = [""] * n
+        meta: list[dict[str, Any]] = [{} for _ in range(n)]
         # strict=True: a count mismatch means a broken engine contract; fail
         # loud rather than silently emit empty text with skipped=False.
         for idx, out in zip(indices, outputs, strict=True):
             texts[idx] = self._first_output_text(out)
+            meta[idx] = self._output_meta(out)
+        self._last_output_meta = meta
         return texts
 
     def _run_inference(

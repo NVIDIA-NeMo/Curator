@@ -70,6 +70,7 @@ Role = Literal[
     "original_file",
     "item_id",
     "windows",
+    "cut_plan",
     "manifest_path",
     "output_path",
     "unknown",

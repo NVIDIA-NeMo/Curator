@@ -42,9 +42,11 @@ from nemo_curator.stages.audio._agent._agent_ready import (
 )
 from nemo_curator.stages.audio.inference.base import AdapterInferenceStage
 from nemo_curator.stages.audio.model_input_segmentation import (
+    AudioSegment,
     plan_audio_segments,
     resolve_max_model_input_duration,
 )
+from nemo_curator.stages.audio.segmentation.longform_cuts import cuts_to_spans
 from nemo_curator.stages.resources import Resources
 
 if TYPE_CHECKING:
@@ -109,6 +111,7 @@ _LANG_CODE_TO_NAME: dict[str, str] = {
 }
 
 _SKIP_ME_KEY = "_skipme"
+_PLANNED_NOTE = "_planned_segments_note"
 _NOTES_KEY = "additional_notes"
 _PADDED_SECONDS_REL_TOL = 1e-12
 _PADDED_SECONDS_ABS_TOL = 1e-9
@@ -141,6 +144,21 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
     into adapter calls bounded by ``max_audio_sec_per_actor``. Enabling
     ``local_bucketing`` first orders those segments by duration to reduce GPU
     padding; disabling it preserves their input order.
+
+    Planned-segment mode (``segment_bounds_key`` set, off by default): instead
+    of blind fixed-length splits, the row supplies its own cut plan, e.g. from
+    ``LongformCutPlannerStage``: a list tiling the recording with
+    ``[start, end]`` entries to transcribe and ``[start, end, "silence"]``
+    entries to skip (seconds). Each speech entry is transcribed as one adapter
+    item and the texts are joined in order with single spaces into
+    ``pred_text_key`` of the same row; no chunk rows are emitted. The row is
+    all-or-nothing: if any chunk fails, or (with ``skip_on_truncated_output``)
+    hits the adapter's output-token cap, the row gets ``skip_me_key``. A chunk
+    for which the model returned no text with ``finish_reason="stop"`` counts
+    as legitimately empty (music, applause) and is noted, not skipped. Chunks
+    producing more than ``max_output_tokens_per_sec`` tokens per second of
+    audio are noted as possible repetition loops. When ``extras_key`` is set,
+    it receives ``{"chunk_output_tokens": [...]}`` per speech chunk.
     """
 
     # Adapter selection.
@@ -179,6 +197,9 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
     batch_size: int = 32
     max_inference_duration_s: float = 2400.0
     local_bucketing: bool = False
+    segment_bounds_key: str | None = None
+    skip_on_truncated_output: bool = True
+    max_output_tokens_per_sec: float | None = 8.0
     num_workers_override: int | None = None
 
     BATCH_ONLY = True
@@ -259,6 +280,11 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
         if not isinstance(self.local_bucketing, bool):
             msg = f"ASRStage.local_bucketing must be a bool, got {type(self.local_bucketing).__name__}"
             raise TypeError(msg)
+        if self.segment_bounds_key is not None:
+            self.segment_bounds_key = self.segment_bounds_key.strip()
+            if not self.segment_bounds_key or self.segment_bounds_key in output_keys:
+                msg = f"ASRStage.segment_bounds_key must be a non-empty input key, got {self.segment_bounds_key!r}"
+                raise ValueError(msg)
         if self.num_workers_override is not None and int(self.num_workers_override) <= 0:
             msg = f"ASRStage.num_workers_override must be > 0 or None, got {self.num_workers_override}"
             raise ValueError(msg)
@@ -313,6 +339,11 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
             if self.waveform_key
             else IOSpec(data_keys=[self.audio_filepath_key], accepts=["file"])
         )
+        if self.segment_bounds_key is not None:
+            reads = IOSpec(
+                data_keys=[*reads.data_keys, self.segment_bounds_key],
+                accepts=reads.accepts,
+            )
         writes = [self.pred_text_key]
         conditional_writes = [
             ConditionalWrite(
@@ -395,6 +426,8 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
                 item["sample_rate"] = task.data[self.sample_rate_key]
             else:
                 item["audio_filepath"] = task.data[self.audio_filepath_key]
+            if self.segment_bounds_key is not None:
+                item["segment_bounds"] = task.data.get(self.segment_bounds_key)
             items.append(item)
         return items
 
@@ -485,10 +518,11 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
             tasks_to_process.append(task)
         return tasks_to_process, output_exists_skipped
 
-    def run_inference(self, items: list[dict[str, Any]]) -> list[ASRResult]:
+    def run_inference(self, items: list[dict[str, Any]]) -> list[ASRResult]:  # noqa: C901, PLR0912
         """Transcribe one stage batch via the adapter."""
         supported_indices = [index for index, item in enumerate(items) if self._is_language_supported(item)]
         by_index: dict[int, ASRResult] = {}
+        planned_parents: set[int] = set()
         adapter_parent_indices: list[int] = []
         adapter_items: list[dict[str, Any]] = []
         for index in supported_indices:
@@ -515,12 +549,20 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
                 )
                 by_index[index] = ASRResult(text="", skipped=True, skip_reason="audio_load_error")
                 continue
-            segments = plan_audio_segments(
-                num_samples=int(waveform.shape[0]),
-                sample_rate=self.target_sample_rate,
-                max_duration_s=self.max_inference_duration_s,
-                owner="ASRStage",
-            )
+            if self.segment_bounds_key is not None:
+                planned = self._planned_segments(item, int(waveform.shape[0]))
+                if isinstance(planned, ASRResult):
+                    by_index[index] = planned
+                    continue
+                segments = planned
+                planned_parents.add(index)
+            else:
+                segments = plan_audio_segments(
+                    num_samples=int(waveform.shape[0]),
+                    sample_rate=self.target_sample_rate,
+                    max_duration_s=self.max_inference_duration_s,
+                    owner="ASRStage",
+                )
             for segment in segments:
                 adapter_parent_indices.append(index)
                 adapter_items.append(
@@ -542,8 +584,16 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
             per_parent: dict[int, list[ASRResult]] = {}
             for parent_index, result in zip(adapter_parent_indices, adapter_results, strict=True):
                 per_parent.setdefault(parent_index, []).append(result)
+            per_parent_seconds: dict[int, list[float]] = {}
+            for parent_index, item in zip(adapter_parent_indices, adapter_items, strict=True):
+                per_parent_seconds.setdefault(parent_index, []).append(item["audio_seconds"])
             for parent_index, chunk_results in per_parent.items():
-                by_index[parent_index] = self._stitch_chunk_results(chunk_results)
+                if parent_index in planned_parents:
+                    by_index[parent_index] = self._stitch_planned_results(
+                        chunk_results, per_parent_seconds[parent_index]
+                    )
+                else:
+                    by_index[parent_index] = self._stitch_chunk_results(chunk_results)
         return [
             by_index.get(
                 index,
@@ -560,6 +610,81 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
             )
             for index, item in enumerate(items)
         ]
+
+    def _planned_segments(self, item: dict[str, Any], num_samples: int) -> list[AudioSegment] | ASRResult:
+        """Turn a row's cut plan into adapter segments, or a row-level skip result."""
+        bounds = item.get("segment_bounds")
+        if not bounds:
+            return ASRResult(text="", skipped=True, skip_reason="no_cut_plan")
+        try:
+            spans = cuts_to_spans(bounds)
+        except (TypeError, ValueError, IndexError):
+            return ASRResult(text="", skipped=True, skip_reason="invalid_cut_plan")
+        sr = self.target_sample_rate
+        segments: list[AudioSegment] = []
+        for start_s, end_s, is_speech in spans:
+            if not is_speech:
+                continue
+            if end_s - start_s > self.max_inference_duration_s + 1e-6:
+                return ASRResult(text="", skipped=True, skip_reason="cut_exceeds_max_inference_duration")
+            start = min(num_samples, max(0, round(start_s * sr)))
+            stop = min(num_samples, max(start, round(end_s * sr)))
+            if stop > start:
+                segments.append(AudioSegment(start_sample=start, stop_sample=stop, duration_s=(stop - start) / sr))
+        if not segments:
+            return ASRResult(text="", skipped=True, skip_reason="no_speech")
+        return segments
+
+    def _stitch_planned_results(self, results: list[ASRResult], seconds: list[float]) -> ASRResult:  # noqa: C901
+        """All-or-nothing join of planned chunk results into one row result."""
+        texts: list[str] = []
+        tokens: list[int | None] = []
+        empty: list[int] = []
+        loops: list[int] = []
+        for k, (result, dur) in enumerate(zip(results, seconds, strict=True)):
+            finish_reason = result.extras.get("finish_reason")
+            n_tokens = result.extras.get("output_tokens")
+            tokens.append(n_tokens)
+            if self.skip_on_truncated_output and finish_reason == "length":
+                return ASRResult(
+                    text="",
+                    skipped=True,
+                    skip_reason="asr_output_truncated",
+                    extras={_PLANNED_NOTE: f"chunk {k + 1}/{len(results)} hit the output-token cap"},
+                )
+            text = (result.text or "").strip()
+            if result.skipped and not text and finish_reason == "stop":
+                empty.append(k + 1)
+                continue
+            if result.skipped:
+                return ASRResult(
+                    text="",
+                    skipped=True,
+                    skip_reason=result.skip_reason or "asr_chunk_failed",
+                    unsupported_language=result.unsupported_language,
+                    extras={_PLANNED_NOTE: f"chunk {k + 1}/{len(results)} failed"},
+                )
+            if (
+                self.max_output_tokens_per_sec is not None
+                and isinstance(n_tokens, int)
+                and dur > 0
+                and n_tokens / dur > self.max_output_tokens_per_sec
+            ):
+                loops.append(k + 1)
+            texts.append(text)
+        notes = []
+        if empty:
+            notes.append(f"empty chunks {empty} of {len(results)}")
+        if loops:
+            notes.append(f"chunks {loops} exceed {self.max_output_tokens_per_sec} tokens/s (possible repetition)")
+        extras: dict[str, Any] = {}
+        if any(t is not None for t in tokens):
+            extras["chunk_output_tokens"] = tokens
+        if notes:
+            extras[_PLANNED_NOTE] = "; ".join(notes)
+        if not texts:
+            return ASRResult(text="", skipped=True, skip_reason="no_speech", extras=extras)
+        return ASRResult(text=" ".join(texts), extras=extras)
 
     @staticmethod
     def _stitch_chunk_results(results: list[ASRResult]) -> ASRResult:
@@ -731,6 +856,9 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
         """Write adapter results to tasks."""
         skipped_count = 0
         for task, item, result in zip(tasks, items, results, strict=True):
+            planned_note = result.extras.pop(_PLANNED_NOTE, None) if result.extras else None
+            if planned_note:
+                _set_note(task.data, self.name, planned_note, self.notes_key)
             task.data[self.pred_text_key] = result.text
             if self.language_key is not None:
                 task.data.setdefault(self.language_key, "")

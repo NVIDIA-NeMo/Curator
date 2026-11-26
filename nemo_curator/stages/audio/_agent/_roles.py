@@ -99,6 +99,9 @@ KEY_ROLES: dict[str, Role] = {
     # windows (ALM snippet planning)
     "windows_key": "windows",
     "filtered_windows_key": "windows",
+    # long-form cut plan: [start, end] / [start, end, "silence"] tiling one recording
+    "cuts_key": "cut_plan",
+    "segment_bounds_key": "cut_plan",
 }
 
 # ``*_key`` constructor fields with no cross-stage role (chained by value within
