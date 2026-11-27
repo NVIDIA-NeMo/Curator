@@ -68,13 +68,15 @@ export AWS_REQUEST_CHECKSUM_CALCULATION="when_required"
 export AWS_RESPONSE_CHECKSUM_VALIDATION="when_required"
 ```
 
-Stages that accept `storage_options`, such as the deduplication workflows through `read_kwargs` and `write_kwargs`, also accept the endpoint and region directly:
+Stages that accept `storage_options`, such as the deduplication workflows, also accept the endpoint and region directly. Pass the dictionary under the `storage_options` key of `read_kwargs` and `write_kwargs`:
 
 ```python
 storage_options = {
     "endpoint_url": "https://s3.example-region.example.com",
     "client_kwargs": {"region_name": "example-region"},
 }
+read_kwargs = {"storage_options": storage_options}
+write_kwargs = {"storage_options": storage_options}
 ```
 
 ## Explicit File List (JSON)
