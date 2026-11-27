@@ -833,7 +833,7 @@ code owner in `.github/CODEOWNERS`.
 | `audio_readspeech_*` | VAD, band filter, UTMOS, SIGMOS, speaker separation | `audio_cuda12` | Xenna, Ray Data | 0.5-1 per filter | No: speaker separation uses NeMo Sortformer | Enabled | Shubham Bhawsar |
 | `audio_tagging_tts_*` | PyAnnote diarization, NeMo ASR alignment, SQUIM, bandwidth | `audio_cuda12` | Xenna, Ray Data | 1 per model | No: `pyannote-audio`, `nemo_toolkit` | Enabled | Sushmitha Deva |
 | `audio_granary_metadata_*` | Resampling, diarization, VAD, SED, three-model LID | Granary tutorial image | Xenna, Ray Data | 8 | No: x86_64-only native stack | Disabled | Aaftab V |
-| `audio_indic_asr_*` | Indic Canary TensorRT-LLM, Parakeet TensorRT | Granary tutorial image (`audio_tensorrt`) | Xenna, Ray Data | 8 | No: `tensorrt`, `nemo_text_processing` | Disabled | Aaftab V |
+| `audio_indic_asr_*` | Indic Transcribe TensorRT-LLM, Parakeet TensorRT | Granary tutorial image (`audio_tensorrt`) | Xenna, Ray Data | 8 | No: `tensorrt`, `nemo_text_processing` | Disabled | Aaftab V |
 | `audio_qwen_omni_asr_*` | Qwen3-Omni ASR (vLLM) | Qwen Omni tutorial environment | Xenna, Ray Data | 8 | No: `qwen-asr` is x86_64-only | Disabled | Aaftab V |
 | `audio_text_llm_*` | Audio text LLM stages (Dynamo server) | Text pipeline tutorial image | Xenna, Ray Data | 8 | Not checked | Disabled | Aaftab V |
 | `audio_whisper_hallucination_raydata` | Whisper hallucination text filter (after reading durations from file headers) | `audio_cpu` or `audio_cuda12` | Ray Data | 0 | Yes (pure Python) | Enabled; CPU run via `audio-cpu.yaml` | Aaftab V |
@@ -975,7 +975,7 @@ Both executor modes consume this byte-identical retained cohort and also require
 the production-compatible model artifacts to be staged at:
 
 ```text
-{model_weights_path}/audio_indic_asr/indic_canary_trtllm/engine_bfloat16_64_new
+{model_weights_path}/audio_indic_asr/indic_transcribe_trtllm/engine_bfloat16_64_new
 {model_weights_path}/audio_indic_asr/parakeet_indic_trt/encoder_fp16_b1_o8_m16_f8_o800_m4001
 ```
 
@@ -1010,7 +1010,7 @@ dedicated image, from `/opt/Curator`, run:
 python benchmarking/scripts/audio_indic_asr_benchmark.py \
   --benchmark-results-path=/results/indic_asr_xenna \
   --input-manifest=/datasets/audio_indic_asr_parakeet_hindi_531h_35376a11/manifest.jsonl \
-  --indic-canary-engine-dir=/model_weights/audio_indic_asr/indic_canary_trtllm/engine_bfloat16_64_new \
+  --indic-transcribe-engine-dir=/model_weights/audio_indic_asr/indic_transcribe_trtllm/engine_bfloat16_64_new \
   --parakeet-tensorrt-engine-dir=/model_weights/audio_indic_asr/parakeet_indic_trt/encoder_fp16_b1_o8_m16_f8_o800_m4001 \
   --regex-yaml=tutorials/audio/granary_v2/indic_asr/regex.yaml \
   --hall-phrases=tutorials/audio/whisper_hallucination/phrases.txt \

@@ -1761,7 +1761,7 @@ entries:
     args: >-
       --benchmark-results-path={session_entry_dir}
       --input-manifest={dataset:audio_indic_asr_hindi_531h,jsonl}
-      --indic-canary-engine-dir={model_weights_path}/audio_indic_asr/indic_canary_trtllm/engine_bfloat16_64_new
+      --indic-transcribe-engine-dir={model_weights_path}/audio_indic_asr/indic_transcribe_trtllm/engine_bfloat16_64_new
       --parakeet-tensorrt-engine-dir={model_weights_path}/audio_indic_asr/parakeet_indic_trt/encoder_fp16_b1_o8_m16_f8_o800_m4001
       --regex-yaml={curator_repo_dir}/tutorials/audio/granary_v2/indic_asr/regex.yaml
       --hall-phrases={curator_repo_dir}/tutorials/audio/whisper_hallucination/phrases.txt
@@ -1787,7 +1787,7 @@ entries:
     args: >-
       --benchmark-results-path={session_entry_dir}
       --input-manifest={dataset:audio_indic_asr_hindi_531h,jsonl}
-      --indic-canary-engine-dir={model_weights_path}/audio_indic_asr/indic_canary_trtllm/engine_bfloat16_64_new
+      --indic-transcribe-engine-dir={model_weights_path}/audio_indic_asr/indic_transcribe_trtllm/engine_bfloat16_64_new
       --parakeet-tensorrt-engine-dir={model_weights_path}/audio_indic_asr/parakeet_indic_trt/encoder_fp16_b1_o8_m16_f8_o800_m4001
       --regex-yaml={curator_repo_dir}/tutorials/audio/granary_v2/indic_asr/regex.yaml
       --hall-phrases={curator_repo_dir}/tutorials/audio/whisper_hallucination/phrases.txt
