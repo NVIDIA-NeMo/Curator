@@ -187,7 +187,7 @@ def test_nested_contract_is_not_fanout() -> None:
     stage = VADSegmentationStage(nested=True)
 
     assert stage.outputs() == ([], ["segments", "vad_empty", "read_error"])
-    assert stage.ray_stage_spec() == {}
+    assert stage.ray_stage_spec() == {RayStageSpecKeys.IS_FANOUT_STAGE: False}
 
 
 def test_fanout_rejects_multi_recording_batch_configuration() -> None:
@@ -272,6 +272,7 @@ def test_process_is_unsupported() -> None:
 def test_fanout_builds_segment_metadata_and_slices_original_channels() -> None:
     stage, _ = _stage(results=[VADResult([VADSegment(0.25, 0.75)])])
     task = _task(channels=2)
+    task.filepath_key = "audio_filepath"
     task.data["language"] = "en"
     task.data["diar_segments"] = [
         {"start": 0.0, "end": 0.5, "speaker": "speaker_0"},
@@ -287,6 +288,7 @@ def test_fanout_builds_segment_metadata_and_slices_original_channels() -> None:
     assert child.dataset_name == "dataset"
     assert child._metadata == task._metadata
     assert child._metadata is not task._metadata
+    assert child.filepath_key == "audio_filepath"
     assert child.data["waveform"].shape == (2, 8000)
     assert child.data["start_ms"] == 250
     assert child.data["end_ms"] == 750

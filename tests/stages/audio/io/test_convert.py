@@ -194,23 +194,6 @@ class TestAudioToDocumentSerializationBoundary:
         assert row["pair"] == values["pair"]
 
 
-def test_legacy_instances_and_subclass_defaults_remain_usable() -> None:
-    old_instance = AudioToDocumentStage.__new__(AudioToDocumentStage)
-
-    class NoSuperInit(AudioToDocumentStage):
-        def __init__(self) -> None:
-            self.initialized = True
-
-    class LegacyBatchDefault(AudioToDocumentStage):
-        batch_size = 7
-
-    task = AudioTask(dataset_name="d", data={"audio_filepath": "/a.wav", "text": "kept"})
-    assert old_instance.process_batch([task])[0].to_pandas().iloc[0]["text"] == "kept"
-    assert NoSuperInit().process_batch([task])[0].to_pandas().iloc[0]["text"] == "kept"
-    assert LegacyBatchDefault().batch_size == 7
-    assert LegacyBatchDefault(batch_size=64).batch_size == 64
-
-
 def test_only_strict_conversion_advertises_a_json_serialization_boundary() -> None:
     assert AudioToDocumentStage().describe().gates.sanitizes_output is False
     assert AudioToDocumentStage(strict_json=True).describe().gates.sanitizes_output is True

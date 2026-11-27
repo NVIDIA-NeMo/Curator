@@ -75,7 +75,7 @@ Segments with predicted MOS below `mos_threshold` are dropped; segments at or ab
 | `mos_threshold` | float \| None | `3.5` | Minimum MOS to keep. Set to `None` to score without filtering (useful for distribution analysis). |
 | `sample_rate` | int | `16000` | Target sample rate for UTMOS inference. The model is trained at 16 kHz; do not change unless you have a custom checkpoint. |
 
-The default resource allocation is `Resources(cpus=1.0, gpus=0.5)`. UTMOS is small; fractional-GPU allocation lets it share a device with other inference stages.
+The default resource allocation is `Resources(cpus=1.0, gpu_memory_gb=1.5)`. UTMOS is small (about 1.4 GB of VRAM); requesting memory instead of a fixed GPU fraction lets it share a device with other inference stages.
 
 ## Behavior Notes
 

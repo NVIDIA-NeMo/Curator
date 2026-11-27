@@ -17,7 +17,7 @@ import time
 from collections.abc import Mapping
 from dataclasses import dataclass
 from operator import eq, ge, gt, le, lt, ne
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal
 
 from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract
 from nemo_curator.stages.base import ProcessingStage
@@ -26,6 +26,7 @@ from nemo_curator.tasks import AudioTask
 _VALUE_OPERATORS = {"lt": lt, "le": le, "eq": eq, "ne": ne, "ge": ge, "gt": gt}
 
 
+@dataclass
 class PreserveByValueStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """Filter entries by comparing *input_value_key* against *target_value*.
 
@@ -40,23 +41,18 @@ class PreserveByValueStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             validation error for a missing input key; ``"drop"`` removes that row.
     """
 
+    input_value_key: str
+    target_value: float | str
+    operator: Literal["lt", "le", "eq", "ne", "ge", "gt"] = "eq"
+    missing_value_policy: Literal["error", "drop"] = "error"
     name: str = "PreserveByValueStage"
-    BATCH_ONLY = True  # process() raises; only process_batch is implemented (agent-discovery hint)
+    BATCH_ONLY: ClassVar[bool] = True  # process() raises; only process_batch is implemented (agent-discovery hint)
 
-    def __init__(
-        self,
-        input_value_key: str,
-        target_value: float | str,
-        operator: Literal["lt", "le", "eq", "ne", "ge", "gt"] = "eq",
-        missing_value_policy: Literal["error", "drop"] = "error",
-    ):
-        self.input_value_key = input_value_key
-        self.target_value = target_value
-        if missing_value_policy not in {"error", "drop"}:
+    def __post_init__(self) -> None:
+        if self.missing_value_policy not in {"error", "drop"}:
             msg = "missing_value_policy must be 'error' or 'drop'"
             raise ValueError(msg)
-        self.operator = _VALUE_OPERATORS[operator]
-        self.missing_value_policy = missing_value_policy
+        self._operator = _VALUE_OPERATORS[self.operator]
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], [self.input_value_key]
@@ -87,7 +83,7 @@ class PreserveByValueStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                     continue
                 msg = f"Task {task!s} failed validation for stage {self}"
                 raise ValueError(msg)
-            if self.operator(task.data[self.input_value_key], self.target_value):
+            if self._operator(task.data[self.input_value_key], self.target_value):
                 results.append(task)
         self._log_metrics(
             {
@@ -134,6 +130,7 @@ class PreserveByValueConditionsStage(AgentReady, ProcessingStage[AudioTask, Audi
     name: str = "PreserveByValueConditionsStage"
     BATCH_ONLY = True
 
+    # Not a dataclass: ``conditions`` is exposed only as a normalized read-only snapshot.
     def __init__(
         self,
         conditions: list[Mapping[str, Any]] | Mapping[str, Any],

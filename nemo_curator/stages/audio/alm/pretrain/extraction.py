@@ -505,7 +505,6 @@ class SnippetExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         return AudioTask(
             dataset_name=task.dataset_name,
             data=new_data,
-            filepath_key=self.audio_filepath_key,
             _metadata=copy.deepcopy(task._metadata),
             _stage_perf=list(task._stage_perf),
         )

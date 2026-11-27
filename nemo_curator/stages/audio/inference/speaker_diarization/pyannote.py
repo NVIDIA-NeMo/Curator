@@ -151,7 +151,7 @@ class PyAnnoteDiarizationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
 
     # Stage metadata
     name: str = "PyAnnoteDiarization"
-    resources: Resources = field(default_factory=lambda: Resources(gpus=1))
+    resources: Resources = field(default_factory=lambda: Resources(gpus=1.0))
 
     # Xenna executor (optional; unset = default autoscaling)
     xenna_num_workers: int | None = None
@@ -336,9 +336,7 @@ class PyAnnoteDiarizationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
         )
 
     def ray_stage_spec(self) -> dict[str, Any]:
-        if self.fanout:
-            return {RayStageSpecKeys.IS_FANOUT_STAGE: True}
-        return {}
+        return {**super().ray_stage_spec(), RayStageSpecKeys.IS_FANOUT_STAGE: self.fanout}
 
     def _segment_child_data(  # noqa: PLR0913
         self,

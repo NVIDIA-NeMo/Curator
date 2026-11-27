@@ -122,7 +122,7 @@ pipeline.add_stage(
 
 `ManifestReader` parses each JSONL row into an `AudioTask`, but it does not set `filepath_key` and therefore does not preflight audio-file existence through `AudioTask.validate()`. Consuming stages enforce their required columns and perform audio I/O. By default, `ASRStage` logs an unreadable-audio error, writes an empty prediction, and marks the task with `_skipme="audio_load_error"`; set `fail_on_audio_error=True` on that stage to raise instead.
 
-For an explicit local preflight check, construct the task with `filepath_key` and call `validate()`:
+To preflight file existence, construct the task with `filepath_key`. The task validates on creation (logging a warning for a missing file), and `validate()` returns the result if you want to stop on it:
 
 ```python
 from nemo_curator.tasks import AudioTask

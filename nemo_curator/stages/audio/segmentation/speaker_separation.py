@@ -144,7 +144,7 @@ class SpeakerSeparationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
 
     name: str = "SpeakerSeparation"
     batch_size: int = 1
-    resources: Resources = field(default_factory=lambda: Resources(cpus=1.0, gpus=1.0))
+    resources: Resources = field(default_factory=lambda: Resources(gpus=1.0))
 
     # New agent/residency fields follow every legacy positional field.
     audio_filepath_key: str = "audio_filepath"
@@ -452,6 +452,7 @@ class SpeakerSeparationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             spk_task = AudioTask(
                 data=speaker_data,
                 dataset_name=task.dataset_name,
+                filepath_key=task.filepath_key,
                 _metadata=dict(task._metadata or {}),
                 _stage_perf=list(task._stage_perf),
             )

@@ -25,6 +25,7 @@ import os
 import shutil
 import tempfile
 import uuid
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import numpy as np
@@ -36,6 +37,14 @@ from huggingface_hub import snapshot_download
 from loguru import logger
 from omegaconf import ListConfig
 
+from nemo_curator.stages.audio._agent._agent_ready import (
+    AgentReady,
+    ConditionalWrite,
+    Gates,
+    IOSpec,
+    Role,
+    StageContract,
+)
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -144,7 +153,8 @@ _CACHE_SCHEMA_VERSION = 2
 _REFERENCE_PREPROCESSING_SCHEMA_VERSION = 2
 
 
-class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
+@dataclass
+class ChatterboxTTSStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """Generate audio for conversation turns using ChatterboxTTS.
 
     Supports both English-only (``ChatterboxTTS``) and multilingual
@@ -193,70 +203,72 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
         top_p: Top-p sampling parameter.
         normalize_audio: Whether to normalise output volume.
         normalize_level: Target loudness in dB.
+        utterance_key: Input key holding the turn transcript.
+        text_key: Fallback transcript key, read when ``utterance_key`` is empty.
+        speaker_key: Input speaker label; with the conversation id it picks the voice.
+        conversation_id_key: Input conversation id; turns sharing it keep their voices.
+        audio_filepath_key: Output key for the generated WAV path.
+        duration_key: Output key for the generated audio length in seconds.
+        reference_voice_key: Output key for the id of the reference voice used.
+        waveform_key: Resident waveform key removed from synthesised turns.
+        sample_rate_key: Resident sample-rate key removed from synthesised turns.
     """
 
-    name = "ChatterboxTTSStage"
-    resources = Resources(gpus=1)
+    output_audio_dir: str
+    reference_voices_dataset: str
+    language: str | None = None
+    device: str = "cuda"
+    cache_dir: str | None = None
+    max_reference_duration: float = 60.0
+    sample_rate: int = 24000
+    cfg_weight: float = 0.5
+    exaggeration: float | list[float] | tuple[float, float] | ListConfig = 0.5
+    temperature: float = 0.8
+    repetition_penalty: float | None = None
+    min_p: float = 0.05
+    top_p: float = 1.0
+    normalize_audio: bool = True
+    normalize_level: float = -20.0
+    utterance_key: str = "utterance"
+    text_key: str = "text"
+    speaker_key: str = "speaker"
+    conversation_id_key: str = "conversation_id"
+    audio_filepath_key: str = "audio_filepath"
+    duration_key: str = "duration"
+    reference_voice_key: str = "reference_voice"
+    waveform_key: str = "waveform"
+    sample_rate_key: str = "sample_rate"
+
+    name: str = "ChatterboxTTSStage"
+    resources: Resources = field(default_factory=lambda: Resources(gpus=1.0))
     # Turns are synthesised serially in process_batch (Chatterbox generate()
     # is single-text and per-voice-conditioned), so one task per batch.
-    batch_size = 1
+    batch_size: int = 1
     # Run in an isolated Ray virtualenv that pip-installs chatterbox-tts, so its
     # transformers==5.2.0 / torch==2.6.0 pins never collide with Curator's main
     # environment or uv.lock. To reuse a pre-provisioned environment (e.g. one
     # where chatterbox is already installed) disable this with
     # ``ChatterboxTTSStage(...).with_(runtime_env={})``.
     runtime_env: ClassVar[dict[str, Any] | None] = _CHATTERBOX_RUNTIME_ENV
+    KEY_ROLE_OVERRIDES: ClassVar[dict[str, Role]] = {"utterance_key": "text"}
+    INTERNAL_KEY_FIELDS: ClassVar[frozenset[str]] = frozenset({"conversation_id_key", "reference_voice_key"})
 
-    def __init__(  # noqa: PLR0913
-        self,
-        output_audio_dir: str,
-        reference_voices_dataset: str,
-        language: str | None = None,
-        device: str = "cuda",
-        cache_dir: str | None = None,
-        max_reference_duration: float = 60.0,
-        sample_rate: int = 24000,
-        cfg_weight: float = 0.5,
-        exaggeration: float | list[float] | tuple[float, float] | ListConfig = 0.5,
-        temperature: float = 0.8,
-        repetition_penalty: float | None = None,
-        min_p: float = 0.05,
-        top_p: float = 1.0,
-        normalize_audio: bool = True,
-        normalize_level: float = -20.0,
-    ):
-        super().__init__()
-
-        self.output_audio_dir = output_audio_dir
-        self.reference_voices_dataset = reference_voices_dataset
-        self.language = language
-        self.device = device
-        self.cache_dir = cache_dir
-        self.max_reference_duration = max_reference_duration
-        self.sample_rate = sample_rate
-        self.cfg_weight = cfg_weight
-        self.temperature = temperature
-        self.min_p = min_p
-        self.top_p = top_p
-        self.normalize_audio = normalize_audio
-        self.normalize_level = normalize_level
-
-        if language is not None and language.lower() not in SUPPORTED_LANGUAGES:
-            msg = f"Unsupported language '{language}'. Supported: {', '.join(sorted(SUPPORTED_LANGUAGES))}"
+    def __post_init__(self) -> None:
+        if self.language is not None and self.language.lower() not in SUPPORTED_LANGUAGES:
+            msg = f"Unsupported language '{self.language}'. Supported: {', '.join(sorted(SUPPORTED_LANGUAGES))}"
             raise ValueError(msg)
-        if language is not None:
-            self.language = language.lower()
+        if self.language is not None:
+            self.language = self.language.lower()
 
         _multilingual_default_penalty = 2.0
-        if repetition_penalty is not None:
-            self.repetition_penalty = repetition_penalty
-        else:
-            self.repetition_penalty = _multilingual_default_penalty if language else 1.2
+        if self.repetition_penalty is None:
+            self.repetition_penalty = _multilingual_default_penalty if self.language else 1.2
 
         _exag_range_len = 2
+        exaggeration = self.exaggeration
         if isinstance(exaggeration, (list, tuple, ListConfig)) and len(exaggeration) == _exag_range_len:
             self.exaggeration_range: tuple[float, float] | None = (float(exaggeration[0]), float(exaggeration[1]))
-            self.exaggeration: float = self.exaggeration_range[0]
+            self.exaggeration = self.exaggeration_range[0]
         else:
             self.exaggeration_range = None
             self.exaggeration = float(exaggeration)
@@ -286,11 +298,35 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
         The transcript is read from ``utterance``; ``text`` is accepted as a
         fallback when ``utterance`` is absent.
         """
-        return [], ["conversation_id", "speaker", "utterance"]
+        return [], [self.conversation_id_key, self.speaker_key, self.utterance_key]
 
     def outputs(self) -> tuple[list[str], list[str]]:
         """Data keys added to each task."""
-        return [], ["audio_filepath", "duration", "reference_voice"]
+        return [], [self.audio_filepath_key, self.duration_key, self.reference_voice_key]
+
+    def describe(self) -> StageContract:
+        return StageContract(
+            reads=IOSpec(data_keys=[self.conversation_id_key, self.speaker_key, self.utterance_key]),
+            optional_reads=IOSpec(data_keys=[self.text_key]),
+            conditional_writes=[
+                ConditionalWrite(
+                    writes=IOSpec(data_keys=self.outputs()[1], produces=["disk"]),
+                    condition="the turn has non-empty text and reference selection succeeds; "
+                    "otherwise the task passes through unchanged",
+                ),
+            ],
+            removes_keys=[self.waveform_key, self.sample_rate_key],
+            cardinality="1:1",
+            gates=Gates(
+                writes_to_disk=True,
+                output_path_params=["output_audio_dir"],
+                requires_gpu=self.resources.requires_gpu,
+                requires_internet_first_run=True,
+                lifecycle_side_effects=True,
+                # Sampling draws from the process-global torch RNG, advanced by every earlier turn.
+                per_row_independent=False,
+            ),
+        )
 
     def setup_on_node(
         self,
@@ -921,15 +957,15 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
         for task in tasks:
             data = task.data
 
-            text = data.get("utterance") or data.get("text", "")
+            text = data.get(self.utterance_key) or data.get(self.text_key, "")
             if not text or not text.strip():
                 logger.warning(f"Skipping task {task.task_id}: no text")
                 output_tasks.append(task)
                 continue
 
             text = text.strip()
-            speaker = data.get("speaker", "unknown")
-            conversation_id = data.get("conversation_id", "unknown")
+            speaker = data.get(self.speaker_key, "unknown")
+            conversation_id = data.get(self.conversation_id_key, "unknown")
 
             try:
                 # Reference selection includes file I/O and RTTM preprocessing,
@@ -972,11 +1008,11 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
 
             duration = len(audio_data) / audio_sr
 
-            task.data["audio_filepath"] = audio_path
-            task.data["duration"] = duration
-            task.data["reference_voice"] = ref_id
-            task.data.pop("waveform", None)
-            task.data.pop("sample_rate", None)
+            task.data[self.audio_filepath_key] = audio_path
+            task.data[self.duration_key] = duration
+            task.data[self.reference_voice_key] = ref_id
+            task.data.pop(self.waveform_key, None)
+            task.data.pop(self.sample_rate_key, None)
             output_tasks.append(task)
 
             logger.info(f"[TTS] {conversation_id[:8]}/{speaker}: {duration:.2f}s -> {filename}")

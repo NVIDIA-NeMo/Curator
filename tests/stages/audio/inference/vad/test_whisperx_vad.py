@@ -29,6 +29,10 @@ class TestWhisperXVADStage:
         monkeypatch.setattr(WhisperXVADStage, "is_resumable", False)
         assert WhisperXVADStage().is_resumable is False
 
+    @pytest.mark.parametrize("fanout", [False, True])
+    def test_ray_stage_spec_keeps_fanout_key(self, fanout: bool) -> None:
+        assert WhisperXVADStage(fanout=fanout).ray_stage_spec() == {"is_fanout_stage": fanout}
+
     @pytest.mark.gpu
     def test_process(self, wav_filepath: Path) -> None:
         stage = WhisperXVADStage(

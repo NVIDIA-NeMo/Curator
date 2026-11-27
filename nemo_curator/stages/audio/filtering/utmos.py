@@ -29,7 +29,7 @@ Example:
     pipeline = Pipeline(name="quality_pipeline")
     pipeline.add_stage(
         UTMOSFilterStage(mos_threshold=3.5)
-        .with_(resources=Resources(cpus=1.0, gpus=0.5))
+        .with_(resources=Resources(cpus=1.0, gpu_memory_gb=1.5))
     )
 """
 
@@ -154,7 +154,7 @@ class UTMOSFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
 
     name: str = "UTMOSFilter"
     batch_size: int = 1
-    resources: Resources = field(default_factory=lambda: Resources(cpus=1.0, gpus=0.5))
+    resources: Resources = field(default_factory=lambda: Resources(cpus=1.0, gpu_memory_gb=1.5))
 
     _: KW_ONLY
     input_residency: Literal["file", "waveform", "auto"] = "auto"

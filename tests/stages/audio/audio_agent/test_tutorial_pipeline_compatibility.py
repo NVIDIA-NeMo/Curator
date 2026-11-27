@@ -157,7 +157,7 @@ def test_tutorial_sensitive_defaults_remain_compatible(tmp_path: Path) -> None:
     assert fleurs[2].text_key == "text"
     assert fleurs[2].pred_text_key == "pred_text"
     assert fleurs[2].wer_key == "wer_pct"
-    assert fleurs[4].operator.__name__ == "le"
+    assert fleurs[4].operator == "le"
     assert fleurs[4].target_value == 5.5
     assert fleurs[5].batch_size == 64
 

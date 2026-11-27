@@ -1,0 +1,35 @@
+stage_id: ChatterboxTTSStage
+category: ingest
+summary: "Synthesize one WAV per conversation turn with Chatterbox TTS, cloning a reference voice chosen from (conversation_id, speaker); writes the WAV path and its duration."
+tags: [needs_gpu, needs_internet_first_run, writes_disk]
+model_id: "ResembleAI/chatterbox (English model; the multilingual model when language is set)"
+domain: {language: "en by default; 23 languages with the multilingual model", style: conversational}
+constraints: {}
+resource:
+  cpus: 1.0
+  gpu_mem_gb: null
+  gpu_optional: false
+  bound: gpu
+  throughput_hint: "one turn per batch (batch_size 1); generated WAVs are cached, so a rerun with the same settings reuses them"
+use_cases:
+  good_for:
+    - "synthetic multi-speaker conversation audio from text turns"
+    - "keeping each speaker's voice the same across a conversation, even across actors and nodes"
+  avoid_for:
+    - "clusters without network access on first run: the weights download and the Ray runtime_env pip-installs chatterbox"
+composition:
+  typical_upstream: [ManifestReader]
+  typical_downstream: [MFAAlignmentStage, ManifestWriterStage]
+params_of_note:
+  output_audio_dir: "directory for the generated WAV files (required)"
+  reference_voices_dataset: "root of the reference voices: wavs/<dialog>/<speaker>.wav (optional rttms/ siblings) or an MLS layout (required)"
+  language: "None for the English model, or an ISO 639-1 code for the multilingual model"
+  utterance_key: "turn transcript (default utterance; text_key is read when it is empty)"
+  speaker_key: "speaker label; with the conversation id it picks the voice"
+  conversation_id_key: "conversation id; turns that share it keep their voices"
+notes:
+  - "chatterbox-tts is not a Curator dependency: the stage runs in an isolated Ray runtime_env that pip-installs it."
+  - "Voice assignment is a deterministic hash of (conversation_id, speaker). Sampling uses the global torch RNG, so rows are not independent."
+  - "A turn whose generation fails gets a 2-second silent placeholder WAV, which is not cached."
+verified: {params: mechanical, tags: best_guess, resource: best_guess, use_cases: best_guess, domain: best_guess}
+provenance: {model_card_url: "https://huggingface.co/ResembleAI/chatterbox", card_version: 1, last_validated: "2026-11-23"}

@@ -155,7 +155,7 @@ class WhisperXVADStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     pred_text_key: str = field(default="pred_text", kw_only=True)
 
     name: str = "WhisperXVAD"
-    resources: Resources = field(default_factory=lambda: Resources(gpus=1))
+    resources: Resources = field(default_factory=lambda: Resources(gpus=1.0))
 
     _vad_model: Any = field(default=None, repr=False)
 
@@ -287,9 +287,7 @@ class WhisperXVADStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         )
 
     def ray_stage_spec(self) -> dict[str, Any]:
-        if self.fanout:
-            return {RayStageSpecKeys.IS_FANOUT_STAGE: True}
-        return {}
+        return {**super().ray_stage_spec(), RayStageSpecKeys.IS_FANOUT_STAGE: self.fanout}
 
     def _segment_child_data(  # noqa: PLR0913
         self,

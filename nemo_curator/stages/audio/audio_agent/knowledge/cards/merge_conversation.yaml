@@ -1,0 +1,34 @@
+stage_id: MergeConversationSDPStage
+category: segment
+summary: "Merge one conversation's turn WAVs (and their RTTM/CTM) into mixed and multichannel audio with matching all.rttm, all.ctm and a segment list; one output row per conversation."
+tags: [is_filter, writes_disk]
+model_id: null
+domain: {language: any, style: conversational}
+constraints: {}
+resource:
+  cpus: 1.0
+  gpu_mem_gb: 0.0
+  gpu_optional: false
+  bound: io
+  throughput_hint: "CPU and disk; each conversation is built in a temporary directory and published together"
+use_cases:
+  good_for:
+    - "building multi-speaker conversation audio and annotations from per-turn synthetic audio"
+  avoid_for:
+    - "independent per-turn rows: the input must be one row per conversation with a turns list"
+    - "reruns into an existing output root: existing conversation directories are refused"
+composition:
+  typical_upstream: [ManifestReader]
+  typical_downstream: [ManifestWriterStage]
+params_of_note:
+  output_conversations_dir: "root for one directory per conversation (required; use a fresh root per run)"
+  max_pause_duration: "maximum inserted silence between turns, in seconds (default 2.0)"
+  max_intra_turn_pause: "longest pause kept inside a turn, in seconds (default 1.0)"
+  randomize_pauses: "randomize capped pauses longer than 0.5 s (default False; True makes rows not independent)"
+  turns_key: "input list of turn dicts, each with audio_filepath, speaker and turn_index (default turns)"
+notes:
+  - "Unreadable or empty audio, mixed sample rates, an existing destination or a write failure drop the whole conversation (no output row)."
+  - "A turn with a missing or unusable RTTM keeps its full audio, and the row gets mfa_fallback=True."
+  - "Inside each turn the key names are fixed: audio_filepath, speaker and turn_index (required), and rttm_filepath, ctm_filepath, mfa_skipped, conversation_id, overlap, text or utterance, reference_audio and reference_voice (read when present). A turn key renamed upstream is not read, so its value comes out empty or default (for example the segment-list words or a speaker's reference_voice)."
+verified: {params: mechanical, tags: best_guess, resource: best_guess, use_cases: best_guess, domain: best_guess}
+provenance: {model_card_url: null, card_version: 1, last_validated: "2026-11-23"}

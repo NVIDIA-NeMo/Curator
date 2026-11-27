@@ -1,0 +1,38 @@
+stage_id: MFAAlignmentStage
+category: transcribe
+summary: "Force-align each row's known transcript to its audio with the Montreal Forced Aligner (mfa CLI); writes TextGrid, RTTM and CTM files under output_dir."
+tags: [batch_only, writes_disk]
+model_id: null
+domain: {language: en, style: any}
+constraints: {}
+resource:
+  cpus: 1.0
+  gpu_mem_gb: 0.0
+  gpu_optional: false
+  bound: cpu
+  throughput_hint: "one `mfa align` subprocess per batch (batch_size 256 by default); the CPU reservation follows num_jobs"
+use_cases:
+  good_for:
+    - "word- and phone-level timing for audio whose transcript is already known (for example TTS output)"
+    - "per-turn RTTM and CTM files for conversation merging"
+  avoid_for:
+    - "audio without a reliable transcript (use ASR with word timestamps instead)"
+    - "languages without a matching MFA acoustic model and dictionary"
+composition:
+  typical_upstream: [ManifestReader, ChatterboxTTSStage]
+  typical_downstream: [ManifestWriterStage]
+params_of_note:
+  output_dir: "root for textgrids/, rttms/ and ctms/ (required)"
+  acoustic_model: "MFA acoustic model name or path (default english_us_arpa)"
+  dictionary: "MFA pronunciation dictionary name or path (default english_us_arpa)"
+  g2p_model: "G2P model for out-of-vocabulary words; empty string disables it"
+  num_jobs: "MFA -j value; also sets the default CPU reservation"
+  text_key: "transcript to align (default text)"
+  create_rttm: "write an RTTM file per row (default True)"
+  create_ctm: "write a CTM file per row (default True)"
+notes:
+  - "Needs the mfa binary (montreal-forced-aligner) and its models on every node; it is not a Python dependency of Curator."
+  - "Only process_batch is supported. One mfa align run aligns the whole batch, so rows are not independent."
+  - "A row MFA cannot align gets full-span fallback annotations and mfa_skipped=True instead of being dropped."
+verified: {params: mechanical, tags: best_guess, resource: best_guess, use_cases: best_guess, domain: best_guess}
+provenance: {model_card_url: null, card_version: 1, last_validated: "2026-11-23"}
