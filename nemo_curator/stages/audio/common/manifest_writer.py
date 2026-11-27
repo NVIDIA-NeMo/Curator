@@ -36,11 +36,19 @@ class ManifestWriterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
 
     Audio-agent preparation truncates once before workers are serialized. Worker and
     node setup only verify the shared run reservation. Standalone setup() retains
-    its historical truncate behavior when no driver reservation was prepared.
+    its historical truncate behavior when no driver reservation was prepared, so a
+    restarted standalone writer actor starts that file over.
+
+    Set ``per_task_files=True`` to make standalone runs retry-safe: ``output_path``
+    becomes a directory and each task is written to its own ``<hash>.jsonl`` named
+    from the task id and row, so a restarted or retried writer rewrites the same
+    file instead of erasing or duplicating rows. Setup never deletes anything in
+    this mode; use a fresh directory per run.
     """
 
     output_path: str
     name: str = "manifest_writer"
+    per_task_files: bool = False
 
     # ``output_path`` is required, so static discovery cannot instantiate this
     # stage. Publish invariant sink behavior so an agent never mistakes it for
@@ -117,6 +125,9 @@ class ManifestWriterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         self, *, checkpoint_path: str | Path | None = None, pipeline_identity: str | None = None
     ) -> None:
         """Reserve output; append only to a verified successful run of this pipeline."""
+        if self.per_task_files:
+            msg = "ManifestWriterStage per_task_files output is already retry-safe; driver preparation is unsupported"
+            raise ValueError(msg)
         self._resolve_output()
         token = uuid.uuid4().hex
         with self._fs.open(f"{self._path}._RUN", "x", encoding="utf-8") as owner:
@@ -251,7 +262,9 @@ class ManifestWriterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         self._resolve_output()
-        if getattr(self, "_run_token", None) is not None:
+        if self.per_task_files:
+            self._fs.makedirs(self._path, exist_ok=True)
+        elif getattr(self, "_run_token", None) is not None:
             self._verify_run()
         else:
             if self._fs.exists(f"{self._path}._RUN"):
@@ -316,8 +329,23 @@ class ManifestWriterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         if prepared:
             self._write_run_owner()
 
+    def _write_task_file(self, task: AudioTask, record: str) -> None:
+        # Same task and row -> same name, so a retry overwrites rather than duplicates.
+        # Full digest: with one file per row, a short hash prefix collides at millions of rows.
+        name = hashlib.sha256(f"{record}|{task.task_id}".encode()).hexdigest()
+        target = f"{self._path}/{name}.jsonl"
+        partial = f"{target}.{uuid.uuid4().hex}.tmp"
+        with self._fs.open(partial, "w", encoding="utf-8") as output:
+            output.write(record)
+        # Publish whole files only: an interrupted write never leaves a truncated row.
+        self._fs.mv(partial, target)
+
     def process(self, task: AudioTask) -> AudioTask:
-        self.write_jsonl_batch(json.dumps(task.data, ensure_ascii=False) + "\n")
+        record = json.dumps(task.data, ensure_ascii=False) + "\n"
+        if self.per_task_files:
+            self._write_task_file(task, record)
+        else:
+            self.write_jsonl_batch(record)
         return AudioTask(
             dataset_name=task.dataset_name,
             data=task.data,
