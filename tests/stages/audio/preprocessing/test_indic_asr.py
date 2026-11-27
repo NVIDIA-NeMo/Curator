@@ -77,7 +77,7 @@ def test_prepares_audio_without_changing_reference_or_metadata(
     assert result.data["reference_text"] == result.data["granary_v1_prediction"] == reference
     assert result.data["additional_notes"] == {
         "dataset": "public",
-        "primary_model": "indic_canary",
+        "primary_model": "indic_transcribe",
         "recovery_model": "parakeet_riva",
     }
     assert result.data["_skipme"] == ""
@@ -92,7 +92,7 @@ def test_initializes_notes(indic_task: AudioTask, notes: object) -> None:
         indic_task.data["additional_notes"] = notes
     result = PrepareIndicASRInputStage().process(indic_task)
     assert result.data["additional_notes"] == {
-        "primary_model": "indic_canary",
+        "primary_model": "indic_transcribe",
         "recovery_model": "parakeet_riva",
     }
 
