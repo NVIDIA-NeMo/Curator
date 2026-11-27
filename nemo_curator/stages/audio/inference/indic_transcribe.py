@@ -12,7 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Curator stage for a prebuilt Indic Canary TensorRT-LLM engine."""
+"""Curator stage for a prebuilt Indic Transcribe TensorRT-LLM engine.
+
+The underlying model is bodhan-ai/indic-transcribe-core (Hugging Face), a
+1.2B-parameter multilingual ASR model covering 25 Indian languages.
+Model card: https://huggingface.co/bodhan-ai/indic-transcribe-core
+"""
 
 from __future__ import annotations
 
@@ -20,7 +25,7 @@ import dataclasses
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from nemo_curator.models.asr.indic_canary import IndicCanaryTRTLLMASR
+from nemo_curator.models.asr.indic_transcribe import IndicTranscribeTRTLLMASR
 from nemo_curator.stages.audio._agent._agent_ready import Gates, StageContract, StaticHints
 from nemo_curator.stages.audio.inference.asr.stage import ASRStage, _set_note
 from nemo_curator.stages.resources import Resources
@@ -29,12 +34,12 @@ if TYPE_CHECKING:
     from nemo_curator.models.asr.base import ASRResult
     from nemo_curator.tasks import AudioTask
 
-_ADAPTER_TARGET = "nemo_curator.models.asr.indic_canary.IndicCanaryTRTLLMASR"
+_ADAPTER_TARGET = "nemo_curator.models.asr.indic_transcribe.IndicTranscribeTRTLLMASR"
 
 
 @dataclass
-class InferenceIndicCanaryStage(ASRStage):
-    """Transcribe Indic audio with an existing Canary TensorRT-LLM engine.
+class InferenceIndicTranscribeStage(ASRStage):
+    """Transcribe Indic audio with an existing Indic Transcribe TensorRT-LLM engine.
 
     Use ``docker/audio/Dockerfile.trt_llm`` for the CPython 3.12 native stack.
     TensorRT-LLM is loaded directly in the Curator worker, sharing the selected
@@ -43,7 +48,7 @@ class InferenceIndicCanaryStage(ASRStage):
 
     adapter_target: str = field(default=_ADAPTER_TARGET, init=False, repr=False)
     engine_dir: str = ""
-    name: str = "IndicCanary_inference"
+    name: str = "IndicTranscribe_inference"
     num_beams: int = 4
     max_new_tokens: int = 374
     pnc: bool = False
@@ -106,9 +111,9 @@ class InferenceIndicCanaryStage(ASRStage):
         gates = dataclasses.replace(contract.gates, requires_internet_first_run=False)
         return dataclasses.replace(contract, gates=gates)
 
-    def _create_adapter(self) -> IndicCanaryTRTLLMASR:
-        """Construct Canary through its reference-compatible ``engine_dir`` API."""
-        return IndicCanaryTRTLLMASR(engine_dir=self.engine_dir, **self.adapter_kwargs)
+    def _create_adapter(self) -> IndicTranscribeTRTLLMASR:
+        """Construct the Indic Transcribe adapter via its ``engine_dir`` API."""
+        return IndicTranscribeTRTLLMASR(engine_dir=self.engine_dir, **self.adapter_kwargs)
 
     def assemble(
         self,
@@ -116,7 +121,7 @@ class InferenceIndicCanaryStage(ASRStage):
         items: list[dict[str, Any]],
         results: list[ASRResult],
     ) -> list[AudioTask]:
-        """Write Canary-specific unsupported-language and truncation metadata."""
+        """Write Indic Transcribe unsupported-language and truncation metadata."""
         previous_skip_values = [task.data.get(self.skip_me_key) for task in tasks]
         super().assemble(tasks, items, results)
 
@@ -157,4 +162,4 @@ class InferenceIndicCanaryStage(ASRStage):
         return tasks
 
 
-__all__ = ["IndicCanaryTRTLLMASR", "InferenceIndicCanaryStage"]
+__all__ = ["IndicTranscribeTRTLLMASR", "InferenceIndicTranscribeStage"]

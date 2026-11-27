@@ -1,6 +1,6 @@
-stage_id: InferenceIndicCanaryStage
+stage_id: InferenceIndicTranscribeStage
 category: transcribe
-summary: "Transcribe Indic in-memory waveforms with a prebuilt Canary TensorRT-LLM engine."
+summary: "Transcribe Indic in-memory waveforms with a prebuilt Indic Transcribe TensorRT-LLM engine."
 tags: [needs_gpu, batch_only]
 model_id: null
 resource:
