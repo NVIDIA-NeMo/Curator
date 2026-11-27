@@ -48,12 +48,14 @@ class ManifestReaderStage(AgentReady, ProcessingStage[FileGroupTask, AudioTask])
             run at a filtered copy, so the rows a partial run emits are the rows a full run
             would have emitted.
         include_files_key: Which row column holds that path.
+        storage_options: fsspec storage options for cloud manifests (S3, GCS credentials, endpoints).
     """
 
     name: str = "manifest_reader_stage"
     _: KW_ONLY
     include_files: list[str] | None = None
     include_files_key: str = "audio_filepath"
+    storage_options: dict[str, Any] | None = None
     # Declared statically as well as in describe(): a narrowable source has to be readable as
     # safe-to-narrow without constructing it, which is how the instance-free conformance sweep
     # sees it.
@@ -75,7 +77,7 @@ class ManifestReaderStage(AgentReady, ProcessingStage[FileGroupTask, AudioTask])
             else {os.path.abspath(os.path.expanduser(p)) for p in self.include_files}
         )
         for manifest in paths:
-            fs, resolved = url_to_fs(manifest)
+            fs, resolved = url_to_fs(manifest, **(self.storage_options or {}))
             with fs.open(resolved, "r", encoding="utf-8") as f:
                 for line in f:
                     if line.strip():
@@ -162,6 +164,7 @@ class ManifestReader(AgentReady, CompositeStage[EmptyTask, AudioTask]):
             ManifestReaderStage(
                 include_files=self.include_files,
                 include_files_key=self.include_files_key,
+                storage_options=self.storage_options,
             ),
         ]
 

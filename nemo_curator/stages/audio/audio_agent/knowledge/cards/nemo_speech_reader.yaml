@@ -22,7 +22,7 @@ composition:
   typical_upstream: [NeMoSpeechDiscoveryStage]
   typical_downstream: [NeMoSpeechWriterStage]
 params_of_note:
-  output_dir: "Optional absolute local shared root. When set, registers the source shard total before decoding; use the writer's root to account for even zero-output shards."
+  output_dir: "Optional absolute local shared root or cloud URL (with storage_options). When set, registers the source shard total before decoding; use the writer's root to account for even zero-output shards."
   max_audio_duration_sec: "Default 43200 seconds. Overlong declared/decoded cuts become read_error/audio_too_long placeholders. None or nonpositive disables the limit."
   keep_waveform: "Default true writes mono float32 NumPy waveform [samples]. False omits only storage; cut.load_audio and normalization still run."
   reader_workers: "Optional cap on reader actors, forwarded to execution; no automatic shard-size or memory cap is inferred."

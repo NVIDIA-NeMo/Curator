@@ -25,6 +25,7 @@ from typing import Any
 import numpy as np
 import pytest
 import soundfile as sf
+from fsspec.implementations.local import LocalFileSystem
 
 import nemo_curator.stages.audio.io.nemo_speech_reader as reader_module
 from nemo_curator.backends.xenna import XennaExecutor
@@ -714,7 +715,11 @@ def test_reader_decodes_lightweight_local_nemo_manifest(tmp_path: Path) -> None:
         "_shard_input_id": "0",
     }
     np.testing.assert_allclose(result.data["waveform"], waveform)
-    registration = json.loads(shard_registration_path(output_dir, "dataset/manifest").read_text(encoding="utf-8"))
+    registration = json.loads(
+        Path(shard_registration_path(LocalFileSystem(), str(output_dir), "dataset/manifest")).read_text(
+            encoding="utf-8"
+        )
+    )
     assert registration == {
         "expected_inputs": 1,
         "shard_key": "dataset/manifest",

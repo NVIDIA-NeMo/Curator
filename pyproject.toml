@@ -112,6 +112,9 @@ audio_common = [
     "pyloudnorm",
     "nemo_toolkit[asr]>=2.7.2; platform_machine == 'x86_64' and platform_system != 'Darwin'",
     "soundfile>=0.12.0",
+    # Cloud audio I/O. s3fs>=2025.12 makes the NeMo speech writer's small "xb" creates conditional uploads.
+    "gcsfs>=2025.12.0",
+    "s3fs>=2025.12.0",
     "torchaudio",
     "torchcodec; platform_machine == 'x86_64' and platform_system != 'Darwin'",
     "onnx>=1.19.0",

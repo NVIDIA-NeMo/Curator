@@ -51,7 +51,6 @@ from __future__ import annotations
 
 import csv
 import fcntl
-import glob
 import hashlib
 import json
 import math
@@ -64,7 +63,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 
+import fsspec
 import soundfile as sf
+from fsspec.core import url_to_fs
 from loguru import logger
 
 if TYPE_CHECKING:
@@ -73,10 +74,13 @@ if TYPE_CHECKING:
     import numpy as np
 
 from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract, StaticHints
+from nemo_curator.stages.audio.io.segment_io import write_audio
 from nemo_curator.stages.audio.postprocessing.timestamp_mapper import _numeric_key
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
+from nemo_curator.utils.client_utils import is_remote_url
+from nemo_curator.utils.file_utils import get_all_file_paths_under
 
 DEFAULT_OUTPUT_FORMAT = "wav"
 _LOCK_FILENAME = ".segment_extraction.lock"
@@ -312,10 +316,10 @@ def detect_combo(entries: list) -> int:
     return 2
 
 
-def load_manifest(manifest_path: str) -> list:
-    """Load a single manifest.jsonl file and return list of entries."""
+def load_manifest(manifest_path: str, storage_options: dict[str, Any] | None = None) -> list:
+    """Load a single local or cloud manifest.jsonl file and return list of entries."""
     entries = []
-    with open(manifest_path) as f:
+    with fsspec.open(manifest_path, "rt", **(storage_options or {})) as f:
         for line_num, raw_line in enumerate(f, 1):
             line = raw_line.strip()
             if not line:
@@ -327,16 +331,17 @@ def load_manifest(manifest_path: str) -> list:
     return entries
 
 
-def load_manifests(input_path: str, output_dir: str) -> list:
-    """Load entries from a single jsonl file or a directory of jsonl files."""
-    if os.path.isfile(input_path):
-        return load_manifest(input_path)
+def load_manifests(input_path: str, output_dir: str, storage_options: dict[str, Any] | None = None) -> list:
+    """Load entries from a single jsonl file or a directory of jsonl files (local or cloud)."""
+    fs, resolved = url_to_fs(input_path, **(storage_options or {}))
+    if fs.isfile(resolved):
+        return load_manifest(input_path, storage_options)
 
-    if not os.path.isdir(input_path):
+    if not fs.isdir(resolved):
         logger.error(f"Input path not found: {input_path}")
         return []
 
-    jsonl_files = sorted(glob.glob(os.path.join(input_path, "*.jsonl")))
+    jsonl_files = get_all_file_paths_under(input_path, keep_extensions="jsonl", fs=fs)
     if not jsonl_files:
         logger.error(f"No .jsonl files found in {input_path}")
         return []
@@ -345,21 +350,22 @@ def load_manifests(input_path: str, output_dir: str) -> list:
 
     all_entries = []
     for jf in jsonl_files:
-        all_entries.extend(load_manifest(jf))
+        all_entries.extend(load_manifest(jf, storage_options))
 
     logger.info(f"Combined {len(all_entries)} entries from {len(jsonl_files)} file(s)")
 
     if all_entries:
-        os.makedirs(output_dir, exist_ok=True)
         combined_path = os.path.join(output_dir, "manifest.jsonl")
-        with open(combined_path, "w") as f:
+        with fsspec.open(combined_path, "w", **(storage_options or {})) as f:
             f.writelines(json.dumps(e) + "\n" for e in all_entries)
         logger.info(f"Saved combined manifest to {combined_path}")
 
     return all_entries
 
 
-def _write_metadata_csv(output_dir: str, metadata_rows: list[dict]) -> str:
+def _write_metadata_csv(
+    output_dir: str, metadata_rows: list[dict], storage_options: dict[str, Any] | None = None
+) -> str:
     """Write metadata.csv from collected metadata rows."""
     if not metadata_rows:
         return ""
@@ -373,6 +379,13 @@ def _write_metadata_csv(output_dir: str, metadata_rows: list[dict]) -> str:
                 seen.add(k)
 
     csv_path = os.path.join(output_dir, "metadata.csv")
+    if is_remote_url(output_dir):
+        # An object store has no rename; one PUT of the whole CSV is already all-or-nothing.
+        with fsspec.open(csv_path, "w", newline="", **(storage_options or {})) as f:
+            writer = csv.DictWriter(f, fieldnames=all_keys)
+            writer.writeheader()
+            writer.writerows(metadata_rows)
+        return csv_path
     fd, temp_path = tempfile.mkstemp(prefix=".metadata.", suffix=".csv.tmp", dir=output_dir)
     try:
         with os.fdopen(fd, "w", newline="") as f:
@@ -390,8 +403,17 @@ def _write_metadata_csv(output_dir: str, metadata_rows: list[dict]) -> str:
     return csv_path
 
 
+def _wal_line(resume_key: str, record: dict[str, Any]) -> str:
+    payload = {"version": _WAL_VERSION, "resume_key": resume_key, "record": record}
+    return json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n"
+
+
 @contextmanager
 def _output_lock(output_dir: str) -> Iterator[None]:
+    if is_remote_url(output_dir):
+        # Object stores have no advisory locks; num_workers() == 1 already makes this the only writer.
+        yield
+        return
     lock_path = os.path.join(output_dir, _LOCK_FILENAME)
     with open(lock_path, "a", encoding="utf-8") as lock_file:
         fcntl.flock(lock_file, fcntl.LOCK_EX)
@@ -428,8 +450,10 @@ class SegmentExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     pattern as ``AudioToDocumentStage`` and ``ALMManifestWriterStage``.
 
     Args:
-        output_dir: Directory where extracted segment files are written.
+        output_dir: Directory where extracted segment files are written: a local path or a
+            cloud prefix (``s3://``, ``gs://``, ...).
         output_format: Audio format — ``wav``, ``flac``, or ``ogg``.
+        storage_options: fsspec options for a cloud ``output_dir`` or manifest (credentials, endpoints).
     """
 
     name: str = "SegmentExtraction"
@@ -448,6 +472,7 @@ class SegmentExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     )
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
     output_key: str = field(default="extracted_path", kw_only=True)
+    storage_options: dict[str, Any] | None = field(default=None, kw_only=True)
 
     def __post_init__(self) -> None:
         super().__init__()
@@ -471,6 +496,7 @@ class SegmentExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         self._task_ids_by_entry: dict[int, str] = {}
         self._segment_counter: dict[str, int] = defaultdict(int)
         self._speaker_segment_counter: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+        self._fs = url_to_fs(self.output_dir, **(self.storage_options or {}))[0]
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], ["original_file"]
@@ -508,7 +534,7 @@ class SegmentExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         if len(tasks) == 0:
             return []
 
-        os.makedirs(self.output_dir, exist_ok=True)
+        self._fs.makedirs(self.output_dir, exist_ok=True)
 
         entries = [task.data for task in tasks]
         with _output_lock(self.output_dir):
@@ -521,10 +547,14 @@ class SegmentExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                 )
             finally:
                 self._task_ids_by_entry = {}
+                if is_remote_url(self.output_dir):
+                    # shortcut: one log upload per batch, so a worker killed mid-batch loses that batch's
+                    # reservations and its retry may leave orphan clips; use per-segment objects if that matters.
+                    self._rewrite_output_state_as_wal()
 
             for row in metadata_rows:
                 self._metadata_by_filename[row["filename"]] = row
-            _write_metadata_csv(self.output_dir, list(self._metadata_by_filename.values()))
+            _write_metadata_csv(self.output_dir, list(self._metadata_by_filename.values()), self.storage_options)
 
         logger.info(f"[{self.name}] Extracted {extracted} segments ({total_dur:.1f}s) from {len(tasks)} entries")
         if speaker_counts:
@@ -580,8 +610,8 @@ class SegmentExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         self._state_is_wal = True
 
         metadata_path = os.path.join(self.output_dir, "metadata.csv")
-        if os.path.exists(metadata_path):
-            with open(metadata_path, newline="") as metadata_file:
+        if self._fs.exists(metadata_path):
+            with self._fs.open(metadata_path, "r", newline="") as metadata_file:
                 for row in csv.DictReader(metadata_file):
                     filename = row.get("filename")
                     if filename:
@@ -589,10 +619,10 @@ class SegmentExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                         self._claimed_filenames.add(filename)
                         self._advance_counter(row)
 
-        if not os.path.exists(self._state_path):
+        if not self._fs.exists(self._state_path):
             return
         try:
-            with open(self._state_path, encoding="utf-8") as state_file:
+            with self._fs.open(self._state_path, "r", encoding="utf-8") as state_file:
                 content = state_file.read()
             segments = self._parse_output_state(content)
         except (OSError, json.JSONDecodeError, TypeError) as error:
@@ -703,12 +733,16 @@ class SegmentExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             self._segment_counter[name] = max(self._segment_counter[name], index)
 
     def _rewrite_output_state_as_wal(self) -> None:
+        log = "".join(_wal_line(key, record) for key, record in self._segment_reservations.items())
+        if is_remote_url(self.output_dir):
+            # Object stores cannot append, so the whole log is uploaded with one PUT.
+            self._fs.pipe_file(self._state_path, log.encode())
+            self._state_is_wal = True
+            return
         fd, temp_path = tempfile.mkstemp(prefix=".segment_extraction_state.", suffix=".json.tmp", dir=self.output_dir)
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as state_file:
-                for resume_key, record in self._segment_reservations.items():
-                    payload = {"version": _WAL_VERSION, "resume_key": resume_key, "record": record}
-                    state_file.write(json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n")
+                state_file.write(log)
                 state_file.flush()
                 os.fsync(state_file.fileno())
             os.replace(temp_path, self._state_path)
@@ -720,12 +754,13 @@ class SegmentExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
 
     def _persist_output_state(self, resume_key: str, record: dict[str, Any]) -> None:
         """Durably append one reservation instead of rewriting all prior reservations."""
+        if is_remote_url(self.output_dir):
+            return  # process_batch uploads the whole log once per batch
         if not self._state_is_wal:
             self._rewrite_output_state_as_wal()
             return
-        payload = {"version": _WAL_VERSION, "resume_key": resume_key, "record": record}
         with open(self._state_path, "a", encoding="utf-8") as state_file:
-            state_file.write(json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n")
+            state_file.write(_wal_line(resume_key, record))
             state_file.flush()
             os.fsync(state_file.fileno())
 
@@ -778,25 +813,6 @@ class SegmentExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             filename = make_filename()
         self._claimed_filenames.add(filename)
         return filename
-
-    def _write_audio_atomically(self, output_path: str, audio: np.ndarray, sample_rate: int) -> None:
-        # Reservations stabilize names, not contents: a source or a previously
-        # written artifact can change without changing its rate or frame count.
-        fd, temp_path = tempfile.mkstemp(prefix=".segment-extraction-", suffix=".tmp", dir=self.output_dir)
-        os.close(fd)
-        try:
-            sf.write(
-                temp_path,
-                audio,
-                sample_rate,
-                format=self.output_format.upper(),
-                subtype=SOUNDFILE_FORMATS[self.output_format],
-            )
-            os.replace(temp_path, output_path)
-        except Exception:
-            if os.path.exists(temp_path):
-                os.unlink(temp_path)
-            raise
 
     # ------------------------------------------------------------------
     # Combo extractors (instance methods using self.output_dir/format)
@@ -960,10 +976,13 @@ class SegmentExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                         audio = _read_segment(
                             original_file, start_ms, end_ms, info.samplerate, reject_empty=record_output_paths
                         )
-                        self._write_audio_atomically(
+                        write_audio(
                             output_path,
                             audio,
                             info.samplerate,
+                            file_format=self.output_format,
+                            subtype=SOUNDFILE_FORMATS[self.output_format],
+                            storage_options=self.storage_options,
                         )
                         if record_output_paths and output_path not in written_paths[id(entry)]:
                             written_paths[id(entry)].append(output_path)
@@ -1010,10 +1029,10 @@ class SegmentExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         CSV metadata, and summary JSON — equivalent to the old
         ``extract_segments()`` function.
         """
-        os.makedirs(self.output_dir, exist_ok=True)
+        self._fs.makedirs(self.output_dir, exist_ok=True)
 
         logger.info(f"Loading manifest: {input_path}")
-        entries = load_manifests(input_path, self.output_dir)
+        entries = load_manifests(input_path, self.output_dir, self.storage_options)
         logger.info(f"Found {len(entries)} entries total")
 
         if not entries:
@@ -1031,7 +1050,7 @@ class SegmentExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         self._claimed_filenames = set()
         total_extracted, total_dur, speaker_counts, metadata_rows = self._extract_entries(entries)
 
-        csv_path = _write_metadata_csv(self.output_dir, metadata_rows)
+        csv_path = _write_metadata_csv(self.output_dir, metadata_rows, self.storage_options)
 
         summary = {
             "manifest_path": input_path,
@@ -1044,7 +1063,7 @@ class SegmentExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             summary["segments_by_speaker"] = dict(speaker_counts)
 
         summary_path = os.path.join(self.output_dir, "extraction_summary.json")
-        with open(summary_path, "w") as f:
+        with self._fs.open(summary_path, "w") as f:
             json.dump(summary, f, indent=2)
 
         logger.info(f"\n{'=' * 60}")

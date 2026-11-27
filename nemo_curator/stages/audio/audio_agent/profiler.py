@@ -29,6 +29,7 @@ import shutil
 import subprocess
 import sys
 from collections import Counter
+from typing import Any
 
 from nemo_curator.stages.audio.audio_agent.contracts import DataProfile, EnvProfile
 
@@ -70,14 +71,26 @@ def _is_stage_intermediate(path: str, siblings: set[str] | None = None) -> bool:
     return any(f"{stem}{ext}" in siblings for ext in _AUDIO_EXTS)
 
 
-def _stat_entry(path: str, *, root: str) -> tuple[str, bool]:
+def _stat_entry(path: str, *, root: str, fs: Any = None) -> tuple[str, bool]:  # noqa: ANN401
     """Return the size+mtime identity token and whether its metadata is complete.
 
     The path is relative to ``root`` so the same corpus copied elsewhere still matches.
     ``?`` remains in the low-trust identity when a stat fails, but the success flag prevents
     that incomplete token from ever being presented as the high-trust ``stat`` tier.
+    A cloud object (``fs`` given) uses its size plus the store's content version: the ETag
+    (S3/GCS), else its modification time. An object reporting neither stays incomplete.
     """
     relpath = os.path.relpath(path, root)
+    if fs is not None:
+        try:
+            info = fs.info(path)
+        except OSError:
+            return f"{relpath}|?", False
+        version = next(
+            (info[key] for key in ("ETag", "etag", "mtime", "LastModified", "updated", "created") if info.get(key)),
+            None,
+        )
+        return f"{relpath}|{info.get('size')}|{version if version is not None else '?'}", version is not None
     try:
         st = os.stat(path)
     except OSError:
@@ -109,6 +122,7 @@ def profile_data(  # noqa: PLR0913
     max_files: int | None = None,
     case_sensitive_extensions: bool = False,
     exclude_stage_intermediates: bool = True,
+    storage_options: dict[str, Any] | None = None,
 ) -> DataProfile:
     """Profile a manifest (JSONL) or a folder of audio files.
 
@@ -122,17 +136,23 @@ def profile_data(  # noqa: PLR0913
     TSV) into the same identity without changing ordinary profiler defaults.
     Source-selection options mirror the files and manifest rows execution actually emits.
     Workspace violations are fatal source errors and never yield a trusted inventory.
+    A cloud folder (``s3://``, ``gs://``, ... with ``storage_options``) is listed exactly as
+    ``CreateInitialManifestAudioFolderStage`` lists it and identified by object size + ETag;
+    its audio headers are not probed (that needs the shared audio loader).
     """
     prof = DataProfile(source=source)
     expanded = os.path.expanduser(str(source))
     if not _workspace_allowed(expanded, prof):
         return prof
 
-    if os.path.isdir(expanded):
+    fs = _cloud_folder_fs(expanded, storage_options, prof)
+    if fs is not None or os.path.isdir(expanded):
         prof.kind = "folder"
         paths = (
             list(folder_files)
             if folder_files is not None
+            else _list_cloud_audio_files(expanded, folder_extensions, recursive, storage_options)
+            if fs is not None
             else _list_audio_files(
                 expanded,
                 prof,
@@ -147,8 +167,11 @@ def profile_data(  # noqa: PLR0913
         elif max_files is not None:
             prof.notes.append(f"ignored invalid max_files value {max_files!r}")
         prof.num_files = len(paths)
-        _probe_files(paths[:max_probe], prof)
-        _stat_folder(paths, root=expanded, prof=prof)
+        if fs is None:
+            _probe_files(paths[:max_probe], prof)
+        else:
+            prof.notes.append("audio headers of cloud files were not probed; durations and sample rates are unknown")
+        _stat_folder(paths, root=expanded, prof=prof, fs=fs)
     elif expanded.endswith((".jsonl", ".json")) and os.path.isfile(expanded):
         prof.kind = "manifest"
         _profile_manifest(
@@ -176,6 +199,39 @@ def profile_data(  # noqa: PLR0913
     if identity_files:
         _fold_identity_files(prof, identity_files)
     return _finalize_profile(prof)
+
+
+def _cloud_folder_fs(source: str, storage_options: dict[str, Any] | None, prof: DataProfile) -> Any:  # noqa: ANN401
+    """The fsspec filesystem when ``source`` is an existing cloud folder, else ``None``."""
+    from fsspec.core import url_to_fs
+
+    from nemo_curator.utils.client_utils import is_remote_url
+
+    if not is_remote_url(source):
+        return None
+    try:
+        fs = url_to_fs(source, **(storage_options or {}))[0]
+        return fs if fs.isdir(source) else None
+    except (OSError, ValueError) as exc:
+        prof.notes.append(f"could not inspect cloud source {source!r}: {exc}")
+        return None
+
+
+def _list_cloud_audio_files(
+    folder: str,
+    extensions: list[str] | tuple[str, ...] | None,
+    recursive: bool,
+    storage_options: dict[str, Any] | None,
+) -> list[str]:
+    """List a cloud folder through the folder source itself, so profiling sees what execution reads."""
+    from nemo_curator.stages.audio.common import CreateInitialManifestAudioFolderStage
+
+    return CreateInitialManifestAudioFolderStage(
+        data_dir=folder,
+        extensions=list(extensions or _AUDIO_EXTS),
+        recursive=recursive,
+        storage_options=storage_options,
+    )._collect_audio_files()
 
 
 def _finalize_profile(prof: DataProfile) -> DataProfile:
@@ -245,7 +301,7 @@ def _workspace_allowed(path: str, prof: DataProfile) -> bool:
     return not violations
 
 
-def _stat_folder(paths: list[str], *, root: str, prof: DataProfile) -> None:
+def _stat_folder(paths: list[str], *, root: str, prof: DataProfile, fs: Any = None) -> None:  # noqa: ANN401
     """Fold every file's (relpath, size, mtime) into the content-ish dataset key."""
     if len(paths) > _MAX_STAT:
         if any(not _workspace_allowed(path, prof) for path in paths):
@@ -266,7 +322,7 @@ def _stat_folder(paths: list[str], *, root: str, prof: DataProfile) -> None:
         if not _workspace_allowed(p, prof):
             failures += 1
             continue
-        entry, ok = _stat_entry(p, root=root)
+        entry, ok = _stat_entry(p, root=root, fs=fs)
         h.update(entry.encode("utf-8"))
         h.update(b"\n")
         if ok:

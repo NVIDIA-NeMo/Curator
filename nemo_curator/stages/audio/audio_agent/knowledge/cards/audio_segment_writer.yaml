@@ -23,7 +23,7 @@ composition:
   typical_upstream: [VADSegmentationStage, SelectAudioLanguageStage]
   typical_downstream: [ManifestWriterStage]
 params_of_note:
-  output_dir: "Required nonempty local directory shared by executor nodes; expanded/resolved at writing, with clips below audio/."
+  output_dir: "Required nonempty local directory shared by executor nodes (expanded/resolved at writing) or a cloud prefix with storage_options; clips go below audio/."
   waveform_key: "Default waveform. Requires a nonempty finite mono waveform; this stage does not downmix, resample or slice by start/end fields."
   sample_rate_key: "Default sample_rate; must equal 16000 Hz for encoded rows. A vad_empty row does not require resident audio or this rate."
   audio_filepath_key: "Default audio_filepath; input source reference, replaced with the absolute encoded path after success."

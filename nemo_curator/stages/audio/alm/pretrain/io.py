@@ -48,8 +48,10 @@ from nemo_curator.stages.audio.alm.pretrain.utils import (
     _METRICS_SHARD_EXT,
     _PRETRAIN_META_KEY,
     AUDIO_PATH_RESOLUTION_BASENAME,
+    _append_shard_line,
     _is_origin_stub,
     _make_shard_path,
+    _makedirs_parent,
     _resolve_audio_path,
 )
 from nemo_curator.stages.base import ProcessingStage
@@ -319,7 +321,8 @@ class SnippetManifestWriterStage(AgentReady, ProcessingStage[AudioTask, AudioTas
     Single-replica writer; the file is truncated once on driver setup
     so reruns produce a clean output.  Origin-stub tasks (no
     ``snippet_id``) are passed through unchanged so the metrics
-    aggregator can still see them.
+    aggregator can still see them.  ``output_path`` may be local or an
+    S3/GCS URL; ``storage_options`` are passed to fsspec.
     """
 
     output_path: str
@@ -328,6 +331,7 @@ class SnippetManifestWriterStage(AgentReady, ProcessingStage[AudioTask, AudioTas
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
     # Appended after the legacy constructor fields to preserve positional calls.
     snippet_id_key: str = "snippet_id"
+    storage_options: dict[str, Any] | None = None
     INTERNAL_KEY_FIELDS: ClassVar[frozenset[str]] = frozenset({"snippet_id_key"})
     AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
         gates=Gates(
@@ -365,14 +369,10 @@ class SnippetManifestWriterStage(AgentReady, ProcessingStage[AudioTask, AudioTas
         _node_info: NodeInfo | None = None,
         _worker_metadata: WorkerMetadata | None = None,
     ) -> None:
-        parent = os.path.dirname(self.output_path)
-        if parent:
-            os.makedirs(parent, exist_ok=True)
+        _makedirs_parent(self.output_path, self.storage_options)
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
-        parent = os.path.dirname(self.output_path)
-        if parent:
-            os.makedirs(parent, exist_ok=True)
+        _makedirs_parent(self.output_path, self.storage_options)
         # Each replica writes its own shard; finalize_audio_pretrain_outputs
         # merges them after pipeline.run().
         self._shard_path = _make_shard_path(self.output_path, _MANIFEST_SHARD_EXT)
@@ -380,8 +380,8 @@ class SnippetManifestWriterStage(AgentReady, ProcessingStage[AudioTask, AudioTas
 
     def process(self, task: AudioTask) -> AudioTask:
         if not _is_origin_stub(task, self.snippet_id_key) and self._shard_path is not None:
-            with open(self._shard_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps(task.data, ensure_ascii=False) + "\n")
+            line = json.dumps(task.data, ensure_ascii=False) + "\n"
+            _append_shard_line(self.output_path, self._shard_path, _MANIFEST_SHARD_EXT, line, self.storage_options)
         return task
 
 
@@ -419,7 +419,8 @@ class PretrainMetricsAggregatorStage(AgentReady, ProcessingStage[AudioTask, Audi
       fan-out tasks share the same source).
 
     The merger sums ``out_*`` across non-stub records per id and counts
-    them as ``out_snippets``.
+    them as ``out_snippets``.  ``output_path`` may be local or an S3/GCS
+    URL; ``storage_options`` are passed to fsspec.
     """
 
     output_path: str
@@ -431,6 +432,7 @@ class PretrainMetricsAggregatorStage(AgentReady, ProcessingStage[AudioTask, Audi
     snippet_id_key: str = "snippet_id"
     segments_key: str = "segments"
     duration_key: str = "duration"
+    storage_options: dict[str, Any] | None = None
     INTERNAL_KEY_FIELDS: ClassVar[frozenset[str]] = frozenset({"id_key", "snippet_id_key"})
     AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
         gates=Gates(
@@ -470,14 +472,10 @@ class PretrainMetricsAggregatorStage(AgentReady, ProcessingStage[AudioTask, Audi
         _node_info: NodeInfo | None = None,
         _worker_metadata: WorkerMetadata | None = None,
     ) -> None:
-        parent = os.path.dirname(self.output_path)
-        if parent:
-            os.makedirs(parent, exist_ok=True)
+        _makedirs_parent(self.output_path, self.storage_options)
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
-        parent = os.path.dirname(self.output_path)
-        if parent:
-            os.makedirs(parent, exist_ok=True)
+        _makedirs_parent(self.output_path, self.storage_options)
         self._shard_path = _make_shard_path(self.output_path, _METRICS_SHARD_EXT)
         logger.info(f"[{self.name}] writing metrics shard to {self._shard_path}")
 
@@ -508,6 +506,6 @@ class PretrainMetricsAggregatorStage(AgentReady, ProcessingStage[AudioTask, Audi
         if original_id not in self._seen_ids:
             self._seen_ids.add(original_id)
             record["filtered_texts"] = list(meta.get("filtered_repetition_texts") or [])
-        with open(self._shard_path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+        line = json.dumps(record, ensure_ascii=False) + "\n"
+        _append_shard_line(self.output_path, self._shard_path, _METRICS_SHARD_EXT, line, self.storage_options)
         return task

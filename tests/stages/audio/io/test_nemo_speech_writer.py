@@ -23,6 +23,7 @@ from pathlib import Path, PurePosixPath
 import numpy as np
 import pytest
 import soundfile as sf
+from fsspec.implementations.local import LocalFileSystem
 
 import nemo_curator.stages.audio.io.nemo_speech_writer as writer_module
 from nemo_curator.stages.audio import agent
@@ -37,6 +38,7 @@ from nemo_curator.tasks import AudioTask
 
 _SAMPLE_RATE = 16_000
 _SHARD_KEY = "corpus/manifests/shard_000"
+_LOCAL = LocalFileSystem()
 
 
 def _tone(duration: float = 0.25) -> np.ndarray:
@@ -314,7 +316,7 @@ def test_incomplete_shard_prevents_publication_for_every_shard(tmp_path: Path) -
 
 def test_registered_shard_with_all_outputs_dropped_is_rejected(tmp_path: Path) -> None:
     output_dir = tmp_path / "output"
-    register_nemo_speech_shard(output_dir, _SHARD_KEY, expected_inputs=1)
+    register_nemo_speech_shard(_LOCAL, str(output_dir), _SHARD_KEY, expected_inputs=1)
 
     with pytest.raises(ValueError, match="incomplete: saw 0 of 1 inputs"):
         finalize_nemo_speech_output(str(output_dir))
@@ -426,7 +428,7 @@ def test_unbound_equal_duration_opus_is_replaced_and_cannot_be_published(tmp_pat
 
     assert opus_path.read_bytes() != foreign_bytes
     sf.write(opus_path, -_tone(), _SAMPLE_RATE, format="OGG", subtype="OPUS")
-    assert writer_module._valid_opus(opus_path, _SAMPLE_RATE, len(_tone()))
+    assert writer_module._valid_opus(_LOCAL, str(opus_path), _SAMPLE_RATE, len(_tone()))
     with pytest.raises(ValueError, match="matching content binding"):
         finalize_nemo_speech_output(str(output_dir))
 
@@ -442,10 +444,10 @@ def test_replay_repairs_and_finalizer_rejects_duration_truncated_opus(tmp_path: 
 
     opus_path.write_bytes(complete_bytes[: len(complete_bytes) // 2])
     assert sf.info(opus_path).frames < len(waveform)
-    assert not writer_module._valid_opus(opus_path, _SAMPLE_RATE, len(waveform))
+    assert not writer_module._valid_opus(_LOCAL, str(opus_path), _SAMPLE_RATE, len(waveform))
 
     writer.process(task)
-    assert writer_module._valid_opus(opus_path, _SAMPLE_RATE, len(waveform))
+    assert writer_module._valid_opus(_LOCAL, str(opus_path), _SAMPLE_RATE, len(waveform))
 
     repaired_bytes = opus_path.read_bytes()
     opus_path.write_bytes(repaired_bytes[: len(repaired_bytes) // 2])
@@ -476,9 +478,9 @@ def test_validation_rejects_opus_missing_a_middle_page(monkeypatch: pytest.Monke
     page_start, page_end = pages[len(pages) // 2]
     opus_path.write_bytes(payload[:page_start] + payload[page_end:])
 
-    assert not writer_module._valid_opus(opus_path, _SAMPLE_RATE, len(waveform))
+    assert not writer_module._valid_opus(_LOCAL, str(opus_path), _SAMPLE_RATE, len(waveform))
     monkeypatch.setattr(writer_module.sf, "info", lambda _path: (_ for _ in ()).throw(RuntimeError("disabled")))
-    assert not writer_module._valid_opus(opus_path, _SAMPLE_RATE, len(waveform))
+    assert not writer_module._valid_opus(_LOCAL, str(opus_path), _SAMPLE_RATE, len(waveform))
 
 
 def test_finalize_rejects_corrupted_final_opus(tmp_path: Path) -> None:
@@ -523,8 +525,8 @@ def test_manifest_only_preserves_original_reference_without_inventing_opus(tmp_p
     assert row["original_end"] == 13.5
 
 
-@pytest.mark.parametrize("output_dir", ["relative/output", "~/output", "s3://bucket/output"])
-def test_rejects_non_absolute_or_uri_output_dirs(output_dir: str) -> None:
+@pytest.mark.parametrize("output_dir", ["relative/output", "~/output", "file:///tmp/output"])
+def test_rejects_non_absolute_or_non_cloud_uri_output_dirs(output_dir: str) -> None:
     with pytest.raises(ValueError, match="absolute local path"):
         NeMoSpeechWriterStage(output_dir=output_dir)
 
@@ -709,7 +711,7 @@ def test_ffprobe_validation_fallback_accepts_real_opus(monkeypatch: pytest.Monke
 
     monkeypatch.setattr(writer_module.sf, "info", lambda _path: (_ for _ in ()).throw(RuntimeError("disabled")))
 
-    assert writer_module._valid_opus(opus_path, _SAMPLE_RATE, len(_tone()))
+    assert writer_module._valid_opus(_LOCAL, str(opus_path), _SAMPLE_RATE, len(_tone()))
 
 
 def test_receipt_directory_leaf_symlink_is_rejected(tmp_path: Path) -> None:
@@ -858,7 +860,7 @@ def test_finalizer_rejects_unusable_receipts(tmp_path: Path, damage: str) -> Non
     elif damage == "bad_filename":
         receipt_path.rename(receipt_path.with_name("invalid.json"))
     elif damage == "orphan":
-        writer_module.shard_registration_path(tmp_path, _SHARD_KEY).unlink()
+        Path(writer_module.shard_registration_path(_LOCAL, str(tmp_path), _SHARD_KEY)).unlink()
     else:
         receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
         receipt["entry"] = None
@@ -874,7 +876,7 @@ def test_finalizer_rejects_unusable_receipts(tmp_path: Path, damage: str) -> Non
 def test_finalizer_rejects_corrupted_registration(tmp_path: Path, damage: str) -> None:
     writer = NeMoSpeechWriterStage(output_dir=str(tmp_path), save_audio=False)
     writer.process(_task(waveform=None))
-    path = writer_module.shard_registration_path(tmp_path, _SHARD_KEY)
+    path = Path(writer_module.shard_registration_path(_LOCAL, str(tmp_path), _SHARD_KEY))
     payload = json.loads(path.read_text(encoding="utf-8"))
     payload[damage] = 0
     path.write_text("{" if damage == "invalid_json" else json.dumps(payload), encoding="utf-8")
@@ -891,7 +893,9 @@ def test_finalizer_rejects_unbound_audio_receipts(tmp_path: Path, damage: str) -
     writer.process(_task())
     receipt_path = _receipt_paths(tmp_path)[0]
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
-    owner_path = writer_module._owner_path(tmp_path, PurePosixPath(receipt["audio_claim"]["audio_filepath"]))
+    owner_path = Path(
+        writer_module._owner_path(_LOCAL, str(tmp_path), PurePosixPath(receipt["audio_claim"]["audio_filepath"]))
+    )
     if damage == "claim_missing":
         receipt["audio_claim"] = None
     elif damage == "manifest_path":
@@ -931,23 +935,6 @@ def test_writer_does_not_complete_invalid_audio(tmp_path: Path, changes: dict[st
     assert not _receipt_paths(tmp_path)
     with pytest.raises(ValueError, match="incomplete"):
         finalize_nemo_speech_output(str(tmp_path))
-
-
-def test_failed_atomic_audio_publication_keeps_previous_file_and_cleans_temp(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    path = tmp_path / "clip.opus"
-    path.write_bytes(b"previous")
-
-    def fail_replace(_source: object, _target: object) -> None:
-        msg = "injected publication failure"
-        raise OSError(msg)
-
-    monkeypatch.setattr(writer_module.os, "replace", fail_replace)
-    with pytest.raises(OSError, match="injected publication"):
-        writer_module._write_bytes_atomically(path, b"replacement")
-    assert path.read_bytes() == b"previous"
-    assert list(tmp_path.iterdir()) == [path]
 
 
 def test_ffmpeg_encoding_fallback_writes_real_decodable_opus(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1010,3 +997,30 @@ def test_missing_opus_backends_fail_setup_without_completing_rows(
         writer.setup()
 
     assert not _receipt_paths(tmp_path)
+
+
+def test_writer_finalizer_and_discovery_run_on_a_cloud_root() -> None:
+    import fsspec
+
+    from nemo_curator.stages.audio.io.nemo_speech_reader import NeMoSpeechDiscoveryStage
+
+    root = "memory://nemo-speech-cloud/output"
+    options = {"skip_instance_cache": True}
+    writer = NeMoSpeechWriterStage(output_dir=root, storage_options=options)
+    writer.setup()
+    task = _task()
+    writer.process(task)
+    writer.process(_task())  # an exact replay reuses the claimed clip instead of conflicting
+
+    [manifest] = finalize_nemo_speech_output(root, options)
+    fs = fsspec.filesystem("memory")
+    assert manifest.startswith("memory://")
+    assert manifest.endswith(f"{_SHARD_KEY}.jsonl")
+    [row] = [json.loads(line) for line in fs.read_text(manifest).splitlines()]
+    assert fs.exists(f"{root}/{task.data['output_audio_filepath']}")
+    assert row["audio_filepath"].endswith(".opus")
+    assert fs.exists(f"{manifest}.done")
+    assert finalize_nemo_speech_output(root, options) == []  # already finalized
+
+    discovery = NeMoSpeechDiscoveryStage(input_cfg=[{}], output_dir=root, storage_options=options)
+    assert discovery._completed_shards() == {_SHARD_KEY}
