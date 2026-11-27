@@ -22,17 +22,18 @@ Model card: https://huggingface.co/bodhan-ai/indic-transcribe-core
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
-from nemo_curator.models.asr.indic_transcribe import IndicTranscribeTRTLLMASR
-from nemo_curator.stages.audio.inference.asr.stage import ASRStage, _set_note
+from nemo_curator.models.audio.asr.indic_transcribe import IndicTranscribeTRTLLMASR
+from nemo_curator.stages.audio.common.helpers import set_note
+from nemo_curator.stages.audio.inference.asr.stage import ASRStage
 from nemo_curator.stages.resources import Resources
 
 if TYPE_CHECKING:
-    from nemo_curator.models.asr.base import ASRResult
+    from nemo_curator.models.audio.asr.base import ASRResult
     from nemo_curator.tasks import AudioTask
 
-_ADAPTER_TARGET = "nemo_curator.models.asr.indic_transcribe.IndicTranscribeTRTLLMASR"
+_ADAPTER_TARGET = "nemo_curator.models.audio.asr.indic_transcribe.IndicTranscribeTRTLLMASR"
 
 
 @dataclass
@@ -55,7 +56,7 @@ class InferenceIndicTranscribeStage(ASRStage):
     kv_cache_free_gpu_memory_fraction: float = 0.2
     cross_kv_cache_fraction: float = 0.2
     source_lang_key: str = "source_lang"
-    waveform_key: str = "waveform"
+    input_residency: Literal["file", "waveform", "auto"] = field(default="waveform", kw_only=True)
     sample_rate_key: str = "sampling_rate"
     pred_text_key: str = "asr_prediction"
     language_key: str = "asr_language"
@@ -122,13 +123,13 @@ class InferenceIndicTranscribeStage(ASRStage):
         ):
             if result.extras.get("language_unsupported"):
                 language = str(item.get("language_code") or "").strip().lower()
-                _set_note(
+                set_note(
                     task.data,
                     self.name,
                     f"skipped (unsupported language: {language})",
                     self.notes_key,
                 )
-                _set_note(
+                set_note(
                     task.data,
                     self.pred_text_key,
                     f"lang_not_supported:{language}",
@@ -140,7 +141,7 @@ class InferenceIndicTranscribeStage(ASRStage):
                     task.data[self.skip_me_key] = f"lang_not_supported:{self.name}"
             duration = float(result.extras.get("audio_duration_sec") or 0.0)
             if result.extras.get("truncated"):
-                _set_note(
+                set_note(
                     task.data,
                     self.name,
                     f"audio {duration:.2f}s exceeds {self.max_duration_sec:.0f}s encoder window; "

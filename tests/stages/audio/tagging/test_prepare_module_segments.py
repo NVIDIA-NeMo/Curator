@@ -25,7 +25,7 @@ from nemo_curator.stages.audio.common import PreserveByValueConditionsStage
 from nemo_curator.stages.audio.tagging.prepare_module_segments import (
     PrepareModuleSegmentsStage,
 )
-from nemo_curator.stages.audio.tagging.text.chinese_conversion import ChineseConversionStage
+from nemo_curator.stages.audio.text_filtering.chinese_conversion import ChineseConversionStage
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask
 

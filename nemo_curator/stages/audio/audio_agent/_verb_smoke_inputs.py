@@ -189,7 +189,7 @@ def _bound_recipe(  # noqa: C901, PLR0911, PLR0912
     )
 
 
-def _isolate_smoke_outputs(bound: _SmokeBound, rpt: SmokeReport) -> _SmokeBound:  # noqa: C901
+def _isolate_smoke_outputs(bound: _SmokeBound, rpt: SmokeReport) -> _SmokeBound:
     """Redirect every reviewed output mutation into one disposable local tree."""
     if bound.recipe is None:
         return bound
@@ -237,13 +237,6 @@ def _isolate_smoke_outputs(bound: _SmokeBound, rpt: SmokeReport) -> _SmokeBound:
                     f"<implicit:{index}:output_dir>",
                     aliases,
                 )
-
-            if stage.ref == "PyAnnoteDiarizationStage" and stage.params.get(
-                "write_rttm",
-                True,
-            ):
-                stage.params["write_rttm"] = False
-                rpt.notes.append("disabled source-adjacent PyAnnote RTTM side output for smoke")
 
             if stage.ref in {"SplitLongAudioStage", "SplitASRAlignJoinStage"}:
                 stage.params["output_dir"] = _smoke_output_path(

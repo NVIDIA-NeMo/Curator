@@ -47,7 +47,6 @@ stages:
     checkpoint_path: ${checkpoint_path}
     # Match the published Cnn14_DecisionLevelMax checkpoint frontend.
     sample_rate: 32000
-    waveform_key: null
     audio_filepath_key: audio_filepath
     save_npz: true
     output_dir: ${output_dir}

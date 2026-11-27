@@ -48,7 +48,7 @@ class InferenceIndicConformerHybridStage(ASRStage):
     tensorrt_engine_dir: str | None = None
     rnnt_precision: Literal["fp32", "fp16", "bf16"] = "fp32"
     source_lang_key: str = "source_lang"
-    waveform_key: str = "waveform"
+    input_residency: Literal["file", "waveform", "auto"] = field(default="waveform", kw_only=True)
     sample_rate_key: str = "sampling_rate"
     pred_text_key: str = "asr_prediction"
     language_key: str = "asr_language"

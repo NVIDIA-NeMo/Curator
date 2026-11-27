@@ -23,8 +23,8 @@ import numpy as np
 import pytest
 import soundfile as sf
 import torch
-from loguru import logger
 
+from nemo_curator.models.audio.utmos import UTMOSAdapter
 from nemo_curator.stages.audio._agent._agent_registry import static_contract
 from nemo_curator.stages.audio._agent._conformance import assert_agent_ready, assert_residency_consumption
 from nemo_curator.stages.audio._agent._planning import validate_pipeline
@@ -60,6 +60,11 @@ def _mock_model(score: float) -> MagicMock:
     return model
 
 
+def _attach(stage: UTMOSFilterStage, model: MagicMock) -> None:
+    stage._adapter = UTMOSAdapter(sample_rate=stage.sample_rate)
+    stage._adapter._model = model
+
+
 def _write_wav(path: Path, *, samples: int = 32, sample_rate: int = 16000) -> str:
     sf.write(path, np.linspace(-0.25, 0.25, samples, dtype=np.float32), sample_rate)
     return str(path)
@@ -68,50 +73,11 @@ def _write_wav(path: Path, *, samples: int = 32, sample_rate: int = 16000) -> st
 def _stage(*, mode: str = "task", scorable: bool = True, input_residency: str = "auto") -> UTMOSFilterStage:
     stage = UTMOSFilterStage(mode=mode, action="annotate", input_residency=input_residency)
     if scorable:
-        stage._model = _mock_model(4.0)
+        _attach(stage, _mock_model(4.0))
     return stage
 
 
 class TestUTMOSFilterStage:
-    def test_failed_github_load_uses_local_hub_cache(self, tmp_path: Path) -> None:
-        cached_repo = tmp_path / "tarepan_SpeechMOS_v1.2.0"
-        cached_repo.mkdir()
-        (cached_repo / "hubconf.py").write_text(
-            "import torch\n"
-            "class Predictor(torch.nn.Module):\n"
-            "    def forward(self, waveform, sample_rate):\n"
-            "        return waveform.mean(dim=-1)\n"
-            "def utmos22_strong():\n"
-            "    return Predictor()\n"
-        )
-        load = torch.hub.load
-
-        def load_with_failed_github(repo: str, *args: object, **kwargs: object) -> object:
-            if kwargs.get("source") != "local":
-                msg = "original checkpoint load failure"
-                raise RuntimeError(msg)
-            return load(repo, *args, **kwargs)
-
-        messages = []
-        sink = logger.add(messages.append)
-        try:
-            with (
-                patch("torch.hub.get_dir", return_value=str(tmp_path)),
-                patch("torch.cuda.is_available", return_value=False),
-                patch("torch.hub.load", side_effect=load_with_failed_github) as load_model,
-            ):
-                stage = UTMOSFilterStage()
-                stage.setup()
-                stage._ensure_model()
-
-            assert stage._model is not None
-            assert not stage._model_failed
-            assert load_model.call_count == 2
-            assert load_model.call_args.args[0] == str(cached_repo)
-            assert "original checkpoint load failure" in "".join(messages)
-        finally:
-            logger.remove(sink)
-
     def test_legacy_positional_constructor_order_is_preserved(self) -> None:
         resources = Resources(cpus=2)
 
@@ -123,6 +89,15 @@ class TestUTMOSFilterStage:
         assert stage.batch_size == 8
         assert stage.resources is resources
 
+    def test_setup_raises_when_model_cannot_load(self) -> None:
+        stage = UTMOSFilterStage()
+        with (
+            patch("torch.hub.load", side_effect=RuntimeError("offline")),
+            pytest.raises(RuntimeError, match="UTMOS model failed to load"),
+        ):
+            stage.setup()
+        assert stage._adapter is None
+
     @pytest.mark.parametrize("residency", ["wavefrom", "", "FILE"])
     def test_invalid_input_residency_is_rejected(self, residency: str) -> None:
         with pytest.raises(ValueError, match="input_residency"):
@@ -130,7 +105,7 @@ class TestUTMOSFilterStage:
 
     def test_score_key_cannot_overwrite_audio_input(self) -> None:
         with (
-            patch("nemo_curator.stages.audio.filtering.utmos.torch.hub.load") as load_model,
+            patch("nemo_curator.models.audio.utmos.torch.hub.load") as load_model,
             pytest.raises(ValueError, match="must not collide"),
         ):
             UTMOSFilterStage(score_key="waveform")
@@ -157,7 +132,7 @@ class TestUTMOSFilterStage:
         result = stage.process(task)
 
         assert isinstance(result, AudioTask)
-        stage._model.assert_not_called()
+        stage._adapter._model.assert_not_called()
         assert stage.score_key not in audio
 
     def test_static_contract_conservatively_reports_download_and_row_independence(self) -> None:
@@ -184,10 +159,9 @@ class TestUTMOSFilterStage:
         assert not report.ok
         assert any(issue.code == "unsatisfied_reads" for issue in report.issues)
 
-    @patch("nemo_curator.stages.audio.filtering.utmos.UTMOSFilterStage._ensure_model")
-    def test_process_passes_above_threshold(self, mock_ensure: MagicMock) -> None:
+    def test_process_passes_above_threshold(self) -> None:
         stage = UTMOSFilterStage(mos_threshold=3.0)
-        stage._model = _mock_model(4.5)
+        _attach(stage, _mock_model(4.5))
 
         result = stage.process(_make_task())
 
@@ -211,7 +185,7 @@ class TestUTMOSFilterStage:
         )
         model.parameters = lambda: iter([torch.tensor([0.0])])
         stage = UTMOSFilterStage(mos_threshold=3.5, mode="task", input_residency="waveform")
-        stage._model = model
+        _attach(stage, model)
         task = AudioTask(dataset_name="test", data={"waveform": resident, "sample_rate": 16000})
 
         result = stage.process(task)
@@ -222,10 +196,9 @@ class TestUTMOSFilterStage:
         assert torch.equal(inferred_waveform, torch.tensor([[32767.0, -32768.0]]))
         assert task.data[stage.score_key] == 4.0
 
-    @patch("nemo_curator.stages.audio.filtering.utmos.UTMOSFilterStage._ensure_model")
-    def test_auto_incomplete_waveform_pair_falls_back_to_file(self, mock_ensure: MagicMock, tmp_path: Path) -> None:
+    def test_auto_incomplete_waveform_pair_falls_back_to_file(self, tmp_path: Path) -> None:
         stage = UTMOSFilterStage(action="annotate", input_residency="auto")
-        stage._model = _mock_model(4.0)
+        _attach(stage, _mock_model(4.0))
         task = AudioTask(
             dataset_name="test",
             data={
@@ -237,7 +210,7 @@ class TestUTMOSFilterStage:
         result = stage.process(task)
 
         assert isinstance(result, AudioTask)
-        inferred_waveform = stage._model.call_args.args[0]
+        inferred_waveform = stage._adapter._model.call_args.args[0]
         assert inferred_waveform.shape == (1, 32)
         assert task.data["sample_rate"] == 16000
         assert torch.allclose(inferred_waveform, task.data["waveform"])
@@ -259,8 +232,8 @@ class TestUTMOSFilterStage:
         result = stage.process(task)
 
         assert isinstance(result, AudioTask)
-        inferred_waveform = stage._model.call_args.args[0]
-        assert stage._model.call_args.kwargs["sr"] == task.data["sample_rate"] == 16000
+        inferred_waveform = stage._adapter._model.call_args.args[0]
+        assert stage._adapter._model.call_args.kwargs["sr"] == task.data["sample_rate"] == 16000
         assert inferred_waveform.shape == task.data["waveform"].shape == (1, 31)
         assert torch.allclose(inferred_waveform, task.data["waveform"])
 
@@ -277,8 +250,8 @@ class TestUTMOSFilterStage:
         )
 
         assert isinstance(stage.process(task), AudioTask)
-        inferred_waveform = stage._model.call_args.args[0]
-        assert stage._model.call_args.kwargs["sr"] == 16000
+        inferred_waveform = stage._adapter._model.call_args.args[0]
+        assert stage._adapter._model.call_args.kwargs["sr"] == 16000
         assert inferred_waveform.shape == (1, 29)
         assert "waveform" not in task.data
         assert "sample_rate" not in task.data
@@ -299,23 +272,21 @@ class TestUTMOSFilterStage:
 
         assert isinstance(result, AudioTask)
         segment = task.data["segments"][0]
-        inferred_waveform = stage._model.call_args.args[0]
-        assert stage._model.call_args.kwargs["sr"] == segment["sample_rate"] == 16000
+        inferred_waveform = stage._adapter._model.call_args.args[0]
+        assert stage._adapter._model.call_args.kwargs["sr"] == segment["sample_rate"] == 16000
         assert torch.allclose(inferred_waveform, segment["waveform"])
 
-    @patch("nemo_curator.stages.audio.filtering.utmos.UTMOSFilterStage._ensure_model")
-    def test_process_filters_below_threshold(self, mock_ensure: MagicMock) -> None:
+    def test_process_filters_below_threshold(self) -> None:
         stage = UTMOSFilterStage(mos_threshold=4.0)
-        stage._model = _mock_model(2.5)
+        _attach(stage, _mock_model(2.5))
 
         result = stage.process(_make_task())
 
         assert result == []
 
-    @patch("nemo_curator.stages.audio.filtering.utmos.UTMOSFilterStage._ensure_model")
-    def test_annotate_keeps_below_threshold(self, mock_ensure: MagicMock) -> None:
+    def test_annotate_keeps_below_threshold(self) -> None:
         stage = UTMOSFilterStage(mos_threshold=4.0, action="annotate")
-        stage._model = _mock_model(2.5)
+        _attach(stage, _mock_model(2.5))
 
         result = stage.process(_make_task())
 
@@ -323,31 +294,28 @@ class TestUTMOSFilterStage:
         assert abs(result.data["utmos_mos"] - 2.5) < 1e-3
         assert stage.describe().cardinality == "1:1"
 
-    @patch("nemo_curator.stages.audio.filtering.utmos.UTMOSFilterStage._ensure_model")
-    def test_none_threshold_passes_all(self, mock_ensure: MagicMock) -> None:
+    def test_none_threshold_passes_all(self) -> None:
         stage = UTMOSFilterStage(mos_threshold=None)
-        stage._model = _mock_model(1.0)
+        _attach(stage, _mock_model(1.0))
 
         result = stage.process(_make_task())
 
         assert isinstance(result, AudioTask)
         assert abs(result.data["utmos_mos"] - 1.0) < 1e-3
 
-    @patch("nemo_curator.stages.audio.filtering.utmos.UTMOSFilterStage._ensure_model")
-    def test_prediction_error_skips(self, mock_ensure: MagicMock) -> None:
+    def test_prediction_error_skips(self) -> None:
         stage = UTMOSFilterStage(mos_threshold=3.0)
         model = MagicMock(side_effect=RuntimeError("CUDA error"))
         model.parameters = lambda: iter([torch.tensor([0.0])])
-        stage._model = model
+        _attach(stage, model)
 
         result = stage.process(_make_task())
 
         assert result == []
 
-    @patch("nemo_curator.stages.audio.filtering.utmos.UTMOSFilterStage._ensure_model")
-    def test_no_waveform_no_filepath_skipped(self, mock_ensure: MagicMock) -> None:
+    def test_no_waveform_no_filepath_skipped(self) -> None:
         stage = UTMOSFilterStage(mos_threshold=3.0)
-        stage._model = _mock_model(4.0)
+        _attach(stage, _mock_model(4.0))
 
         task = AudioTask(data={"some_key": "value"}, dataset_name="test")
         result = stage.process(task)
@@ -356,21 +324,17 @@ class TestUTMOSFilterStage:
 
     def test_model_not_loaded(self) -> None:
         stage = UTMOSFilterStage(mos_threshold=3.0)
-        stage._model = None
-
-        with patch.object(stage, "_ensure_model"):
-            result = stage.process(_make_task())
+        result = stage.process(_make_task())
 
         assert result == []
 
     def test_teardown_clears_model(self) -> None:
         stage = UTMOSFilterStage()
-        stage._model = MagicMock()
+        _attach(stage, MagicMock())
         stage.teardown()
-        assert stage._model is None
+        assert stage._adapter is None
 
-    @patch("nemo_curator.stages.audio.filtering.utmos.UTMOSFilterStage._ensure_model")
-    def test_process_nested_segments_filters(self, mock_ensure: MagicMock) -> None:
+    def test_process_nested_segments_filters(self) -> None:
         """Nested segments: only segments above threshold survive."""
         stage = UTMOSFilterStage(mos_threshold=3.0)
         call_count = {"n": 0}
@@ -381,7 +345,7 @@ class TestUTMOSFilterStage:
 
         model = MagicMock(side_effect=model_side_effect)
         model.parameters = lambda: iter([torch.tensor([0.0])])
-        stage._model = model
+        _attach(stage, model)
 
         sr = 16000
         segments = [{"waveform": torch.randn(1, sr), "sample_rate": sr, "segment_num": i} for i in range(4)]
@@ -397,11 +361,10 @@ class TestUTMOSFilterStage:
         for seg in result.data["segments"]:
             assert "utmos_mos" in seg
 
-    @patch("nemo_curator.stages.audio.filtering.utmos.UTMOSFilterStage._ensure_model")
-    def test_process_nested_all_filtered_returns_empty(self, mock_ensure: MagicMock) -> None:
+    def test_process_nested_all_filtered_returns_empty(self) -> None:
         """Nested segments: when all fail threshold, return []."""
         stage = UTMOSFilterStage(mos_threshold=4.0)
-        stage._model = _mock_model(2.0)
+        _attach(stage, _mock_model(2.0))
 
         sr = 16000
         segments = [{"waveform": torch.randn(1, sr), "sample_rate": sr, "segment_num": i} for i in range(3)]
@@ -414,11 +377,10 @@ class TestUTMOSFilterStage:
 
         assert result == []
 
-    @patch("nemo_curator.stages.audio.filtering.utmos.UTMOSFilterStage._ensure_model")
-    def test_annotate_nested_keeps_all_segments(self, mock_ensure: MagicMock) -> None:
+    def test_annotate_nested_keeps_all_segments(self) -> None:
         """Nested annotate mode scores every segment without threshold dropping."""
         stage = UTMOSFilterStage(mos_threshold=4.0, action="annotate")
-        stage._model = _mock_model(2.0)
+        _attach(stage, _mock_model(2.0))
 
         sr = 16000
         segments = [{"waveform": torch.randn(1, sr), "sample_rate": sr, "segment_num": i} for i in range(3)]
@@ -460,7 +422,7 @@ class TestSegmentModeFiltering:
             segments_key="agent_segments",
             score_key="agent_utmos",
         )
-        stage._model = _sequential_model([4.2, 2.0, 4.1])
+        _attach(stage, _sequential_model([4.2, 2.0, 4.1]))
 
         out = stage.process(task)
 

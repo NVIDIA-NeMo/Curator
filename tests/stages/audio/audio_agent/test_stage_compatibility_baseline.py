@@ -57,12 +57,10 @@ LEGACY_STAGE_NAMES = (
     "ManifestWriterStage",
     "MergeAlignmentDiarizationStage",
     "MonoConversionStage",
-    "NeMoASRAlignerStage",
     "OverlapFilterStage",
     "PrepareModuleSegmentsStage",
     "PreserveByValueStage",
     "PretrainMetricsAggregatorStage",
-    "PyAnnoteDiarizationStage",
     "ReadLongFormManifestStage",
     "ResampleAudioStage",
     "SIGMOSFilterStage",
@@ -79,7 +77,6 @@ LEGACY_STAGE_NAMES = (
     "TorchSquimQualityMetricsStage",
     "UTMOSFilterStage",
     "VADSegmentationStage",
-    "WhisperXVADStage",
 )
 
 ADDITIVE_STAGE_NAMES = (
@@ -96,7 +93,7 @@ ADDITIVE_STAGE_NAMES = (
 # This surface includes adapter-backed VAD/diarization, conservative IO gates,
 # and the additive resampling/timestamp parameters shipped with those stages.
 EXPECTED_LEGACY_COMPATIBILITY_SHA256 = (
-    "f834c4c69829f0fcd92036cb56b49d19b2d39189200de8b49aa95a12f2e78e9b"  # pragma: allowlist secret
+    "17a577e66ab328db6a20edc92bdfc729e89868c182dac8b83e7e3acac2fefc5b"  # pragma: allowlist secret
 )
 
 
@@ -150,7 +147,7 @@ def _constructor_defaults(cls: type) -> dict[str, Any]:
 def _compatibility_payload() -> list[dict[str, Any]]:
     payload: list[dict[str, Any]] = []
     # Additive opt-in stages must not force the legacy compatibility hash to
-    # move. The payload intentionally remains scoped to the original 46.
+    # move. The payload intentionally remains scoped to the original stages that still exist.
     for name in LEGACY_STAGE_NAMES:
         cls = get_agent_ready_stage_class(name)
         contract = static_contract(cls).to_dict()
@@ -219,7 +216,7 @@ def test_stage_defaults_and_static_contracts_are_backward_compatible() -> None:
     )
     actual = hashlib.sha256(blob.encode("utf-8")).hexdigest()
     assert actual == EXPECTED_LEGACY_COMPATIBILITY_SHA256, (
-        "The legacy 46-stage compatibility surface changed. If intentional, inspect "
+        "The legacy 43-stage compatibility surface changed. If intentional, inspect "
         "constructor defaults and static contracts before updating this baseline. "
         f"Expected {EXPECTED_LEGACY_COMPATIBILITY_SHA256}, got {actual}."
     )
@@ -372,6 +369,6 @@ def test_a_cardinality_this_cannot_read_is_left_alone() -> None:
     """Computed some other way means unknown, and unknown must not become a guess."""
     from nemo_curator.stages.audio._agent._agent_registry import _describe_cardinalities
 
-    # WhisperXVADStage builds its cardinality through a non-literal expression.
-    assert _describe_cardinalities(get_agent_ready_stage_class("WhisperXVADStage")) is None
-    assert static_contract(get_agent_ready_stage_class("WhisperXVADStage")).cardinality == "1:1"
+    # InferenceSortformerStage builds its cardinality through a nested conditional expression.
+    assert _describe_cardinalities(get_agent_ready_stage_class("InferenceSortformerStage")) is None
+    assert static_contract(get_agent_ready_stage_class("InferenceSortformerStage")).cardinality == "1:1"

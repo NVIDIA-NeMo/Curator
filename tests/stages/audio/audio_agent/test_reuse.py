@@ -52,7 +52,7 @@ _WRITER = {"ref": "ManifestWriterStage", "params": {"output_path": "/tmp/out.jso
 _ASR = {
     "ref": "ASRStage",
     "params": {
-        "adapter_target": "nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+        "adapter_target": "nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter",
         "model_id": "nvidia/parakeet-tdt-0.6b-v2",
         "max_audio_sec_per_actor": 2400.0,
         "audio_filepath_key": "audio_filepath",
@@ -2659,7 +2659,7 @@ class TestFreshnessWindowsApplyWhereDataIsFetched:
 
     def test_a_model_download_does_not(self) -> None:
         # These all carry needs_internet_first_run, but for a checkpoint, not for the corpus.
-        for stage in ("ASRStage", "UTMOSFilterStage", "InferenceSortformerStage", "PyAnnoteDiarizationStage"):
+        for stage in ("ASRStage", "UTMOSFilterStage", "InferenceSortformerStage"):
             _deterministic, ttl = artifacts.stage_trust(stage)
             assert ttl == 0, f"{stage} downloads a model; expiring its output would recompute for nothing"
 
@@ -2798,11 +2798,6 @@ class TestNonDeterminismAsksRatherThanHides:
         assert result["prompt_user"] is True
         assert result["recommended"] == "fresh"
         assert _verb_continuation._chosen_by_default(result) == "fresh"
-
-    def test_the_one_stage_that_documents_its_randomness_declares_it(self) -> None:
-        # pyannote's own card note: the internal long-turn VAD re-segments with randomized chunk
-        # sizes and no seed is exposed. That is evidence; the field now records it.
-        assert artifacts.stage_trust("PyAnnoteDiarizationStage")[0] is False
 
     def test_silence_is_still_read_as_reproducible(self) -> None:
         # Deliberate: flipping the default would block reuse of every model stage on a suspicion
@@ -3085,13 +3080,13 @@ class TestGeneratedOutputIntegrity:
         from nemo_curator.stages.audio.audio_agent.recipe import build_stages
 
         manifest = store / "out.jsonl"
-        manifest.write_text('{"diar_segments": []}\n')
+        manifest.write_text('{"processed_text": ""}\n')
         rec = _frozen(
             [
                 _READER,
                 {
-                    "ref": "PyAnnoteDiarizationStage",
-                    "params": {"write_rttm": False, "audio_filepath_key": "audio_filepath"},
+                    "ref": "AudioTextLLMStage",
+                    "params": {"endpoint": "http://localhost:1/v1", "model_name": "mock", "prompt": "fix"},
                 },
                 {"ref": "ManifestWriterStage", "params": {"output_path": str(manifest)}},
             ]

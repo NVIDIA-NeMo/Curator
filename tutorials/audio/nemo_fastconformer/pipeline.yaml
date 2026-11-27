@@ -41,7 +41,7 @@ stages:
     target_nchannels: 1
 
   - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
-    adapter_target: nemo_curator.models.asr.nemo_asr.NeMoASRAdapter
+    adapter_target: nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter
     model_id: ${model_id}
     pred_text_key: ${pred_text_key}
     batch_size: 16

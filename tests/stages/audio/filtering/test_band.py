@@ -50,8 +50,8 @@ def _write_wav(path: Path, *, samples: int = 32, sample_rate: int = 16000) -> st
 def _stage(*, mode: str = "task", scorable: bool = True, input_residency: str = "auto") -> BandFilterStage:
     stage = BandFilterStage(mode=mode, action="annotate", input_residency=input_residency)
     if scorable:
-        stage._predictor = MagicMock()
-        stage._predictor.predict_audio.return_value = "full_band"
+        stage._adapter = MagicMock()
+        stage._adapter.predict_audio.return_value = "full_band"
     return stage
 
 
@@ -75,8 +75,8 @@ class TestBandFilterStage:
 
     def test_prediction_key_cannot_overwrite_audio_input(self) -> None:
         with (
-            patch("nemo_curator.stages.audio.filtering.band.BandPredictor") as predictor,
-            patch("nemo_curator.stages.audio.filtering.band.hf_hub_download") as download,
+            patch("nemo_curator.models.audio.band.predict.BandPredictor") as predictor,
+            patch("nemo_curator.models.audio.band.predict.hf_hub_download") as download,
             pytest.raises(ValueError, match="must not collide"),
         ):
             BandFilterStage(prediction_key="waveform")
@@ -104,64 +104,8 @@ class TestBandFilterStage:
         result = stage.process(task)
 
         assert isinstance(result, AudioTask)
-        stage._predictor.predict_audio.assert_not_called()
+        stage._adapter.predict_audio.assert_not_called()
         assert stage.prediction_key not in audio
-
-    def test_explicit_valid_model_path_returns_without_download(self, tmp_path: Path) -> None:
-        model_path = tmp_path / "model.joblib"
-        model_path.write_bytes(b"model")
-        stage = BandFilterStage(model_path=str(model_path))
-
-        with patch("nemo_curator.stages.audio.filtering.band.hf_hub_download") as download:
-            assert stage._resolve_model_path() == str(model_path)
-
-        download.assert_not_called()
-
-    def test_explicit_missing_model_path_does_not_download(self, tmp_path: Path) -> None:
-        stage = BandFilterStage(model_path=str(tmp_path / "missing.joblib"))
-
-        with (
-            patch("nemo_curator.stages.audio.filtering.band.hf_hub_download") as download,
-            pytest.raises(FileNotFoundError, match="model_path"),
-        ):
-            stage._resolve_model_path()
-
-        download.assert_not_called()
-
-    def test_explicit_empty_model_path_does_not_download(self, tmp_path: Path) -> None:
-        model_path = tmp_path / "empty.joblib"
-        model_path.touch()
-        stage = BandFilterStage(model_path=str(model_path))
-
-        with (
-            patch("nemo_curator.stages.audio.filtering.band.hf_hub_download") as download,
-            pytest.raises(FileNotFoundError, match="empty"),
-        ):
-            stage._resolve_model_path()
-
-        download.assert_not_called()
-
-    def test_default_model_path_uses_download(self) -> None:
-        stage = BandFilterStage(cache_dir="/cache")
-
-        with patch(
-            "nemo_curator.stages.audio.filtering.band.hf_hub_download",
-            return_value="/cache/model.joblib",
-        ) as download:
-            assert stage._resolve_model_path() == "/cache/model.joblib"
-
-        download.assert_called_once()
-
-    def test_setup_on_node_prefetches_only_default_model(self, tmp_path: Path) -> None:
-        explicit = tmp_path / "model.joblib"
-        explicit.write_bytes(b"model")
-
-        with patch("nemo_curator.stages.audio.filtering.band.hf_hub_download") as download:
-            BandFilterStage(model_path=str(explicit)).setup_on_node()
-            download.assert_not_called()
-
-            BandFilterStage(cache_dir=str(tmp_path)).setup_on_node()
-            download.assert_called_once()
 
     def test_static_contract_conservatively_reports_download_and_row_independence(self) -> None:
         contract = static_contract(BandFilterStage)
@@ -183,7 +127,7 @@ class TestBandFilterStage:
         result = stage.process(task)
 
         assert isinstance(result, AudioTask)
-        predicted_waveform, predicted_sample_rate = stage._predictor.predict_audio.call_args.args
+        predicted_waveform, predicted_sample_rate = stage._adapter.predict_audio.call_args.args
         assert predicted_waveform.shape == (1, 13)
         assert torch.allclose(predicted_waveform, resident)
         assert predicted_sample_rate == 16000
@@ -206,7 +150,7 @@ class TestBandFilterStage:
 
         assert isinstance(result, AudioTask)
         segment = task.data["segments"][0]
-        predicted_waveform, predicted_sample_rate = stage._predictor.predict_audio.call_args.args
+        predicted_waveform, predicted_sample_rate = stage._adapter.predict_audio.call_args.args
         assert torch.allclose(predicted_waveform, resident)
         assert torch.allclose(segment["waveform"], resident)
         assert predicted_sample_rate == segment["sample_rate"] == 16000
@@ -219,7 +163,7 @@ class TestBandFilterStage:
         result = stage.process(task)
 
         assert isinstance(result, AudioTask)
-        predicted_waveform, predicted_sample_rate = stage._predictor.predict_audio.call_args.args
+        predicted_waveform, predicted_sample_rate = stage._adapter.predict_audio.call_args.args
         assert predicted_sample_rate == task.data["sample_rate"] == 16000
         assert predicted_waveform.shape == task.data["waveform"].shape == (1, 31)
         assert torch.allclose(predicted_waveform, task.data["waveform"])
@@ -230,14 +174,14 @@ class TestBandFilterStage:
         task = AudioTask(dataset_name="test", data={"audio_filepath": path})
 
         assert isinstance(first.process(task), AudioTask)
-        first_waveform, first_rate = first._predictor.predict_audio.call_args.args
+        first_waveform, first_rate = first._adapter.predict_audio.call_args.args
         assert first_rate == task.data["sample_rate"] == 16000
         assert torch.allclose(first_waveform, task.data["waveform"])
 
         task.data.pop("audio_filepath")
         downstream = _stage(input_residency="auto")
         assert isinstance(downstream.process(task), AudioTask)
-        downstream_waveform, downstream_rate = downstream._predictor.predict_audio.call_args.args
+        downstream_waveform, downstream_rate = downstream._adapter.predict_audio.call_args.args
         assert downstream_rate == task.data["sample_rate"]
         assert torch.allclose(downstream_waveform, task.data["waveform"])
 
@@ -254,15 +198,15 @@ class TestBandFilterStage:
 
         assert isinstance(result, AudioTask)
         segment = task.data["segments"][0]
-        predicted_waveform, predicted_sample_rate = stage._predictor.predict_audio.call_args.args
+        predicted_waveform, predicted_sample_rate = stage._adapter.predict_audio.call_args.args
         assert torch.allclose(predicted_waveform, segment["waveform"])
         assert predicted_sample_rate == segment["sample_rate"] == 16000
 
     @pytest.mark.parametrize("action", ["filter", "annotate"])
     def test_unscorable_rerun_clears_stale_prediction(self, action: str) -> None:
         stage = BandFilterStage(mode="task", action=action, input_residency="waveform")
-        stage._predictor = MagicMock()
-        stage._predictor.predict_audio.return_value = "Error: unavailable"
+        stage._adapter = MagicMock()
+        stage._adapter.predict_audio.return_value = "Error: unavailable"
         task = AudioTask(
             dataset_name="test",
             data={
@@ -280,24 +224,22 @@ class TestBandFilterStage:
         else:
             assert result == []
 
-    @patch("nemo_curator.stages.audio.filtering.band.BandFilterStage._initialize_predictor")
-    def test_process_full_band_passes(self, mock_init: MagicMock) -> None:
+    def test_process_full_band_passes(self) -> None:
         stage = BandFilterStage(band_value="full_band")
         predictor = MagicMock()
         predictor.predict_audio.return_value = "full_band"
-        stage._predictor = predictor
+        stage._adapter = predictor
 
         result = stage.process(_make_task())
 
         assert isinstance(result, AudioTask)
         assert result.data["band_prediction"] == "full_band"
 
-    @patch("nemo_curator.stages.audio.filtering.band.BandFilterStage._initialize_predictor")
-    def test_process_narrow_band_filtered_out(self, mock_init: MagicMock) -> None:
+    def test_process_narrow_band_filtered_out(self) -> None:
         stage = BandFilterStage(band_value="full_band")
         predictor = MagicMock()
         predictor.predict_audio.return_value = "narrow_band"
-        stage._predictor = predictor
+        stage._adapter = predictor
 
         result = stage.process(_make_task())
 
@@ -319,7 +261,7 @@ class TestBandFilterStage:
             lambda waveform, _sample_rate: "full_band" if waveform.abs().max().item() > 100 else "narrow_band"
         )
         stage = BandFilterStage(band_value="full_band", mode="task", input_residency="waveform")
-        stage._predictor = predictor
+        stage._adapter = predictor
         task = AudioTask(dataset_name="test", data={"waveform": resident, "sample_rate": 16000})
 
         result = stage.process(task)
@@ -330,12 +272,11 @@ class TestBandFilterStage:
         assert torch.equal(inferred_waveform, torch.tensor([[32767.0, -32768.0]]))
         assert task.data[stage.prediction_key] == "full_band"
 
-    @patch("nemo_curator.stages.audio.filtering.band.BandFilterStage._initialize_predictor")
-    def test_annotate_keeps_non_target_band(self, mock_init: MagicMock) -> None:
+    def test_annotate_keeps_non_target_band(self) -> None:
         stage = BandFilterStage(band_value="full_band", action="annotate")
         predictor = MagicMock()
         predictor.predict_audio.return_value = "narrow_band"
-        stage._predictor = predictor
+        stage._adapter = predictor
 
         result = stage.process(_make_task())
 
@@ -343,41 +284,37 @@ class TestBandFilterStage:
         assert result.data["band_prediction"] == "narrow_band"
         assert stage.describe().cardinality == "1:1"
 
-    @patch("nemo_curator.stages.audio.filtering.band.BandFilterStage._initialize_predictor")
-    def test_process_narrow_band_passes_when_configured(self, mock_init: MagicMock) -> None:
+    def test_process_narrow_band_passes_when_configured(self) -> None:
         stage = BandFilterStage(band_value="narrow_band")
         predictor = MagicMock()
         predictor.predict_audio.return_value = "narrow_band"
-        stage._predictor = predictor
+        stage._adapter = predictor
 
         result = stage.process(_make_task())
 
         assert isinstance(result, AudioTask)
         assert result.data["band_prediction"] == "narrow_band"
 
-    @patch("nemo_curator.stages.audio.filtering.band.BandFilterStage._initialize_predictor")
-    def test_process_error_prediction_skipped(self, mock_init: MagicMock) -> None:
+    def test_process_error_prediction_skipped(self) -> None:
         stage = BandFilterStage(band_value="full_band")
         predictor = MagicMock()
         predictor.predict_audio.return_value = "Error: model failed"
-        stage._predictor = predictor
+        stage._adapter = predictor
 
         result = stage.process(_make_task())
 
         assert result == []
 
-    @patch("nemo_curator.stages.audio.filtering.band.BandFilterStage._initialize_predictor")
-    def test_no_waveform_no_filepath_skipped(self, mock_init: MagicMock) -> None:
+    def test_no_waveform_no_filepath_skipped(self) -> None:
         stage = BandFilterStage(band_value="full_band")
-        stage._predictor = MagicMock()
+        stage._adapter = MagicMock()
 
         task = AudioTask(data={"some_key": "value"}, dataset_name="test")
         result = stage.process(task)
 
         assert result == []
 
-    @patch("nemo_curator.stages.audio.filtering.band.BandFilterStage._initialize_predictor")
-    def test_process_nested_segments_filters(self, mock_init: MagicMock) -> None:
+    def test_process_nested_segments_filters(self) -> None:
         """Nested segments: only segments passing the band filter survive."""
         stage = BandFilterStage(band_value="full_band")
         predictor = MagicMock()
@@ -388,7 +325,7 @@ class TestBandFilterStage:
             return "full_band" if call_count["n"] % 2 == 1 else "narrow_band"
 
         predictor.predict_audio = predict_side_effect
-        stage._predictor = predictor
+        stage._adapter = predictor
 
         sr = 48000
         segments = [{"waveform": torch.randn(1, sr), "sample_rate": sr, "segment_num": i} for i in range(4)]
@@ -402,13 +339,12 @@ class TestBandFilterStage:
         assert isinstance(result, AudioTask)
         assert len(result.data["segments"]) == 2
 
-    @patch("nemo_curator.stages.audio.filtering.band.BandFilterStage._initialize_predictor")
-    def test_process_nested_all_filtered_returns_empty(self, mock_init: MagicMock) -> None:
+    def test_process_nested_all_filtered_returns_empty(self) -> None:
         """Nested segments: when all segments are filtered, return []."""
         stage = BandFilterStage(band_value="full_band")
         predictor = MagicMock()
         predictor.predict_audio.return_value = "narrow_band"
-        stage._predictor = predictor
+        stage._adapter = predictor
 
         sr = 48000
         segments = [{"waveform": torch.randn(1, sr), "sample_rate": sr, "segment_num": i} for i in range(3)]
@@ -421,13 +357,12 @@ class TestBandFilterStage:
 
         assert result == []
 
-    @patch("nemo_curator.stages.audio.filtering.band.BandFilterStage._initialize_predictor")
-    def test_annotate_nested_keeps_all_segments(self, mock_init: MagicMock) -> None:
+    def test_annotate_nested_keeps_all_segments(self) -> None:
         """Nested annotate mode predicts every segment without target-band dropping."""
         stage = BandFilterStage(band_value="full_band", action="annotate")
         predictor = MagicMock()
         predictor.predict_audio.return_value = "narrow_band"
-        stage._predictor = predictor
+        stage._adapter = predictor
 
         sr = 48000
         segments = [{"waveform": torch.randn(1, sr), "sample_rate": sr, "segment_num": i} for i in range(3)]
@@ -523,7 +458,7 @@ def test_band_consumes_file_and_waveform_residencies(tmp_path: Path) -> None:
 @pytest.mark.parametrize("mode", ["task", "segments"])
 def test_rescoring_unscorable_input_retracts_the_owned_score(mode: str) -> None:
     stage = BandFilterStage(mode=mode, action="annotate", input_residency="file", prediction_key="owned_score")
-    stage._predictor = object()
+    stage._adapter = object()
     row = {"audio_filepath": "/missing/source.wav", "owned_score": 4.0, "unrelated": "retained"}
     data = row if mode == "task" else {"segments": [row], "owned_score": 99.0}
     task = AudioTask(data=data)

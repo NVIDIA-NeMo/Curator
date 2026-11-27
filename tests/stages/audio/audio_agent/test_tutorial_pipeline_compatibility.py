@@ -71,15 +71,15 @@ TUTORIAL_PIPELINES = (
         (
             "ManifestReader",
             "ResampleAudioStage",
-            "PyAnnoteDiarizationStage",
+            "InferenceSortformerStage",
             "SplitLongAudioStage",
-            "NeMoASRAlignerStage",
+            "ASRStage",
             "JoinSplitAudioMetadataStage",
             "MergeAlignmentDiarizationStage",
             "BandwidthEstimationStage",
             "TorchSquimQualityMetricsStage",
             "PrepareModuleSegmentsStage",
-            "NeMoASRAlignerStage",
+            "ASRStage",
             "ComputeWERStage",
             "ManifestWriterStage",
         ),
@@ -91,9 +91,9 @@ TUTORIAL_PIPELINES = (
         (
             "ManifestReader",
             "ResampleAudioStage",
-            "PyAnnoteDiarizationStage",
+            "InferenceSortformerStage",
             "SplitLongAudioStage",
-            "NeMoASRAlignerStage",
+            "ASRStage",
             "JoinSplitAudioMetadataStage",
             "MergeAlignmentDiarizationStage",
             "BandwidthEstimationStage",
@@ -150,7 +150,7 @@ def test_tutorial_sensitive_defaults_remain_compatible(tmp_path: Path) -> None:
     assert fleurs[0].lang == "hy_am"
     assert fleurs[0].split == "dev"
     assert fleurs[0].batch_size == 4
-    assert fleurs[1].adapter_target == "nemo_curator.models.asr.nemo_asr.NeMoASRAdapter"
+    assert fleurs[1].adapter_target == "nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter"
     assert fleurs[1].model_id == "nvidia/stt_hy_fastconformer_hybrid_large_pc"
     assert fleurs[1].audio_filepath_key == "audio_filepath"
     assert fleurs[1].resources.gpus == 1.0

@@ -15,27 +15,28 @@ resource:
   bound: gpu
   throughput_hint: "adapter-dependent batched inference; the default NeMo path supports CPU, while some adapters require GPU runtimes"
 adapter_capabilities:
-  nemo_curator.models.asr.nemo_asr.NeMoASRAdapter:
+  nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter:
     supported_devices: [cpu, cuda]
-  nemo_curator.models.asr.faster_whisper.FasterWhisperASR:
+  nemo_curator.models.audio.asr.faster_whisper.FasterWhisperASR:
     supported_devices: [cpu, cuda]
-  nemo_curator.models.asr.qwen_asr.QwenASRAdapter:
+  nemo_curator.models.audio.asr.qwen_asr.QwenASRAdapter:
     supported_devices: [cuda]
-  nemo_curator.models.asr.qwen_omni.QwenOmniASRAdapter:
+  nemo_curator.models.audio.asr.qwen_omni.QwenOmniASRAdapter:
     supported_devices: [cuda]
 use_cases:
   good_for:
     - "transcribing speech to text (pred_text)"
     - "producing pred_text for WER/CER filtering (needs reference transcripts in the manifest)"
     - "high-throughput English transcription with the default Parakeet checkpoint"
+    - "word-level alignments/timestamps with NeMoASRAdapter(decoder_type=..., timestamps=True) and words_key"
+    - "transcribing nested split chunks (nested_key=split_metadata) or timed segments (nested_key=segments, nested_audio=slice)"
   avoid_for:
     - "languages the chosen checkpoint was not trained on (pick a matching model_id)"
-    - "word-level alignments/timestamps -- use NeMoASRAlignerStage instead"
 composition:
   typical_upstream: [ResampleAudioStage, ManifestReader]
   typical_downstream: [GetPairwiseWerStage, ComputeWERStage]
 params_of_note:
-  adapter_target: "adapter class path -- REQUIRED, no default. One of: nemo_curator.models.asr.nemo_asr.NeMoASRAdapter (NeMo/parakeet), nemo_curator.models.asr.qwen_asr.QwenASRAdapter (Qwen3-ASR via vLLM), nemo_curator.models.asr.qwen_omni.QwenOmniASRAdapter (Qwen3-Omni thinker-only via vLLM). Prefer a preset over hand-writing this."
+  adapter_target: "adapter class path -- REQUIRED, no default. One of: nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter (NeMo/parakeet), nemo_curator.models.audio.asr.qwen_asr.QwenASRAdapter (Qwen3-ASR via vLLM), nemo_curator.models.audio.asr.qwen_omni.QwenOmniASRAdapter (Qwen3-Omni thinker-only via vLLM). Prefer a preset over hand-writing this."
   model_id: "the ASR checkpoint id -- REQUIRED, and must match the chosen adapter. Choose per language; apply the english_parakeet preset for English."
   max_audio_sec_per_actor: "REQUIRED finite positive budget for each adapter call: item count multiplied by the longest prepared audio duration. Presets supply 2400 padded audio seconds. This is a batching proxy, not a GPU-memory guarantee."
   max_inference_duration_s: "maximum prepared segment duration (default 2400 seconds); longer rows are split and their transcripts stitched. Must not exceed max_audio_sec_per_actor; choose a ceiling supported by the selected model."
@@ -45,16 +46,21 @@ params_of_note:
   pred_text_key: "output key for the transcription (default 'pred_text', NOT 'text') -- the WER stages read this key"
   language_key: "optional output key for the selected/detected language code; disabled by default. Rows reused through skip_if_output_exists do not acquire missing language metadata."
   extras_key: "optional adapter metadata dictionary. Empty adapter metadata deletes an existing value at this key, so downstream consumers must tolerate its absence. Internally segmented results can use a chunks metadata dictionary."
-  waveform_key: "optional in-memory waveform key; when set, sample_rate_key is also required. The waveform is removed after the batch unless keep_waveform=True."
+  waveform_key: "in-memory waveform key (default waveform), read when input_residency is waveform or auto; sample_rate_key is then also required. The waveform is removed after the batch unless keep_waveform=True."
+  input_residency: "file (default) reads audio_filepath_key; waveform reads waveform_key+sample_rate_key; auto uses the waveform when present, else the file."
   keep_waveform: "False (default) removes the configured in-memory waveform after processing, including rows reused by skip_if_output_exists; True retains it for another waveform-aware downstream stage."
   default_language: "fallback ISO 639-1 code ('en', 'zh') for rows whose source_lang column is empty. Codes are lowercased and mapped to a human-readable name before the adapter sees them (~50 common codes; 'en' -> 'English'), and an unmapped code is forwarded verbatim. Per-row language comes from the manifest's source_lang column, not from this."
   supported_language_codes: "optional allowlist, checked against the ISO CODE rather than the resolved name. Rows outside it are skipped as language_not_supported; rows with no code at all as language_missing."
-  adapter_kwargs: "adapter-owned constructor settings. NeMoASRAdapter accepts num_workers, verbose, enable_local_attention, local_attention_context_size, use_cuda_graph_decoder, refresh_cache, and strict. vLLM adapter options are adapter-specific."
+  adapter_kwargs: "adapter-owned constructor settings. NeMoASRAdapter accepts num_workers, verbose, enable_local_attention, local_attention_context_size, use_cuda_graph_decoder, refresh_cache, strict, decoder_type ('ctc'/'rnnt' greedy decoding), timestamps, timestamp_type ('word'/'char') and word_confidence. vLLM adapter options are adapter-specific."
+  words_key: "optional output key for adapter word timestamps ({word, start, end, confidence} in seconds); needs an adapter that returns extras['words'] (NeMoASRAdapter with timestamps=True)"
+  nested_key: "optional list key; each mapping in it is transcribed instead of the task audio and receives pred_text_key/words_key. No _skipme/notes are written in this mode."
+  nested_audio: "'file' (default) reads each nested mapping's audio_filepath_key; 'slice' cuts the mapping's start/end seconds from the task audio and shifts word times to the task timeline"
+  min_nested_duration_s: "slice mode: nested mappings shorter than this are left untouched (default 0.0)"
 comparison:
   language_support: "checkpoint- and adapter-dependent. Default preset nvidia/parakeet-tdt-0.6b-v2 is English-only; nvidia/parakeet-tdt-0.6b-v3 covers 25 European languages; the Qwen adapters follow their own model cards. (external: HF / NGC model cards)"
   accuracy_hint: "checkpoint-dependent; compare against reference transcripts with a WER stage when accuracy evidence is needed"
   config_complexity: "low (pick adapter_target and model_id, or use a preset)"
-  choose_when: "you need plain transcripts. For word timestamps use the split/align/join flow. MergeAlignmentDiarizationStage needs that word alignment plus compatible diarization segments; pred_text alone is insufficient."
+  choose_when: "you need transcripts, optionally with word timestamps. For long audio with word timestamps use the SplitASRAlignJoinStage composite (split -> ASRStage on split_metadata -> join). MergeAlignmentDiarizationStage needs that word alignment plus compatible diarization segments; pred_text alone is insufficient."
   known_limitations: "device support is adapter-dependent; GPU is required for practical NeMo throughput and by some vLLM adapters; output key is pred_text (not text)"
 notes:
   - "Source audio need not already match the inference rate: ASRStage resamples internally to target_sample_rate before adapter inference."
@@ -64,20 +70,21 @@ notes:
   - "Adapter choice: NeMoASRAdapter for NeMo/parakeet checkpoints (the measured, best-covered path). The two vLLM Qwen adapters are supported by the stage but their resource and accuracy figures below are NOT measured here -- size the GPU from the model card before a large run."
   - "Language is adapter-dependent. NeMoASRAdapter ignores it (a parakeet checkpoint takes no language argument); QwenASRAdapter passes the resolved NAME to its transcribe call; QwenOmniASRAdapter interpolates it into {language} in the prompt and switches to en_prompt_text on the exact string 'English'. So supply ISO CODES, never names: 'English' lowercases to 'english', matches no entry, is forwarded as-is, and silently loses the English prompt path."
   - "Device support belongs to the selected adapter. The default resources request a GPU; the NeMo adapter supports Resources(gpus=0) for slower CPU inference, while an adapter backed by a GPU-only runtime still requires a GPU."
-  - "VAD or diarization fan-out is directly compatible only when the child retains waveform/sample-rate fields and ASRStage is configured with matching waveform_key and sample_rate_key values."
-  - "SplitLongAudioStage keeps chunks in a nested split structure for NeMoASRAlignerStage; it does not fan out ordinary ASRStage inputs and is not a direct producer for this stage."
+  - "VAD or diarization fan-out is directly compatible only when the child retains waveform/sample-rate fields and ASRStage is configured with input_residency=waveform and matching waveform_key and sample_rate_key values."
+  - "SplitLongAudioStage keeps chunks in a nested split_metadata structure; transcribe it with nested_key=split_metadata (audio_filepath_key must match the splitter's), then JoinSplitAudioMetadataStage promotes text/alignment to the top level."
+  - "If RNNT/TDT decode crashes with a CUDA-graph / NVRTC error, run the doctor verb; with the hybrid nvidia/parakeet-tdt_ctc-1.1b checkpoint, adapter_kwargs.decoder_type='ctc' sidesteps CUDA graphs without a model change."
   - "ComputeWERStage must set hypothesis_text_key to this stage's pred_text_key for top-level scoring. GetPairwiseWerStage defaults already match pred_text."
   - "InverseTextNormalizationStage operates on text inside a segments list, not this stage's top-level pred_text. Add an explicit segment-shaping step before composing them."
-  - "When waveform_key is configured, the contract declares that the waveform is removed unless keep_waveform=True. A downstream waveform consumer therefore requires keep_waveform=True; sample_rate metadata alone is retained."
+  - "When input_residency is waveform or auto, the contract declares that the waveform is removed unless keep_waveform=True. A downstream waveform consumer therefore requires keep_waveform=True; sample_rate metadata alone is retained."
   - "batch_size is a real constructor field (default 32) but is excluded from the discovery param surface; tune it via the stage/executor."
   - "Language coverage is a checkpoint (model-card) fact, not derivable from source; match the checkpoint to the data language."
   - "WER/CER filtering requires reference transcripts in the source manifest; if absent, WER is unproducible."
 presets:
-  english_parakeet: {adapter_target: "nemo_curator.models.asr.nemo_asr.NeMoASRAdapter", model_id: "nvidia/parakeet-tdt-0.6b-v2", max_audio_sec_per_actor: 2400.0}
-  multilingual_parakeet_v3: {adapter_target: "nemo_curator.models.asr.nemo_asr.NeMoASRAdapter", model_id: "nvidia/parakeet-tdt-0.6b-v3", max_audio_sec_per_actor: 2400.0}
-  longform_english_1_1b: {adapter_target: "nemo_curator.models.asr.nemo_asr.NeMoASRAdapter", model_id: "nvidia/parakeet-tdt_ctc-1.1b", max_audio_sec_per_actor: 2400.0}
-  qwen3_asr: {adapter_target: "nemo_curator.models.asr.qwen_asr.QwenASRAdapter", model_id: "Qwen/Qwen3-ASR-0.6B", max_audio_sec_per_actor: 2400.0}
-  qwen3_omni: {adapter_target: "nemo_curator.models.asr.qwen_omni.QwenOmniASRAdapter", model_id: "Qwen/Qwen3-Omni-30B-A3B-Instruct", max_audio_sec_per_actor: 2400.0}
+  english_parakeet: {adapter_target: "nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter", model_id: "nvidia/parakeet-tdt-0.6b-v2", max_audio_sec_per_actor: 2400.0}
+  multilingual_parakeet_v3: {adapter_target: "nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter", model_id: "nvidia/parakeet-tdt-0.6b-v3", max_audio_sec_per_actor: 2400.0}
+  longform_english_1_1b: {adapter_target: "nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter", model_id: "nvidia/parakeet-tdt_ctc-1.1b", max_audio_sec_per_actor: 2400.0}
+  qwen3_asr: {adapter_target: "nemo_curator.models.audio.asr.qwen_asr.QwenASRAdapter", model_id: "Qwen/Qwen3-ASR-0.6B", max_audio_sec_per_actor: 2400.0}
+  qwen3_omni: {adapter_target: "nemo_curator.models.audio.asr.qwen_omni.QwenOmniASRAdapter", model_id: "Qwen/Qwen3-Omni-30B-A3B-Instruct", max_audio_sec_per_actor: 2400.0}
 versions:   # verified interchangeable via model_id -- load + run + identical pred_text output structure.
             # NeMo checkpoints only: a Qwen model also needs a different adapter_target, so it is a
             # preset (a param bundle), not a drop-in model_id swap.
@@ -85,4 +92,4 @@ versions:   # verified interchangeable via model_id -- load + run + identical pr
   "nvidia/parakeet-tdt-0.6b-v3": "Checkpoint selected by multilingual_parakeet_v3; check the model card for supported languages."
   "nvidia/parakeet-tdt_ctc-1.1b": "Larger checkpoint selected by longform_english_1_1b; size resources for this model rather than the default preset."
 verified: {params: mechanical, tags: mechanical, adapter_capabilities: mechanical, model_version: best_guess, resource: measured, constraints: best_guess, domain: best_guess, use_cases: best_guess, comparison: best_guess, versions: measured}
-provenance: {model_card_url: "https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2", card_version: 11, last_validated: "2026-10-19"}
+provenance: {model_card_url: "https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2", card_version: 12, last_validated: "2026-10-19"}

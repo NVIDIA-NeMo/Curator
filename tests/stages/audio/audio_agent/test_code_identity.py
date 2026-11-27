@@ -47,10 +47,10 @@ _TREE = {
     "stages/audio/audio_agent/__init__.py": "",
     "stages/audio/audio_agent/_verb_pretrain.py": "DRIVER_VERSION = 1\n",
     "stages/audio/alm/pretrain/finalize.py": "MERGER_VERSION = 1\n",
-    "models/asr/dynamic_adapter.py": (
-        "from nemo_curator.models.asr import adapter_helper\nclass DynamicAdapter:\n    VALUE = 1\n"
+    "models/audio/asr/dynamic_adapter.py": (
+        "from nemo_curator.models.audio.asr import adapter_helper\nclass DynamicAdapter:\n    VALUE = 1\n"
     ),
-    "models/asr/adapter_helper.py": "VALUE = 1\n",
+    "models/audio/asr/adapter_helper.py": "VALUE = 1\n",
 }
 
 
@@ -224,7 +224,7 @@ class TestWhatItMeansForReuse:
 def test_default_adapter_edit_invalidates_only_its_step_and_suffix(
     package: Callable[[str, str], None], monkeypatch: pytest.MonkeyPatch, edited_module: str
 ) -> None:
-    target = "nemo_curator.models.asr.dynamic_adapter.DynamicAdapter"
+    target = "nemo_curator.models.audio.asr.dynamic_adapter.DynamicAdapter"
     monkeypatch.setattr(
         "nemo_curator.stages.audio.audio_agent._resolve.resolve_stage_class",
         lambda ref: type(
@@ -237,7 +237,7 @@ def test_default_adapter_edit_invalidates_only_its_step_and_suffix(
         {"stages": [{"ref": "FakeStage"}, {"ref": "DefaultAdapterStage"}, {"ref": "FakeStage"}]}
     ).freeze()
     before = artifacts.step_keys(recipe, "stat:fixture")
-    package(f"models/asr/{edited_module}.py", _TREE[f"models/asr/{edited_module}.py"] + "CHANGED = 2\n")
+    package(f"models/audio/asr/{edited_module}.py", _TREE[f"models/audio/asr/{edited_module}.py"] + "CHANGED = 2\n")
     after = artifacts.step_keys(recipe, "stat:fixture")
     assert before[0] == after[0]
     assert before[1] != after[1]
@@ -257,16 +257,16 @@ def test_default_vad_binds_the_same_adapter_implementation_as_an_explicit_select
 def test_filter_configured_adapter_code_is_part_of_its_effective_identity(
     package: Callable[[str, str], None], edited_module: str
 ) -> None:
-    params = {"config": {"vad": {"adapter_target": "nemo_curator.models.asr.dynamic_adapter.DynamicAdapter"}}}
+    params = {"config": {"vad": {"adapter_target": "nemo_curator.models.audio.asr.dynamic_adapter.DynamicAdapter"}}}
     before = artifacts.model_version(params, stage_ref="AudioDataFilterStage")
     assert before == artifacts.model_version(params, stage_ref="AudioDataFilterStage")
-    package(f"models/asr/{edited_module}.py", _TREE[f"models/asr/{edited_module}.py"] + "CHANGED = 2\n")
+    package(f"models/audio/asr/{edited_module}.py", _TREE[f"models/audio/asr/{edited_module}.py"] + "CHANGED = 2\n")
     assert artifacts.model_version(params, stage_ref="AudioDataFilterStage") != before
 
 
 @pytest.mark.usefixtures("package")
 def test_filter_with_unavailable_adapter_code_cannot_prove_reusable_identity() -> None:
-    params = {"config": {"vad": {"adapter_target": "nemo_curator.models.asr.missing.MissingAdapter"}}}
+    params = {"config": {"vad": {"adapter_target": "nemo_curator.models.audio.asr.missing.MissingAdapter"}}}
     assert artifacts.model_version(params, stage_ref="AudioDataFilterStage") != artifacts.model_version(
         params, stage_ref="AudioDataFilterStage"
     )
@@ -276,7 +276,7 @@ def test_filter_with_unavailable_adapter_code_cannot_prove_reusable_identity() -
 def test_configured_adapter_edit_invalidates_only_its_step_and_suffix(
     package: Callable[[str, str], None], edited_module: str
 ) -> None:
-    target = "nemo_curator.models.asr.dynamic_adapter.DynamicAdapter"
+    target = "nemo_curator.models.audio.asr.dynamic_adapter.DynamicAdapter"
     recipe = Recipe.from_dict(
         {
             "stages": [
@@ -293,7 +293,7 @@ def test_configured_adapter_edit_invalidates_only_its_step_and_suffix(
     )
     assert not artifacts._impl_reasons(artifact)
 
-    package(f"models/asr/{edited_module}.py", "VALUE = 2\n")
+    package(f"models/audio/asr/{edited_module}.py", "VALUE = 2\n")
 
     after = artifacts.step_keys(recipe, "stat:fixture")
     assert before[0] == after[0]

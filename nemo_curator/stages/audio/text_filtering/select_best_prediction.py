@@ -14,8 +14,8 @@
 
 import re
 from dataclasses import dataclass, field
-from typing import Any
 
+from nemo_curator.stages.audio.common.helpers import set_note
 from nemo_curator.stages.audio.text_filtering.scriptio_continua import is_scriptio_continua
 from nemo_curator.stages.audio.text_filtering.text_metrics import (
     character_error_rate_percent,
@@ -26,14 +26,6 @@ from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
 _PUNCTUATION = re.compile(r"[^\w\s]", re.UNICODE)
-
-
-def _set_note(data: dict[str, Any], stage: str, value: str, notes_key: str) -> None:
-    notes = data.get(notes_key)
-    if not isinstance(notes, dict):
-        notes = {}
-        data[notes_key] = notes
-    notes[stage] = value
 
 
 def _normalize_for_error_rate(text: str) -> str:
@@ -118,7 +110,7 @@ class SelectBestPredictionStage(ProcessingStage[AudioTask, AudioTask]):
                     task.data[self.output_key] = reference
                     task.data[self.source_key] = self.ground_truth_source_label
                     task.data[self.skip_me_key] = ""
-                    _set_note(
+                    set_note(
                         task.data,
                         self.name,
                         f"Ground Truth (short audio {duration:.2f}s < {self.short_audio_threshold}s)",
@@ -138,7 +130,7 @@ class SelectBestPredictionStage(ProcessingStage[AudioTask, AudioTask]):
             task.data[self.output_key] = reference
             task.data[self.source_key] = self.ground_truth_source_label
             task.data[self.skip_me_key] = ""
-            _set_note(task.data, self.name, "forced:ground_truth", self.notes_key)
+            set_note(task.data, self.name, "forced:ground_truth", self.notes_key)
             return task
 
         primary_unsupported = "lang_not_supported" in str(notes.get(self.primary_text_key, ""))
@@ -150,21 +142,21 @@ class SelectBestPredictionStage(ProcessingStage[AudioTask, AudioTask]):
                 task.data[self.output_key] = reference
                 task.data[self.source_key] = self.ground_truth_source_label
                 task.data[self.skip_me_key] = ""
-                _set_note(task.data, self.name, "Ground Truth", self.notes_key)
+                set_note(task.data, self.name, "Ground Truth", self.notes_key)
                 return task
 
         if primary_unsupported and fallback_unsupported:
             task.data[self.output_key] = ""
             task.data[self.source_key] = "none"
             task.data[self.skip_me_key] = "not_supported"
-            _set_note(task.data, self.name, "skipped:both_models_lang_not_supported", self.notes_key)
+            set_note(task.data, self.name, "skipped:both_models_lang_not_supported", self.notes_key)
             return task
 
         if primary_unsupported and fallback:
             task.data[self.output_key] = fallback
             task.data[self.source_key] = self.fallback_source_label
             task.data[self.skip_me_key] = ""
-            _set_note(
+            set_note(
                 task.data,
                 self.name,
                 f"used {self.fallback_source_label} (primary lang unsupported)",
@@ -176,7 +168,7 @@ class SelectBestPredictionStage(ProcessingStage[AudioTask, AudioTask]):
         if recovered and fallback:
             task.data[self.output_key] = fallback
             task.data[self.source_key] = self.fallback_source_label
-            _set_note(task.data, self.name, f"used {self.fallback_source_label}", self.notes_key)
+            set_note(task.data, self.name, f"used {self.fallback_source_label}", self.notes_key)
             return task
 
         if self.use_reference_on_hallucination and self.reference_text_key and skip_reason.startswith("Hallucination"):
@@ -185,7 +177,7 @@ class SelectBestPredictionStage(ProcessingStage[AudioTask, AudioTask]):
                 task.data[self.output_key] = reference
                 task.data[self.source_key] = self.reference_source_label
                 task.data[self.skip_me_key] = ""
-                _set_note(
+                set_note(
                     task.data,
                     self.name,
                     f"recovered:reference_text (hallucination_detected, fallback={self.reference_text_key})",
@@ -206,7 +198,7 @@ class SelectBestPredictionStage(ProcessingStage[AudioTask, AudioTask]):
                 task.data[self.output_key] = primary
                 task.data[self.source_key] = self.primary_source_label
                 task.data[self.skip_me_key] = ""
-                _set_note(
+                set_note(
                     task.data,
                     self.name,
                     f"recovered:cross_model_agreement ({metric_name}={error_rate:.1f}%)",
@@ -216,5 +208,5 @@ class SelectBestPredictionStage(ProcessingStage[AudioTask, AudioTask]):
 
         task.data[self.output_key] = primary
         task.data[self.source_key] = self.primary_source_label
-        _set_note(task.data, self.name, f"used {self.primary_source_label}", self.notes_key)
+        set_note(task.data, self.name, f"used {self.primary_source_label}", self.notes_key)
         return task

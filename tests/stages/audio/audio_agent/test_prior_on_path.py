@@ -247,18 +247,25 @@ class TestItStaysSilentWhenThereIsNothingToDisclose:
 class TestASecretParamNeverLeaksThroughTheDiff:
     def test_a_changed_token_is_reported_as_changed_not_shown(self, store: Path) -> None:
         folder = _folder(store, ["a.wav", "b.wav", "c.wav"])
-        prior = _prior_recipe(folder, source="PyAnnoteDiarizationStage", mono=False, mos=3.4)
+        prior = _prior_recipe(folder, source="CreateInitialManifestAudioFolderStage", mono=False, mos=3.4)
         # Give the prior run a diarizer carrying a token, and a different one this time.
         prior_dict = prior.to_dict()
         prior_dict["stages"].insert(
-            1, {"ref": "PyAnnoteDiarizationStage", "params": {"hf_token": "SECRET-PRIOR-TOKEN"}}
+            1,
+            {
+                "ref": "InferenceSortformerStage",
+                "params": {
+                    "adapter_target": "nemo_curator.models.audio.speaker_diarization.pyannote.PyAnnoteDiarizationAdapter",
+                    "adapter_kwargs": {"hf_token": "SECRET-PRIOR-TOKEN"},
+                },
+            },
         )
         prior = Recipe.from_dict(prior_dict).freeze()
         _save_prior_run(folder, prior, prior_profile=_profile(folder))
         (Path(folder) / "d.wav").write_bytes(b"RIFF" + b"\x09" * 5000)
 
         cur = prior.to_dict()
-        cur["stages"][1]["params"]["hf_token"] = "SECRET-CURRENT-TOKEN"  # noqa: S105
+        cur["stages"][1]["params"]["adapter_kwargs"]["hf_token"] = "SECRET-CURRENT-TOKEN"  # noqa: S105
         result = _verb_reuse.reuse_scan(cur, data=folder)
 
         blob = repr(result)

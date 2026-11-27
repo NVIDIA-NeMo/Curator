@@ -131,7 +131,7 @@ def test_load_model_reuses_the_shared_tensorrt_session(
     engine.touch()
     session = _FakeSession()
     session_cls = MagicMock(return_value=session)
-    from nemo_curator.stages.audio.inference import tensorrt_encoder
+    from nemo_curator.models.audio import tensorrt_encoder
 
     monkeypatch.setattr(tensorrt_encoder, "TensorRTEncoderSession", session_cls)
     adapter = TensorRTSileroVADAdapter(engine_path=str(engine))

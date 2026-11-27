@@ -9,8 +9,8 @@ resource:
   cpus: 1.0
   gpu_mem_gb: null   # TODO(fill): depends on which sub-stages the config enables
   gpu_optional: true
-  # gpu, paired with gpu_optional -- the same combination PyAnnoteDiarizationStage,
-  # SIGMOSFilterStage, TorchSquimQualityMetricsStage, UTMOSFilterStage and WhisperXVADStage
+  # gpu, paired with gpu_optional -- the same combination SIGMOSFilterStage,
+  # TorchSquimQualityMetricsStage and UTMOSFilterStage
   # already use for "runs on GPU when there is one, falls back to CPU when there is not".
   # It was `null`, which reads to every consumer as "not GPU" rather than "nobody has said":
   # `stage_is_costly` then rated this composite CHEAP, so a reuse scan could serve a prefix

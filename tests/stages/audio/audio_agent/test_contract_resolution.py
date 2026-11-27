@@ -331,11 +331,11 @@ class TestProducersAnswersWhoMakesAKey:
         assert "GetAudioDurationStage" in [p["stage"] for p in out["producers"]]
 
     def test_it_finds_a_writer_by_role_when_the_key_is_named_differently(self) -> None:
-        out = aa.producers("segments")
+        out = aa.producers("sample_rate")
         by_stage = {p["stage"]: p for p in out["producers"]}
 
-        assert by_stage["WhisperXVADStage"]["matched"] == "role"
-        assert by_stage["WhisperXVADStage"]["writes_key"] == "vad_segments"
+        assert by_stage["PrepareIndicASRInputStage"]["matched"] == "role"
+        assert by_stage["PrepareIndicASRInputStage"]["writes_key"] == "sampling_rate"
 
     def test_a_stage_needing_params_is_a_candidate_not_a_producer(self) -> None:
         """A declared role does not say whether the key is read or written, so it cannot be

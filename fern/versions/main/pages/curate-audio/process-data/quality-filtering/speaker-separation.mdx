@@ -71,7 +71,7 @@ Speaker overlap regions (where multiple speakers talk simultaneously) and short 
 
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
-| `model_path` | str | `"nvidia/diar_sortformer_4spk-v1"` | Hugging Face model ID or path to a `.nemo` checkpoint. |
+| `model_path` | str | `"nvidia/diar_sortformer_4spk-v1"` | Hugging Face repository ID, local `.nemo` checkpoint, or a directory containing one. Loaded through `NeMoSortformerAdapter` with the checkpoint's own (offline) settings. |
 | `exclude_overlaps` | bool | `True` | Drop regions where multiple speakers overlap. |
 | `min_duration` | float | `0.8` | Minimum per-speaker segment duration (seconds). |
 | `gap_threshold` | float | `0.1` | Gap threshold for merging adjacent same-speaker segments. |
@@ -91,13 +91,12 @@ For pure offline curation, `SpeakerSeparationStage` is faster and more accurate.
 ### Step 1: Configure the Stage
 
 ```python
-from nemo_curator.stages.audio.inference.speaker_diarization.sortformer import InferenceSortformerStage
+from nemo_curator.stages.audio.inference.speaker_diarization.stage import InferenceSortformerStage
 
 streaming = InferenceSortformerStage(
-    model_name="nvidia/diar_streaming_sortformer_4spk-v2.1",
+    model_id="nvidia/diar_streaming_sortformer_4spk-v2.1",
     rttm_out_dir="./rttm",
-    chunk_len=340,            # ~30.4 seconds latency in 80 ms frames
-    inference_batch_size=1,
+    adapter_kwargs={"chunk_len": 340},  # ~30.4 seconds latency in 80 ms frames
 )
 pipeline.add_stage(streaming)
 ```
@@ -106,7 +105,7 @@ This stage **does not fan out per speaker** — instead it writes a `diar_segmen
 
 ### Step 2: Tune Latency
 
-`chunk_len` controls latency vs accuracy:
+`adapter_kwargs["chunk_len"]` controls latency vs accuracy:
 
 | `chunk_len` | Latency | Accuracy |
 |-------------|---------|----------|
@@ -120,19 +119,12 @@ Streaming-mode evaluation on **CallHome-eng0** (139 files) at the default settin
 
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
-| `model_name` | str | `"nvidia/diar_streaming_sortformer_4spk-v2.1"` | Hugging Face model ID. |
-| `model_path` | str \| None | `None` | Local `.nemo` checkpoint; overrides `model_name` when set. |
-| `cache_dir` | str \| None | `None` | Cache dir for downloaded model weights. |
-| `filepath_key` | str | `"audio_filepath"` | Manifest key with the audio path. |
+| `adapter_target` | str | `NeMoSortformerAdapter` | Diarization adapter import path (also `TensorRTSortformerAdapter`, `PyAnnoteDiarizationAdapter`). |
+| `model_id` | str | `"nvidia/diar_streaming_sortformer_4spk-v2.1"` | Hugging Face model ID. |
+| `audio_filepath_key` | str | `"audio_filepath"` | Manifest key with the audio path. |
 | `diar_segments_key` | str | `"diar_segments"` | Output manifest key for the diarization segment list. |
 | `rttm_out_dir` | str \| None | `None` | Optional directory to write per-file RTTM. |
-| `chunk_len` | int | `340` | Streaming chunk size in 80 ms frames. |
-| `chunk_left_context` | int | `1` | Left-context frames retained between chunks. |
-| `chunk_right_context` | int | `40` | Right-context frames retained between chunks. |
-| `fifo_len` | int | `40` | FIFO queue size in frames. |
-| `spkcache_update_period` | int | `300` | Speaker-cache update period in frames. |
-| `spkcache_len` | int | `188` | Speaker-cache size in frames. |
-| `inference_batch_size` | int | `1` | Batch size passed to `diarize()`. |
+| `adapter_kwargs` | dict | `{}` | Adapter options. For `NeMoSortformerAdapter`: `model_path` (local `.nemo`), `cache_dir`, and the streaming knobs `chunk_len` (340), `chunk_left_context` (1), `chunk_right_context` (40), `fifo_len` (40), `spkcache_update_period` (300), `spkcache_len` (188), `inference_batch_size` (1). |
 
 Default resource allocation: `Resources(cpus=1.0, gpu_memory_gb=8.0)`.
 

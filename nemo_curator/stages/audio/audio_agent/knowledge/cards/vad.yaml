@@ -80,9 +80,9 @@ comparison:
   language_support: "language-agnostic (speech-probability based; Silero supports 6000+ languages). (external)"
   latency_hint: "very light; CPU-friendly (<1 ms per chunk)"
   config_complexity: "low-medium (threshold + duration bounds)"
-  choose_when: "cheap, language-agnostic silence removal / utterance chunking. Use WhisperXVADStage for a model-based VAD inside a WhisperX-style pipeline."
+  choose_when: "cheap, language-agnostic silence removal / utterance chunking. Select adapter_target=nemo_curator.models.audio.vad.whisperx.WhisperXVADAdapter for WhisperX's pyannote-based VAD, and also set resources.gpus=1: with the default resources.gpus=0 WhisperX runs on CPU."
   known_limitations: "VAD only (no speaker labels); changes granularity to per-segment; writes segments, not a score"
-conflicts_with: [WhisperXVADStage]   # alternative VAD
+conflicts_with: []
 notes:
   - "Execution uses process_batch; process is unsupported. Fan-out requires batch_size=1; nested mode can batch recordings. Empty or failed nested results have segments=[] and remove the parent waveform, so they do not provide a downstream audio carrier."
   - "Runtime selection: the default Torch adapter supports CPU or one GPU; ONNX requires CPU. TensorRTSileroVADAdapter requires resources.gpus=1 and an engine_path in adapter_kwargs. Custom adapters are not declared per-row independent for delta reuse."

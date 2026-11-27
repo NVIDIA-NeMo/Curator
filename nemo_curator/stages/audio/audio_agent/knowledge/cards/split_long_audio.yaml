@@ -17,7 +17,7 @@ use_cases:
   avoid_for: ["already-short clips"]
 composition:
   typical_upstream: [ResampleAudioStage, ManifestReader]
-  typical_downstream: [NeMoASRAlignerStage, JoinSplitAudioMetadataStage]
+  typical_downstream: [ASRStage, JoinSplitAudioMetadataStage]
   incompatible_upstream:
     VADSegmentationStage: "Its segment schema uses start_ms/end_ms, while this stage requires segments[].start/end in seconds. Convert the schema explicitly before composing them."
 params_of_note:

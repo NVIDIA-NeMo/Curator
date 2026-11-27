@@ -44,12 +44,8 @@ import torch
 from loguru import logger
 from pydub import AudioSegment
 
-try:
-    from nemo.collections.asr.models import SortformerEncLabelModel
-except ImportError:
-    SortformerEncLabelModel = None
-
 from nemo_curator.backends.base import WorkerMetadata
+from nemo_curator.models.audio.speaker_diarization.sortformer import NeMoSortformerAdapter
 from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract, StaticHints
 from nemo_curator.stages.audio._agent._residency import (
     InputResidency,
@@ -100,11 +96,13 @@ class SpeakerSeparationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     Speaker separation stage using NeMo SortFormer diarization model.
 
     Separates audio by speaker and creates separate AudioTask outputs
-    for each speaker's segments. Downloads the NeMo model from
+    for each speaker's segments. The model is loaded and run through
+    ``NeMoSortformerAdapter`` in offline mode (the checkpoint's own settings,
+    no streaming overrides); the default checkpoint is downloaded from
     HuggingFace Hub (nvidia/diar_sortformer_4spk-v1).
 
     Args:
-        model_path: HuggingFace model ID or path to NeMo diarization model
+        model_path: HuggingFace repository ID, local ``.nemo`` file, or directory holding one
         exclude_overlaps: Whether to exclude overlapping speaker regions
         min_duration: Minimum segment duration in seconds
         gap_threshold: Gap threshold for merging speaker segments
@@ -165,7 +163,7 @@ class SpeakerSeparationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
 
     def __post_init__(self):
         super().__init__()
-        self._separator = None
+        self._separator: SpeakerSeparator | None = None
         validate_input_residency(self.input_residency, stage_name=self.name)
         metadata_output_keys = {
             "speaker_id_key": self.speaker_id_key,
@@ -279,21 +277,48 @@ class SpeakerSeparationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             invalidates_keys=invalidates,
         )
 
+    def _create_adapter(self) -> NeMoSortformerAdapter:
+        """Offline Sortformer: keep the checkpoint's own (non-streaming) inference settings."""
+        return NeMoSortformerAdapter(
+            model_id=self.model_path,
+            chunk_len=None,
+            chunk_left_context=None,
+            chunk_right_context=None,
+            fifo_len=None,
+            spkcache_update_period=None,
+            spkcache_len=None,
+            bounded_stft=False,
+            max_positional_encoding_length=None,
+            strict=True,
+        )
+
     def setup_on_node(self, _node_info: Any = None, _worker_metadata: Any = None) -> None:  # noqa: ANN401
         try:
-            SortformerEncLabelModel.from_pretrained(self.model_path)
+            self._create_adapter().download_weights_on_node()
         except Exception:  # noqa: BLE001
             logger.warning("Model pre-download in setup_on_node failed; will retry in setup().")
 
     def setup(self, _: WorkerMetadata | None = None) -> None:
-        self._initialize_separator()
+        if self._separator is not None:
+            return
+        self._check_gpu_availability(self._resources.gpus)
+        adapter = self._create_adapter()
+        adapter.load_model(num_gpus=1 if self._resources.gpus > 0 else 0)
+        self._separator = SpeakerSeparator(
+            adapter,
+            config={
+                "speaker_gap_threshold": self.gap_threshold,
+                "speaker_exclude_overlaps": self.exclude_overlaps,
+                "speaker_min_duration": self.min_duration,
+                "speaker_buffer_time": self.buffer_time,
+            },
+        )
+        logger.info(f"Speaker separation Sortformer adapter loaded: {self.model_path}")
 
     def teardown(self) -> None:
         if self._separator is not None:
-            del self._separator
+            self._separator.adapter.unload_model()
             self._separator = None
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
 
     @staticmethod
     def _check_gpu_availability(gpus: float) -> None:
@@ -303,34 +328,6 @@ class SpeakerSeparationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                 "Either set resources=Resources(gpus=0) for CPU-only or install CUDA."
             )
             raise RuntimeError(msg)
-
-    def _initialize_separator(self) -> None:
-        if self._separator is None:
-            self._check_gpu_availability(self._resources.gpus)
-            try:
-                use_gpu = self._resources.gpus > 0 and torch.cuda.is_available()
-
-                separator_config = {
-                    "speaker_model_path": self.model_path,
-                    "speaker_gap_threshold": self.gap_threshold,
-                    "speaker_exclude_overlaps": self.exclude_overlaps,
-                    "speaker_min_duration": self.min_duration,
-                    "speaker_buffer_time": self.buffer_time,
-                    "use_gpu": use_gpu,
-                }
-
-                self._separator = SpeakerSeparator(
-                    model_name=self.model_path,
-                    config=separator_config,
-                )
-
-                logger.info(f"NeMo speaker separator loaded from HuggingFace: {self.model_path}")
-            except ImportError as e:
-                logger.error(f"Failed to import speaker separation module: {e}")
-                raise
-            except Exception as e:
-                logger.error(f"Failed to load speaker separator: {e}")
-                raise
 
     # Keys dropped from the parent task when building per-speaker child tasks.
     # "audio"/"waveform" are non-serializable blobs replaced by per-speaker audio.

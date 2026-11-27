@@ -22,6 +22,7 @@ from typing import Any, ClassVar
 
 from nemo_curator.stages.audio._agent._agent_ready import AgentReady, ConditionalWrite, IOSpec, StageContract
 from nemo_curator.stages.audio._agent._residency import validate_audio_key_configuration
+from nemo_curator.stages.audio.common.helpers import set_note
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -66,15 +67,6 @@ class _Prediction:
     language: str
     confidence: float
     tag: str
-
-
-def _set_note(data: dict[str, Any], key: str, value: Any, notes_key: str) -> None:  # noqa: ANN401
-    """Write a note while repairing a missing or non-mapping notes field."""
-    notes = data.get(notes_key)
-    if not isinstance(notes, dict):
-        notes = {}
-        data[notes_key] = notes
-    notes[key] = value
 
 
 @dataclass
@@ -289,9 +281,9 @@ class SelectAudioLanguageStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
             self.whisper_model_id: "whisper",
         }
         for model_id, prediction in predictions.items():
-            _set_note(task.data, f"{prediction.tag}_lid_model", labels[model_id], self.notes_key)
-            _set_note(task.data, f"{prediction.tag}_lid_prediction", prediction.language, self.notes_key)
-            _set_note(
+            set_note(task.data, f"{prediction.tag}_lid_model", labels[model_id], self.notes_key)
+            set_note(task.data, f"{prediction.tag}_lid_prediction", prediction.language, self.notes_key)
+            set_note(
                 task.data,
                 f"{prediction.tag}_lid_confidence",
                 f"{prediction.confidence:.3f}",
@@ -300,17 +292,17 @@ class SelectAudioLanguageStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
 
     def _accept(self, task: AudioTask, prediction: _Prediction, note: str) -> AudioTask:
         task.data[self.output_key] = prediction.language
-        _set_note(task.data, self.confidence_key, prediction.confidence, self.notes_key)
-        _set_note(task.data, self.name, note, self.notes_key)
+        set_note(task.data, self.confidence_key, prediction.confidence, self.notes_key)
+        set_note(task.data, self.name, note, self.notes_key)
         if task.data.get(self.skip_me_key) in _SELECTOR_SKIP_REASONS:
             task.data.pop(self.skip_me_key, None)
         return task
 
     def _reject(self, task: AudioTask, *, output: str, reason: str, note: str) -> AudioTask:
         task.data[self.output_key] = output
-        _set_note(task.data, self.confidence_key, 0.0, self.notes_key)
+        set_note(task.data, self.confidence_key, 0.0, self.notes_key)
         existing_reason = task.data.get(self.skip_me_key)
         if not existing_reason or existing_reason in _SELECTOR_SKIP_REASONS:
             task.data[self.skip_me_key] = reason
-        _set_note(task.data, self.name, note, self.notes_key)
+        set_note(task.data, self.name, note, self.notes_key)
         return task

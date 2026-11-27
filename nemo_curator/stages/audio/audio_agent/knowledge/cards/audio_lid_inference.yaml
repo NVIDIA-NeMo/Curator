@@ -22,7 +22,7 @@ adapter_capabilities:
 use_cases:
   good_for:
     - "Adding one component's language result before SelectAudioLanguageStage."
-    - "Classifying resident VAD/cut audio when waveform_key and sample_rate_key match that audio."
+    - "Classifying resident VAD/cut audio when input_residency=waveform and waveform_key/sample_rate_key match that audio."
     - "Resuming unchanged model results using an explicit, stable ensemble identity."
   avoid_for:
     - "Transcription, language timestamps, or proof that every speaker/segment has the same language."
@@ -36,7 +36,8 @@ params_of_note:
   model_id: "Required result-mapping slot. Use distinct identities for components; the selector defaults expect SpeechBrainLangID, IndicTranscribeLangID and WhisperLangID."
   tag: "Required nonempty ensemble label, conventionally primary/secondary/tertiary. Tags must be distinct when results reach the selector."
   adapter_kwargs: "SpeechBrain: source/revision/cache_dir/savedir. Whisper: model_size/model_path/backend/fp16/model_batch_size and a TensorRT engine path for that backend. Indic Transcribe: engine_dir, candidate_languages, duration/model-batch bounds and runtime settings."
-  waveform_key: "None by default loads audio_filepath_key. Set waveform to classify resident cut audio; this requires a valid sample_rate_key. No automatic file fallback is provided in resident mode."
+  waveform_key: "Resident waveform key (default waveform), read when input_residency is waveform or auto; requires a valid sample_rate_key."
+  input_residency: "file (default) loads audio_filepath_key; waveform classifies resident cut audio with no file fallback; auto uses the waveform when present, else the file."
   sample_rate_key: "Resident input rate in Hz, default sample_rate; it must describe the supplied waveform."
   sample_rate: "Adapter inference rate, default 16000 Hz. Input is downmixed and resampled internally; all three shipped adapters require this canonical rate."
   audio_filepath_key: "File-mode source, default audio_filepath. This path is loaded as a recording; offset/duration metadata is not used to slice it."
@@ -77,12 +78,14 @@ presets:
     model_id: SpeechBrainLangID
     tag: primary
     waveform_key: waveform
+    input_residency: waveform
     adapter_kwargs: {source: "speechbrain/lang-id-voxlingua107-ecapa"}
   whisper_resident:
     adapter_target: nemo_curator.models.audio.lid.whisper.WhisperLIDAdapter
     model_id: WhisperLangID
     tag: tertiary
     waveform_key: waveform
+    input_residency: waveform
     max_duration_sec: 30.0
     adapter_kwargs: {model_size: medium, backend: torch}
 comparison:

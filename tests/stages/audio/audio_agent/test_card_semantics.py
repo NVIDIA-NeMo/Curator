@@ -409,7 +409,6 @@ def test_compound_selector_card_documents_flat_logic_and_resolvable_upstreams() 
         "ChannelCountStage",
         "SampleRateFilterStage",
         "InferenceSortformerStage",
-        "PyAnnoteDiarizationStage",
         "ManifestCheckpointStage",
     }
 

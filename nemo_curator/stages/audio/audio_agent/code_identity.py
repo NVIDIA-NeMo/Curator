@@ -23,7 +23,7 @@ results produced by code that no longer exists.
 
 Here the stamp is a digest of the source that actually implements the stage -- the module
 defining its class plus the ``nemo_curator`` modules that module transitively imports.
-Editing ``nemo_asr_align.py`` invalidates ASR artifacts and everything chained below them;
+Editing ``inference/asr/stage.py`` invalidates ASR artifacts and everything chained below them;
 editing the video pipeline invalidates nothing here.
 
 Imports are read out of the source with :mod:`ast` and resolved against the package

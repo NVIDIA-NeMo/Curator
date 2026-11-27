@@ -17,12 +17,12 @@
 
 import nemo.collections.asr as nemo_asr
 
-from nemo_curator.models.asr.nemo_asr import NeMoASRAdapter
+from nemo_curator.models.audio.asr.nemo_asr import NeMoASRAdapter
 from nemo_curator.stages.audio.inference.asr.stage import ASRStage
 
 adapter = NeMoASRAdapter(model_id="nvidia/stt_en_fastconformer_ctc_large")
 stage = ASRStage(
-    adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+    adapter_target="nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter",
     model_id=adapter.model_id,
     max_audio_sec_per_actor=2400.0,
     audio_filepath_key="audio_filepath",

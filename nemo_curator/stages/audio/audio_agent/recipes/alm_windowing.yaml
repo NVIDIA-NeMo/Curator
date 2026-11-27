@@ -19,8 +19,8 @@ stages:
       min_speakers: 2
       max_speakers: 5
       truncation: true
-      drop_fields: "words"
-      drop_fields_top_level: "words,segments"
+      drop_fields: [words]
+      drop_fields_top_level: [words, segments]
   - ref: ALMDataOverlapStage
     params: {overlap_percentage: 50, target_duration: 120.0}
   - ref: ManifestWriterStage

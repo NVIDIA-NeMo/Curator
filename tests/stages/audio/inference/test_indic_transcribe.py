@@ -20,8 +20,8 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 
-from nemo_curator.models.asr.base import ASRResult
-from nemo_curator.models.asr.indic_transcribe import IndicTranscribeTRTLLMASR
+from nemo_curator.models.audio.asr.base import ASRResult
+from nemo_curator.models.audio.asr.indic_transcribe import IndicTranscribeTRTLLMASR
 from nemo_curator.stages.audio.inference.indic_transcribe import InferenceIndicTranscribeStage
 from nemo_curator.tasks import AudioTask
 

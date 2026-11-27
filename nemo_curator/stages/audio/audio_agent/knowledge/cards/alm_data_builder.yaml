@@ -45,7 +45,7 @@ params_of_note:
     >=2-segments rule is separate and applies first"
   max_speakers: "maximum speaker count to keep a window"
   truncation: "allow truncating windows to fit the target duration"
-  drop_fields_top_level: "comma-separated top-level keys removed from the output entry (default 'words,segments').
+  drop_fields_top_level: "list of top-level keys removed from the output entry (default ['words', 'segments']).
     Add 'waveform' when an upstream stage kept one in the task, or it reaches the sink and fails to serialize"
 param_dependencies:
   audio_sample_rate_key: "must name an existing rate field (default audio_sample_rate). SampleRateFilterStage can

@@ -59,7 +59,7 @@ def _stage(
         "adapter_target": _ADAPTER_TARGET,
         "model_id": _MODEL_ID,
         "tag": "primary",
-        "waveform_key": "waveform",
+        "input_residency": "waveform",
         "sample_rate": _SAMPLE_RATE,
         "min_duration_sec": 0.5,
     }
@@ -170,7 +170,7 @@ def test_a_mismatched_sample_rate_is_resampled_before_inference() -> None:
 def test_file_mode_loads_audio_for_the_adapter(tmp_path: Path) -> None:
     audio_path = tmp_path / "sample.wav"
     soundfile.write(audio_path, np.zeros(_SAMPLE_RATE, dtype=np.float32), _SAMPLE_RATE)
-    stage, adapter = _stage(waveform_key=None)
+    stage, adapter = _stage(input_residency="file")
 
     (task,) = stage.process_batch([AudioTask(data={"audio_filepath": str(audio_path)})])
 
@@ -179,7 +179,7 @@ def test_file_mode_loads_audio_for_the_adapter(tmp_path: Path) -> None:
 
 
 def test_an_unreadable_file_gets_an_empty_completed_result(tmp_path: Path) -> None:
-    stage, adapter = _stage(waveform_key=None)
+    stage, adapter = _stage(input_residency="file")
 
     (task,) = stage.process_batch([AudioTask(data={"audio_filepath": str(tmp_path / "missing.wav")})])
 
@@ -365,6 +365,7 @@ def test_stage_declares_file_or_waveform_inputs_and_shared_outputs() -> None:
         model_id=_MODEL_ID,
         tag="primary",
         waveform_key="samples",
+        input_residency="waveform",
         sample_rate_key="sr",
     )
 
@@ -391,7 +392,7 @@ def test_stage_is_agent_ready_for_each_result_path(scenario: str) -> None:
     )
 
     assert contract.batch_only
-    assert contract.reads.accepts == ["waveform"]
+    assert [spec.accepts for spec in contract.reads_one_of] == [["waveform"]]
     assert contract.writes.data_keys == []
     assert contract.gates.per_row_independent is False
     assert contract.gates.lifecycle_side_effects
@@ -401,12 +402,14 @@ def test_stage_is_agent_ready_for_each_result_path(scenario: str) -> None:
 def test_file_stage_contract_and_remapped_results_are_agent_ready(tmp_path: Path) -> None:
     audio_path = tmp_path / "sample.wav"
     soundfile.write(audio_path, np.zeros(_SAMPLE_RATE, dtype=np.float32), _SAMPLE_RATE)
-    stage, _ = _stage(waveform_key=None, audio_filepath_key="path", results_key="predictions", skip_me_key="reject")
+    stage, _ = _stage(
+        input_residency="file", audio_filepath_key="path", results_key="predictions", skip_me_key="reject"
+    )
     task = AudioTask(data={"path": str(audio_path)})
 
     contract = assert_agent_ready(stage, fixture_factory=lambda: task, available_keys={"path"})
 
-    assert contract.reads.accepts == ["file"]
+    assert [spec.accepts for spec in contract.reads_one_of] == [["file"]]
     assert contract.key_roles["predictions"] == "prediction"
     assert task.data["predictions"][_MODEL_ID]["language"] == "ta"
 
@@ -429,6 +432,7 @@ def test_destructive_key_mappings_are_rejected(kwargs: dict[str, object]) -> Non
 def test_metadata_extraction_runner_three_model_topology_is_representable() -> None:
     common = {
         "waveform_key": "waveform",
+        "input_residency": "waveform",
         "sample_rate_key": "sample_rate",
         "batch_size": 16,
         "resources": Resources(gpu_memory_gb=8.0),

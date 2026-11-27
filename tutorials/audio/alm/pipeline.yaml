@@ -99,9 +99,9 @@ stages:
     # Truncation behavior
     truncation: true
 
-    # Fields to drop (comma-separated strings)
-    drop_fields: "words"
-    drop_fields_top_level: "words,segments"
+    # Fields to drop (lists of field names)
+    drop_fields: [words]
+    drop_fields_top_level: [words, segments]
 
   # Stage 2: ALM Data Overlap Filter
   # Filters windows based on overlap threshold

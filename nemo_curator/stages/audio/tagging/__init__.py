@@ -34,14 +34,6 @@ _LAZY_IMPORTS = {
     "JoinSplitAudioMetadataStage": "nemo_curator.stages.audio.tagging.split",
     "SplitASRAlignJoinStage": "nemo_curator.stages.audio.tagging.split",
     "MergeAlignmentDiarizationStage": "nemo_curator.stages.audio.tagging.merge_alignment_diarization",
-    # --- Inference (tagging/inference/) ---
-    "BaseASRProcessorStage": "nemo_curator.stages.audio.tagging.inference.nemo_asr_align",
-    "NeMoASRAlignerStage": "nemo_curator.stages.audio.tagging.inference.nemo_asr_align",
-    "PyAnnoteDiarizationStage": "nemo_curator.stages.audio.inference.speaker_diarization.pyannote",
-    "WhisperXVADStage": "nemo_curator.stages.audio.inference.vad.whisperx_vad",
-    # --- Text processing (tagging/text/) ---
-    "InverseTextNormalizationStage": "nemo_curator.stages.audio.tagging.text.itn",
-    "ChineseConversionStage": "nemo_curator.stages.audio.tagging.text.chinese_conversion",
     # --- Segment preparation ---
     "PrepareModuleSegmentsStage": "nemo_curator.stages.audio.tagging.prepare_module_segments",
 }

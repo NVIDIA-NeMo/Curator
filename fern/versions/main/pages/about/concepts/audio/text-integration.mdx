@@ -285,7 +285,7 @@ audio_pipeline = Pipeline(
     stages=[
         ManifestReader(manifest_path=str(manifest_path)),
         ASRStage(
-            adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+            adapter_target="nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter",
             model_id="nvidia/stt_en_fastconformer_transducer_large",
             max_audio_sec_per_actor=240.0,
             max_inference_duration_s=120.0,
@@ -328,7 +328,7 @@ text_quality_filter = WordCountFilter(min_words=10)
 pipeline = Pipeline(name="audio_text", stages=[
     ManifestReader(manifest_path=str(manifest_path)),
     ASRStage(
-        adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+        adapter_target="nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter",
         model_id="nvidia/stt_en_fastconformer_transducer_large",
         max_audio_sec_per_actor=240.0,
         max_inference_duration_s=120.0,

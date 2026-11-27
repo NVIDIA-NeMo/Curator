@@ -32,6 +32,7 @@ from nemo_curator.stages.audio._agent._residency import (
     InputResidency,
     accepts_for_residency,
     residency_read_specs,
+    validate_input_residency,
 )
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask, Task
@@ -363,6 +364,14 @@ class AdapterInferenceStage(ProcessingStage[AudioTask, AudioTask], Generic[Adapt
 
     def __post_init__(self) -> None:
         self._adapter = None
+        if getattr(self, "input_residency", None) is not None:
+            validate_input_residency(self.input_residency, stage_name=self.name)
+
+    def _uses_resident(self, task: AudioTask) -> bool:
+        """Whether ``task`` is read from ``waveform_key`` (else from ``audio_filepath_key``)."""
+        return self.input_residency == "waveform" or (
+            self.input_residency == "auto" and task.data.get(self.waveform_key) is not None
+        )
 
     def _adapter_class(self) -> type:
         """Resolve the configured adapter without importing it eagerly."""

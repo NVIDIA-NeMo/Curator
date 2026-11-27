@@ -24,6 +24,7 @@ _LAZY = {
     "VADAdapter": "nemo_curator.models.audio.vad.base",
     "VADResult": "nemo_curator.models.audio.vad.base",
     "VADSegment": "nemo_curator.models.audio.vad.base",
+    "WhisperXVADAdapter": "nemo_curator.models.audio.vad.whisperx",
 }
 
 __all__ = [
@@ -32,6 +33,7 @@ __all__ = [
     "VADAdapter",
     "VADResult",
     "VADSegment",
+    "WhisperXVADAdapter",
 ]
 
 
