@@ -58,6 +58,16 @@ from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
 
+def _whisperx_pyannote_module() -> Any:  # noqa: ANN401
+    """Import WhisperX's pyannote VAD only when the model is used."""
+    try:
+        from whisperx.vads import pyannote
+    except ImportError as exc:
+        msg = "WhisperXVADModel requires the audio_common extra: uv sync --extra audio_common"
+        raise ImportError(msg) from exc
+    return pyannote
+
+
 class WhisperXVADModel:
     """Shared VAD model and get_vad_segments logic for PyAnnote and standalone VAD.
 
@@ -83,8 +93,7 @@ class WhisperXVADModel:
             "vad_offset": vad_offset,
         }
 
-        from whisperx.vads.pyannote import load_vad_model
-
+        load_vad_model = _whisperx_pyannote_module().load_vad_model
         prev = os.environ.get("TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD")
         os.environ["TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD"] = "true"
         try:
@@ -115,15 +124,13 @@ class WhisperXVADModel:
         Returns:
             List of VAD segment dicts with "start" and "end" keys.
         """
-        from whisperx.vads.pyannote import Pyannote
-
         vad_segments = self._model(
             {
                 "waveform": torch.from_numpy(audio),
                 "sample_rate": sample_rate,
             }
         )
-        return Pyannote.merge_chunks(vad_segments, merge_max_length, onset=self._vad_onset)
+        return _whisperx_pyannote_module().Pyannote.merge_chunks(vad_segments, merge_max_length, onset=self._vad_onset)
 
 
 @dataclass

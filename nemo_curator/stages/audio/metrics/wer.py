@@ -36,8 +36,11 @@ from nemo_curator.tasks import AudioTask
 
 def word_error_rate_detail(*args: object, **kwargs: object) -> tuple:
     """NeMo's ``word_error_rate_detail``, imported on first use so importing this module stays light."""
-    from nemo.collections.asr.metrics.wer import word_error_rate_detail as _word_error_rate_detail
-
+    try:
+        from nemo.collections.asr.metrics.wer import word_error_rate_detail as _word_error_rate_detail
+    except ImportError as exc:
+        msg = "ComputeWERStage and GetPairwiseWerStage require the audio_common extra: uv sync --extra audio_common"
+        raise ImportError(msg) from exc
     return _word_error_rate_detail(*args, **kwargs)
 
 
@@ -214,8 +217,11 @@ class ComputeWERStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         """Setup stage."""
         if self._normalizer is None:
-            from nemo_text_processing.text_normalization import Normalizer
-
+            try:
+                from nemo_text_processing.text_normalization import Normalizer
+            except ImportError as exc:
+                msg = "ComputeWERStage requires the audio_common extra: uv sync --extra audio_common"
+                raise ImportError(msg) from exc
             self._normalizer = Normalizer(input_case="cased", lang=self.language.lower())
 
     def normalize_text(self, text: str) -> str:

@@ -36,12 +36,32 @@
 
 import os
 from enum import Enum
+from types import ModuleType
 
 import numpy as np
 import scipy
 from loguru import logger
 
 __all__ = ["SigMOS", "Version"]
+
+_AUDIO_EXTRA_HINT = "SigMOS requires an audio extra: uv sync --extra audio_cpu or --extra audio_cuda12"
+
+
+def _onnxruntime_module() -> ModuleType:
+    # Imported on first use so that importing SIGMOSFilterStage does not load onnxruntime.
+    try:
+        import onnxruntime
+    except ImportError as exc:
+        raise ImportError(_AUDIO_EXTRA_HINT) from exc
+    return onnxruntime
+
+
+def _librosa_module() -> ModuleType:
+    try:
+        import librosa
+    except ImportError as exc:
+        raise ImportError(_AUDIO_EXTRA_HINT) from exc
+    return librosa
 
 
 class Version(Enum):
@@ -83,9 +103,7 @@ class SigMOS:
         self.window_length = 960
         self.window = np.sqrt(np.hanning(int(self.window_length) + 1)[:-1]).astype(np.float32)
 
-        # Imported here so that importing SIGMOSFilterStage does not load onnxruntime.
-        import onnxruntime as ort
-
+        ort = _onnxruntime_module()
         options = ort.SessionOptions()
         options.inter_op_num_threads = 1
         options.intra_op_num_threads = 1
@@ -112,8 +130,7 @@ class SigMOS:
             last_frame = self.frame_size
 
         padded_signal = np.pad(signal, ((self.window_length - self.frame_size, self.window_length - last_frame),))
-        import librosa
-
+        librosa = _librosa_module()
         frames = librosa.util.frame(padded_signal, frame_length=len(self.window), hop_length=self.frame_size, axis=0)
         spec = scipy.fft.rfft(frames * self.window, n=self.dft_size)
         return spec.astype(np.complex64)
@@ -134,8 +151,7 @@ class SigMOS:
 
     def run(self, audio: np.ndarray, sr: int | None = None) -> dict[str, float]:
         if sr is not None and sr != self.sampling_rate:
-            import librosa
-
+            librosa = _librosa_module()
             audio = librosa.resample(audio, orig_sr=sr, target_sr=self.sampling_rate, res_type=self.resample_type)
 
         features = self.stft(audio)

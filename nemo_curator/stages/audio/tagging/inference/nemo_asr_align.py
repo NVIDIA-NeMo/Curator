@@ -45,6 +45,15 @@ from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
 
+def _nemo_asr_module() -> Any:  # noqa: ANN401
+    try:
+        import nemo.collections.asr as nemo_asr
+    except ImportError as exc:
+        msg = "NeMoASRAlignerStage requires the audio_common extra: uv sync --extra audio_common"
+        raise ImportError(msg) from exc
+    return nemo_asr
+
+
 @dataclass
 class BaseASRProcessorStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """Base class for ASR stages with shared config and segment preparation.
@@ -235,8 +244,7 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
             raise ValueError(msg)
 
     def load_model(self) -> None:
-        import nemo.collections.asr as nemo_asr
-
+        nemo_asr = _nemo_asr_module()
         if self.model_path:
             self._asr_model = nemo_asr.models.ASRModel.restore_from(restore_path=self.model_path)
         else:
@@ -251,8 +259,7 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
         if self._asr_model is None:
             if self.model_path:
                 return
-            import nemo.collections.asr as nemo_asr
-
+            nemo_asr = _nemo_asr_module()
             try:
                 nemo_asr.models.ASRModel.from_pretrained(model_name=self.model_name, return_model_file=True)
             except Exception as e:

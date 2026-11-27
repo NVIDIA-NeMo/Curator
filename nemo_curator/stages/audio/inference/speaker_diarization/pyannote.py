@@ -62,14 +62,20 @@ from nemo_curator.tasks import AudioTask
 
 
 def _load_pyannote_pipeline(model_name: str, token: str | None) -> Any:  # noqa: ANN401
-    from pyannote.audio import Pipeline as PyAnnotePipeline
-
+    try:
+        from pyannote.audio import Pipeline as PyAnnotePipeline
+    except ImportError as exc:
+        msg = "PyAnnoteDiarizationStage requires the audio_common extra: uv sync --extra audio_common"
+        raise ImportError(msg) from exc
     return PyAnnotePipeline.from_pretrained(model_name, token=token)
 
 
 def ProgressHook() -> Any:  # noqa: ANN401, N802 - module attribute kept for callers and tests that replace it
-    from pyannote.audio.pipelines.utils.hook import ProgressHook as _ProgressHook
-
+    try:
+        from pyannote.audio.pipelines.utils.hook import ProgressHook as _ProgressHook
+    except ImportError as exc:
+        msg = "PyAnnoteDiarizationStage requires the audio_common extra: uv sync --extra audio_common"
+        raise ImportError(msg) from exc
     return _ProgressHook()
 
 
