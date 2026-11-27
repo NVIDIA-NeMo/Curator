@@ -115,8 +115,12 @@ class FilePartitioningStage(ProcessingStage[EmptyTask, FileGroupTask]):
 
         logger.info(f"Found {len(files)} files")
         if len(files) == 0:
-            logger.warning(f"No files found under {self.file_paths}")
-            return []
+            msg = (
+                f"No files found under {self.file_paths}. "
+                "Check that the input path exists and contains files with the expected extensions "
+                f"({', '.join(self.file_extensions)})."
+            )
+            raise ValueError(msg)
 
         # Partition files
         if self.files_per_partition:

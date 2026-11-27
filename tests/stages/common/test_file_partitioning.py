@@ -233,13 +233,27 @@ class TestFilePartitioningStage:
                 blocksize="128MB",
             )
 
-    def test_process_empty_file_list(self, empty_task: EmptyTask):
-        """Test processing with empty file list."""
+    def test_process_empty_file_list_raises(self, empty_task: EmptyTask):
+        """An empty file list fails fast instead of producing no tasks."""
         stage = FilePartitioningStage(file_paths=[])
 
-        result = stage.process(empty_task)
+        with pytest.raises(ValueError, match="No files found under"):
+            stage.process(empty_task)
 
-        assert len(result) == 0
+    def test_process_empty_directory_raises(self, empty_task: EmptyTask, tmp_path: Path):
+        """A directory with no matching files fails fast."""
+        stage = FilePartitioningStage(file_paths=str(tmp_path))
+
+        with pytest.raises(ValueError, match="No files found under"):
+            stage.process(empty_task)
+
+    def test_process_wrong_extension_raises(self, empty_task: EmptyTask, tmp_path: Path):
+        """A directory holding only non-matching file types fails fast."""
+        (tmp_path / "data.parquet").write_bytes(b"x")
+        stage = FilePartitioningStage(file_paths=str(tmp_path), file_extensions=[".jsonl"])
+
+        with pytest.raises(ValueError, match=r"No files found under .*\.jsonl"):
+            stage.process(empty_task)
 
     def test_get_dataset_name(self, tmp_path: Path):
         """Test dataset name extraction."""
