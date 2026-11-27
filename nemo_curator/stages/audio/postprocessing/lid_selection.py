@@ -90,7 +90,7 @@ class SelectAudioLanguageStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
     reason belongs to another pipeline stage and is intentionally preserved.
 
     Precedence is: missing results; unconditional Whisper English; missing or
-    empty Whisper; three-way primary/Canary/Whisper agreement; primary/Whisper
+    empty Whisper; three-way primary/Indic Transcribe/Whisper agreement; primary/Whisper
     agreement for non-Indic languages; disagreement.
     """
 
@@ -101,7 +101,7 @@ class SelectAudioLanguageStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
     notes_key: str = "additional_notes"
 
     speechbrain_model_id: str = "SpeechBrainLangID"
-    indic_canary_model_id: str = "IndicCanaryLangID"
+    indic_transcribe_model_id: str = "IndicTranscribeLangID"
     whisper_model_id: str = "WhisperLangID"
     indic_languages: frozenset[str] = field(default_factory=lambda: _DEFAULT_INDIC_LANGUAGES)
 
@@ -119,7 +119,7 @@ class SelectAudioLanguageStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
             "skip_me_key",
             "notes_key",
             "speechbrain_model_id",
-            "indic_canary_model_id",
+            "indic_transcribe_model_id",
             "whisper_model_id",
             "name",
         )
@@ -140,7 +140,7 @@ class SelectAudioLanguageStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
 
         model_ids = (
             self.speechbrain_model_id,
-            self.indic_canary_model_id,
+            self.indic_transcribe_model_id,
             self.whisper_model_id,
         )
         if len(set(model_ids)) != len(model_ids):
@@ -194,7 +194,7 @@ class SelectAudioLanguageStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
         self._add_component_notes(task, predictions)
 
         primary = predictions.get(self.speechbrain_model_id)
-        canary = predictions.get(self.indic_canary_model_id)
+        canary = predictions.get(self.indic_transcribe_model_id)
         whisper = predictions.get(self.whisper_model_id)
 
         if whisper is not None and whisper.language == "en":
@@ -234,7 +234,7 @@ class SelectAudioLanguageStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
     def _parse_predictions(self, raw_results: dict[str, Any]) -> dict[str, _Prediction]:
         allowed_ids = {
             self.speechbrain_model_id,
-            self.indic_canary_model_id,
+            self.indic_transcribe_model_id,
             self.whisper_model_id,
         }
         predictions: dict[str, _Prediction] = {}
@@ -277,7 +277,7 @@ class SelectAudioLanguageStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
     def _add_component_notes(self, task: AudioTask, predictions: dict[str, _Prediction]) -> None:
         labels = {
             self.speechbrain_model_id: "speechbrain",
-            self.indic_canary_model_id: "indic_canary",
+            self.indic_transcribe_model_id: "indic_transcribe",
             self.whisper_model_id: "whisper",
         }
         for model_id, prediction in predictions.items():
