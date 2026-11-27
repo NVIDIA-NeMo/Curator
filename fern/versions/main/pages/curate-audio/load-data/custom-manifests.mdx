@@ -120,7 +120,7 @@ pipeline.add_stage(
 
 ### Manifests and audio folders in cloud storage
 
-`manifest_path` (and the `data_dir` of `CreateInitialManifestAudioFolderStage`) can be an S3 or GCS URL. Pass fsspec credentials or a custom endpoint through `storage_options`, for example `ManifestReader(manifest_path="s3://bucket/manifests/", storage_options={"key": "...", "secret": "..."})`. The audio-writing stages accept the same `storage_options` alongside their cloud output directory.
+`manifest_path` (and the `data_dir` of `CreateInitialManifestAudioFolderStage`) can be an S3 or GCS URL. Pass fsspec credentials or a custom endpoint through `storage_options`, for example `ManifestReader(manifest_path="s3://bucket/manifests/", storage_options={"key": "...", "secret": "..."})`. Stages that write to a cloud output directory, such as `AudioSegmentWriterStage`, `NeMoSpeechWriterStage` and `MFAAlignmentStage`, accept the same `storage_options`. `MonoConversionStage`, `ChannelCountStage`, `SegmentConcatenationStage` and `ResampleAudioStage` take no `storage_options` and write to local paths only.
 
 ### Validation
 
