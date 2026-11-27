@@ -93,11 +93,23 @@ and are licensed [CC BY 4.0](https://huggingface.co/datasets/google/fleurs/blob/
 No Hugging Face token is needed.
 
 ```bash
-python tutorials/audio/granary_v2/indic_asr/download_samples.py --output-dir /data/indic_asr
+FLEURS=https://huggingface.co/datasets/google/fleurs/resolve/70bb2e84b976b7e960aa89f1c648e09c59f894dd/data/hi_in
+mkdir -p /data/indic_asr/audio
+cp tutorials/audio/granary_v2/indic_asr/sample_manifest.jsonl /data/indic_asr/manifest.jsonl
+# Both clips are in the first 2 MiB of the archive; never download all of it.
+curl -sfL -r 0-2097151 "$FLEURS/audio/dev.tar.gz" \
+  | tar -xz --occurrence=1 --strip-components=1 -C /data/indic_asr/audio \
+      dev/10003386135529782184.wav dev/10028896103651079035.wav
+(cd /data/indic_asr && sha256sum -c - <<'SHA'
+eaf505bbf7f4ce5543af9242678b0a992f11d933a4878685b7bbfd817c4e422d  audio/10003386135529782184.wav
+f9910565cad24bb9a7a3129d1e6a171393fd041d339f961c8233ba0bd1276fef  audio/10028896103651079035.wav
+SHA
+)
 ```
 
-This downloads two mono 16 kHz WAV files and their reference transcripts
-into `/data/indic_asr`, with a two-row `manifest.jsonl`:
+This copies the two-row `sample_manifest.jsonl` (reference transcripts from
+the same pinned FLEURS revision) and downloads the two mono 16 kHz WAV files
+it references into `/data/indic_asr`:
 
 | Audio file | Duration |
 | --- | ---: |
@@ -105,8 +117,7 @@ into `/data/indic_asr`, with a two-row `manifest.jsonl`:
 | `audio/10028896103651079035.wav` | 10.26 seconds |
 | Total | 22.50 seconds |
 
-The downloader uses a fixed dataset revision, verifies file hashes, and
-reuses identical files. It refuses to overwrite conflicting files.
+The download uses a fixed dataset revision and `sha256sum -c` verifies both files.
 
 ## 3. Run the pipeline
 

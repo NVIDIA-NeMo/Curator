@@ -20,6 +20,7 @@ from typing import Any
 _LAZY_IMPORTS = {
     "BandwidthEstimationStage": "nemo_curator.stages.audio.metrics.bandwidth",
     "ComputeWERStage": "nemo_curator.stages.audio.metrics.wer",
+    "DiarizationErrorRateStage": "nemo_curator.stages.audio.metrics.der",
     "GetPairwiseWerStage": "nemo_curator.stages.audio.metrics.wer",
     "TorchSquimQualityMetricsStage": "nemo_curator.stages.audio.metrics.squim",
 }

@@ -37,7 +37,6 @@ params_of_note:
   max_concurrent_requests: "Default 16 simultaneous requests per worker. More actors multiply endpoint load; this is not a server-wide concurrency limit."
   request_timeout_s: "Default 120 seconds per client request attempt. A separate batch deadline accounts for concurrency waves, wrapper/SDK retries and backoff, so a batch can take much longer."
   max_retries: "Default 3 wrapper retries for retryable failures; underlying SDK retries also contribute to time and request count."
-  num_workers_override: "Optional positive actor cap, useful for limiting total load on a shared server."
   skip_if_output_exists: "Default false. When true, output-key presence alone reuses the existing value, including empty text; a prompt/model change does not invalidate it."
   skip_me_key: "Default _skipme. Existing truthy reasons suppress generation. Language verification may add a reason but never clears an existing one."
   notes_key: "Default additional_notes; each operation writes an outcome under its configured name. Give sequential operations distinct names to preserve their audit history."

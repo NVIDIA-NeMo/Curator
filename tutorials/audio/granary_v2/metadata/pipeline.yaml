@@ -124,7 +124,7 @@ stages:
     min_duration_sec: 1
     max_duration_sec: 10
     batch_size: 16
-    num_workers_override: 2
+    num_workers: 2
     fail_on_audio_error: true
     adapter_kwargs:
       source: ${model_dir}/speechbrain
@@ -141,7 +141,7 @@ stages:
     min_duration_sec: 1
     max_duration_sec: 40
     batch_size: 16
-    num_workers_override: 1
+    num_workers: 1
     fail_on_audio_error: true
     adapter_kwargs:
       engine_dir: ${model_dir}/indic_transcribe
@@ -164,7 +164,7 @@ stages:
     min_duration_sec: 1
     max_duration_sec: 30
     batch_size: 16
-    num_workers_override: 2
+    num_workers: 2
     fail_on_audio_error: true
     adapter_kwargs:
       model_size: medium

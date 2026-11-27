@@ -297,7 +297,7 @@ def test_serialized_stage_has_independent_lazy_runtime_and_remains_a_ray_data_ta
     endpoint: Callable, used: bool
 ) -> None:
     clients = endpoint(lambda _request: _completion("processed"))
-    stage = _stage(num_workers_override=12)
+    stage = _stage().with_(num_workers=12)
     if used:
         stage.process(AudioTask(data={"text": "original"}))
     restored = loads(dumps(stage))

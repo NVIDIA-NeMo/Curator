@@ -60,7 +60,7 @@ Choose one tokenizer source:
 - A local directory loadable by `AutoTokenizer.from_pretrained(..., use_fast=True)`
 - A Hugging Face Hub repository ID, such as `openai/whisper-large-v3`
 
-For a gated Hub repository, authenticate with `HF_TOKEN`, `huggingface-cli login`, or `--hf-token`. Remote tokenizers are downloaded once per node before workers load them from the local cache. A slow tokenizer fails stage setup because the repetition filter requires character offset mappings.
+For a gated Hub repository, authenticate with `HF_TOKEN`, `huggingface-cli login`, or `workflow.0.hf_token=...`. Remote tokenizers are downloaded once per node before workers load them from the local cache. A slow tokenizer fails stage setup because the repetition filter requires character offset mappings.
 
 <Warning>
 Use a shared POSIX filesystem for multi-node runs. The reader, workers, and driver use local filesystem APIs, and the driver must be able to discover every manifest, metrics, and tar shard written next to the requested output paths.
@@ -99,7 +99,7 @@ Create one JSON object per source recording. The following schema preserves the 
 | Field | Requirement | Behavior |
 | --- | --- | --- |
 | `id` | Required, nonempty, unique after tar-key normalization | Forms snippet IDs and per-source metrics keys. Missing, empty, and duplicate IDs are skipped with a warning. Numeric IDs are converted to strings. Snippet ID generation replaces `.`, `/`, and `\` with `_`, so IDs that differ only in those characters—such as `session.1` and `session_1`—collide into the same tar member name. Ensure IDs remain distinct after that normalization, not only in their original form. |
-| `audio_filepath` | Required by default | Resolved according to `--audio-path-resolution`. Change the key with `--audio-filepath-key`. |
+| `audio_filepath` | Required by default | Resolved according to `workflow.0.audio_path_resolution`. Change the key with `workflow.0.audio_filepath_key`. |
 | `segments` | Required | The key must be present; a missing key fails `OverlapFilterStage` input validation and can fail the pipeline. An empty list (`[]`) is accepted and produces zero snippets. Each segment needs numeric `start` and `end`. Input order does not matter; filtering sorts by `(start, end)`. |
 | `segments[].text` | Required for a surviving snippet | Planning and repetition filtering use `text` only. `text_ITN` is preserved but does not drive decisions. |
 | `segments[].speaker` | Recommended | Preserved for diarization-aware downstream tasks. It does not affect cutting decisions. |
@@ -118,51 +118,51 @@ Invalid JSON lines, rows without a usable ID, and rows without the audio path fi
 
 ## Preview the cut with a dry run
 
-Start with `--dry-run`. It executes manifest reading, overlap filtering, snippet planning, transcript repetition filtering, manifest writing, and metrics aggregation without reading source audio or creating a tar:
+Start with `workflow.0.dry_run=true`. It executes manifest reading, overlap filtering, snippet planning, transcript repetition filtering, manifest writing, and metrics aggregation without reading source audio or creating a tar:
 
 ```bash
-uv run python -m tutorials.audio.audio_pretrain.run \
-  --input-manifest /data/long-form/manifest.jsonl \
-  --audio-dir /data/long-form/audio \
-  --output-dir /data/pretrain/preview \
-  --output-manifest /data/pretrain/preview/snippets.jsonl \
-  --output-audio-tar-path /data/pretrain/preview/snippets.tar \
-  --metrics-path /data/pretrain/preview/metrics.json \
-  --tokenizer-path openai/whisper-large-v3 \
-  --max-duration-sec 30 \
-  --dry-run
+uv run python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/audio_pretrain \
+  --config-name pipeline \
+  input_manifest=/data/long-form/manifest.jsonl \
+  audio_dir=/data/long-form/audio \
+  output_dir=/data/pretrain/preview \
+  tokenizer_path=openai/whisper-large-v3 \
+  max_duration_sec=30 \
+  workflow.0.dry_run=true
 ```
+
+`--config-path` is relative to `nemo_curator/config/run.py`. The outputs are `snippets.jsonl`, `snippets.tar`, and `metrics_summary.json` under `output_dir`.
 
 The preview manifest's `audio_filepath` still contains the tar member name that a real run would create, but `snippets.tar` does not exist. Preview duration is the planned `end - start`; a real run records the resampled frame-count duration, which can differ by at most one target-rate frame.
 
 <Warning>
-Point `--output-audio-tar-path` at a fresh, nonexistent tar path for every dry run. A dry run writes no tar shards, but finalization still runs: if a final tar from an earlier full run already exists at that path, the preview manifest is reconciled against that stale archive. Rows whose member names are absent from the old tar are silently removed, and matching rows are validated against unrelated audio. Use a new output directory for each preview, as shown above.
+Point `output_dir` at a fresh, nonexistent directory for every dry run. A dry run writes no tar shards, but finalization still runs: if a final tar from an earlier full run already exists at that path, the preview manifest is reconciled against that stale archive. Rows whose member names are absent from the old tar are silently removed, and matching rows are validated against unrelated audio. Use a new output directory for each preview, as shown above.
 </Warning>
 
-Review `metrics.json` for yield, duration distribution, overlap loss, and transcript repetition before paying the audio I/O and storage cost of a full run.
+Review `metrics_summary.json` for yield, duration distribution, overlap loss, and transcript repetition before paying the audio I/O and storage cost of a full run.
 
 ## Run the full extraction
 
-Remove `--dry-run` and use a new output directory so preview files cannot be mistaken for extracted data:
+Drop `workflow.0.dry_run=true` and use a new output directory so preview files cannot be mistaken for extracted data:
 
 ```bash
-uv run python -m tutorials.audio.audio_pretrain.run \
-  --input-manifest /data/long-form/manifest.jsonl \
-  --audio-dir /data/long-form/audio \
-  --output-dir /data/pretrain/run-001 \
-  --output-manifest /data/pretrain/run-001/snippets.jsonl \
-  --output-audio-tar-path /data/pretrain/run-001/snippets.tar \
-  --metrics-path /data/pretrain/run-001/metrics.json \
-  --tokenizer-path openai/whisper-large-v3 \
-  --tokenizer-cache-dir /data/hf-cache \
-  --max-duration-sec 30 \
-  --min-duration-sec 2 \
-  --max-segment-gap-in-snippet 5 \
-  --target-sample-rate 16000 \
-  --output-format flac
+uv run python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/audio_pretrain \
+  --config-name pipeline \
+  input_manifest=/data/long-form/manifest.jsonl \
+  audio_dir=/data/long-form/audio \
+  output_dir=/data/pretrain/run-001 \
+  tokenizer_path=openai/whisper-large-v3 \
+  max_duration_sec=30 \
+  workflow.0.tokenizer_cache_dir=/data/hf-cache \
+  workflow.0.min_duration_sec=2 \
+  workflow.0.max_segment_gap_in_snippet=5 \
+  workflow.0.target_sample_rate=16000 \
+  workflow.0.output_format=flac
 ```
 
-The default backend is Xenna in streaming mode. Use `--backend ray_data` for Ray Data. `--execution-mode` is passed only to Xenna; Ray Data ignores that CLI setting.
+The default backend is Xenna in streaming mode. Use `backend=ray_data` for Ray Data. `execution_mode` is passed only to Xenna; Ray Data ignores it.
 
 ## Understand cutting and filtering
 
@@ -212,77 +212,62 @@ An unreadable source, empty frame range, slice-read error, or tar-write error is
 
 ## Configuration reference
 
-| CLI option | Default | Notes |
+Top-level keys of `tutorials/audio/audio_pretrain/pipeline.yaml`:
+
+| Key | Default | Notes |
 | --- | --- | --- |
-| `--input-manifest` | Required | One JSON object per source recording. |
-| `--audio-dir` | Required | Base directory used by `basename` and `relative` path modes. |
-| `--output-dir` | Required | Created on each worker; usually the parent of the explicit outputs. |
-| `--output-manifest` | Required | Final JSONL, one row per valid snippet. |
-| `--output-audio-tar-path` | Required | Final sorted tar containing audio members at its root. |
-| `--metrics-path` | Required | Final aggregate metrics JSON. |
-| `--max-duration-sec` | Required | Must be greater than zero. |
-| `--min-duration-sec` | `0.5` | Must be nonnegative and no greater than the maximum. |
-| `--min-overlap-sec` | `0.5` | Inclusive pairwise overlap threshold in seconds. |
-| `--max-segment-gap-in-snippet` | `30.0` | Must be nonnegative. A larger gap starts a new snippet. |
-| `--tokenizer-path` | Required | Local fast tokenizer directory or Hub repository ID. |
-| `--tokenizer-cache-dir` | Hugging Face default | Shared cache is recommended for multi-node runs. |
-| `--hf-token` | Ambient authentication | Token for gated tokenizer repositories. Avoid placing secrets in scripts or logs. |
-| `--ngram-n` | `10` | Must be at least 1. |
-| `--ngram-max-count` | `3` | Must be at least 1; the filter drops on a strictly greater count. |
-| `--target-sample-rate` | `16000` | Must be greater than zero. |
-| `--output-format` | `flac` | One of `wav`, `flac`, or `ogg`. |
-| `--audio-filepath-key` | `audio_filepath` | Input and output field holding the audio reference. |
-| `--audio-path-resolution` | `basename` | One of `basename`, `relative`, or `as_is`. |
-| `--dataset-name` | `long_form_audio` | Dataset label placed on emitted `AudioTask` objects. |
-| `--backend` | `xenna` | `xenna` or `ray_data`. |
-| `--execution-mode` | `streaming` | Xenna only; `streaming` or `batch`. |
-| `--dry-run` | Disabled | Produces manifest and metrics without source-audio I/O or tar output. |
-| `--verbose` | Disabled | Enables debug logging. |
+| `input_manifest` | Required | One JSON object per source recording. |
+| `audio_dir` | Required | Base directory used by `basename` and `relative` path modes. |
+| `output_dir` | Required | Holds `snippets.jsonl`, `snippets.tar`, and `metrics_summary.json`. |
+| `tokenizer_path` | Required | Local fast tokenizer directory or Hub repository ID. |
+| `max_duration_sec` | Required | Must be greater than zero. |
+| `backend` | `xenna` | `xenna` or `ray_data`. |
+| `execution_mode` | `streaming` | Xenna only; `streaming` or `batch`. |
+
+Keys under `workflow.0` (override as `workflow.0.<key>=<value>`):
+
+| Key | Default | Notes |
+| --- | --- | --- |
+| `output_manifest_path` | `${output_dir}/snippets.jsonl` | Final JSONL, one row per valid snippet. |
+| `output_audio_tar_path` | `${output_dir}/snippets.tar` | Final sorted tar containing audio members at its root. |
+| `metrics_path` | `${output_dir}/metrics_summary.json` | Final aggregate metrics JSON. |
+| `min_duration_sec` | `0.5` | Must be nonnegative and no greater than the maximum. |
+| `min_overlap_sec` | `0.5` | Inclusive pairwise overlap threshold in seconds. |
+| `max_segment_gap_in_snippet` | `30.0` | Must be nonnegative. A larger gap starts a new snippet. |
+| `tokenizer_cache_dir` | Hugging Face default | Shared cache is recommended for multi-node runs. |
+| `hf_token` | Ambient authentication | Token for gated tokenizer repositories. Avoid placing secrets in scripts or logs. |
+| `ngram_n` | `10` | Must be at least 1. |
+| `ngram_max_count` | `3` | Must be at least 1; the filter drops on a strictly greater count. |
+| `target_sample_rate` | `16000` | Must be greater than zero. |
+| `output_format` | `flac` | One of `wav`, `flac`, or `ogg`. |
+| `audio_filepath_key` | `audio_filepath` | Input and output field holding the audio reference. |
+| `audio_path_resolution` | `basename` | One of `basename`, `relative`, or `as_is`. |
+| `dataset_name` | `long_form_audio` | Dataset label placed on emitted `AudioTask` objects. |
+| `dry_run` | `false` | Produces manifest and metrics without source-audio I/O or tar output. |
 
 ## Use the Python API
 
-When building the pipeline directly, call the driver-side prepare and finalize functions yourself. Keep finalization in `finally` so recoverable shards are merged after interruption or failure:
+`AudioPretrainWorkflow` takes the keyword arguments of `build_audio_pretrain_pipeline`. Its `run` creates the output directories, removes stale shards, runs the pipeline, and always merges the shards, even after a failure:
 
 ```python
 from nemo_curator.backends.xenna import XennaExecutor
-from nemo_curator.stages.audio.alm.pretrain import (
-    build_audio_pretrain_pipeline,
-    finalize_audio_pretrain_outputs,
-    prepare_audio_pretrain_outputs,
-)
+from nemo_curator.stages.audio.alm.pretrain import AudioPretrainWorkflow
 
-manifest = "/data/pretrain/run-001/snippets.jsonl"
-audio_tar = "/data/pretrain/run-001/snippets.tar"
-metrics = "/data/pretrain/run-001/metrics.json"
-
-pipeline = build_audio_pretrain_pipeline(
+AudioPretrainWorkflow(
     input_manifest="/data/long-form/manifest.jsonl",
     audio_dir="/data/long-form/audio",
     output_dir="/data/pretrain/run-001",
-    output_manifest_path=manifest,
-    output_audio_tar_path=audio_tar,
-    metrics_path=metrics,
+    output_manifest_path="/data/pretrain/run-001/snippets.jsonl",
+    output_audio_tar_path="/data/pretrain/run-001/snippets.tar",
+    metrics_path="/data/pretrain/run-001/metrics.json",
     max_duration_sec=30,
     min_duration_sec=2,
     max_segment_gap_in_snippet=5,
     tokenizer_path="openai/whisper-large-v3",
-    target_sample_rate=16000,
-    output_format="flac",
-)
-
-prepare_audio_pretrain_outputs(manifest, metrics, audio_tar)
-try:
-    pipeline.run(XennaExecutor(config={"execution_mode": "streaming"}))
-finally:
-    finalize_audio_pretrain_outputs(
-        manifest,
-        metrics,
-        audio_tar,
-        audio_filepath_key="audio_filepath",
-    )
+).run(XennaExecutor(config={"execution_mode": "streaming"}))
 ```
 
-`prepare_audio_pretrain_outputs` removes stale `*.shard-*` files next to all three outputs. `finalize_audio_pretrain_outputs` merges manifest and metrics shards, streams readable tar members into lexicographic order, removes merged shards, and reconciles the manifest against the tar.
+To drive `build_audio_pretrain_pipeline` yourself, call `prepare_audio_pretrain_outputs` before `pipeline.run` and `finalize_audio_pretrain_outputs` in a `finally` block after it. `prepare_audio_pretrain_outputs` removes stale `*.shard-*` files next to all three outputs. `finalize_audio_pretrain_outputs` merges manifest and metrics shards, streams readable tar members into lexicographic order, removes merged shards, and reconciles the manifest against the tar.
 
 ## Read the output manifest
 

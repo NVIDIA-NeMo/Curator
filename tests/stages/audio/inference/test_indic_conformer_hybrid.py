@@ -41,10 +41,7 @@ def _task(language: str | None = "hi") -> AudioTask:
 
 
 def test_stage_exposes_integration_pipeline_contract() -> None:
-    stage = InferenceIndicConformerHybridStage(
-        model_id="ai4bharat/test-checkpoint",
-        num_workers_override=3,
-    )
+    stage = InferenceIndicConformerHybridStage(model_id="ai4bharat/test-checkpoint").with_(num_workers=3)
 
     assert stage.inputs() == ([], ["waveform", "sampling_rate"])
     assert stage.outputs() == (

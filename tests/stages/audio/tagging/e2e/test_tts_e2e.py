@@ -18,8 +18,8 @@ Runs the full pipeline:
   ManifestReader -> Resample -> Diarize -> SplitASRAlignJoin (composite) ->
   Merge -> ITN -> Bandwidth -> SQUIM -> PrepareModuleSegments -> Write
 
-Uses create_pipeline_from_yaml + pipeline.run(executor) as shown in
-tutorials/audio/tagging/main.py.
+Uses create_pipeline_from_yaml + pipeline.run(executor), as nemo_curator/config/run.py
+does for tutorials/audio/tagging/tts_pipeline.yaml.
 """
 
 import os

@@ -9,25 +9,16 @@ From the repository root:
 uv sync --extra audio_cuda12
 source .venv/bin/activate
 
-python - <<'PY'
-from nemo_curator.backends.ray_data import RayDataExecutor
-from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.audio import ManifestReader, ManifestWriterStage
-from nemo_curator.stages.audio.inference.speaker_diarization.stage import InferenceSortformerStage
-from nemo_curator.stages.resources import Resources
-
-pipeline = Pipeline(name="sortformer_diarization")
-pipeline.add_stage(ManifestReader(manifest_path="tests/fixtures/audio/tagging/sample_input.jsonl"))
-pipeline.add_stage(
-    InferenceSortformerStage().with_(
-        resources=Resources(gpus=1),
-        batch_size=2,
-    )
-)
-pipeline.add_stage(ManifestWriterStage(output_path="sortformer_output.jsonl"))
-pipeline.run(RayDataExecutor())
-PY
+python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/sortformer \
+  --config-name pipeline \
+  manifest_path=tests/fixtures/audio/tagging/sample_input.jsonl
 ```
+
+`--config-path` is relative to `nemo_curator/config/run.py`. The output is
+written to `./sortformer_output.jsonl`; override it with `output_path=...`.
+Change GPU allocation with `gpus_per_actor=...` and the number of recordings
+per backend call with `batch_size=...`.
 
 Run the pipeline with the activated environment's Python so Ray workers reuse
 that environment rather than launching their own `uv run` environments.
@@ -44,9 +35,9 @@ The stage owns file-versus-waveform selection, in-memory mono conversion and
 The default `NeMoSortformerAdapter` owns checkpoint resolution, worker-local
 model state, provider-native file decoding, streaming parameters, precision,
 and inference. Adapter items contain exactly one of `audio_filepath` or
-`waveform` plus `sample_rate`. Change provider options under `adapter_kwargs`;
-change GPU allocation and the backend candidate window with `resources` and
-`batch_size`.
+`waveform` plus `sample_rate`. Change provider options under the stage's `adapter_kwargs` in
+`pipeline.yaml`; change GPU allocation and the backend candidate window with
+`resources` and `batch_size`.
 
 For a converted TensorRT deployment, replace both `adapter_target` and the
 entire native `adapter_kwargs` mapping. Native options such as `precision` and

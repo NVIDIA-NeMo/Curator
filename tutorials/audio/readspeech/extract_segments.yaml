@@ -1,0 +1,33 @@
+# Write the audio segments described by a ReadSpeech result manifest as
+# standalone files. The pipeline topology (VAD / speaker separation) is
+# detected from each manifest row.
+#
+# Usage (from the Curator repository root):
+#   python nemo_curator/config/run.py \
+#     --config-path ../../tutorials/audio/readspeech \
+#     --config-name extract_segments \
+#     manifest_path=./dns_data/result \
+#     output_dir=./extracted
+
+defaults:
+  - _self_
+  - override hydra/job_logging: none
+  - override hydra/hydra_logging: none
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+
+manifest_path: ???
+output_dir: ???
+output_format: wav  # wav, flac, or ogg
+backend: xenna
+
+stages:
+  - _target_: nemo_curator.stages.audio.common.ManifestReader
+    manifest_path: ${manifest_path}
+
+  - _target_: nemo_curator.stages.audio.io.extract_segments.SegmentExtractionStage
+    output_dir: ${output_dir}
+    output_format: ${output_format}

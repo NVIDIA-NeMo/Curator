@@ -104,17 +104,6 @@ def test_process_rejects_non_batch_execution() -> None:
     assert adapter.calls == []
 
 
-@pytest.mark.parametrize("value", [0, -1, True, 1.5, "2"])
-def test_worker_override_must_be_a_positive_integer(value: object) -> None:
-    with pytest.raises(ValueError, match="num_workers_override"):
-        _stage(num_workers_override=value)
-
-
-def test_worker_override_caps_backend_actors() -> None:
-    stage, _ = _stage(num_workers_override=2)
-    assert stage.num_workers() == 2
-
-
 def test_results_are_json_safe_and_preserve_other_models() -> None:
     stage, _ = _stage(results=[AudioLIDResult(language="TA", confidence=np.float32(0.625))])
     task = _task(lid={"WhisperLangID": {"language": "ta", "confidence": 0.7, "tag": "tertiary"}})
@@ -438,16 +427,14 @@ def test_metadata_extraction_runner_three_model_topology_is_representable() -> N
         model_id="SpeechBrainLangID",
         tag="primary",
         max_duration_sec=10.0,
-        num_workers_override=2,
         adapter_kwargs={"source": "speechbrain/lang-id-voxlingua107-ecapa"},
         **common,
-    )
+    ).with_(num_workers=2)
     canary = AudioLIDInferenceStage(
         adapter_target="nemo_curator.models.audio.lid.indic_transcribe.IndicTranscribeLIDAdapter",
         model_id="IndicTranscribeLangID",
         tag="secondary",
         max_duration_sec=40.0,
-        num_workers_override=1,
         adapter_kwargs={
             "engine_dir": "/models/indic_transcribe",
             "model_batch_size": 16,
@@ -455,13 +442,12 @@ def test_metadata_extraction_runner_three_model_topology_is_representable() -> N
             "cross_kv_cache_fraction": 0.1,
         },
         **common,
-    )
+    ).with_(num_workers=1)
     whisper = AudioLIDInferenceStage(
         adapter_target="nemo_curator.models.audio.lid.whisper.WhisperLIDAdapter",
         model_id="WhisperLangID",
         tag="tertiary",
         max_duration_sec=30.0,
-        num_workers_override=2,
         adapter_kwargs={
             "model_size": "medium",
             "model_path": "/models/whisper-medium.pt",
@@ -470,7 +456,7 @@ def test_metadata_extraction_runner_three_model_topology_is_representable() -> N
             "model_batch_size": 16,
         },
         **common,
-    )
+    ).with_(num_workers=2)
 
     assert [(stage.model_id, stage.tag, stage.num_workers()) for stage in (speechbrain, canary, whisper)] == [
         ("SpeechBrainLangID", "primary", 2),

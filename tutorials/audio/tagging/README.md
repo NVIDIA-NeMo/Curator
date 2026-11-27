@@ -108,8 +108,8 @@ The TTS config runs the core stages with `module: tts` in `PrepareModuleSegments
 A small toy dataset is bundled in `tests/fixtures/audio/tagging/` so you can run end-to-end without providing your own audio:
 
 ```bash
-python tutorials/audio/tagging/main.py \
-  --config-path . \
+python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/tagging \
   --config-name tts_pipeline \
   input_manifest=tests/fixtures/audio/tagging/sample_input.jsonl \
   final_manifest=/tmp/tts_output.jsonl \
@@ -121,8 +121,8 @@ python tutorials/audio/tagging/main.py \
 The ASR config runs the same core stages with `module: asr` (`full_utterance_ratio: 0.8` to allow partial utterances), then adds second-pass ASR and WER computation. The per-segment `wer` field can be used to filter for reliable transcripts — for example, keeping only segments where `wer <= 10%`.
 
 ```bash
-python tutorials/audio/tagging/main.py \
-  --config-path . \
+python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/tagging \
   --config-name asr_pipeline \
   input_manifest=/data/input.jsonl \
   final_manifest=/data/asr_output.jsonl \
@@ -216,8 +216,8 @@ The output manifest is a JSONL file where each line contains the fully processed
 All parameters are defined in the YAML config files. Override from the command line:
 
 ```bash
-python tutorials/audio/tagging/main.py \
-  --config-path . \
+python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/tagging \
   --config-name tts_pipeline \
   input_manifest=tests/fixtures/audio/tagging/sample_input.jsonl \
   final_manifest=/tmp/output.jsonl \
@@ -330,7 +330,6 @@ These ratios vary significantly by content type. Interviews (2 speakers, turn-ta
 
 ```
 tutorials/audio/tagging/
-├── main.py              # Pipeline runner (YAML-driven)
 ├── tts_pipeline.yaml    # TTS pipeline configuration
 ├── asr_pipeline.yaml    # ASR pipeline configuration
 └── README.md            # This file

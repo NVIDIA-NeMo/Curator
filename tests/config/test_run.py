@@ -28,13 +28,20 @@ from unittest.mock import MagicMock, patch
 import hydra
 import pytest
 from hydra import compose, initialize, initialize_config_dir
+from loguru import logger
 from omegaconf import ListConfig, OmegaConf
 
-from nemo_curator.config.run import create_executor_from_yaml, create_pipeline_from_yaml, main
+from nemo_curator.config.run import (
+    create_executor_from_yaml,
+    create_pipeline_from_yaml,
+    log_pipeline_summary,
+    main,
+)
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.io.reader import JsonlReader, ParquetReader
 from nemo_curator.stages.text.io.writer import JsonlWriter, ParquetWriter
-from nemo_curator.tasks import FileGroupTask
+from nemo_curator.tasks import AudioTask, FileGroupTask
+from nemo_curator.utils.performance_utils import StagePerfStats
 
 
 def test_pipeline_with_jsonl_reader_stage():
@@ -217,6 +224,26 @@ def test_pipeline_with_hydra_instantiated_resources():
     assert pipeline.stages[0].resources.gpus == 2.0
 
 
+@pytest.mark.parametrize(("key", "value"), [("num_workers", 3), ("num_workers_per_node", 0.5)])
+def test_pipeline_applies_stage_worker_count_via_with(key: str, value: float):
+    cfg = OmegaConf.create(
+        {
+            "stages": [
+                {
+                    "_target_": "nemo_curator.stages.audio.metrics.wer.GetPairwiseWerStage",
+                    "resources": {"cpus": 2.0},
+                    key: value,
+                }
+            ]
+        }
+    )
+
+    stage = create_pipeline_from_yaml(cfg, log_config=False).stages[0]
+
+    assert getattr(stage, key)() == value
+    assert stage.resources.cpus == 2.0
+
+
 def test_pipeline_with_multiple_stages():
     from nemo_curator.stages.text.modifiers import Modify
     from nemo_curator.stages.text.modifiers.string import UrlRemover
@@ -393,6 +420,37 @@ def test_ray_data_does_not_receive_xenna_execution_mode(mock_get_class: MagicMoc
     executor_cls.assert_called_once_with()
 
 
+@patch("hydra.utils.get_class")
+def test_executor_kwargs_are_passed_to_xenna(mock_get_class: MagicMock):
+    executor_cls = MagicMock()
+    mock_get_class.return_value = executor_cls
+    cfg = OmegaConf.create(
+        {
+            "execution_mode": "batch",
+            "executor_kwargs": {"config": {"logging_interval": 10}},
+        }
+    )
+
+    create_executor_from_yaml(cfg)
+
+    mock_get_class.assert_called_once_with("nemo_curator.backends.xenna.XennaExecutor")
+    executor_cls.assert_called_once_with(config={"logging_interval": 10, "execution_mode": "batch"})
+
+
+@patch("hydra.utils.get_class")
+def test_executor_kwargs_are_passed_to_ray_data(mock_get_class: MagicMock):
+    executor_cls = MagicMock()
+    mock_get_class.return_value = executor_cls
+    cfg = OmegaConf.create(
+        {"backend": "ray_data", "executor_kwargs": {"config": {"foo": 1}, "ignore_head_node": True}}
+    )
+
+    create_executor_from_yaml(cfg)
+
+    mock_get_class.assert_called_once_with("nemo_curator.backends.ray_data.RayDataExecutor")
+    executor_cls.assert_called_once_with(config={"foo": 1}, ignore_head_node=True)
+
+
 def test_unknown_executor_backend_raises_error():
     cfg = OmegaConf.create({"backend": "unknown"})
 
@@ -423,6 +481,34 @@ def test_main_passes_configured_executor_to_pipeline(
     mock_create_ray_client.return_value.start.assert_called_once_with()
     mock_create_pipeline.return_value.run.assert_called_once_with(executor=executor)
     mock_create_ray_client.return_value.stop.assert_called_once_with()
+
+
+def test_log_pipeline_summary_reports_task_count_and_stage_totals():
+    tasks = []
+    for windows in (2, 3):
+        task = AudioTask(data={})
+        task.add_stage_perf(
+            StagePerfStats(
+                stage_name="builder",
+                process_time=0.5,
+                actor_idle_time=9.0,
+                num_items_processed=1,
+                custom_metrics={"windows_created": windows},
+            )
+        )
+        tasks.append(task)
+    messages: list[str] = []
+    handler_id = logger.add(lambda message: messages.append(message.record["message"]))
+    try:
+        log_pipeline_summary(tasks)
+        log_pipeline_summary(None)
+    finally:
+        logger.remove(handler_id)
+
+    assert messages == [
+        "Output tasks: 2",
+        "  [builder] process_time=1, num_items_processed=2, custom.windows_created=5",
+    ]
 
 
 def test_qwen_tutorial_yaml_matches_reference_runner_config():
@@ -1013,8 +1099,32 @@ def test_run_cli_defaults_to_pipeline_config_for_fastconformer() -> None:
     assert "adapter_target: nemo_curator.models.asr.nemo_asr.NeMoASRAdapter" in result.stdout
 
 
-SHIPPED_TEXT_CONFIG_DIR = Path(__file__).parents[2] / "nemo_curator" / "config" / "text"
-SHIPPED_TEXT_CONFIGS = sorted(p.name for p in SHIPPED_TEXT_CONFIG_DIR.glob("*.yaml"))
+REPO_ROOT = Path(__file__).parents[2]
+AUDIO_TUTORIALS_DIR = REPO_ROOT / "tutorials" / "audio"
+# Every config/run.py pipeline file: the shipped text configs and every audio tutorial YAML
+# (a rule file such as granary_v2/indic_asr/regex.yaml is data, not a pipeline).
+SHIPPED_CONFIGS = sorted(
+    path.relative_to(REPO_ROOT).as_posix()
+    for path in [
+        *(REPO_ROOT / "nemo_curator" / "config" / "text").glob("*.yaml"),
+        *AUDIO_TUTORIALS_DIR.rglob("*.yaml"),
+    ]
+    if path.name != "regex.yaml"
+)
+
+
+def test_audio_tutorials_are_readme_plus_yaml() -> None:
+    """Each audio tutorial is a README plus YAML run by config/run.py, with small data files at most."""
+    for directory in [AUDIO_TUTORIALS_DIR, *(p for p in AUDIO_TUTORIALS_DIR.rglob("*") if p.is_dir())]:
+        assert (directory / "README.md").is_file(), f"{directory} has no README.md"
+    for path in AUDIO_TUTORIALS_DIR.rglob("*"):
+        if path.is_file():
+            assert path.suffix in {".md", ".yaml", ".jsonl", ".txt"}, f"tutorial code belongs in the library: {path}"
+            assert path.stat().st_size < 100_000, f"tutorial data should be small: {path}"
+
+
+# Stage keys `_instantiate_stage` applies through `.with_()` instead of the constructor.
+WITH_KEYS = {"resources", "num_workers", "num_workers_per_node"}
 
 
 # Packages the CPU test job does not install: the `deduplication_cuda12` extra with
@@ -1085,8 +1195,8 @@ def _target_nodes(node: object) -> Iterator[dict]:
             yield from _target_nodes(item)
 
 
-@pytest.mark.parametrize("config_name", SHIPPED_TEXT_CONFIGS)
-def test_shipped_config_passes_only_arguments_its_targets_accept(config_name: str) -> None:
+@pytest.mark.parametrize("config_path", SHIPPED_CONFIGS)
+def test_shipped_config_passes_only_arguments_its_targets_accept(config_path: str) -> None:
     """A shipped config has to survive instantiation, and nothing cheap told us it does.
 
     ``main`` starts the Ray client before it builds the pipeline, so a key a
@@ -1098,8 +1208,10 @@ def test_shipped_config_passes_only_arguments_its_targets_accept(config_name: st
     A target whose module needs the GPU extras is imported with those packages
     mocked, so the semantic deduplication workflow is checked on CPU runners too.
     """
-    with initialize_config_dir(config_dir=str(SHIPPED_TEXT_CONFIG_DIR), version_base=None):
-        cfg = compose(config_name=config_name)
+    path = REPO_ROOT / config_path
+    with initialize_config_dir(config_dir=str(path.parent), version_base=None):
+        cfg = compose(config_name=path.stem)
+    assert "stages" in cfg or "workflow" in cfg, f"{config_path} defines no stages or workflow"
 
     unaccepted: list[str] = []
     with _missing_gpu_packages_mocked():
@@ -1109,15 +1221,15 @@ def test_shipped_config_passes_only_arguments_its_targets_accept(config_name: st
                 key: value
                 for key, value in node.items()
                 # `_` keys are Hydra's own, and `_instantiate_stage` applies
-                # `resources` through `.with_()` rather than the constructor.
-                if not key.startswith("_") and key != "resources"
+                # these through `.with_()` rather than the constructor.
+                if not key.startswith("_") and key not in WITH_KEYS
             }
             try:
-                inspect.signature(hydra.utils.get_class(target)).bind_partial(**kwargs)
+                inspect.signature(hydra.utils.get_object(target)).bind_partial(**kwargs)
             except TypeError as error:
                 unaccepted.append(f"{target}: {error}")
 
-    assert not unaccepted, f"{config_name} passes arguments nothing accepts: " + "; ".join(unaccepted)
+    assert not unaccepted, f"{config_path} passes arguments nothing accepts: " + "; ".join(unaccepted)
 
 
 @pytest.mark.parametrize("backend", ["ray_data", "xenna"])

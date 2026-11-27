@@ -1,0 +1,53 @@
+# Cut long-form diarized audio into bounded snippets for ALM pretraining.
+#
+# Usage (from the Curator repository root):
+#   python nemo_curator/config/run.py \
+#     --config-path ../../tutorials/audio/audio_pretrain \
+#     --config-name pipeline \
+#     input_manifest=/path/to/long_form.jsonl \
+#     audio_dir=/path/to/audios \
+#     output_dir=/path/to/output \
+#     tokenizer_path=/path/to/hf_tokenizer_dir \
+#     max_duration_sec=30
+
+defaults:
+  - _self_
+  - override hydra/job_logging: none
+  - override hydra/hydra_logging: none
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+
+input_manifest: ???
+audio_dir: ???
+output_dir: ???
+tokenizer_path: ???
+max_duration_sec: ???
+backend: xenna
+execution_mode: streaming
+
+workflow:
+  - _target_: nemo_curator.stages.audio.alm.pretrain.AudioPretrainWorkflow
+    input_manifest: ${input_manifest}
+    audio_dir: ${audio_dir}
+    output_dir: ${output_dir}
+    output_manifest_path: ${output_dir}/snippets.jsonl
+    output_audio_tar_path: ${output_dir}/snippets.tar
+    metrics_path: ${output_dir}/metrics_summary.json
+    max_duration_sec: ${max_duration_sec}
+    tokenizer_path: ${tokenizer_path}
+    min_duration_sec: 0.5
+    min_overlap_sec: 0.5
+    max_segment_gap_in_snippet: 30.0
+    ngram_n: 10
+    ngram_max_count: 3
+    tokenizer_cache_dir: null
+    hf_token: null
+    target_sample_rate: 16000
+    output_format: flac
+    audio_filepath_key: audio_filepath
+    audio_path_resolution: basename
+    dataset_name: long_form_audio
+    dry_run: false

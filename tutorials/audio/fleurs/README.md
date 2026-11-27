@@ -48,8 +48,8 @@ uv sync --extra audio_cpu
 Run the pipeline via Hydra (from Curator repo root):
 
 ```bash
-python tutorials/audio/fleurs/main.py \
-  --config-path . \
+python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/fleurs \
   --config-name pipeline \
   raw_data_dir=./example_audio/fleurs
 ```
@@ -63,8 +63,8 @@ Defaults: Armenian (`hy_am`) dev split, WER threshold **5.5%** (same as the nigh
 Override values without editing `pipeline.yaml`:
 
 ```bash
-python tutorials/audio/fleurs/main.py \
-  --config-path . \
+python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/fleurs \
   --config-name pipeline \
   raw_data_dir=./example_audio/fleurs \
   data_split=dev \
@@ -94,7 +94,9 @@ FLEURS language codes follow the dataset convention (e.g., `en_us`, `fr_fr`, `hy
 | `xenna` | Default. Cosmos-Xenna streaming engine with automatic worker allocation. | Most workloads, CI/nightly benchmarks. |
 | `ray_data` | Built on Ray Data `map_batches`. | Development, machines without Xenna GPU support. |
 
-Both backends run on top of Ray. `main.py` uses `RayClient` to manage the Ray cluster lifecycle (start/stop, port allocation, dashboard). `RayClient` is started before creating the executor and stopped in a `finally` block so the cluster is always cleaned up.
+Constructor arguments for the chosen executor go under `executor_kwargs`, for example `+executor_kwargs.config.logging_interval=30`. `+executor_kwargs.ignore_head_node=true` works only with `backend=ray_data`; `XennaExecutor` raises a `ValueError` for it.
+
+Both backends run on top of Ray. `nemo_curator/config/run.py` uses `RayClient` to manage the Ray cluster lifecycle (start/stop, port allocation, dashboard). `RayClient` is started before the pipeline runs and stopped when it finishes.
 
 ## Pipeline stages
 
@@ -130,7 +132,7 @@ Converts surviving `AudioTask` objects to `DocumentBatch` format and writes JSON
 
 WER (Word Error Rate) measures transcription accuracy on a 0–100 scale: 0 = perfect match, 100 = every word wrong. Values above 100 are possible when insertions outnumber deletions.
 
-The default **`wer_threshold` of 5.5** matches the nightly FLEURS benchmark and the tutorial notebook. It keeps high-quality transcriptions when the ASR model matches the target language (e.g. `hy_am` + `stt_hy_fastconformer_hybrid_large_pc`).
+The default **`wer_threshold` of 5.5** matches the nightly FLEURS benchmark. It keeps high-quality transcriptions when the ASR model matches the target language (e.g. `hy_am` + `stt_hy_fastconformer_hybrid_large_pc`).
 
 **Recommended thresholds by use case:**
 

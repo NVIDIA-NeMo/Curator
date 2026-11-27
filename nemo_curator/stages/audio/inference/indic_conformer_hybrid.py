@@ -54,7 +54,6 @@ class InferenceIndicConformerHybridStage(ASRStage):
     language_key: str = "asr_language"
     notes_key: str = "additional_notes"
     keep_waveform: bool = False
-    num_workers_override: int | None = None
     resources: Resources = field(default_factory=lambda: Resources(gpus=1.0))
     batch_size: int = 128
     max_audio_sec_per_actor: float = 2400.0

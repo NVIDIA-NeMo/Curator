@@ -4,14 +4,14 @@
 # for Audio Language Models.
 #
 # Usage (from Curator repo root):
-#   python tutorials/audio/alm/main.py \
-#     --config-path . \
+#   python nemo_curator/config/run.py \
+#     --config-path ../../tutorials/audio/alm \
 #     --config-name pipeline \
 #     manifest_path=tests/fixtures/audio/alm/sample_input.jsonl
 #
 #   # Override values from command line
-#   python tutorials/audio/alm/main.py \
-#     --config-path . \
+#   python nemo_curator/config/run.py \
+#     --config-path ../../tutorials/audio/alm \
 #     --config-name pipeline \
 #     manifest_path=/data/input.jsonl \
 #     stages.1.min_speakers=3 \
