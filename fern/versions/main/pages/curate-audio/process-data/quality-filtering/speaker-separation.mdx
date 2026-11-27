@@ -143,7 +143,7 @@ A pipeline that diarizes, then runs per-speaker quality filters:
 ```python
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.backends.xenna import XennaExecutor
-from nemo_curator.stages.audio.preprocessing.mono_conversion import MonoConversionStage
+from nemo_curator.stages.audio.preprocessing import AudioFormatStage
 from nemo_curator.stages.audio.segmentation.vad_segmentation import VADSegmentationStage
 from nemo_curator.stages.audio.preprocessing.concatenation import SegmentConcatenationStage
 from nemo_curator.stages.audio.segmentation.speaker_separation import SpeakerSeparationStage
@@ -155,7 +155,7 @@ from nemo_curator.stages.text.io.writer import JsonlWriter
 pipeline = Pipeline(name="speaker_diarization")
 
 # 1. Normalize and segment
-pipeline.add_stage(MonoConversionStage(output_sample_rate=48000))
+pipeline.add_stage(AudioFormatStage(allowed_sample_rates=[48000], target_channels=1))
 pipeline.add_stage(VADSegmentationStage(min_duration_sec=2.0))
 
 # 2. Concatenate surviving segments per file

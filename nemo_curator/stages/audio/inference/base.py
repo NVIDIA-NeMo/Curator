@@ -24,7 +24,6 @@ from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar
 
 import hydra.utils
 import numpy as np
-import soundfile
 from loguru import logger
 
 from nemo_curator.stages.audio._agent._agent_ready import ConditionalRead, IOSpec
@@ -33,6 +32,7 @@ from nemo_curator.stages.audio._agent._residency import (
     accepts_for_residency,
     residency_read_specs,
 )
+from nemo_curator.stages.audio.common import load_audio_file
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask, Task
 
@@ -448,7 +448,8 @@ class AdapterInferenceStage(ProcessingStage[AudioTask, AudioTask], Generic[Adapt
     @staticmethod
     def _load_audio(audio_filepath: str) -> tuple[np.ndarray, int]:
         """Load one file as contiguous mono or channel-first float32 audio."""
-        waveform, sample_rate = soundfile.read(audio_filepath, dtype="float32")
-        if waveform.ndim == _CHANNEL_FIRST_DIMENSIONS:
-            waveform = waveform.T
+        waveform, sample_rate = load_audio_file(audio_filepath, mono=False)
+        waveform = waveform.numpy()
+        if waveform.shape[0] == 1:
+            waveform = waveform[0]
         return np.ascontiguousarray(waveform, dtype=np.float32), int(sample_rate)

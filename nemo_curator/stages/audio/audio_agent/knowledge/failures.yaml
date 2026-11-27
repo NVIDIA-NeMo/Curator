@@ -15,7 +15,7 @@ failures:
     likely_cause: "the selected audio rate is incompatible with the configured consumer"
     layer: data
     auto_fix: null
-    user_guidance: "verify the actual rate and consumer requirements; if conversion is needed, use ResampleAudioStage(target_sample_rate=...) and route the consumer to its converted path or waveform/rate pair. MonoConversionStage does not resample"
+    user_guidance: "verify the actual rate and consumer requirements; if conversion is needed, use AudioFormatStage(target_sample_rate=...) and route the consumer to its converted path or waveform/rate pair. AudioFormatStage(allowed_sample_rates=...) does not resample; it drops mismatches"
 
   - code: disk_full
     symptom_signature: ["no space left on device", "\\benospc\\b", "\\berrno 28\\b", "disk quota exceeded"]

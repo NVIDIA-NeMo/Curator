@@ -10,12 +10,12 @@ patterns:
   - id: mono-first
     kind: advisory
     when: "a consumer requires mono and its selected input may have multiple channels"
-    then: "if conversion is needed, use ChannelCountStage(action='convert', target_channels=1) for its supported channel layouts, or MonoConversionStage(strict_sample_rate=False) for a mono downmix without a rate gate. Enable a strict rate gate or use channel filtering only when discarding mismatches is intended"
+    then: "if conversion is needed, use AudioFormatStage(target_channels=1). Use allowed_channels/allowed_sample_rates only when discarding mismatches is intended"
 
   - id: resample-before-16k-models
     kind: advisory
     when: "a model stage's card lists supported_sample_rates=[16000] and the data has other rates"
-    then: "if the stage does not resample internally, use ResampleAudioStage and route the consumer to its converted path or retained waveform/rate pair. MonoConversionStage verifies a rate and drops mismatches by default; it does not resample"
+    then: "if the stage does not resample internally, use AudioFormatStage(target_sample_rate=16000) and route the consumer to its retained waveform/rate pair or converted path. AudioFormatStage(allowed_sample_rates=...) drops mismatches; it does not resample"
 
   - id: sanitize-before-json-sink
     kind: enforced

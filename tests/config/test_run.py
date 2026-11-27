@@ -442,12 +442,11 @@ def test_qwen_tutorial_yaml_matches_reference_runner_config():
     stage = pipeline.stages[2]
     executor = create_executor_from_yaml(cfg)
 
-    assert resample_stage.__class__.__name__ == "ResampleAudioStage"
+    assert resample_stage.__class__.__name__ == "AudioFormatStage"
     assert "sample_rate" not in cfg
-    assert Path(resample_stage.resampled_audio_dir).parts[-2:] == ("qwen_omni_workspace", "audio_resampled")
+    assert Path(resample_stage.output_dir).parts[-2:] == ("qwen_omni_workspace", "audio_resampled")
     assert resample_stage.target_sample_rate == 16000
-    assert resample_stage.target_format == "wav"
-    assert resample_stage.target_nchannels == 1
+    assert resample_stage.target_channels == 1
     assert stage.audio_filepath_key == "resampled_audio_filepath"
     assert stage.inputs()[1] == ["resampled_audio_filepath"]
     assert stage.pred_text_key == "custom_prediction"
@@ -598,12 +597,11 @@ def test_qwen_asr_tutorial_yaml_uses_generic_adapter_contract():
     stage = pipeline.stages[2]
     executor = create_executor_from_yaml(cfg)
 
-    assert resample_stage.__class__.__name__ == "ResampleAudioStage"
+    assert resample_stage.__class__.__name__ == "AudioFormatStage"
     assert "sample_rate" not in cfg
-    assert Path(resample_stage.resampled_audio_dir).parts[-2:] == ("qwen_asr_workspace", "audio_resampled")
+    assert Path(resample_stage.output_dir).parts[-2:] == ("qwen_asr_workspace", "audio_resampled")
     assert resample_stage.target_sample_rate == 16000
-    assert resample_stage.target_format == "wav"
-    assert resample_stage.target_nchannels == 1
+    assert resample_stage.target_channels == 1
     assert stage.audio_filepath_key == "resampled_audio_filepath"
     assert stage.inputs()[1] == ["resampled_audio_filepath"]
     assert stage.pred_text_key == "custom_prediction"
@@ -775,14 +773,13 @@ def test_faster_whisper_tutorial_yaml_matches_reference_contract():
     executor = create_executor_from_yaml(cfg)
 
     assert reader.__class__.__name__ == "ManifestReader"
-    assert resample_stage.__class__.__name__ == "ResampleAudioStage"
-    assert Path(resample_stage.resampled_audio_dir).parts[-2:] == (
+    assert resample_stage.__class__.__name__ == "AudioFormatStage"
+    assert Path(resample_stage.output_dir).parts[-2:] == (
         "faster_whisper_workspace",
         "audio_resampled",
     )
     assert resample_stage.target_sample_rate == 16000
-    assert resample_stage.target_format == "wav"
-    assert resample_stage.target_nchannels == 1
+    assert resample_stage.target_channels == 1
 
     assert stage.__class__.__name__ == "ASRStage"
     assert stage.name == "FasterWhisper_inference"
@@ -944,11 +941,10 @@ def test_nemo_fastconformer_tutorial_yaml_uses_shared_adapter_contract():
     executor = create_executor_from_yaml(cfg)
 
     assert reader.__class__.__name__ == "ManifestReader"
-    assert resample_stage.__class__.__name__ == "ResampleAudioStage"
+    assert resample_stage.__class__.__name__ == "AudioFormatStage"
     assert resample_stage.target_sample_rate == 16000
-    assert resample_stage.target_format == "wav"
-    assert resample_stage.target_nchannels == 1
-    assert Path(resample_stage.resampled_audio_dir).parts[-2:] == (
+    assert resample_stage.target_channels == 1
+    assert Path(resample_stage.output_dir).parts[-2:] == (
         "nemo_fastconformer_workspace",
         "audio_resampled",
     )

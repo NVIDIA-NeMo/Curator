@@ -22,7 +22,7 @@ use_cases:
     - "languages the checkpoint was not trained on"
     - "non-16 kHz input without an upstream resample"
 composition:
-  typical_upstream: [SplitLongAudioStage, ResampleAudioStage]
+  typical_upstream: [SplitLongAudioStage, AudioFormatStage]
   typical_downstream: [JoinSplitAudioMetadataStage, MergeAlignmentDiarizationStage]
 params_of_note:
   model_name: "the NeMo ASR checkpoint id (default nvidia/parakeet-tdt_ctc-1.1b)"

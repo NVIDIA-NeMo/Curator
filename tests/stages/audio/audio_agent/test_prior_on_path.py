@@ -79,14 +79,21 @@ def _prior_recipe(folder: str, *, source: str, mono: bool, mos: float) -> Recipe
             "params": {"data_dir": folder} if source.endswith("AudioFolderStage") else {"raw_data_dir": folder},
         }
     ]
+    # Before the converter, so the diff pairs the converters and reports this one as removed.
+    if mono:
+        stages.append({"ref": "AudioFormatStage", "params": {"target_channels": 1}})
     stages.append(
         {
-            "ref": "ResampleAudioStage",
-            "params": {"target_sample_rate": 16000, "target_nchannels": 1, "resampled_audio_dir": _PRIOR_RESAMPLE_DIR},
+            "ref": "AudioFormatStage",
+            "params": {
+                "target_sample_rate": 16000,
+                "target_channels": 1,
+                "write_to_disk": True,
+                "keep_waveform_in_task": False,
+                "output_dir": _PRIOR_RESAMPLE_DIR,
+            },
         }
     )
-    if mono:
-        stages.append({"ref": "MonoConversionStage", "params": {}})
     stages.append({"ref": "VADSegmentationStage", "params": {}})
     stages.append({"ref": "UTMOSFilterStage", "params": {"mos_threshold": mos, "action": "filter"}})
     stages.append({"ref": "ManifestWriterStage", "params": {"output_path": _PRIOR_OUT}})
@@ -150,7 +157,7 @@ class TestItFiresWhenTheFolderWasCuratedByADifferentPipeline:
         assert prior is not None, "a prior run on this same folder should be disclosed"
         assert prior["run_id"] == run_id
         assert prior["same_recipe"] is False
-        assert "MonoConversionStage" in prior["recipe_diff"]["removed_stages"]
+        assert "AudioFormatStage" in prior["recipe_diff"]["removed_stages"]
         assert "CreateInitialManifestAudioFolderStage" in prior["recipe_diff"]["added_stages"]
         threshold = [c for c in prior["recipe_diff"]["changed_params"] if c["param"] == "mos_threshold"]
         assert threshold

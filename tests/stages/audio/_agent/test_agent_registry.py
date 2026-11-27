@@ -77,10 +77,10 @@ def test_composite_identity_follows_resolved_configuration(tmp_path: Path) -> No
     module = pytest.importorskip("nemo_curator.stages.audio.advanced_pipelines.audio_data_filter")
     cls = module.AudioDataFilterStage
     config = tmp_path / "config.yaml"
-    config.write_text("mono_conversion:\n  output_sample_rate: 16000\n")
+    config.write_text("audio_format:\n  allowed_sample_rates: [16000]\n")
     first = pipeline_identity([cls(config_path=config)])
-    assert first == pipeline_identity([cls(config={"mono_conversion": {"output_sample_rate": 16000}})])
-    config.write_text("mono_conversion:\n  output_sample_rate: 48000\n")
+    assert first == pipeline_identity([cls(config={"audio_format": {"allowed_sample_rates": [16000]}})])
+    config.write_text("audio_format:\n  allowed_sample_rates: [48000]\n")
     assert first != pipeline_identity([cls(config_path=config)])
 
 

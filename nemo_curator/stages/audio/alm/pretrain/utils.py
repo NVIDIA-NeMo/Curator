@@ -118,48 +118,6 @@ def _segment_text(seg: dict) -> str:
     return (seg.get("text") or "").strip()
 
 
-AUDIO_PATH_RESOLUTION_BASENAME = "basename"
-AUDIO_PATH_RESOLUTION_RELATIVE = "relative"
-AUDIO_PATH_RESOLUTION_AS_IS = "as_is"
-_AUDIO_PATH_RESOLUTION_MODES = (
-    AUDIO_PATH_RESOLUTION_BASENAME,
-    AUDIO_PATH_RESOLUTION_RELATIVE,
-    AUDIO_PATH_RESOLUTION_AS_IS,
-)
-
-
-def _resolve_audio_path(audio_dir: str, value: str, mode: str = AUDIO_PATH_RESOLUTION_BASENAME) -> str:
-    """Resolve a manifest's ``audio_filepath`` against ``audio_dir``.
-
-    The default ``"basename"`` mode is convenient for flat staging
-    directories but can silently point at the wrong audio when the
-    manifest preserves subdirectories or when two source rows share a
-    basename across shards; ``"relative"`` and ``"as_is"`` are exposed
-    so the user can opt in to subdirectory-preserving or
-    fully-explicit resolution when that matters.
-
-    Modes:
-
-    * ``"basename"`` (default): ``audio_dir / basename(value)``.
-      Manifests stay portable across hosts; pair with the duplicate-
-      basename check in :class:`ReadLongFormManifestStage` to surface
-      collisions explicitly.
-    * ``"relative"``: ``audio_dir / value`` (preserves subdirectories).
-      Absolute paths in the manifest are taken as-is (Python's
-      ``os.path.join`` semantics).
-    * ``"as_is"``: ``value`` returned unchanged.  The caller is
-      responsible for making sure it points at the right audio file.
-    """
-    if mode == AUDIO_PATH_RESOLUTION_BASENAME:
-        return os.path.join(audio_dir, os.path.basename(value))
-    if mode == AUDIO_PATH_RESOLUTION_RELATIVE:
-        return os.path.join(audio_dir, value)
-    if mode == AUDIO_PATH_RESOLUTION_AS_IS:
-        return value
-    msg = f"unknown audio_path_resolution {mode!r}; expected one of {_AUDIO_PATH_RESOLUTION_MODES}"
-    raise ValueError(msg)
-
-
 def _is_origin_stub(task: AudioTask, snippet_id_key: str = "snippet_id") -> bool:
     """A stub task from the extractor that carries per-original metrics for an
     input that produced zero snippets.  Has no snippet_id."""

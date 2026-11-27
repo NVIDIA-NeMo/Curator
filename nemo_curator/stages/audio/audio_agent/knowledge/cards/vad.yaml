@@ -5,7 +5,7 @@ tags: [fanout, batch_only]
 model_id: "silero-vad (pip package, bundled weights; no download)"
 model_version: "silero-vad==6.2.1"   # pinned in uv.lock
 domain: {language: any, style: speech}
-constraints: {}   # no supported_sample_rates constraint: Silero runs natively at 8/16/32/48/64/96 kHz and ANY other rate is internally resampled to 16 kHz (see notes), so no upstream ResampleAudioStage is required
+constraints: {}   # no supported_sample_rates constraint: Silero runs natively at 8/16/32/48/64/96 kHz and ANY other rate is internally resampled to 16 kHz (see notes), so no upstream AudioFormatStage conversion is required
 adapter_capabilities:
   nemo_curator.models.audio.vad.silero.SileroVADAdapter:
     supported_devices: [cpu, cuda]
@@ -21,7 +21,7 @@ use_cases:
   good_for: ["removing silence", "chunking long audio into utterances", "producing per-segment units for quality scoring"]
   avoid_for: ["when you want whole-file scores (skip VAD entirely)", "getting a speech-probability score (this stage writes segments, NOT a score)"]
 composition:
-  typical_upstream: [MonoConversionStage, ResampleAudioStage]
+  typical_upstream: [AudioFormatStage]
   typical_downstream: [BandFilterStage, UTMOSFilterStage, SIGMOSFilterStage, SegmentConcatenationStage]
 params_of_note:
   threshold: "speech-probability threshold 0-1 (higher = stricter; default 0.5)"
@@ -86,7 +86,7 @@ conflicts_with: [WhisperXVADStage]   # alternative VAD
 notes:
   - "Execution uses process_batch; process is unsupported. Fan-out requires batch_size=1; nested mode can batch recordings. Empty or failed nested results have segments=[] and remove the parent waveform, so they do not provide a downstream audio carrier."
   - "Runtime selection: the default Torch adapter supports CPU or one GPU; ONNX requires CPU. TensorRTSileroVADAdapter requires resources.gpus=1 and an engine_path in adapter_kwargs. Custom adapters are not declared per-row independent for delta reuse."
-  - "Sample rate: the default Silero adapter accepts ANY input rate. Silero runs natively at 8/16/32/48/64/96 kHz; any other rate is internally resampled to 16 kHz for VAD and the segment timestamps are mapped back to the original rate. No upstream ResampleAudioStage is required."
+  - "Sample rate: the default Silero adapter accepts ANY input rate. Silero runs natively at 8/16/32/48/64/96 kHz; any other rate is internally resampled to 16 kHz for VAD and the segment timestamps are mapped back to the original rate. No upstream AudioFormatStage conversion is required."
   - "Segment schema: each segment dict has start_ms, end_ms, segment_num, duration, original_file, and retains the parent audio_filepath only as legacy provenance (times in MILLISECONDS, not start/end seconds). Fan-out invalidates that retained path as an audio carrier so file-only consumers cannot reopen the full parent recording. This is INCOMPATIBLE with SplitLongAudioStage, which reads start/end in seconds -- use diarization segments for splitting."
   - "For SegmentConcatenationStage, run with nested=True AND keep_segment_waveform_in_task=True (it needs per-segment waveforms)."
   - "(external) Silero VAD: enterprise-grade, ~2 MB, bundled with the pip package (no download), 8/16 kHz native (fixed 256/512-sample windows in v5). Source: https://github.com/snakers4/silero-vad"

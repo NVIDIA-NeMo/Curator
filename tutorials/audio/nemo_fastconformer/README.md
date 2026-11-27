@@ -56,9 +56,9 @@ Each input row must contain `audio_filepath`:
 {"audio_filepath": "/data/sample.opus"}
 ```
 
-`ResampleAudioStage` preserves the source path and adds
-`resampled_audio_filepath`, `audio_item_id`, and `duration`. It caches
-16-bit, 16 kHz, mono WAV files under `workspace_dir`.
+`AudioFormatStage` preserves the source path and adds
+`resampled_audio_filepath`, `sample_rate`, `num_channels`, and `duration`. It
+resamples in-process and writes 16-bit, 16 kHz, mono WAV files under `workspace_dir`.
 
 `ASRStage` opens only the resampled files in its current batch and supplies
 contiguous mono waveforms to `NeMoASRAdapter`. It adds `pred_text` by
@@ -125,7 +125,7 @@ asr = ASRStage(
 )
 ```
 
-Normally place a `ResampleAudioStage` before this stage and keep the default
+Normally place an `AudioFormatStage` before this stage and keep the default
 `audio_filepath_key="resampled_audio_filepath"`. The direct-file form above
 is useful when upstream data is already readable; `ASRStage` still normalizes
 audio to the configured `target_sample_rate` before calling the adapter.

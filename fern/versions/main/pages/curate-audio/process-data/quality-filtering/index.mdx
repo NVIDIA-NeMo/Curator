@@ -90,7 +90,7 @@ A complete VAD + UTMOS + SIGMOS + speaker separation pipeline assembled stage-by
 ```python
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.backends.xenna import XennaExecutor
-from nemo_curator.stages.audio.preprocessing.mono_conversion import MonoConversionStage
+from nemo_curator.stages.audio.preprocessing import AudioFormatStage
 from nemo_curator.stages.audio.segmentation.vad_segmentation import VADSegmentationStage
 from nemo_curator.stages.audio.filtering.utmos import UTMOSFilterStage
 from nemo_curator.stages.audio.filtering.sigmos import SIGMOSFilterStage
@@ -103,7 +103,7 @@ from nemo_curator.stages.text.io.writer import JsonlWriter
 pipeline = Pipeline(name="audio_quality_filtering")
 
 # 1. Normalize channels and sample rate
-pipeline.add_stage(MonoConversionStage(output_sample_rate=48000))
+pipeline.add_stage(AudioFormatStage(allowed_sample_rates=[48000], target_channels=1))
 
 # 2. Split into speech segments
 pipeline.add_stage(VADSegmentationStage(min_duration_sec=2.0, threshold=0.5))

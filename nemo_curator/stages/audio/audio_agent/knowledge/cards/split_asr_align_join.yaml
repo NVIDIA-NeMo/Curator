@@ -19,7 +19,7 @@ use_cases:
     - "plain transcription without word alignment (use ASRStage); short clips can use this composite without physical splitting"
     - "input without a compatible segments list -- the internal splitter requires start/end values in seconds"
 composition:
-  typical_upstream: [ResampleAudioStage, ManifestReader]
+  typical_upstream: [AudioFormatStage, ManifestReader]
   typical_downstream: [MergeAlignmentDiarizationStage, TimestampMapperStage, AudioToDocumentStage]
   incompatible_upstream:
     VADSegmentationStage: "Its nested segments use start_ms/end_ms, not the start/end seconds required by the internal SplitLongAudioStage. Add an explicit schema conversion before this composite."

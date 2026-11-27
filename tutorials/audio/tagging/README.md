@@ -54,7 +54,7 @@ The dashed path shows that `ManifestWriter` can follow directly after `PrepareMo
 | # | Stage | Description | GPU |
 |---|-------|-------------|-----|
 | 0 | **ManifestReader** | Reads input JSONL manifest | No |
-| 1 | **ResampleAudioStage** | Resample to 16 kHz mono WAV | No |
+| 1 | **AudioFormatStage** | Resample to 16 kHz mono WAV | No |
 | 2 | **PyAnnoteDiarizationStage** | Speaker diarization and overlap detection | Yes |
 | 3 | **SplitLongAudioStage** | Split segments exceeding max length | No |
 | 4 | **NeMoASRAlignerStage** | Forced alignment via NeMo FastConformer | Yes |
@@ -236,7 +236,6 @@ python tutorials/audio/tagging/main.py \
 | `sample_rate` | Target sample rate in Hz | `16000` |
 | `max_segment_length` | Maximum segment duration in seconds | `40` |
 | `workspace_dir` | Directory for intermediate files | `/tmp/tagging_workspace` |
-| `resampled_audio_dir` | Directory for resampled audio | `${workspace_dir}/audio_resampled` |
 
 ### Stage-Specific Overrides
 
@@ -351,7 +350,6 @@ tests/stages/audio/tagging/
 ├── conftest.py
 ├── test_merge_alignment_diarization.py
 ├── test_prepare_module_segments.py
-├── test_resample_audio.py
 ├── test_split.py
 ├── test_utils.py
 ├── inference/

@@ -15,7 +15,7 @@ use_cases:
   good_for: ["cleaning diarized/aligned segments before ALM snippet planning"]
   avoid_for: ["when overlapping speech should be kept"]
 composition:
-  typical_upstream: [ReadLongFormManifestStage, MergeAlignmentDiarizationStage]
+  typical_upstream: [ManifestReader, MergeAlignmentDiarizationStage]
   typical_downstream: [SnippetCutPlannerStage]
 params_of_note:
   min_overlap_sec: "intersection (s) at/above which two segments count as overlapping (default 0.5)"

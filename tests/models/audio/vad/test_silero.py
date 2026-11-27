@@ -186,49 +186,32 @@ def test_supported_rates_preserve_official_decimation_behavior_and_order(
 def test_an_unsupported_rate_is_resampled_to_16khz(monkeypatch: pytest.MonkeyPatch) -> None:
     resample_calls: list[tuple[int, int, tuple[int, ...]]] = []
 
-    class _Resample:
-        def __init__(self, *, orig_freq: int, new_freq: int) -> None:
-            self.orig_freq = orig_freq
-            self.new_freq = new_freq
-
-        def __call__(self, waveform: torch.Tensor) -> torch.Tensor:
-            resample_calls.append((self.orig_freq, self.new_freq, tuple(waveform.shape)))
-            return torch.zeros((1, 160), dtype=torch.float32)
+    def _resample(waveform: torch.Tensor, orig_sr: int, target_sr: int) -> torch.Tensor:
+        resample_calls.append((orig_sr, target_sr, tuple(waveform.shape)))
+        return torch.zeros(160, dtype=torch.float32)
 
     get_timestamps = MagicMock(return_value=[{"start": 0, "end": 160}])
     _install_silero_module(monkeypatch, get_speech_timestamps=get_timestamps)
-    monkeypatch.setitem(
-        sys.modules,
-        "torchaudio",
-        SimpleNamespace(transforms=SimpleNamespace(Resample=_Resample)),
-    )
+    monkeypatch.setattr("nemo_curator.stages.audio.common.helpers.resample_waveform", _resample)
     adapter = SileroVADAdapter()
     adapter._model = object()
     adapter._device = torch.device("cpu")
 
     result = adapter.detect_batch([{"waveform": np.zeros(441, dtype=np.float32), "sample_rate": 44100}])[0]
 
-    assert resample_calls == [(44100, 16000, (1, 441))]
+    assert resample_calls == [(44100, 16000, (441,))]
     assert get_timestamps.call_args.kwargs["sampling_rate"] == 16000
     assert result.segments == [VADSegment(0.0, 0.01)]
 
 
 def test_resampling_failure_is_isolated_to_one_recording(monkeypatch: pytest.MonkeyPatch) -> None:
-    class _FailingResample:
-        def __init__(self, **_kwargs: object) -> None:
-            pass
-
-        def __call__(self, _waveform: torch.Tensor) -> torch.Tensor:
-            message = "resample failed"
-            raise RuntimeError(message)
+    def _failing_resample(*_args: object) -> torch.Tensor:
+        message = "resample failed"
+        raise RuntimeError(message)
 
     get_timestamps = MagicMock(return_value=[])
     _install_silero_module(monkeypatch, get_speech_timestamps=get_timestamps)
-    monkeypatch.setitem(
-        sys.modules,
-        "torchaudio",
-        SimpleNamespace(transforms=SimpleNamespace(Resample=_FailingResample)),
-    )
+    monkeypatch.setattr("nemo_curator.stages.audio.common.helpers.resample_waveform", _failing_resample)
     adapter = SileroVADAdapter()
     adapter._model = object()
     adapter._device = torch.device("cpu")

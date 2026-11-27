@@ -15,8 +15,12 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.audio._agent._agent_registry import build_contract, static_contract
+from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
 from nemo_curator.stages.audio.alm import ALMDataBuilderStage, ALMDataOverlapStage
 from nemo_curator.stages.audio.common import (
     ManifestReader,
@@ -139,6 +143,168 @@ class TestManifestReaderStage:
 
         assert len(result) == 3
         assert all(r.data["audio_filepath"] == "a.wav" for r in result)
+
+
+def _write_rows(path: Path, rows: list) -> str:
+    path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    return str(path)
+
+
+def _long_form(**kwargs: object) -> ManifestReaderStage:
+    """The reader as the ALM pretrain pipeline configures it."""
+    options = {"id_key": "id", "segments_key": "segments", "audio_dir": "/data", "skip_invalid_rows": True}
+    return ManifestReaderStage(**{**options, **kwargs})
+
+
+class TestManifestReaderLongFormOptions:
+    """The options that let ManifestReader read the ALM pretrain long-form manifest."""
+
+    def test_defaults_leave_rows_and_contract_unchanged(self, tmp_path: Path) -> None:
+        manifest = _write_rows(tmp_path / "in.jsonl", [{"id": 7, "audio_filepath": "./a.wav"}])
+        stage = ManifestReaderStage()
+        out = stage.process(_make_file_group_task([manifest]))
+        assert out[0].data == {"id": 7, "audio_filepath": "./a.wav"}
+        assert out[0].dataset_name == "test"
+        assert out[0].filepath_key is None
+        contract = build_contract(stage)
+        assert contract.writes.data_keys == ["audio_filepath"]
+        assert contract.conditional_writes == []
+        assert contract.gates.per_row_independent is True
+
+    def test_long_form_row_is_stringified_reanchored_and_stamped(self, tmp_path: Path) -> None:
+        manifest = _write_rows(tmp_path / "in.jsonl", [{"id": 7, "audio_filepath": "./a.wav"}])
+        out = _long_form(dataset_name="long_form_audio").process(_make_file_group_task([manifest]))
+        # ``id`` leaves the reader as a string (snippet ids and tar member names embed it).
+        assert out[0].data == {"id": "7", "audio_filepath": "/data/a.wav"}
+        assert out[0].dataset_name == "long_form_audio"
+        assert out[0].filepath_key == "audio_filepath"
+
+    def test_skips_missing_empty_and_duplicate_ids_and_missing_paths(self, tmp_path: Path) -> None:
+        manifest = _write_rows(
+            tmp_path / "in.jsonl",
+            [
+                {"audio_filepath": "./a.wav"},
+                {"id": "", "audio_filepath": "./b.wav"},
+                {"id": "  ", "audio_filepath": "./c.wav"},
+                {"id": "A", "audio_filepath": "./d.wav"},
+                {"id": "A", "audio_filepath": "./e.wav"},
+                {"id": "B"},
+                {"id": "C", "audio_filepath": "./f.wav"},
+            ],
+        )
+        out = _long_form().process(_make_file_group_task([manifest]))
+        assert [(t.data["id"], t.data["audio_filepath"]) for t in out] == [("A", "/data/d.wav"), ("C", "/data/f.wav")]
+
+    def test_ids_are_unique_across_manifests_read_by_one_stage(self, tmp_path: Path) -> None:
+        m1 = _write_rows(tmp_path / "m1.jsonl", [{"id": "A", "audio_filepath": "a.wav"}])
+        m2 = _write_rows(tmp_path / "m2.jsonl", [{"id": "A", "audio_filepath": "b.wav"}])
+        stage = _long_form()
+        assert len(stage.process(_make_file_group_task([m1]))) == 1
+        assert stage.process(_make_file_group_task([m2])) == []
+
+    def test_basename_mode_rejects_duplicate_basenames(self, tmp_path: Path) -> None:
+        manifest = _write_rows(
+            tmp_path / "in.jsonl",
+            [{"id": "A", "audio_filepath": "./shard1/foo.wav"}, {"id": "B", "audio_filepath": "./shard2/foo.wav"}],
+        )
+        with pytest.raises(ValueError, match="duplicate audio basename"):
+            _long_form().process(_make_file_group_task([manifest]))
+
+    @pytest.mark.parametrize(
+        ("mode", "expected"),
+        [
+            ("relative", ["/data/shard1/foo.wav", "/data/shard2/foo.wav", "/abs/b.wav"]),
+            ("as_is", ["shard1/foo.wav", "shard2/foo.wav", "/abs/b.wav"]),
+        ],
+    )
+    def test_relative_and_as_is_modes(self, tmp_path: Path, mode: str, expected: list[str]) -> None:
+        manifest = _write_rows(
+            tmp_path / "in.jsonl",
+            [
+                {"id": "A", "audio_filepath": "shard1/foo.wav"},
+                {"id": "B", "audio_filepath": "shard2/foo.wav"},
+                {"id": "C", "audio_filepath": "/abs/b.wav"},
+            ],
+        )
+        out = _long_form(audio_path_resolution=mode).process(_make_file_group_task([manifest]))
+        assert [t.data["audio_filepath"] for t in out] == expected
+
+    def test_invalid_configuration_raises(self) -> None:
+        with pytest.raises(ValueError, match="unknown audio_path_resolution"):
+            ManifestReaderStage(audio_dir="/data", audio_path_resolution="not_a_mode")
+
+    def test_invalid_json_raises_unless_skipped(self, tmp_path: Path) -> None:
+        manifest = tmp_path / "in.jsonl"
+        manifest.write_text('{"id": "A", "audio_filepath": "a.wav"}\n{not json\n', encoding="utf-8")
+        with pytest.raises(json.JSONDecodeError):
+            ManifestReaderStage().process(_make_file_group_task([str(manifest)]))
+        assert len(_long_form().process(_make_file_group_task([str(manifest)]))) == 1
+
+    def test_missing_manifest_raises(self, tmp_path: Path) -> None:
+        with pytest.raises(FileNotFoundError):
+            _long_form().process(_make_file_group_task([str(tmp_path / "nope.jsonl")]))
+
+    def test_contract_matches_emitted_schema(self, tmp_path: Path) -> None:
+        manifest = _write_rows(
+            tmp_path / "in.jsonl", [{"source_id": "A", "source_path": "a.wav", "turns": [{"start": 0, "end": 1}]}]
+        )
+        stage = _long_form(
+            include_files_key="source_path",
+            id_key="source_id",
+            segments_key="turns",
+        )
+        contract = build_contract(stage)
+        declared = set(contract.writes.data_keys) | {
+            k for w in contract.conditional_writes for k in w.writes.data_keys
+        }
+        assert declared == {"source_path", "source_id", "turns"}
+        assert "turns" not in contract.writes.data_keys
+        assert contract.gates.per_row_independent is False
+        assert static_contract(ManifestReaderStage).gates.per_row_independent is True
+        assert stage.process(_make_file_group_task([manifest]))[0].data.keys() == declared
+
+    @pytest.mark.parametrize(
+        ("options", "independent"),
+        [
+            ({"id_key": "id"}, False),
+            ({"audio_dir": "/data"}, False),
+            ({"audio_dir": "/data", "audio_path_resolution": "relative"}, False),
+            ({"segments_key": "segments"}, True),
+        ],
+    )
+    def test_cross_row_checks_make_reader_not_row_independent(self, options: dict, independent: bool) -> None:
+        assert build_contract(ManifestReaderStage(**options)).gates.per_row_independent is independent
+        composite = ManifestReader(manifest_path="unused.jsonl", **options)
+        assert build_contract(composite).gates.per_row_independent is independent
+
+    def test_agent_ready_with_long_form_options(self, tmp_path: Path) -> None:
+        manifest = _write_rows(
+            tmp_path / "agent-ready.jsonl",
+            [
+                {"id": "A", "audio_filepath": "./a.wav", "segments": []},
+                {"id": "B", "audio_filepath": "./b.wav"},
+                {"id": "C", "audio_filepath": "./c.wav", "segments": [{"start": 0, "end": 1}]},
+            ],
+        )
+        assert_agent_ready(
+            _long_form(),
+            lambda: _make_file_group_task([manifest]),
+            expected_cardinality="1:N fan-out",
+            available_keys=set(),
+        )
+
+    def test_composite_forwards_every_option(self) -> None:
+        options = {
+            "include_files_key": "path",
+            "id_key": "uid",
+            "segments_key": "turns",
+            "audio_dir": "/data",
+            "audio_path_resolution": "relative",
+            "dataset_name": "ds",
+            "skip_invalid_rows": True,
+        }
+        reader = ManifestReader(manifest_path="m.jsonl", **options).decompose()[1]
+        assert {name: getattr(reader, name) for name in options} == options
 
 
 class TestManifestReaderDirectory:

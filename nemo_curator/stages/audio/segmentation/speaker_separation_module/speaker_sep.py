@@ -19,13 +19,15 @@ from typing import NamedTuple
 import soundfile as sf
 import torch
 from loguru import logger
-from pydub import AudioSegment
+
+from nemo_curator.stages.audio.common import ensure_mono, ensure_waveform_2d, load_audio_file
 
 
 class SpeakerResult(NamedTuple):
     """Result for a single speaker from get_speaker_audio_data."""
 
-    audio: AudioSegment
+    audio: torch.Tensor  # mono [1, samples], silent outside this speaker's segments
+    sample_rate: int
     duration: float
     diar_segments: list[tuple[float, float]]
 
@@ -34,25 +36,6 @@ try:
     from nemo.collections.asr.models import SortformerEncLabelModel
 except ImportError:
     SortformerEncLabelModel = None
-
-
-def load_audio(audio_path: str) -> tuple[torch.Tensor, int]:
-    """
-    Load audio file using soundfile.
-
-    Uses soundfile directly to avoid torchaudio/torchcodec/FFmpeg dependency issues.
-
-    Args:
-        audio_path: Path to the audio file
-
-    Returns:
-        Tuple of (waveform tensor, sample_rate)
-    """
-    data, sample_rate = sf.read(audio_path, dtype="float32")
-    # Convert to torch tensor with shape (channels, samples)
-    waveform = torch.from_numpy(data)
-    waveform = waveform.unsqueeze(0) if waveform.dim() == 1 else waveform.T
-    return waveform, sample_rate
 
 
 class SpeakerSeparator:
@@ -332,9 +315,7 @@ class SpeakerSeparator:
 
         # Check if input is a path or waveform
         if isinstance(audio_path_or_waveform, str):
-            waveform, sample_rate = load_audio(audio_path_or_waveform)
-            if waveform.shape[0] > 1:
-                waveform = waveform.mean(dim=0, keepdim=True)
+            waveform, sample_rate = load_audio_file(audio_path_or_waveform)
         else:
             if sample_rate is None:
                 msg = "Sample rate must be provided when passing a waveform"
@@ -458,7 +439,7 @@ class SpeakerSeparator:
             logger.error(f"Error processing audio for speaker segments: {e}")
             raise
 
-    def get_speaker_audio_data(  # noqa: PLR0913, C901, PLR0912
+    def get_speaker_audio_data(  # noqa: PLR0913, C901
         self,
         audio_path_or_waveform: str | torch.Tensor,
         sample_rate: int | None = None,
@@ -468,7 +449,7 @@ class SpeakerSeparator:
         buffer_time: float | None = None,
     ) -> dict[str, SpeakerResult]:
         """
-        Process an audio file or waveform and return AudioSegment objects for each speaker.
+        Process an audio file or waveform and return mono waveforms for each speaker.
         """
         if gap_threshold is None:
             gap_threshold = self._get_param("speaker_gap_threshold", 0.1)
@@ -480,7 +461,7 @@ class SpeakerSeparator:
             buffer_time = self._get_param("speaker_buffer_time", 0.5)
 
         if isinstance(audio_path_or_waveform, str):
-            original_audio = AudioSegment.from_file(audio_path_or_waveform)
+            original_audio, sample_rate = load_audio_file(audio_path_or_waveform)
             speaker_segments = self.process_audio(
                 audio_path_or_waveform, None, gap_threshold, exclude_overlaps, min_duration, buffer_time
             )
@@ -488,23 +469,12 @@ class SpeakerSeparator:
             if sample_rate is None:
                 msg = "Sample rate must be provided when passing a waveform"
                 raise ValueError(msg)
-
-            temp_path = None
-            try:
-                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-                    temp_path = tmp.name
-                wav = audio_path_or_waveform.squeeze(0) if audio_path_or_waveform.dim() > 1 else audio_path_or_waveform
-                sf.write(temp_path, wav.cpu().numpy(), sample_rate)
-                original_audio = AudioSegment.from_file(temp_path)
-            finally:
-                if temp_path and os.path.exists(temp_path):
-                    os.unlink(temp_path)
-
+            original_audio = ensure_mono(ensure_waveform_2d(audio_path_or_waveform)).cpu().float()
             speaker_segments = self.process_audio(
                 audio_path_or_waveform, sample_rate, gap_threshold, exclude_overlaps, min_duration, buffer_time
             )
 
-        duration_ms = len(original_audio)
+        num_samples = original_audio.shape[-1]
 
         speaker_audio = {}
 
@@ -517,21 +487,18 @@ class SpeakerSeparator:
             if total_duration < 0.1:  # noqa: PLR2004
                 continue
 
-            silent_audio = AudioSegment.silent(duration=duration_ms)
-
+            # Segments are merged per speaker, so they never overlap: copying equals pydub's overlay.
+            speaker_wav = torch.zeros_like(original_audio)
             for start_time, end_time in segments:
-                start_ms = max(0, min(int(start_time * 1000), duration_ms))
-                end_ms = max(0, min(int(end_time * 1000), duration_ms))
-                if start_ms >= end_ms:
-                    continue
+                start = max(0, min(int(start_time * sample_rate), num_samples))
+                end = max(0, min(int(end_time * sample_rate), num_samples))
+                speaker_wav[:, start:end] = original_audio[:, start:end]
 
-                segment_audio = original_audio[start_ms:end_ms]
-                silent_audio = silent_audio.overlay(segment_audio, position=start_ms)
-
-            if silent_audio.rms < 1:
+            # Below one 16-bit LSB of RMS, as pydub's integer ``rms < 1`` check was.
+            if speaker_wav.square().mean().sqrt() < 2**-15:
                 continue
 
-            speaker_audio[speaker] = SpeakerResult(silent_audio, total_duration, segments)
+            speaker_audio[speaker] = SpeakerResult(speaker_wav, sample_rate, total_duration, segments)
 
         # Free the original audio to release memory before returning
         del original_audio

@@ -15,7 +15,7 @@ use_cases:
   good_for: ["deciding snippet [start,end] windows before extraction in the ALM pretrain flow"]
   avoid_for: ["non-ALM pipelines"]
 composition:
-  typical_upstream: [ReadLongFormManifestStage, OverlapFilterStage]
+  typical_upstream: [ManifestReader, OverlapFilterStage]
   typical_downstream: [SnippetRepetitionFilterStage, SnippetExtractionStage]
 params_of_note:
   max_duration_sec: "maximum snippet length (default 600)"

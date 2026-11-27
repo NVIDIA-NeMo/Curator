@@ -12,20 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import re
 from dataclasses import dataclass, field
 from typing import Any
 
 from nemo_curator.stages.audio.text_filtering.scriptio_continua import is_scriptio_continua
 from nemo_curator.stages.audio.text_filtering.text_metrics import (
     character_error_rate_percent,
+    normalize_for_error_rate,
     word_error_rate_percent,
 )
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
-
-_PUNCTUATION = re.compile(r"[^\w\s]", re.UNICODE)
 
 
 def _set_note(data: dict[str, Any], stage: str, value: str, notes_key: str) -> None:
@@ -34,10 +32,6 @@ def _set_note(data: dict[str, Any], stage: str, value: str, notes_key: str) -> N
         notes = {}
         data[notes_key] = notes
     notes[stage] = value
-
-
-def _normalize_for_error_rate(text: str) -> str:
-    return _PUNCTUATION.sub("", text).lower()
 
 
 @dataclass
@@ -194,8 +188,8 @@ class SelectBestPredictionStage(ProcessingStage[AudioTask, AudioTask]):
                 return task
 
         if skip_reason.startswith("Hallucination") and primary and fallback:
-            normalized_primary = _normalize_for_error_rate(primary)
-            normalized_fallback = _normalize_for_error_rate(fallback)
+            normalized_primary = normalize_for_error_rate(primary)
+            normalized_fallback = normalize_for_error_rate(fallback)
             use_cer = is_scriptio_continua(task.data.get(self.language_key))
             metric_name = "cer" if use_cer else "wer"
             metric_fn = character_error_rate_percent if use_cer else word_error_rate_percent

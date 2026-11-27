@@ -12,23 +12,31 @@ resource:
   bound: io
   throughput_hint: "line-by-line file reads; all matching rows in a partition are materialized before return"
 use_cases:
-  good_for: ["starting a pipeline from an existing JSONL manifest (local or cloud S3/GCS)"]
+  good_for: ["starting a pipeline from an existing JSONL manifest (local or cloud S3/GCS)", "starting the ALM pretrain pipeline from a long-form audio manifest (id_key, segments_key, audio_dir)"]
   avoid_for: ["bootstrapping from a raw dataset with no manifest (use a CreateInitialManifest* stage)"]
 composition:
   typical_upstream: []
-  typical_downstream: [MonoConversionStage, ResampleAudioStage, GetAudioDurationStage]
+  typical_downstream: [AudioFormatStage, GetAudioDurationStage]
 params_of_note:
   manifest_path: "path or list of paths to JSONL manifests (local or cloud)"
   files_per_partition: "number of manifest files per partition (default 1)"
   blocksize: "target partition size (alternative to files_per_partition)"
   storage_options: "fsspec options for file discovery/partitioning only; the inner reader opens paths without forwarding these options"
   include_files: "optional list of audio paths; emit only manifest rows whose include_files_key resolves to one of these paths"
-  include_files_key: "row field compared against include_files (default audio_filepath)"
+  include_files_key: "row field holding the audio path: compared against include_files and re-anchored by audio_dir (default audio_filepath)"
+  id_key: "when set, rows need a non-empty id here, unique across the manifests one reader reads; missing/empty/duplicate ids are skipped with a warning and ids are emitted as strings"
+  segments_key: "row field holding the segment list; declared as a conditional output"
+  audio_dir: "re-anchor each row's audio path to this directory per audio_path_resolution; rows without a path are skipped"
+  audio_path_resolution: "'basename' (default): audio_dir / basename(path), raising on duplicate basenames; 'relative': audio_dir / path; 'as_is': keep the manifest path"
+  dataset_name: "dataset label attached to each row (default: inferred from the manifest location)"
+  skip_invalid_rows: "skip lines that are not valid JSON objects with a warning instead of raising"
 conflicts_with: [ManifestReaderStage]   # the inner component; use one, not both
 notes:
   - "Emitted AudioTasks are retained until the assigned file group is complete, including Python object overhead. Larger groups can increase memory use; include_files can reduce the retained results."
   - "Cloud reads require credentials/endpoints available to the reader's default fsspec configuration; storage_options on this composite does not configure the inner read."
   - "Composite of FilePartitioningStage + ManifestReaderStage; this is the stage to use directly (ManifestReaderStage is its inner read half)."
   - "include_files narrows rows within the same manifest reader, preserving the source-stage identity used by full and delta runs."
+  - "id_key or any audio_dir makes the reader not per-row independent (no delta narrowing): id de-duplication and the basename-mode duplicate-path guard look across rows, and include_files compares the manifest's own path value, before audio_dir re-anchoring, while a delta names the re-anchored file."
+  - "A manifest_path naming no file only warns and yields no rows."
 verified: {params: mechanical, tags: mechanical, resource: best_guess, use_cases: best_guess, domain: best_guess}
-provenance: {model_card_url: null, card_version: 4, last_validated: "2026-10-19"}
+provenance: {model_card_url: null, card_version: 5, last_validated: "2026-11-19"}

@@ -3,7 +3,7 @@
 This tutorial reads a NeMo-style audio manifest, resamples each file to a
 16 kHz mono WAV, transcribes it with Qwen3-Omni through vLLM, and writes the
 results to JSONL. Its four stages are `ManifestReader`, the same
-`ResampleAudioStage` used by the audio tagging tutorial, the generic `ASRStage`
+`AudioFormatStage` used by the audio tagging tutorial, the generic `ASRStage`
 configured with `QwenOmniASRAdapter`, and `ManifestWriterStage`.
 
 The tutorial uses the generic YAML runner in `nemo_curator/config/run.py`; no
@@ -17,9 +17,10 @@ executor and passes it to `Pipeline.run()`.
 - `ffmpeg`
 - Audio files accessible from the machine running the pipeline
 
-`ResampleAudioStage` invokes `ffmpeg`, so the input can use any format supported
-by the installed `ffmpeg` build. It writes PCM 16-bit, 16 kHz, mono WAV files
-under `resampled_audio_dir` before inference starts on those rows.
+`AudioFormatStage` decodes input audio with soundfile, so any format libsndfile
+reads works (WAV, FLAC, OGG/Opus, MP3). It resamples in-process and writes PCM
+16-bit, 16 kHz, mono WAV files under `${workspace_dir}/audio_resampled`
+before inference starts on those rows.
 
 From the Curator repository root, install the optional Qwen stack:
 
@@ -125,8 +126,8 @@ contain `audio_filepath` and, by default, `source_lang`:
 {"audio_filepath": "/data/sample.wav", "source_lang": "en"}
 ```
 
-`ResampleAudioStage` preserves `audio_filepath` and adds `audio_item_id`,
-`resampled_audio_filepath`, and `duration`. It caches the converted file at
+`AudioFormatStage` preserves `audio_filepath` and adds `sample_rate`,
+`num_channels`, `resampled_audio_filepath`, and `duration`. It caches the converted file at
 `${workspace_dir}/audio_resampled` by default and reuses it on later runs.
 
 Only file paths and metadata travel between pipeline stages. `ASRStage` opens
@@ -135,7 +136,7 @@ preserves the decoded sample rate while normalizing each waveform to contiguous
 mono 16 kHz NumPy samples for the adapter. It never stores either the waveform
 or sample rate in `task.data`, so manifest size does not cause all decoded
 audio to accumulate in host RAM. The Qwen-Omni adapter validates the resulting
-16 kHz contract, and the tutorial fixes `ResampleAudioStage.target_sample_rate`
+16 kHz contract, and the tutorial fixes `AudioFormatStage.target_sample_rate`
 at 16 kHz instead of exposing an incompatible override.
 
 `ASRStage` adds only the configured prediction column and, when applicable,
@@ -146,8 +147,8 @@ run starts and then appends one JSON object per input row.
 
 Rows are handled differently depending on where processing fails:
 
-- Missing, inaccessible, undecodable, or invalid audio causes
-  `ResampleAudioStage` to fail with the corresponding `ffmpeg` error.
+- Missing, inaccessible, undecodable, or invalid audio is logged by
+  `AudioFormatStage` and the row is dropped.
 - A resampled file that cannot be reopened is logged and retained with an
   empty configured prediction column and `"_skipme": "audio_load_error"`;
   other files in the same ASR batch continue through inference.

@@ -3032,7 +3032,15 @@ class TestGeneratedOutputIntegrity:
             return _frozen(
                 [
                     _READER,
-                    {"ref": "ResampleAudioStage", "params": {"resampled_audio_dir": audio_dir}},
+                    {
+                        "ref": "AudioFormatStage",
+                        "params": {
+                            "target_sample_rate": 16000,
+                            "write_to_disk": True,
+                            "keep_waveform_in_task": False,
+                            "output_dir": audio_dir,
+                        },
+                    },
                     {"ref": "ManifestWriterStage", "params": {"output_path": manifest}},
                 ]
             )
@@ -3057,7 +3065,16 @@ class TestGeneratedOutputIntegrity:
         rec = _frozen(
             [
                 _READER,
-                {"ref": "ResampleAudioStage", "params": {"resampled_audio_dir": str(audio_dir)}},
+                {
+                    "ref": "AudioFormatStage",
+                    "params": {
+                        "target_sample_rate": 16000,
+                        "write_to_disk": True,
+                        "keep_waveform_in_task": False,
+                        "output_dir": str(audio_dir),
+                        "output_audio_filepath_key": "resampled_audio_filepath",
+                    },
+                },
                 {"ref": "ManifestWriterStage", "params": {"output_path": str(manifest)}},
             ]
         )

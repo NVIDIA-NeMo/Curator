@@ -56,15 +56,12 @@ LEGACY_STAGE_NAMES = (
     "ManifestReaderStage",
     "ManifestWriterStage",
     "MergeAlignmentDiarizationStage",
-    "MonoConversionStage",
     "NeMoASRAlignerStage",
     "OverlapFilterStage",
     "PrepareModuleSegmentsStage",
     "PreserveByValueStage",
     "PretrainMetricsAggregatorStage",
     "PyAnnoteDiarizationStage",
-    "ReadLongFormManifestStage",
-    "ResampleAudioStage",
     "SIGMOSFilterStage",
     "SegmentConcatenationStage",
     "SegmentExtractionStage",
@@ -83,11 +80,10 @@ LEGACY_STAGE_NAMES = (
 )
 
 ADDITIVE_STAGE_NAMES = (
-    "ChannelCountStage",
+    "AudioFormatStage",
     "DocumentBatchJsonlWriterStage",
     "ManifestCheckpointStage",
     "PreserveByValueConditionsStage",
-    "SampleRateFilterStage",
 )
 
 # Update this digest only after comparing the complete stage payloads and reviewing
@@ -96,7 +92,7 @@ ADDITIVE_STAGE_NAMES = (
 # This surface includes adapter-backed VAD/diarization, conservative IO gates,
 # and the additive resampling/timestamp parameters shipped with those stages.
 EXPECTED_LEGACY_COMPATIBILITY_SHA256 = (
-    "f834c4c69829f0fcd92036cb56b49d19b2d39189200de8b49aa95a12f2e78e9b"  # pragma: allowlist secret
+    "de4a56673a1d946407d85a394ac4d5191b7a793134fdc69b06da417cfceb83f6"  # pragma: allowlist secret
 )
 
 
@@ -150,7 +146,9 @@ def _constructor_defaults(cls: type) -> dict[str, Any]:
 def _compatibility_payload() -> list[dict[str, Any]]:
     payload: list[dict[str, Any]] = []
     # Additive opt-in stages must not force the legacy compatibility hash to
-    # move. The payload intentionally remains scoped to the original 46.
+    # move. The payload intentionally remains scoped to the original stages (43 after the
+    # long-form manifest reader folded into ManifestReader and the mono/resample stages
+    # folded into the additive AudioFormatStage).
     for name in LEGACY_STAGE_NAMES:
         cls = get_agent_ready_stage_class(name)
         contract = static_contract(cls).to_dict()
@@ -219,7 +217,7 @@ def test_stage_defaults_and_static_contracts_are_backward_compatible() -> None:
     )
     actual = hashlib.sha256(blob.encode("utf-8")).hexdigest()
     assert actual == EXPECTED_LEGACY_COMPATIBILITY_SHA256, (
-        "The legacy 46-stage compatibility surface changed. If intentional, inspect "
+        "The legacy 43-stage compatibility surface changed. If intentional, inspect "
         "constructor defaults and static contracts before updating this baseline. "
         f"Expected {EXPECTED_LEGACY_COMPATIBILITY_SHA256}, got {actual}."
     )

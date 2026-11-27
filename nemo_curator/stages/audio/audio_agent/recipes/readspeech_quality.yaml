@@ -12,7 +12,7 @@ stages:
   - ref: AudioDataFilterStage
     params:
       config:
-        mono_conversion: {strict_sample_rate: false}
+        audio_format: {allowed_sample_rates: null}
         vad: {enable: false}
         band_filter: {enable: false}
         utmos: {enable: true, mos_threshold: 3.4}

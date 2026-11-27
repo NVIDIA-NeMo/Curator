@@ -416,7 +416,7 @@ class TestSmokeToken:
         os.environ["AUDIO_AGENT_REQUIRE_SMOKE"] = "1"
         try:
             out = _verb_run.run(
-                recipe={"stages": [{"ref": "MonoConversionStage", "params": {}}]},
+                recipe={"stages": [{"ref": "AudioFormatStage", "params": {}}]},
                 confirm=True,
                 smoke_token="9f3c1e–abcdef",  # noqa: RUF001, S106 - en dash is intentional in this message
             )

@@ -247,7 +247,7 @@ def test_transcribe_batch_requires_upstream_resampling() -> None:
         adapter.transcribe_batch([_item(sample_rate=8_000)])
 
 
-def test_transcribe_batch_requires_upstream_mono_conversion() -> None:
+def test_transcribe_batch_requires_upstream_mono_audio() -> None:
     adapter = NeMoASRAdapter()
     adapter._model = _mock_model([])
     item = _item()

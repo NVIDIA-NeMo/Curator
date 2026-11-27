@@ -19,7 +19,7 @@ from __future__ import annotations
 import errno
 import json
 from typing import TYPE_CHECKING, Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -157,14 +157,10 @@ def test_waveforms_are_normalized_to_contiguous_mono(waveform: object) -> None:
 
 
 def test_a_mismatched_sample_rate_is_resampled_before_inference() -> None:
-    librosa = MagicMock()
-    librosa.resample.side_effect = lambda waveform, *, orig_sr, target_sr: np.repeat(waveform, target_sr // orig_sr)
     stage, adapter = _stage()
-    with patch.dict("sys.modules", {"librosa": librosa}):
-        stage.process_batch([_task(sample_rate=8000)])
+    stage.process_batch([_task(sample_rate=8000)])
 
     assert len(adapter.calls[0][0]["waveform"]) == _SAMPLE_RATE
-    librosa.resample.assert_called_once()
 
 
 def test_file_mode_loads_audio_for_the_adapter(tmp_path: Path) -> None:
@@ -178,10 +174,11 @@ def test_file_mode_loads_audio_for_the_adapter(tmp_path: Path) -> None:
     assert task.data["lid"][_MODEL_ID]["language"] == "ta"
 
 
-def test_an_unreadable_file_gets_an_empty_completed_result(tmp_path: Path) -> None:
+@pytest.mark.parametrize("name", ["missing.wav", ""])  # "" names the directory itself
+def test_an_unreadable_file_gets_an_empty_completed_result(tmp_path: Path, name: str) -> None:
     stage, adapter = _stage(waveform_key=None)
 
-    (task,) = stage.process_batch([AudioTask(data={"audio_filepath": str(tmp_path / "missing.wav")})])
+    (task,) = stage.process_batch([AudioTask(data={"audio_filepath": str(tmp_path / name)})])
 
     assert task.data["lid"][_MODEL_ID] == {"language": "", "confidence": 0.0, "tag": "primary"}
     assert adapter.calls == []

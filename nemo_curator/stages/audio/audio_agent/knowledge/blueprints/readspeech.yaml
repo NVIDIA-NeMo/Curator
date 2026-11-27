@@ -21,7 +21,7 @@ topology_selection:
 # Logical components; the recipe uses AudioDataFilterStage for mono, filters and mapping.
 stages:
   - {ref: CreateInitialManifestAudioFolderStage, tag: advisory, why_here: "folder-source example; substitute ManifestReader for existing manifests"}
-  - {ref: MonoConversionStage, tag: advisory, why_here: "downmix for the quality chain; strict_sample_rate=False disables rate-based rejection"}
+  - {ref: AudioFormatStage, tag: advisory, why_here: "downmix for the quality chain (config.audio_format); allowed_sample_rates: null disables rate-based rejection"}
   - {ref: VADSegmentationStage, tag: advisory, why_here: "optional segmentation when scores should describe speech segments"}
   - {ref: BandFilterStage, tag: advisory, why_here: "optional bandwidth gate only when required by the quality policy"}
   - {ref: UTMOSFilterStage, tag: advisory, why_here: "overall perceptual speech-quality proxy"}
@@ -31,7 +31,7 @@ stages:
 
 pitfalls:
   - "The template scores whole files and retains original-file references; it does not export new audio clips. Segmentation and separation change scope; separation also transforms audio."
-  - "MonoConversionStage does not resample. The template disables its strict rate gate and BandFilter; UTMOS and SIGMOS resample internally. Add explicit conversion only for consumers that need it, and wire them to the converted carrier."
+  - "The mono step does not resample. The template disables its rate gate and BandFilter; UTMOS and SIGMOS resample internally. Add explicit conversion only for consumers that need it, and wire them to the converted carrier."
   - "ASR needs audio, not reference transcripts. WER needs both reference and hypothesis text; existing conforming text can be reused."
   - "Thresholds and retention are workload-dependent policy choices, not quality guarantees. Use representative score/output evidence; do not predict yield from another dataset."
   - "These quality predictors target speech, not arbitrary music or non-speech audio. Check each model's limits before applying the template."

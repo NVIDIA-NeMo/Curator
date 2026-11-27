@@ -359,9 +359,8 @@ def test_live_unpersisted_waveform_does_not_invent_a_file_equivalent_shape(
     recipe["stages"].insert(
         1,
         {
-            "ref": "ChannelCountStage",
+            "ref": "AudioFormatStage",
             "params": {
-                "action": "convert",
                 "target_channels": 1,
                 "keep_waveform_in_task": True,
                 "write_to_disk": False,
@@ -399,9 +398,8 @@ def test_existing_persisted_transform_can_prove_a_file_backed_boundary(
     recipe["stages"].insert(
         1,
         {
-            "ref": "ChannelCountStage",
+            "ref": "AudioFormatStage",
             "params": {
-                "action": "convert",
                 "target_channels": 1,
                 "keep_waveform_in_task": True,
                 "write_to_disk": True,

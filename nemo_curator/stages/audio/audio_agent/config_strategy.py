@@ -205,8 +205,8 @@ def resolve_from_data(
     computed and then out-voted by the caller's merge. The value was always Path A's, but the
     ``strategy`` trail still gained an entry stating the data-informed number and the reason
     it was chosen -- an audit record of a binding that never happened, which is worse than no
-    record at all for the one param a user is most likely to have set on purpose: an
-    ``output_sample_rate`` a user pinned as a strict gate would read as though the agent had
+    record at all for the one param a user is most likely to have set on purpose: a
+    verified rate a user pinned as a strict gate would read as though the agent had
     quietly widened it to whatever the data happened to be.
 
     Returns the same ``{stage, params, strategy, asks}`` shape as :func:`resolve`. Ambiguity
@@ -236,9 +236,10 @@ def _bind_observed_sample_rate(
 ) -> None:
     """Set a rate-verifying stage to the rate the data actually is.
 
-    ``MonoConversionStage`` verifies rather than converts and DROPS every row that does not
-    match, so its 48 kHz default silently discards a 16 kHz corpus. The default stays as the
-    tutorials expect; the agent supplies the observed rate for the recipe it builds.
+    A stage whose card declares ``planning.sample_rate_verification`` verifies rather than
+    converts and DROPS every row that does not match, so a default rate silently discards a
+    corpus at another rate. The default stays as the tutorials expect; the agent supplies the
+    observed rate for the recipe it builds.
     """
     from nemo_curator.stages.audio.audio_agent._capabilities import planning_for
 

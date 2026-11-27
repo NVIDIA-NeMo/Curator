@@ -14,10 +14,17 @@
 
 """Dependency-free text error-rate helpers for lightweight filtering stages."""
 
+import re
 from collections.abc import Sequence
 from typing import TypeVar
 
 _Token = TypeVar("_Token")
+_PUNCTUATION = re.compile(r"[^\w\s]", re.UNICODE)
+
+
+def normalize_for_error_rate(text: str) -> str:
+    """Lowercase and drop punctuation: the light text normalization for WER/CER comparisons."""
+    return _PUNCTUATION.sub("", text).lower()
 
 
 def _levenshtein_distance(reference: Sequence[_Token], hypothesis: Sequence[_Token]) -> int:

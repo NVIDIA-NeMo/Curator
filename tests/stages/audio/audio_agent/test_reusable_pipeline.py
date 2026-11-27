@@ -60,9 +60,8 @@ def _duration_recipe(tmp_path: Path, *, checkpoint: bool = False, live_waveform:
     if live_waveform:
         stages.append(
             {
-                "ref": "ChannelCountStage",
+                "ref": "AudioFormatStage",
                 "params": {
-                    "action": "convert",
                     "target_channels": 1,
                     "keep_waveform_in_task": True,
                     "write_to_disk": False,
@@ -112,9 +111,8 @@ def _utmos_recipe(  # noqa: PLR0913 - test matrix controls each exactness constr
     if live_waveform:
         stages.append(
             {
-                "ref": "ChannelCountStage",
+                "ref": "AudioFormatStage",
                 "params": {
-                    "action": "convert",
                     "target_channels": 1,
                     "keep_waveform_in_task": True,
                     "write_to_disk": False,
@@ -1196,7 +1194,7 @@ def test_sigmos_segment_planner_accepts_independent_annotation(tmp_path: Path) -
     "annotation",
     [
         StageRef(ref="GetAudioDurationStage", params={"duration_key": "other_duration"}),
-        StageRef(ref="ChannelCountStage", params={"action": "annotate", "num_channels_key": "channels"}),
+        StageRef(ref="AudioFormatStage", params={"num_channels_key": "channels"}),
         StageRef(ref="UTMOSFilterStage", params={"action": "annotate", "mode": "task", "score_key": "quality"}),
     ],
 )
@@ -1212,7 +1210,7 @@ def test_checkpoint_crosses_independent_annotations(tmp_path: Path, annotation: 
 
 def test_threshold_feedback_crosses_other_filter_only_after_checkpoint(tmp_path: Path) -> None:
     recipe = _duration_recipe(tmp_path, checkpoint=True)
-    recipe.stages.insert(2, StageRef(ref="ChannelCountStage", params={"action": "annotate"}))
+    recipe.stages.insert(2, StageRef(ref="AudioFormatStage", params={}))
     recipe.stages.insert(
         4,
         StageRef(

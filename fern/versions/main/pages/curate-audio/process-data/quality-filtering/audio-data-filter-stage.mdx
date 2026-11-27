@@ -27,7 +27,7 @@ This serves two purposes:
 
 When all sub-stages are enabled, the composite expands into:
 
-1. **`MonoConversionStage`** — normalize channels and sample rate.
+1. **`AudioFormatStage`** — downmix to mono and drop rows whose sample rate is not allowed.
 2. **`VADSegmentationStage`** — split into speech segments.
 3. **`BandFilterStage`** — drop segments not matching the target bandwidth.
 4. **`UTMOSFilterStage`** — drop segments below the MOS threshold.
@@ -77,9 +77,8 @@ If neither `config_path` nor `config` is provided, the bundled default config is
 Each top-level key maps to one sub-stage; set `enable: false` to skip it. The default configuration shipped with the stage:
 
 ```yaml
-mono_conversion:
-  output_sample_rate: 48000
-  strict_sample_rate: true
+audio_format:
+  allowed_sample_rates: [48000]
   cpus: 1.0
 
 vad:
@@ -158,8 +157,8 @@ Each sub-stage with `enable:` accepts `false` to skip it. Common partial pipelin
 Strict thresholds across all dimensions, no narrowband, no high-reverb:
 
 ```yaml
-mono_conversion:
-  output_sample_rate: 48000
+audio_format:
+  allowed_sample_rates: [48000]
 vad:
   enable: true
   min_duration_sec: 3.0
@@ -184,9 +183,8 @@ speaker_separation:
 Looser thresholds; preserve more data; rely on downstream training to filter further:
 
 ```yaml
-mono_conversion:
-  output_sample_rate: 16000   # narrow-band acceptable
-  strict_sample_rate: false   # auto-resample
+audio_format:
+  allowed_sample_rates: null  # keep every rate
 vad:
   enable: true
   threshold: 0.4              # lenient
@@ -208,8 +206,8 @@ speaker_separation:
 Skip speaker separation since each file is known to have one speaker:
 
 ```yaml
-mono_conversion:
-  output_sample_rate: 16000
+audio_format:
+  allowed_sample_rates: [16000]
 vad:
   enable: true
   min_duration_sec: 2.0
@@ -256,11 +254,11 @@ For a complete end-to-end walkthrough including dataset download, see the [ReadS
 - **Start from the default config and tune one knob at a time**: don't tighten thresholds on five dimensions at once. You'll lose visibility into which one rejected each dropped segment.
 - **Disable speaker separation when you can**: it's the most expensive sub-stage. If your input has known single-speaker audio, set `speaker_separation.enable: false` for a substantial speedup.
 - **Match resources to hardware**: the `cpus` / `gpus` keys per sub-stage control parallelism. On a 16-CPU / 4-GPU node, the defaults work well; tune up for larger nodes.
-- **Use `strict_sample_rate: false` only when needed**: auto-resampling can mask data-quality bugs (unexpected 8 kHz audio in a 48 kHz dataset). Default to strict and disable only when heterogeneity is expected.
+- **Set `allowed_sample_rates: null` only when needed**: keeping every rate can mask data-quality bugs (unexpected 8 kHz audio in a 48 kHz dataset). Default to an explicit rate and widen it only when heterogeneity is expected.
 - **Inspect distributions before tightening thresholds**: route a small sample through with most filters disabled to score the data, then pick thresholds from the percentile distributions.
 
 ## Related Topics
 
-- **[Preprocessing Stages](/curate-audio/process-data/quality-filtering/preprocessing)** — `MonoConversionStage`, `SegmentConcatenationStage`, `TimestampMapperStage`.
+- **[Preprocessing Stages](/curate-audio/process-data/quality-filtering/preprocessing)** — `AudioFormatStage`, `SegmentConcatenationStage`, `TimestampMapperStage`.
 - **[VAD](/curate-audio/process-data/quality-filtering/vad)**, **[Band Filter](/curate-audio/process-data/quality-filtering/band-filter)**, **[UTMOS](/curate-audio/process-data/quality-filtering/utmos)**, **[SIGMOS](/curate-audio/process-data/quality-filtering/sigmos)**, **[Speaker Separation](/curate-audio/process-data/quality-filtering/speaker-separation)** — per-stage details.
 - **[ReadSpeech Tutorial](/curate-audio/tutorials/readspeech)** — end-to-end walkthrough.

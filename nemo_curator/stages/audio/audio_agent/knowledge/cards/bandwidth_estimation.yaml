@@ -15,7 +15,7 @@ use_cases:
   good_for: ["estimating a continuous bandwidth (Hz) to detect narrowband/telephony audio", "cheap spectral quality signal", "estimating bandwidth on an in-memory waveform (input_residency) from a producer like SpeakerSeparation/SegmentConcatenation"]
   avoid_for: ["when you only need a full/narrow band decision (use BandFilterStage)"]
 composition:
-  typical_upstream: [MonoConversionStage, ResampleAudioStage, VADSegmentationStage, SpeakerSeparationStage, SegmentConcatenationStage]
+  typical_upstream: [AudioFormatStage, VADSegmentationStage, SpeakerSeparationStage, SegmentConcatenationStage]
   typical_downstream: [AudioToDocumentStage]
 params_of_note:
   n_fft: "FFT window size (default 512)"

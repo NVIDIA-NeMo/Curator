@@ -50,7 +50,6 @@ from nemo_curator.stages.audio._agent._planning import validate_pipeline
 from nemo_curator.stages.audio.alm.pretrain import (
     OverlapFilterStage,
     PretrainMetricsAggregatorStage,
-    ReadLongFormManifestStage,
     SnippetCutPlannerStage,
     SnippetExtractionStage,
     SnippetManifestWriterStage,
@@ -59,6 +58,7 @@ from nemo_curator.stages.audio.alm.pretrain import (
     finalize_audio_pretrain_outputs,
     prepare_audio_pretrain_outputs,
 )
+from nemo_curator.stages.audio.common import ManifestReader
 from nemo_curator.tasks import EmptyTask
 
 _LOCAL_MANIFEST = Path(__file__).resolve().parent / "sample_long_form_manifest.jsonl"
@@ -104,7 +104,7 @@ def _build_tiny_tokenizer_dir(tmp_dir: Path) -> Path:
 # below to make sense.  Asserting on this list also doubles as a unit test
 # against `build_audio_pretrain_pipeline`'s structure.
 _EXPECTED_STAGE_TYPES = (
-    ReadLongFormManifestStage,
+    ManifestReader,
     OverlapFilterStage,
     SnippetCutPlannerStage,
     SnippetRepetitionFilterStage,
@@ -114,7 +114,22 @@ _EXPECTED_STAGE_TYPES = (
 )
 
 
+def test_missing_input_manifest_fails_at_build(tmp_path: Path) -> None:
+    with pytest.raises(FileNotFoundError, match="Manifest not found"):
+        build_audio_pretrain_pipeline(
+            input_manifest=str(tmp_path / "nope.jsonl"),
+            audio_dir=str(tmp_path),
+            output_dir=str(tmp_path / "snippets"),
+            output_manifest_path=str(tmp_path / "snippets.jsonl"),
+            output_audio_tar_path=str(tmp_path / "snippets.tar"),
+            metrics_path=str(tmp_path / "metrics.json"),
+            max_duration_sec=30.0,
+            tokenizer_path=str(tmp_path),
+        )
+
+
 def test_standard_pretrain_chain_validates_with_sink_reads(tmp_path: Path) -> None:
+    (tmp_path / "input.jsonl").touch()
     pipeline = build_audio_pretrain_pipeline(
         input_manifest=str(tmp_path / "input.jsonl"),
         audio_dir=str(tmp_path / "audio"),
@@ -136,6 +151,7 @@ def test_standard_pretrain_chain_validates_with_sink_reads(tmp_path: Path) -> No
 
 
 def test_factory_wires_custom_keys_through_entire_chain(tmp_path: Path) -> None:
+    (tmp_path / "input.jsonl").touch()
     pipeline = build_audio_pretrain_pipeline(
         input_manifest=str(tmp_path / "input.jsonl"),
         audio_dir=str(tmp_path / "audio"),
@@ -154,8 +170,8 @@ def test_factory_wires_custom_keys_through_entire_chain(tmp_path: Path) -> None:
     )
     reader, overlap, planner, repetition, extraction, writer, metrics = pipeline.stages
 
-    assert reader.strict_schema is False
-    assert (reader.id_key, reader.segments_key, reader.audio_filepath_key) == (
+    assert reader.skip_invalid_rows is True
+    assert (reader.id_key, reader.segments_key, reader.include_files_key) == (
         "source_id",
         "turns",
         "source_path",
@@ -253,7 +269,13 @@ def _run_pipeline_inline(  # noqa: PLR0913
     aggregator.setup_on_node()
     aggregator.setup()
 
-    for input_task in reader.process(EmptyTask(dataset_name="e", data=None)):
+    partitioner, manifest_reader = reader.decompose()
+    input_tasks = [
+        task
+        for file_group in partitioner.process(EmptyTask(dataset_name="e", data=None))
+        for task in manifest_reader.process(file_group)
+    ]
+    for input_task in input_tasks:
         filtered = overlap.process(input_task)
         planned = planner.process(filtered)
         rep_filtered = rep_filter.process(planned)

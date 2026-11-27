@@ -18,7 +18,7 @@ pipeline stages for extracting clean single-speaker segments.
 
 Pipeline (when all filters + speaker separation enabled)::
 
-    1. MonoConversion (1:1)
+    1. AudioFormat (downmix to mono, filter on sample rate)
     2. VAD batch mode (1:1, items = N segments)
     3. BandFilter (1:1, filter items)
     4. UTMOS (1:1, filter items)
@@ -49,7 +49,7 @@ from loguru import logger
 from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, StageContract, StaticHints
 from nemo_curator.stages.audio.filtering import BandFilterStage, SIGMOSFilterStage, UTMOSFilterStage
 from nemo_curator.stages.audio.postprocessing import TimestampMapperStage
-from nemo_curator.stages.audio.preprocessing import MonoConversionStage, SegmentConcatenationStage
+from nemo_curator.stages.audio.preprocessing import AudioFormatStage, SegmentConcatenationStage
 from nemo_curator.stages.audio.segmentation import SpeakerSeparationStage, VADSegmentationStage
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.resources import Resources
@@ -67,9 +67,9 @@ class AudioDataFilterStage(AgentReady, CompositeStage[AudioTask, AudioTask]):
 
     Supports four pipeline topologies based on which features are enabled:
 
-    - **Combo 1** (VAD=off, Speaker=off): MonoConversion → Filters → TimestampMapper
-    - **Combo 2** (VAD=on, Speaker=off): MonoConversion → VAD(fan-out) → Filters → TimestampMapper
-    - **Combo 3** (VAD=off, Speaker=on): MonoConversion → Filters → SpeakerSep → Filters → TimestampMapper
+    - **Combo 1** (VAD=off, Speaker=off): AudioFormat → Filters → TimestampMapper
+    - **Combo 2** (VAD=on, Speaker=off): AudioFormat → VAD(fan-out) → Filters → TimestampMapper
+    - **Combo 3** (VAD=off, Speaker=on): AudioFormat → Filters → SpeakerSep → Filters → TimestampMapper
     - **Combo 4** (VAD=on, Speaker=on): Full pipeline with SegmentConcat + TimestampMapper
 
     Args:
@@ -141,7 +141,7 @@ class AudioDataFilterStage(AgentReady, CompositeStage[AudioTask, AudioTask]):
 
     def _build_full_pipeline(self, cfg: dict) -> list[ProcessingStage]:
         """Combo 4: VAD=on, Speaker=on.  Identical to the original design."""
-        stages: list[ProcessingStage] = [self._make_mono(cfg)]
+        stages: list[ProcessingStage] = [self._make_audio_format(cfg)]
 
         stages.append(self._make_vad(cfg, suffix="", nested=True))
         self._append_quality_filters(stages, cfg, suffix="")
@@ -165,7 +165,7 @@ class AudioDataFilterStage(AgentReady, CompositeStage[AudioTask, AudioTask]):
 
     def _build_vad_only_pipeline(self, cfg: dict) -> list[ProcessingStage]:
         """Combo 2: VAD=on, Speaker=off.  VAD fans out, OutputNormalizer cleans up."""
-        stages: list[ProcessingStage] = [self._make_mono(cfg)]
+        stages: list[ProcessingStage] = [self._make_audio_format(cfg)]
 
         stages.append(self._make_vad(cfg, suffix="", nested=False))
         self._append_quality_filters(stages, cfg, suffix="")
@@ -175,7 +175,7 @@ class AudioDataFilterStage(AgentReady, CompositeStage[AudioTask, AudioTask]):
 
     def _build_speaker_only_pipeline(self, cfg: dict) -> list[ProcessingStage]:
         """Combo 3: VAD=off, Speaker=on.  SpeakerSep fans out with diar_segments."""
-        stages: list[ProcessingStage] = [self._make_mono(cfg)]
+        stages: list[ProcessingStage] = [self._make_audio_format(cfg)]
 
         self._append_quality_filters(stages, cfg, suffix="")
 
@@ -188,7 +188,7 @@ class AudioDataFilterStage(AgentReady, CompositeStage[AudioTask, AudioTask]):
 
     def _build_filters_only_pipeline(self, cfg: dict) -> list[ProcessingStage]:
         """Combo 1: VAD=off, Speaker=off.  Filters only, TimestampMapper cleans up."""
-        stages: list[ProcessingStage] = [self._make_mono(cfg)]
+        stages: list[ProcessingStage] = [self._make_audio_format(cfg)]
 
         self._append_quality_filters(stages, cfg, suffix="")
 
@@ -200,13 +200,12 @@ class AudioDataFilterStage(AgentReady, CompositeStage[AudioTask, AudioTask]):
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _make_mono(cfg: dict) -> MonoConversionStage:
-        mc = cfg.get("mono_conversion", {})
-        return MonoConversionStage(
-            output_sample_rate=mc.get("output_sample_rate", 48000),
-            strict_sample_rate=mc.get("strict_sample_rate", True),
-            name="MonoConversion",
-            resources=Resources(cpus=mc.get("cpus", 1.0)),
+    def _make_audio_format(cfg: dict) -> AudioFormatStage:
+        fmt = cfg.get("audio_format", {})
+        return AudioFormatStage(
+            allowed_sample_rates=fmt.get("allowed_sample_rates", [48000]),
+            target_channels=1,
+            resources=Resources(cpus=fmt.get("cpus", 1.0)),
         )
 
     @staticmethod

@@ -64,11 +64,13 @@ def _convert_recipe(folder: str, out: str) -> Recipe:
             "stages": [
                 {"ref": "CreateInitialManifestAudioFolderStage", "params": {"data_dir": folder}},
                 {
-                    "ref": "ResampleAudioStage",
+                    "ref": "AudioFormatStage",
                     "params": {
                         "target_sample_rate": 16000,
-                        "target_nchannels": 1,
-                        "resampled_audio_dir": "/tmp/rs_convert",  # noqa: S108
+                        "target_channels": 1,
+                        "write_to_disk": True,
+                        "keep_waveform_in_task": False,
+                        "output_dir": "/tmp/rs_convert",  # noqa: S108
                     },
                 },
                 {"ref": "ManifestWriterStage", "params": {"output_path": out}},
@@ -85,11 +87,13 @@ def _quality_recipe(folder: str, out: str, *, mos: float = 3.0) -> Recipe:
                 {"ref": "VADSegmentationStage", "params": {"min_duration_sec": 2.0, "max_duration_sec": 30.0}},
                 {"ref": "UTMOSFilterStage", "params": {"mos_threshold": mos, "action": "filter"}},
                 {
-                    "ref": "ResampleAudioStage",
+                    "ref": "AudioFormatStage",
                     "params": {
                         "target_sample_rate": 16000,
-                        "target_nchannels": 1,
-                        "resampled_audio_dir": "/tmp/rs_quality",  # noqa: S108
+                        "target_channels": 1,
+                        "write_to_disk": True,
+                        "keep_waveform_in_task": False,
+                        "output_dir": "/tmp/rs_quality",  # noqa: S108
                     },
                 },
                 {"ref": "ManifestWriterStage", "params": {"output_path": out}},
@@ -113,11 +117,13 @@ def _long_recipe(folder: str, out: str, *, mos: float = 3.0) -> Recipe:
                 },
                 {"ref": "UTMOSFilterStage", "params": {"mos_threshold": mos, "action": "filter"}},
                 {
-                    "ref": "ResampleAudioStage",
+                    "ref": "AudioFormatStage",
                     "params": {
                         "target_sample_rate": 16000,
-                        "target_nchannels": 1,
-                        "resampled_audio_dir": "/tmp/rs_long",  # noqa: S108
+                        "target_channels": 1,
+                        "write_to_disk": True,
+                        "keep_waveform_in_task": False,
+                        "output_dir": "/tmp/rs_long",  # noqa: S108
                     },
                 },
                 {
@@ -125,7 +131,7 @@ def _long_recipe(folder: str, out: str, *, mos: float = 3.0) -> Recipe:
                     "params": {
                         "passthrough_keys": [
                             "audio_filepath",
-                            "resampled_audio_filepath",
+                            "converted_audio_filepath",
                             "utmos_mos",
                             "segment_num",
                             "start_ms",
@@ -196,7 +202,7 @@ class TestPipelineSummaryIsDurable:
         """Nothing is clipped: a summary that drops a threshold makes two runs look alike."""
         summary = _reuse_summary.summarize_pipeline(_long_recipe("/data", "/out.jsonl", mos=3.0))
 
-        for ref in ("VADSegmentationStage", "UTMOSFilterStage", "ResampleAudioStage", "ManifestWriterStage"):
+        for ref in ("VADSegmentationStage", "UTMOSFilterStage", "AudioFormatStage", "ManifestWriterStage"):
             assert ref in summary
         assert "mos_threshold=3.0" in summary
         assert "target_sample_rate=16000" in summary
@@ -233,7 +239,7 @@ class TestPipelineSummaryIsDurable:
 
         assert record is not None
         assert record.pipeline_summary
-        assert "ResampleAudioStage" in record.pipeline_summary
+        assert "AudioFormatStage" in record.pipeline_summary
         assert "16000" in record.pipeline_summary or "16kHz" in record.pipeline_summary
         assert "data_dir=" not in record.pipeline_summary
 

@@ -429,8 +429,8 @@ def test_output_isolation_covers_aliases_implicit_paths_and_hidden_writes(
                 },
             },
             {
-                "ref": "MonoConversionStage",
-                "params": {"write_to_disk": True},
+                "ref": "AudioFormatStage",
+                "params": {"target_channels": 1, "write_to_disk": True},
             },
             {
                 "ref": "PyAnnoteDiarizationStage",

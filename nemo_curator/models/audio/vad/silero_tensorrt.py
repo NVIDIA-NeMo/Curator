@@ -81,16 +81,9 @@ def _prepare_16khz_waveform(item: dict[str, Any]) -> torch.Tensor:
     """Reuse Silero input validation, then enforce the TensorRT engine rate."""
     waveform, sample_rate = _prepare_waveform(item, device="cpu")
     if sample_rate != SILERO_TARGET_SAMPLE_RATE:
-        import torchaudio
+        from nemo_curator.stages.audio.common.helpers import resample_waveform
 
-        waveform = (
-            torchaudio.transforms.Resample(
-                orig_freq=sample_rate,
-                new_freq=SILERO_TARGET_SAMPLE_RATE,
-            )(waveform.unsqueeze(0))
-            .squeeze(0)
-            .contiguous()
-        )
+        waveform = resample_waveform(waveform, sample_rate, SILERO_TARGET_SAMPLE_RATE).contiguous()
     return waveform
 
 

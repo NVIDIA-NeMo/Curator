@@ -70,7 +70,7 @@ TUTORIAL_PIPELINES = (
         "stages",
         (
             "ManifestReader",
-            "ResampleAudioStage",
+            "AudioFormatStage",
             "PyAnnoteDiarizationStage",
             "SplitLongAudioStage",
             "NeMoASRAlignerStage",
@@ -90,7 +90,7 @@ TUTORIAL_PIPELINES = (
         "stages",
         (
             "ManifestReader",
-            "ResampleAudioStage",
+            "AudioFormatStage",
             "PyAnnoteDiarizationStage",
             "SplitLongAudioStage",
             "NeMoASRAlignerStage",
@@ -167,11 +167,11 @@ def test_tutorial_sensitive_defaults_remain_compatible(tmp_path: Path) -> None:
     )
     resample = tagging[1]
     assert resample.target_sample_rate == 16000
-    assert resample.target_nchannels == 1
+    assert resample.target_channels == 1
     assert resample.write_to_disk is True
     assert resample.keep_waveform_in_task is False
     assert resample.update_audio_filepath is False
     assert resample.audio_filepath_key == "audio_filepath"
-    assert resample.resampled_audio_filepath_key == "resampled_audio_filepath"
+    assert resample.output_audio_filepath_key == "resampled_audio_filepath"
     assert tagging[2].audio_filepath_key == "resampled_audio_filepath"
     assert tagging[8].audio_filepath_key == "resampled_audio_filepath"

@@ -8,7 +8,7 @@ fallback when the generated text is flagged.
 ```mermaid
 flowchart TD
     read["1. ManifestReader<br/>Read audio paths and existing transcripts"]
-    resample["2. ResampleAudioStage<br/>Create mono 16 kHz WAV files"]
+    resample["2. AudioFormatStage<br/>Create mono 16 kHz WAV files"]
     asr["3. ASRStage + Qwen3-Omni<br/>Transcribe the audio"]
     check["4. WhisperHallucinationStage<br/>Check for suspicious text"]
     select["5. SelectBestPredictionStage<br/>Select model text or the original transcript"]
@@ -197,8 +197,8 @@ Create a JSONL manifest with one row per clip:
 
 Use existing audio files and nonempty transcripts for the fallback stage.
 ASR splits recordings longer than 30 seconds into chunks, transcribes each,
-and joins their predictions into one transcript per input clip. FFmpeg converts
-supported input formats to mono 16 kHz WAV. Use absolute audio paths visible
+and joins their predictions into one transcript per input clip. `AudioFormatStage`
+converts any input libsndfile reads (WAV, FLAC, OGG/Opus, MP3) to mono 16 kHz WAV. Use absolute audio paths visible
 to the workers.
 
 Supply `source_lang` for non-English audio; missing language defaults to English.
@@ -223,7 +223,7 @@ the generated text and stage decisions depend on the run.
 | Stage | What happens to this row |
 | --- | --- |
 | 1. `ManifestReader` | Reads the path and transcript into an `AudioTask`, keeping both fields. |
-| 2. `ResampleAudioStage` | Adds `audio_item_id`, creates a mono 16 kHz WAV, and records its path and duration. |
+| 2. `AudioFormatStage` | Creates a mono 16 kHz WAV and records its path, sample rate, channel count, and duration. |
 | 3. `ASRStage` with `QwenOmniASRAdapter` | Transcribes the audio with the configured prompt and writes `primary_model_prediction`. The original `text` is preserved and is not sent to Qwen. |
 | 4. `WhisperHallucinationStage` | Checks repetition, known suspicious phrases, word lengths, and character rate, recording its decision in `additional_notes`. |
 | 5. `SelectBestPredictionStage` | Selects Qwen's text or falls back to the original transcript when flagged, writing `best_prediction` and `best_prediction_source`. |
@@ -241,8 +241,9 @@ paths are shortened; generated text and stage decisions are shown as recorded.
 {
   "audio_filepath": "374-180298-0000.flac",
   "text": "CHAPTER SIXTEEN I MIGHT HAVE TOLD YOU OF THE BEGINNING OF THIS LIAISON IN A FEW LINES BUT I WANTED YOU TO SEE EVERY STEP BY WHICH WE CAME I TO AGREE TO WHATEVER MARGUERITE WISHED",
-  "audio_item_id": "374-180298-0000_f5f9f2e0",
-  "resampled_audio_filepath": "374-180298-0000_f5f9f2e0.wav",
+  "sample_rate": 16000,
+  "num_channels": 1,
+  "resampled_audio_filepath": "374-180298-0000-fmt-1a2b3c4d5e6f7a8b.wav",
   "duration": 14.53,
   "primary_model_prediction": "Chapter sixteen. I might have told you of the beginning of this liaison in a few lines, but I wanted you to see every step by which we came. I too agreed to whatever Marguerite wished.",
   "_skipme": "",
@@ -294,8 +295,8 @@ shutdown diagnostics despite complete outputs and normal process exits.
 
 - **No new run starts:** one of the guarded output, log, or workspace paths
   already exists. Choose new names; inspect the previous log first.
-- **FFmpeg or missing-file error:** check `ffmpeg` and the audio paths on each
-  worker, including any container mounts.
+- **Missing or undecodable audio:** check the audio paths on each worker,
+  including any container mounts; `AudioFormatStage` logs and drops those rows.
 - **GPU or model-loading error:** confirm at least two CUDA GPUs are visible,
   check free memory, and verify any local model directory contains the pinned
   weights. The console log includes worker startup messages.
