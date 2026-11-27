@@ -29,7 +29,8 @@ class RegexSubstitutionStage(ProcessingStage[AudioTask, AudioTask]):
     """Apply an ordered list of regex substitutions to one transcript field.
 
     Provide exactly one of ``regex_params_yaml`` or inline ``rules``. Each must
-    contain a list of rules. Each rule must define string
+    contain a list of rules, except that a YAML file may instead map names to
+    lists; ``rule_set`` then names the list to use. Each rule must define string
     ``pattern`` and ``repl`` values and may define a non-negative integer
     ``count`` limit. Rules run in list order before whitespace is collapsed.
     A rule may also define ``langs`` (apply only to those languages) or
@@ -50,6 +51,7 @@ class RegexSubstitutionStage(ProcessingStage[AudioTask, AudioTask]):
     name: str = "RegexSubstitution"
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
     rules: list[dict[str, Any]] | None = None
+    rule_set: str = ""
 
     _rules: list[dict[str, Any]] = field(default_factory=list, init=False, repr=False)
 
@@ -57,12 +59,15 @@ class RegexSubstitutionStage(ProcessingStage[AudioTask, AudioTask]):
         if bool(self.regex_params_yaml) == (self.rules is not None):
             msg = "Provide exactly one of regex_params_yaml or rules for RegexSubstitutionStage"
             raise ValueError(msg)
+        if self.rule_set and self.rules is not None:
+            msg = "rule_set selects a list in regex_params_yaml; it cannot be used with inline rules"
+            raise ValueError(msg)
 
     def setup(self, _worker_metadata: object | None = None) -> None:
         raw_rules = self.rules
         if raw_rules is None:
             with Path(self.regex_params_yaml).open(encoding="utf-8") as stream:
-                raw_rules = yaml.safe_load(stream)
+                raw_rules = self._select_rule_set(yaml.safe_load(stream))
         if not isinstance(raw_rules, list):
             msg = "Regex substitutions must contain a list of rules"
             raise TypeError(msg)
@@ -92,6 +97,17 @@ class RegexSubstitutionStage(ProcessingStage[AudioTask, AudioTask]):
             compiled.sub(repl, "", count=count)
             self._validate_language_filter(index, rule)
         self._rules = raw_rules
+
+    def _select_rule_set(self, document: object) -> object:
+        if not self.rule_set:
+            return document
+        if not isinstance(document, dict):
+            msg = f"rule_set {self.rule_set!r} needs a regex file that maps names to lists of rules"
+            raise TypeError(msg)
+        if self.rule_set not in document:
+            msg = f"Regex file has no rule set {self.rule_set!r}; it defines {sorted(document)}"
+            raise ValueError(msg)
+        return document[self.rule_set]
 
     @staticmethod
     def _validate_language_filter(index: int, rule: dict[str, Any]) -> None:

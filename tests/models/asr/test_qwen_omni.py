@@ -414,7 +414,7 @@ def test_qwen_adapter_load_model_cleans_up_partial_engine_when_processor_fails()
     assert adapter._processor is None
 
 
-def test_qwen_adapter_marks_empty_outputs_skipped() -> None:
+def test_qwen_adapter_keeps_empty_outputs_unskipped() -> None:
     adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni")
     waveform_a = np.ones(_SR, dtype=np.float32)
     waveform_b = np.ones(_SR, dtype=np.float32)
@@ -430,5 +430,5 @@ def test_qwen_adapter_marks_empty_outputs_skipped() -> None:
         )
 
     assert pred_texts == ["", "text-b"]
-    assert skipped_indices == {0}
+    assert skipped_indices == set()
     assert llm.generate.call_count == 1

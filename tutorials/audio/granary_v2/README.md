@@ -6,6 +6,7 @@ environment, sample data, input and output fields, and validation commands.
 
 | Step | Tutorial | Result |
 | --- | --- | --- |
+| End-to-end | [Full pipelines: English, European, Indic](full_pipeline/README.md) | Recording metadata, Opus clips, ASR and enriched transcripts for one language group |
 | Prepare recordings | [Metadata extraction](metadata/README.md) | Opus speech clips with speaker, sound-event and language metadata |
 | Transcribe Hindi clips | [Indic ASR](indic_asr/README.md) | Indic Transcribe and Parakeet predictions, selected and cleaned transcripts, and WER |
 | Transcribe with Qwen3-Omni | [Qwen Omni ASR](qwen_omni_asr/README.md) | Transcripts checked for hallucinations and cleaned for downstream use |
@@ -15,10 +16,10 @@ Choose the ASR tutorial that matches your language and models. Follow each
 tutorial's input contract when passing manifests between steps; the bundled
 examples can also be run independently.
 
-Run commands from the repository root. All four tutorials use
-`nemo_curator/config/run.py`; their READMEs provide the configuration paths and
-required arguments. Environment and hardware requirements are specific to each
-tutorial.
+Run commands from the repository root. Follow each tutorial's README for its
+entrypoint, required arguments, environment and hardware requirements. The full
+pipelines run through their shared `main.py`, which manages a Ray Serve server;
+the other tutorials use `nemo_curator/config/run.py`.
 
 The [benchmarks](../../../benchmarking/README.md#audio-benchmark-data-setup)
 remain under `benchmarking/` and use these tutorial configurations on larger
@@ -26,7 +27,7 @@ datasets.
 
 ## Observed throughput
 
-The latest completed EOS comparison ran on 2026-10-20 using Curator
+The latest completed comparison ran on 2026-10-20 on one 8-GPU node using Curator
 `8d275057`. Each Xenna/Ray Data pair used the same frozen input cohort,
 tutorial environment, models and stage settings, with eight NVIDIA H100
 80 GB GPUs allocated per run.

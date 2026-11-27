@@ -864,7 +864,7 @@ python benchmarking/scripts/audio_indic_asr_benchmark.py \
   --input-manifest=/datasets/audio_indic_asr_parakeet_hindi_531h_35376a11/manifest.jsonl \
   --indic-transcribe-engine-dir=/model_weights/audio_indic_asr/indic_transcribe_trtllm/engine_bfloat16_64_new \
   --parakeet-tensorrt-engine-dir=/model_weights/audio_indic_asr/parakeet_indic_trt/encoder_fp16_b1_o8_m16_f8_o800_m4001 \
-  --regex-yaml=tutorials/audio/granary_v2/indic_asr/regex.yaml \
+  --regex-yaml=tutorials/audio/granary_v2/full_pipeline/prompts/regex.yaml \
   --hall-phrases=tutorials/audio/whisper_hallucination/phrases.txt \
   --executor=xenna --no-save-tasks
 ```
@@ -886,7 +886,7 @@ preflight checks; environment creation and data staging belong before it.
 
 #### Indic ASR observed throughput
 
-The 2026-10-20 EOS runs used Curator `8d275057` and the tutorial's Granary
+The 2026-10-20 runs used Curator `8d275057` and the tutorial's Granary
 environment and model bundles. Each executor processed the same 216,164 Hindi
 clips totaling 531.75763 audio hours on one node with eight NVIDIA H100 80 GB
 GPUs, batch size 64 and eight workers per model.
@@ -955,7 +955,7 @@ segments. The tutorial creates `/work/data/fleurs/metadata_input.jsonl` for a
 small check. For a larger cohort, set `GRANARY_INPUT_MANIFEST` to its prepared
 manifest, retaining its dataset revision, license, counts, duration, and hash.
 Make every referenced audio path visible in the container. Use the same frozen
-manifest and audio files for both executors; an already verified Lustre cohort
+manifest and audio files for both executors; an already verified cohort
 can be mounted read-only without downloading or preparing it again.
 
 Run these commands inside the tutorial image from `/opt/Curator`, after its
@@ -1020,7 +1020,7 @@ retained; enabling `--save-tasks` writes an empty list, not intermediate rows.
 
 #### Observed throughput
 
-In the 2026-10-20 EOS benchmark run,
+In the 2026-10-20 benchmark run,
 each executor received one node with 8× H100 80 GB GPUs and processed a frozen cohort of
 30,631 cached LibriSpeech recordings (107.76357 source hours), using Curator
 `8d27505764d4cf941bee31e9faf82c6b685b6432` and the same pinned NeMo
@@ -1126,7 +1126,7 @@ output structure, not transcription accuracy.
 
 #### Observed throughput
 
-The 2026-10-20 EOS runs used Curator `8d275057`
+The 2026-10-20 runs used Curator `8d275057`
 and the documented tutorial environment. One run per executor processed the
 same 22,710 unique English LibriSpeech clips totaling 80.61259 audio hours.
 Each received one exclusive node with 224 logical CPUs and 8 × NVIDIA H100
@@ -1150,6 +1150,95 @@ All eight Xenna GPUs and six Ray Data GPUs recorded at least 30 seconds above
 with repeated model initialization and two GPUs without qualifying model work.
 These measurements do not establish scaling efficiency. Both runs logged worker
 shutdown diagnostics despite complete outputs and normal process exits.
+
+---
+
+## Granary Full Pipeline Benchmarks
+
+One script per pipeline (for European, only the Qwen3-Omni group) runs the whole graph of the tutorial's own YAML on Ray Data, read directly from
+`tutorials/audio/granary_v2/full_pipeline`: recordings to Opus speech clips and metadata, ASR with recovery,
+then eight text operations on a managed inference server (Ray Serve).
+
+| Script | YAML | Output | Image |
+| --- | --- | --- | --- |
+| `scripts/audio_granary_full_english_benchmark.py` | [en_granary_pipeline.yaml](../tutorials/audio/granary_v2/full_pipeline/pipelines/en_granary_pipeline.yaml) | `english.jsonl` | `curator-granary-full` |
+| `scripts/audio_granary_full_european_qwen_omni_benchmark.py` | [european_qwen_omni_granary_pipeline.yaml](../tutorials/audio/granary_v2/full_pipeline/pipelines/european_qwen_omni_granary_pipeline.yaml) | `european_qwen_omni.jsonl` | `curator-granary-full` |
+| `scripts/audio_granary_full_indic_benchmark.py` | [indic_granary_pipeline.yaml](../tutorials/audio/granary_v2/full_pipeline/pipelines/indic_granary_pipeline.yaml) | `indic.jsonl` | `curator-granary-indic` |
+
+Each starts that server the way the tutorial's `main.py` does and times only the pipeline run; server
+start-up is reported separately as `inference_server_startup_s`. Like the Indic ASR and audio
+text benchmarks, they have no entries or enablement overlay in the standard nightly matrix.
+
+The two data-prep scripts stage open, ungated Hugging Face data (CC-BY-4.0) of a chosen duration
+(`--target-audio-hours`) with a manifest of `audio_item_id`, `audio_filepath` and `duration` (no recording transcript: VAD clips would inherit it as a label), as
+`{datasets_path}/<pipeline>_<source>_<split>_<hours>h_<revision8>/manifest.jsonl`:
+
+| Script | Source | Staged |
+| --- | --- | --- |
+| `prepare_audio_granary_hf_asr_data.py` | English: LibriSpeech `train.other.500` (`openslr/librispeech_asr`); Italian: Multilingual LibriSpeech `train` (`facebook/multilingual_librispeech`), chosen by its arguments | the first N hours |
+| `prepare_audio_granary_indic_data.py` | FLEURS train split of nine Indic languages (`google/fleurs`, `--languages`) | an equal share of N hours per language |
+
+None is part of the nightly data setup; these commands staged the measured cohorts:
+
+```bash
+python benchmarking/data_prep/prepare_audio_granary_hf_asr_data.py \
+  --output-path {datasets_path}/audio_granary_full_english_librispeech_other_95h_71cacbfb \
+  --cache-dir {datasets_path}/_hf_cache/librispeech --target-audio-hours 95 \
+  --hf-repo-id openslr/librispeech_asr --hf-config all --hf-split train.other.500 \
+  --hf-revision 71cacbfb7e2354c4226d01e70d77d5fca3d04ba1
+
+python benchmarking/data_prep/prepare_audio_granary_hf_asr_data.py \
+  --output-path {datasets_path}/audio_granary_full_italian_mls_train_130h_2e83e618 \
+  --cache-dir {datasets_path}/_hf_cache/mls --target-audio-hours 130 \
+  --hf-repo-id facebook/multilingual_librispeech --hf-config italian --hf-split train \
+  --hf-revision 2e83e61823b4c47dcbcb1980bb88601274127609
+
+python benchmarking/data_prep/prepare_audio_granary_indic_data.py \
+  --output-path {datasets_path}/audio_granary_full_indic_fleurs_9lang_35h_70bb2e84 \
+  --cache-dir {datasets_path}/_hf_cache/fleurs --target-audio-hours 35
+```
+
+### Benchmark sizes and measured results
+
+Each benchmark takes the whole manifest staged by its data-prep script above, on one node with eight H100 80 GB GPUs
+(Qwen3-Omni and Qwen3-ASR for English and European, Ray Serve text server):
+
+| Script | Staged | Pipeline time | Throughput (audio hours per hour) | Output rows (flagged) |
+| --- | --- | --- | --- | --- |
+| English | 95 h, 28,248 recordings (LibriSpeech `train.other.500`) | 1 h 40 min | 53.8 | 36,017 (14) |
+| European (Qwen3-Omni group) | 130 h, 31,414 recordings (MLS Italian) | 1 h 51 min | 67.0 | 35,469 (22) |
+| Indic | 35 h, 10,358 recordings (FLEURS, 9 languages) | 27 min (+ 11 min server start-up) | 58.7 | 8,766 (13) |
+
+These runs used TensorRT VAD and SED engines in all three pipelines; English and European now run VAD and SED on
+torch and have not been re-measured.
+
+English and European are sized for about 2 hours. At this speed a 2-hour Indic run needs about 150 hours, more than the nine
+FLEURS languages provide, so the Indic benchmark stays at 35 hours. The Indic recovery loads one IndicConformer checkpoint per
+language; on this run its text agrees with the primary Indic Transcribe text at 0.97 to 0.99
+character similarity in every language, and the 13 flagged rows are hallucination or wrong-language checks.
+
+`time_taken_s` includes model warm-up: the Qwen3-Omni engine takes about
+11 minutes to start (compilation, profiling and warm-up), and the text-model replicas start only when audio stages free a GPU.
+Only the server's own start-up is excluded (`inference_server_startup_s`), so the figure is a lower bound for a
+long-running job. The 64-recording tutorial runs are dominated by this warm-up.
+
+Build the image from the table and prepare models and a recordings manifest as in the
+[full pipeline README](../tutorials/audio/granary_v2/full_pipeline/README.md), then run from the
+repository root inside that image on an eight-GPU node (the YAML's default allocation):
+
+```bash
+python benchmarking/scripts/audio_granary_full_english_benchmark.py \
+  --benchmark-results-path=/results/granary_full_english \
+  --input-manifest=/data/manifest.jsonl \
+  --model-dir=/models \
+  --cache-root=/cache/compilation
+```
+
+The command above is for English; the European and Indic scripts take the same arguments. A benchmark
+fails if no clip is produced, if an output row is missing from `metadata.jsonl` or its `source_lang` is
+outside the languages the YAML keeps, or if an unflagged row has an empty `best_prediction`. Metrics include
+`time_taken_s`, `num_output_rows`, `num_flagged_rows`, `total_audio_duration_hours` and
+`throughput_audio_hours_per_hour`. Throughput is not accuracy: review transcripts separately.
 
 ---
 
@@ -1259,7 +1348,7 @@ throughput.
 
 ### Observed throughput
 
-The 2026-10-20 EOS runs used Curator `8d275057` and the documented tutorial
+The 2026-10-20 runs used Curator `8d275057` and the documented tutorial
 environment on one node with eight NVIDIA H100 80 GB GPUs. Both executors
 processed the same 14,290 English transcript rows sequentially against the
 same running server: four TP=2 replicas, batch size 128, 12 workers and

@@ -139,6 +139,11 @@ def _format_lang_label(code: str) -> str:
     return f"{LANG_CODE_TO_NAME.get(code, code)}-{code}"
 
 
+def _same_language(code: str | None) -> str | None:
+    """Filipino is the standardized form of Tagalog, so ``tl`` and ``fil`` count as one language."""
+    return "fil" if code == "tl" else code
+
+
 def verify_language(
     data: dict,
     prediction_key: str,
@@ -158,8 +163,10 @@ def verify_language(
     elif not isinstance(raw_prediction, str) or not raw_prediction.strip():
         note = "skipped (empty prediction)"
     else:
-        expected_code = normalize_language_to_code(str(raw_expected))
+        expected_code = _same_language(normalize_language_to_code(str(raw_expected)))
         primary_code, detected_codes = parse_language_prediction(raw_prediction)
+        primary_code = _same_language(primary_code)
+        detected_codes = list(dict.fromkeys(_same_language(code) for code in detected_codes))
         if expected_code is None:
             note = f"skipped (unknown source_lang={raw_expected!r})"
         else:

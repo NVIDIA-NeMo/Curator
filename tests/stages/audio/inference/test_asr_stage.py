@@ -31,7 +31,7 @@ from nemo_curator.backends.ray_data.adapter import RayDataStageAdapter
 from nemo_curator.models.asr.base import ASRResult
 from nemo_curator.models.asr.faster_whisper import FasterWhisperASR
 from nemo_curator.stages.audio._agent._agent_ready import AgentReady, IOSpec, StageContract
-from nemo_curator.stages.audio.inference.asr.stage import ASRStage
+from nemo_curator.stages.audio.inference.asr.stage import _LANG_CODE_TO_NAME, ASRStage
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -133,6 +133,7 @@ def test_basic_inference() -> None:
         "resampled_audio_filepath": _RESAMPLED_AUDIO_PATH,
         "source_lang": "en",
         "pred_text": "hello world",
+        "additional_notes": {stage.name: stage.model_id},
     }
     inferred_item = stage._adapter.transcribe_batch.call_args.args[0][0]
     assert set(inferred_item) == {
@@ -616,6 +617,35 @@ def test_supported_language_filter_skips_before_adapter_call() -> None:
     assert results[0].data["_skipme"] == "language_not_supported"
     assert results[0].data["additional_notes"]["ASR_inference"] == "skipped (unsupported language: pl)"
     assert results[0].data["additional_notes"]["pred_text"] == "lang_not_supported:pl"
+
+
+def test_supporting_stage_clears_an_earlier_unsupported_note_on_the_same_key() -> None:
+    # Routed pipelines run one ASR stage per language group on the same prediction key.
+    task = _make_task(source_lang="pl")
+    task.data["additional_notes"] = {"EarlierStage": "kept"}
+    english_only = _make_stage(supported_language_codes=["en"])
+    english_only.process_batch([task])
+    assert task.data["additional_notes"]["pred_text"] == "lang_not_supported:pl"
+
+    polish = _make_stage(supported_language_codes=["pl"])
+    polish._adapter.transcribe_batch.return_value = [ASRResult(text="dzien dobry")]
+    (result,) = polish.process_batch([task])
+
+    assert result.data["pred_text"] == "dzien dobry"
+    assert "pred_text" not in result.data["additional_notes"]
+    assert result.data["additional_notes"]["EarlierStage"] == "kept"
+
+
+def test_supporting_stage_keeps_a_note_that_is_not_an_unsupported_marker() -> None:
+    task = _make_task(source_lang="en")
+    task.data["additional_notes"] = {"pred_text": "manually reviewed"}
+    stage = _make_stage(supported_language_codes=["en"])
+    stage._adapter.transcribe_batch.return_value = [ASRResult(text="hello")]
+
+    (result,) = stage.process_batch([task])
+
+    assert result.data["additional_notes"]["pred_text"] == "manually reviewed"
+    assert result.data["additional_notes"][stage.name] == stage.model_id
 
 
 def test_supported_language_filter_annotates_missing_language() -> None:
@@ -1440,3 +1470,34 @@ def test_language_contract_matches_transcribed_and_reused_rows(reuse: bool) -> N
     else:
         assert output.data["detected_language"] == "en"
         assert "detected_language" in report.produced_keys
+
+
+@pytest.mark.parametrize(("code", "name"), [("ms", "Malay"), ("yue", "Cantonese"), ("tl", "Filipino")])
+def test_language_code_resolves_to_its_name(code: str, name: str) -> None:
+    assert _LANG_CODE_TO_NAME[code] == name
+
+
+def test_worker_runtime_env_reaches_ray_as_the_stage_runtime_env() -> None:
+    from omegaconf import OmegaConf
+
+    expected = {"uv": {"packages": ["vllm==0.22.0+cu129"]}, "env_vars": {"A": "1"}}
+    env = OmegaConf.create(expected)
+    stage = ASRStage(
+        adapter_target=_QWEN_ADAPTER_TARGET, model_id="m", max_audio_sec_per_actor=2400.0, worker_runtime_env=env
+    )
+    dataset = MagicMock()
+
+    RayDataStageAdapter(stage).process_dataset(dataset)
+
+    assert stage.runtime_env == expected
+    assert type(stage.runtime_env["uv"]["packages"]) is list
+    assert dataset.map_batches.call_args.kwargs["runtime_env"] == expected
+    assert ASRStage.runtime_env is None
+    assert _make_stage().runtime_env is None
+
+
+def test_worker_runtime_env_must_be_a_mapping() -> None:
+    with pytest.raises(TypeError, match="worker_runtime_env"):
+        ASRStage(
+            adapter_target=_QWEN_ADAPTER_TARGET, model_id="m", max_audio_sec_per_actor=2400.0, worker_runtime_env=["x"]
+        )

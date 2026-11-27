@@ -1,0 +1,94 @@
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+# Recording-to-transcript pipeline for the Qwen3-ASR + Whisper language group (th fa tl); see README.md.
+# Run with: main.py -cn qwen_asr_whisper_granary_pipeline
+defaults:
+  - common
+  - override hydra/job_logging: none
+  - override hydra/hydra_logging: none
+  - _self_
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+  # prompts/ sits next to pipelines/; like the other repository paths here, this is relative to the checkout root.
+  searchpath:
+    - file://tutorials/audio/granary_v2/full_pipeline
+
+documentation: |
+  Extract metadata and Opus speech clips from recordings (language ID: SpeechBrain
+  + Whisper), keep clips in th, fa and tl, transcribe them with Qwen3-ASR and recover with
+  Whisper large-v3, then enrich the selected text.
+  metadata.jsonl retains every metadata result, including rejected/audit rows;
+  qwen_asr_whisper.jsonl contains the selected clips with ASR and text features.
+
+output_path: ${output_dir}/qwen_asr_whisper.jsonl
+
+stages:
+  - ${shared.manifest_reader}
+  - ${shared.resample_audio_stage}
+  - ${shared.inference_sortformer_stage}
+  - ${shared.v_a_d_segmentation_stage}
+  - ${shared.s_e_d_inference_stage}
+  - ${shared.s_e_d_postprocessing_stage}
+  - ${shared.speech_brain_lang_i_d}
+  - ${shared.whisper_lang_i_d}
+  - ${shared.select_audio_language_stage}
+  - ${shared.audio_segment_writer_stage}
+  - ${shared.metadata_manifest_writer}
+
+  # Keep the full metadata audit above; only clips in this group's languages reach ASR.
+  - _target_: nemo_curator.stages.audio.common.PreserveByValueConditionsStage
+    _convert_: all
+    conditions:
+      - {input_value_key: source_lang, target_value: th, operator: eq}
+      - {input_value_key: source_lang, target_value: fa, operator: eq}
+      - {input_value_key: source_lang, target_value: tl, operator: eq}
+    condition_logic: or
+    missing_value_policy: drop
+  - ${shared.resample_clip}
+  - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
+    waveform_key: waveform
+    sample_rate_key: sample_rate
+    keep_waveform: true
+    name: QwenASR_primary
+    adapter_target: nemo_curator.models.asr.qwen_asr.QwenASRAdapter
+    model_id: ${recovery_model_id}
+    supported_language_codes: [th, fa, tl]
+    pred_text_key: primary_model_prediction
+    batch_size: 128
+    max_audio_sec_per_actor: 5120.0
+    # vLLM profiles memory on its own GPU: a shared GPU fails its start-up check, so it keeps one whole GPU.
+    adapter_kwargs:
+      revision: ${recovery_model_revision}
+      gpu_memory_utilization: 0.95
+      max_new_tokens: 4096
+      max_inference_batch_size: 128
+  - ${shared.whisper_hallucination_primary}
+
+  - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
+    waveform_key: waveform
+    sample_rate_key: sample_rate
+    keep_waveform: false
+    name: Whisper_recovery
+    adapter_target: nemo_curator.models.asr.faster_whisper.FasterWhisperASR
+    model_id: large-v3
+    supported_language_codes: [th, fa, tl]
+    preserve_existing_skip: true
+    max_audio_sec_per_actor: 2400.0
+    pred_text_key: fallback_model_prediction
+    batch_size: 16
+    resources:
+      gpu_memory_gb: 16
+  - ${shared.whisper_hallucination_asr}
+  - ${shared.select_best_prediction_stage}
+  - ${shared.regex_substitution_stage}
+  - ${shared.abbreviation_concat_stage}
+  - ${shared.pn_c_restoration}
+  - ${shared.language_id}
+  - ${shared.text_normalization}
+  - ${shared.fused_text_l_l_m}
+  - ${shared.i_t_n_restoration}
+  - ${shared.disfluency_removal}
+  - ${shared.manifest_writer_stage}

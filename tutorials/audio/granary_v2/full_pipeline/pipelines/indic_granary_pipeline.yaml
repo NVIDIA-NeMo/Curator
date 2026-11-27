@@ -1,0 +1,202 @@
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+# Indic recording-to-transcript pipeline; see README.md. Run with: main.py -cn indic_granary_pipeline
+defaults:
+  - common
+  - override hydra/job_logging: none
+  - override hydra/hydra_logging: none
+  - _self_
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+  # prompts/ sits next to pipelines/; like the other repository paths here, this is relative to the checkout root.
+  searchpath:
+    - file://tutorials/audio/granary_v2/full_pipeline
+
+documentation: |
+  Extract metadata and Opus speech clips from recordings (language ID: SpeechBrain
+  + Indic Transcribe + Whisper), keep clips in 22 Indic languages, transcribe with Indic
+  Transcribe (TensorRT-LLM) and Parakeet-Riva / IndicConformer recovery, then enrich the
+  selected text.
+  metadata.jsonl retains every metadata result, including rejected/audit rows;
+  indic.jsonl contains the selected clips with ASR and text features.
+
+output_path: ${output_dir}/indic.jsonl
+
+model_identifier: RedHatAI/gemma-4-31B-it-FP8-dynamic
+regex_rule_set: indic
+# Indic code switching separates native suffixes from restored English roots and writes no digits.
+code_switching_prompt: ${prompts.code_switching_indic}
+# A request that hits the serving frontend's detokenizer panic (some Kashmiri generations) keeps the row's input
+# text (SKIP for SpeechQA) instead of failing the batch; any other failure still fails it.
+isolate_failed_text_requests: true
+# PnC prompt: generic, or indic (per-language punctuation marks).
+pnc_prompt: generic
+pnc_restoration_stages: {generic: '${shared.pn_c_restoration}', indic: '${shared.pn_c_restoration_indic}'}
+# Text language ID: list a language under fasttext or indiclid to check it with that CPU model; every other language
+# goes to the LLM. Evaluated split: fasttext [bn, hi, kn, mr, pa, ta, te] and indiclid the other fourteen, leaving
+# Sindhi on the LLM (neither CPU model recognizes its Devanagari text).
+language_id_split:
+  fasttext: []
+  indiclid: []
+
+# One replica (two GPUs) is up from the start: a replica started later can land on a GPU a TensorRT-LLM stage is
+# still releasing, fail vLLM's free-memory check and leave the text stages failing with 503s.
+text_min_replicas: 1
+
+# The Indic image has only vLLM's CPU build, so the replicas install vLLM 0.22 (Torch 2.11) in their own environment.
+text_model:
+  runtime_env:
+    uv:
+      packages:
+        - vllm==0.22.0+cu129
+        - transformers==5.8.0
+      uv_pip_install_options:
+        - --torch-backend
+        - cu129
+        - --index-strategy
+        - unsafe-best-match
+        - --extra-index-url
+        - https://wheels.vllm.ai/0.22.0/cu129
+    config:
+      setup_timeout_seconds: 1800
+  engine_kwargs:
+    # The Indic ITN prompt carries each language's examples: up to about 6,600 tokens for Manipuri. A 40 s clip at
+    # the 40 characters per second hallucination cap is 1,600 characters, which is 3,453 tokens in Meetei Mayek
+    # (Gemma splits it into about two tokens per character). With 512 output tokens that needs 10,572.
+    max_model_len: 11264
+    revision: 2563c2cd050cdba6957ac04da0f71c05766708f7  # pragma: allowlist secret - public model revision
+    enable_prefix_caching: true
+
+stages:
+  - ${shared.manifest_reader}
+  - ${shared.resample_audio_stage}
+  - ${shared.inference_sortformer_stage}
+  - ${shared.v_a_d_segmentation_stage_tensorrt}
+  - ${shared.s_e_d_inference_stage_tensorrt}
+  - ${shared.s_e_d_postprocessing_stage}
+  - ${shared.speech_brain_lang_i_d}
+
+  - ${shared.indic_transcribe_lang_i_d}
+  - ${shared.whisper_lang_i_d_tertiary}
+  - ${shared.select_audio_language_stage}
+  - ${shared.audio_segment_writer_stage}
+  - ${shared.metadata_manifest_writer}
+
+  # Keep the full metadata audit above; only clips in the 22 Indic languages below reach ASR.
+  - _target_: nemo_curator.stages.audio.common.PreserveByValueConditionsStage
+    _convert_: all
+    conditions:
+      - {input_value_key: source_lang, target_value: as, operator: eq}
+      - {input_value_key: source_lang, target_value: bn, operator: eq}
+      - {input_value_key: source_lang, target_value: brx, operator: eq}
+      - {input_value_key: source_lang, target_value: doi, operator: eq}
+      - {input_value_key: source_lang, target_value: gu, operator: eq}
+      - {input_value_key: source_lang, target_value: hi, operator: eq}
+      - {input_value_key: source_lang, target_value: kn, operator: eq}
+      - {input_value_key: source_lang, target_value: kok, operator: eq}
+      - {input_value_key: source_lang, target_value: ks, operator: eq}
+      - {input_value_key: source_lang, target_value: mai, operator: eq}
+      - {input_value_key: source_lang, target_value: ml, operator: eq}
+      - {input_value_key: source_lang, target_value: mni, operator: eq}
+      - {input_value_key: source_lang, target_value: mr, operator: eq}
+      - {input_value_key: source_lang, target_value: ne, operator: eq}
+      - {input_value_key: source_lang, target_value: or, operator: eq}
+      - {input_value_key: source_lang, target_value: pa, operator: eq}
+      - {input_value_key: source_lang, target_value: sa, operator: eq}
+      - {input_value_key: source_lang, target_value: sat, operator: eq}
+      - {input_value_key: source_lang, target_value: sd, operator: eq}
+      - {input_value_key: source_lang, target_value: ta, operator: eq}
+      - {input_value_key: source_lang, target_value: te, operator: eq}
+      - {input_value_key: source_lang, target_value: ur, operator: eq}
+    condition_logic: or
+    missing_value_policy: drop
+  - ${shared.resample_clip}
+
+  - _target_: nemo_curator.stages.audio.inference.indic_transcribe.InferenceIndicTranscribeStage
+    keep_waveform: true
+    name: IndicTranscribe_primary
+    engine_dir: ${model_dir}/indic_transcribe
+    num_beams: 4
+    # Decode settings of the indic_asr tutorial.
+    max_new_tokens: 347
+    pnc: false
+    kv_cache_free_gpu_memory_fraction: 0.1
+    cross_kv_cache_fraction: 0.1
+    sample_rate_key: sample_rate
+    pred_text_key: primary_model_prediction
+    batch_size: 64
+    # The Indic Transcribe encoder's TensorRT execution context asks for about 40 GB.
+    resources:
+      gpu_memory_gb: 50
+  - ${shared.whisper_hallucination_primary}
+
+  - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
+    waveform_key: waveform
+    sample_rate_key: sample_rate
+    keep_waveform: true
+    name: ParakeetRiva_recovery
+    skip_if_output_exists: true
+    adapter_target: nemo_curator.models.asr.indic_parakeet_rnnt_tensorrt.TensorRTParakeetRNNTAdapter
+    supported_language_codes: [hi]
+    unsupported_language_marks_skip: false
+    preserve_existing_skip: true
+    max_audio_sec_per_actor: 2400.0
+    pred_text_key: fallback_model_prediction
+    model_id: ${model_dir}/indic_parakeet/model.nemo
+    batch_size: 64
+    adapter_kwargs:
+      engine_dir: ${model_dir}/indic_parakeet
+      chunking_mode: engine
+      empty_audio_marks_skip: false
+    resources:
+      gpu_memory_gb: 16
+
+  - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
+    waveform_key: waveform
+    sample_rate_key: sample_rate
+    keep_waveform: false
+    name: IndicConformer_recovery
+    skip_if_output_exists: true
+    # One checkpoint per language (the Hindi checkpoint returns unusable text for other languages); each loads when its first row arrives.
+    adapter_target: nemo_curator.models.audio.indic_conformer_monolingual.IndicConformerMonolingualASR
+    supported_language_codes: [as, bn, brx, doi, gu, kn, kok, ks, mai, ml, mni, mr, ne, or, pa, sa, sat, sd, ta, te, ur]
+    unsupported_language_marks_skip: false
+    preserve_existing_skip: true
+    max_audio_sec_per_actor: 2400.0
+    pred_text_key: fallback_model_prediction
+    model_id: ai4bharat/indicconformer_stt_{lang}_hybrid_ctc_rnnt_large
+    batch_size: 64
+    adapter_kwargs:
+      decode_mode: rnnt
+      rnnt_precision: fp32
+      use_cuda_graph_decoder: false  # the CUDA-graph RNNT decoder hit an illegal memory access with mixed Indic languages
+      empty_audio_marks_skip: false
+    resources:
+      gpu_memory_gb: 24  # up to 21 checkpoints (about 1 GB each) stay loaded in one worker
+  - ${shared.whisper_hallucination_asr}
+
+  - _target_: nemo_curator.stages.audio.text_filtering.SelectBestPredictionStage
+    primary_text_key: primary_model_prediction
+    fallback_text_key: fallback_model_prediction
+    reference_text_key: null
+    use_reference_on_hallucination: false
+    use_ground_truth_for_short_audio: false
+    min_agreement_pct: ${min_agreement_pct}
+    output_key: best_prediction
+    agreement_wer_key: omni_asr_agreement_wer
+    metric_key: omni_asr_agreement_metric
+    primary_model_type: indic_transcribe
+  - ${shared.regex_substitution_stage}
+  - ${shared.abbreviation_concat_stage}
+  - ${pnc_restoration_stages.${pnc_prompt}}
+  - ${shared.language_id}
+  - ${shared.fast_text_language_id}
+  - ${shared.indic_l_i_d_language_id}
+  - ${shared.text_normalization}
+  - ${shared.fused_text_l_l_m}
+  - ${shared.i_t_n_restoration_indic}
+  - ${shared.disfluency_removal}
+  - ${shared.manifest_writer_stage}

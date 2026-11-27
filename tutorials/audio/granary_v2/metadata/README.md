@@ -460,7 +460,9 @@ those rows as accepted language-labeled training data without reviewing them.
    respectively; clips below one second have no model language prediction.
 6. **Language selection:** accept Whisper's English prediction; otherwise
    require all three models to agree for Indic languages, or SpeechBrain and
-   Whisper to agree for non-Indic languages. Preserve rejection reasons.
+   Whisper to agree for non-Indic languages. For the eight Indic languages
+   SpeechBrain and Whisper have no code for, accept Indic Transcribe's answer
+   when both other models answer an Indic language. Preserve rejection reasons.
 7. **Write:** encode the speech waveform as Opus and write JSON-safe metadata.
    Remove waveform arrays and recording-level diarization arrays from each
    row; retain the RTTM path and per-segment speaker count.

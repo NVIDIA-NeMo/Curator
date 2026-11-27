@@ -132,6 +132,25 @@ def test_setup_normalizes_supported_corpus_punctuation(tmp_path: Path) -> None:
     assert stage._phrases == {"Thank you", "MERCI", "Fifty-four"}
 
 
+@pytest.mark.parametrize(
+    ("text", "loose_flagged", "strict_flagged"),
+    [
+        ("Merci.", True, True),
+        ("Sì, è vero", True, True),
+        ("Merci,", True, False),
+        ("Thank-you", True, False),
+        ("Thank you", True, False),
+    ],
+)
+def test_loose_phrase_match_controls_commas_hyphens_and_corpus_punctuation(
+    tmp_path: Path, text: str, loose_flagged: bool, strict_flagged: bool
+) -> None:
+    for loose, expected in ((True, loose_flagged), (False, strict_flagged)):
+        stage = _make_stage(tmp_path, ["Merci", "Sì, è vero", "Thank you!"], loose_phrase_match=loose)
+        result = stage.process(AudioTask(data={_TEXT_KEY: text, _SKIP_KEY: "", "duration": 5.0}))
+        assert (result.data[_SKIP_KEY] == "Hallucination:WhisperHallucination") is expected, loose
+
+
 @pytest.mark.parametrize("text", ["", None])
 def test_empty_or_non_string_text_is_skipped(tmp_path: Path, text: str | None) -> None:
     stage = _make_stage(tmp_path, [])
@@ -164,6 +183,20 @@ def test_language_appropriate_absolute_long_word_threshold_is_configurable(
     stage = _make_stage(tmp_path, [], **kwargs)
     text = f"the {'a' * word_length} here"
     result = stage.process(AudioTask(data={_TEXT_KEY: text, _SKIP_KEY: "", "language": language}))
+
+    assert bool(result.data[_SKIP_KEY]) is expected_flagged
+
+
+@pytest.mark.parametrize(
+    ("language", "word_length", "expected_flagged"),
+    [("ml", 30, False), ("ml", 36, True), ("sa", 45, False), ("sa", 51, True), ("hi", 30, True)],
+)
+def test_per_language_long_word_threshold_overrides_the_default(
+    tmp_path: Path, language: str, word_length: int, expected_flagged: bool
+) -> None:
+    stage = _make_stage(tmp_path, [], long_word_threshold_by_lang={"ml": 35, "sa": 50})
+    word = "a" * word_length
+    result = stage.process(AudioTask(data={_TEXT_KEY: f"{word} {word}", _SKIP_KEY: "", "language": language}))
 
     assert bool(result.data[_SKIP_KEY]) is expected_flagged
 

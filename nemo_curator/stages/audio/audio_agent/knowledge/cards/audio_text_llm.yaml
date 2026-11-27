@@ -39,6 +39,10 @@ params_of_note:
   max_retries: "Default 3 wrapper retries for retryable failures; underlying SDK retries also contribute to time and request count."
   num_workers_override: "Optional positive actor cap, useful for limiting total load on a shared server."
   skip_if_output_exists: "Default false. When true, output-key presence alone reuses the existing value, including empty text; a prompt/model change does not invalidate it."
+  other_model_languages: "Default null handles every row. {model: [language, ...]} of languages other stages check (the TextLanguageIDStage split); those rows pass through untouched, every row needs a non-empty language, and a language listed under two models raises."
+  ignore_skip_me: "Default false. True processes rows even when skip_me_key is set; language verification still keeps an existing skip reason."
+  isolate_failed_requests: "Default false: a request that still fails after retries fails the batch. True isolates only the serving frontend's detokenizer panic (HTTP 500 JoinError::Panic ... is not a char boundary), which recurs for that row: it writes generation_error_text with the note skipped (generation_error), and the other rows still apply. Any other failure still raises."
+  generation_error_text: "Used with isolate_failed_requests. Default None keeps the input text for a failed row; set a string such as SKIP for an output that must never hold the transcript."
   skip_me_key: "Default _skipme. Existing truthy reasons suppress generation. Language verification may add a reason but never clears an existing one."
   notes_key: "Default additional_notes; each operation writes an outcome under its configured name. Give sequential operations distinct names to preserve their audit history."
 param_dependencies:
@@ -79,7 +83,7 @@ comparison:
 caveats:
   - "The presets select guards only: endpoint, model and an appropriate prompt still need configuration. The ITN/TN guards are heuristic and can both reject useful rewrites and accept meaning-changing ones."
   - "Defaults temperature=0 and seed=0 do not guarantee identical text across server/model versions or implementations."
-  - "A batch waits for responses before applying operation outputs. Request failures propagate after retries; pending requests are cancelled and the worker's client/event loop is reset on failure or teardown."
+  - "A batch waits for responses before applying operation outputs. Request failures propagate after retries, except the detokenizer panic when isolate_failed_requests is set; the batch deadline and cancellation always propagate; pending requests are cancelled and the worker's client/event loop is reset on failure or teardown."
   - "Use a synchronous worker thread; calling from a running event loop or concurrently on one stage instance is unsupported."
   - "Normal text transforms preserve row count. To exclude flagged rows, use an explicit downstream policy, taking any sink's source-row completeness requirements into account."
 notes:

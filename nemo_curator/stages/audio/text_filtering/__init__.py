@@ -19,6 +19,7 @@ from .audio_text_llm import AudioTextLLMStage
 from .disfluency_wer_guard import DisfluencyWerGuardStage
 from .regex_substitution import RegexSubstitutionStage
 from .select_best_prediction import SelectBestPredictionStage
+from .text_language_identification import TextLanguageIDStage
 from .whisper_hallucination import WhisperHallucinationStage
 
 __all__ = [
@@ -27,5 +28,6 @@ __all__ = [
     "DisfluencyWerGuardStage",
     "RegexSubstitutionStage",
     "SelectBestPredictionStage",
+    "TextLanguageIDStage",
     "WhisperHallucinationStage",
 ]

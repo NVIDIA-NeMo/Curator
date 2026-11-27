@@ -56,10 +56,13 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
       ``unique_words_threshold``, the signature of a decoder stuck in a loop.
     - **Long word**: a word at or over the language-appropriate absolute length
       bar, or one much longer than the next-longest word by
-      ``long_word_rel_threshold``.
+      ``long_word_rel_threshold``. ``long_word_threshold_by_lang`` overrides the
+      absolute bar for single languages (for example ``ml: 35``, ``sa: 50``).
     - **Phrase match**: the transcript is a known hallucination phrase or an
       approved continuation from ``common_hall_file`` (think "Thank you for
-      watching" over silence).
+      watching" over silence). ``loose_phrase_match=False`` compares the
+      trimmed phrases as written and removes only ``. ? !`` from the transcript,
+      without also ignoring commas or reading hyphens as spaces.
     - **High char rate**: characters per second exceed ``max_char_rate``, an
       impossible speaking rate, which catches dense text confabulated over a
       very short clip.
@@ -97,8 +100,11 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
     unique_words_threshold: float = 0.4
     long_word_threshold: int = 25
     agglutinative_long_word_threshold: int = 35
+    # Overrides only the absolute bar; the relative check is still skipped for agglutinative languages only.
+    long_word_threshold_by_lang: dict[str, int] = field(default_factory=dict)
     long_word_rel_threshold: float = 3.0
     max_char_rate: float = 40.0
+    loose_phrase_match: bool = True
     language_key: str = "language"
     duration_key: str = "duration"
     text_key: str = "pred_text"
@@ -128,17 +134,20 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
     def _normalize_corpus_phrase(text: str) -> str:
         return text.strip().replace(".", "").replace("?", "").replace("!", "").replace(",", "")
 
-    @staticmethod
-    def _transcript_candidates(text: str) -> set[str]:
-        cleaned = text.strip().replace(".", "").replace("?", "").replace("!", "").replace(",", "")
+    def _transcript_candidates(self, text: str) -> set[str]:
+        cleaned = text.strip().replace(".", "").replace("?", "").replace("!", "")
+        if not self.loose_phrase_match:
+            return {cleaned}
+        cleaned = cleaned.replace(",", "")
         candidates = {cleaned}
         if "-" in cleaned:
             candidates.add(cleaned.replace("-", " "))
         return candidates
 
     def setup(self, _worker_metadata: object | None = None) -> None:
+        normalize = self._normalize_corpus_phrase if self.loose_phrase_match else str.strip
         with open(self.common_hall_file, encoding="utf-8") as f:
-            phrases = {self._normalize_corpus_phrase(line) for line in f if line.strip()}
+            phrases = {normalize(line) for line in f if line.strip()}
         self._phrases = phrases
         logger.info(f"WhisperHallucinationStage: loaded {len(phrases)} phrases from {self.common_hall_file}")
 
@@ -203,6 +212,8 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
 
         is_agglutinative = self._is_agglutinative(task)
         long_word_thresh = self.agglutinative_long_word_threshold if is_agglutinative else self.long_word_threshold
+        lang = str(task.data.get(self.language_key, "")).lower().strip()
+        long_word_thresh = self.long_word_threshold_by_lang.get(lang, long_word_thresh)
         word_checks_apply = not self._is_scriptio_continua(task)
         repeated = self._repeated_ngrams(words) if word_checks_apply else False
         long_w = (

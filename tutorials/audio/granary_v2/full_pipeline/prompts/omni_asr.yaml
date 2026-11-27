@@ -1,0 +1,4 @@
+# Qwen3-Omni ASR prompt for every language but English. The Qwen3-Omni adapter fills {language} with the language
+# name, e.g. German.
+omni_asr: |-
+  Transcribe the {language} audio into text exactly as the speaker says it. Write numbers as spoken words.

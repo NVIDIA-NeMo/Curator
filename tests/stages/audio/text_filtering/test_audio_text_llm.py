@@ -25,7 +25,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import httpx
 import pytest
 from cloudpickle import dumps, loads
-from openai import APIStatusError, APITimeoutError, AsyncOpenAI
+from openai import APIConnectionError, APIStatusError, APITimeoutError, AsyncOpenAI
 
 from nemo_curator.backends.base import BaseStageAdapter
 from nemo_curator.backends.ray_data.utils import is_actor_stage
@@ -34,6 +34,13 @@ from nemo_curator.models.client.llm_client import GenerationConfig
 from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
 from nemo_curator.stages.audio.text_filtering.audio_text_llm import AudioTextLLMStage
 from nemo_curator.tasks import AudioTask
+
+# The serving frontend's detokenizer panic, the only failure isolate_failed_requests isolates.
+_PANIC_MESSAGE = 'JoinError::Panic(Id(7), "byte index 5 is not a char boundary; it is inside a multi-byte character")'
+
+
+def _panic() -> httpx.Response:
+    return httpx.Response(500, json={"error": {"message": _PANIC_MESSAGE, "type": "server_error"}})
 
 
 def _completion(content: str | None, finish_reason: str = "stop") -> httpx.Response:
@@ -552,11 +559,21 @@ def test_flagged_rows_preserve_existing_output(
     assert clients == []
 
 
-@pytest.mark.parametrize("data", [{}, {"text": None}, {"text": 12}, {"text": ["hello"]}])
+@pytest.mark.parametrize("data", [{"text": 12}, {"text": ["hello"]}])
 def test_active_rows_require_a_string_transcript(data: dict, endpoint: Callable) -> None:
     clients = endpoint(lambda _request: _completion("unused"))
-    with pytest.raises((TypeError, ValueError, KeyError)):
+    with pytest.raises(TypeError):
         _stage().process_batch([AudioTask(data=data)])
+    assert clients == []
+
+
+@pytest.mark.parametrize("data", [{}, {"text": None}])
+def test_missing_or_none_transcript_is_skipped_as_empty(data: dict, endpoint: Callable) -> None:
+    clients = endpoint(lambda _request: _completion("unused"))
+    stage = _stage()
+    (task,) = stage.process_batch([AudioTask(data=dict(data))])
+    assert task.data[stage.output_text_key] == ""
+    assert task.data["additional_notes"][stage.name] == "skipped (empty)"
     assert clients == []
 
 
@@ -688,6 +705,76 @@ def test_http_failure_does_not_apply_partial_batch_results_and_closes_client(end
     assert all("additional_notes" not in task.data for task in tasks)
     assert clients
     assert all(client.is_closed() for client in clients)
+
+
+def test_isolated_batch_does_not_raise_when_every_request_panics(endpoint: Callable) -> None:
+    endpoint(lambda _request: _panic())
+    stage = _stage(max_retries=0, isolate_failed_requests=True)
+    tasks = stage.process_batch([AudioTask(data={"text": "a"}), AudioTask(data={"text": "b"})])
+    assert [task.data["processed_text"] for task in tasks] == ["a", "b"]
+    assert all(task.data["additional_notes"][stage.name] == "skipped (generation_error)" for task in tasks)
+    stage.teardown()
+
+
+def test_panicked_language_id_request_flags_only_its_row(endpoint: Callable) -> None:
+    def handle(request: httpx.Request) -> httpx.Response:
+        if json.loads(request.content)["messages"][-1]["content"] == "fail":
+            return _panic()
+        return _completion("English")
+
+    endpoint(handle)
+    stage = _stage(
+        mode="language_id",
+        output_text_key="detected_language",
+        max_retries=0,
+        max_concurrent_requests=1,
+        isolate_failed_requests=True,
+    )
+    tasks = [
+        AudioTask(data={"text": "good", "source_lang": "en"}),
+        AudioTask(data={"text": "fail", "source_lang": "en"}),
+    ]
+    stage.process_batch(tasks)
+    assert not tasks[0].data.get("_skipme")
+    assert tasks[1].data["detected_language"] == "fail"
+    assert tasks[1].data["_skipme"].startswith("Unparseable language")
+    assert tasks[1].data["additional_notes"][stage.name] == "skipped (generation_error)"
+    stage.teardown()
+
+
+def test_a_panicked_row_is_isolated_and_the_others_apply(endpoint: Callable) -> None:
+    def handle(request: httpx.Request) -> httpx.Response:
+        if json.loads(request.content)["messages"][-1]["content"] == "fail":
+            return _panic()
+        return _completion("new output")
+
+    endpoint(handle)
+    stage = _stage(max_retries=0, max_concurrent_requests=1, isolate_failed_requests=True)
+    good = AudioTask(data={"text": "good", "processed_text": "old output"})
+    tasks = stage.process_batch([good, AudioTask(data={"text": "fail"}), AudioTask(data={"_skipme": "prior filter"})])
+    assert tasks[0].data["processed_text"] == "new output"
+    assert tasks[1].data["processed_text"] == "fail"
+    assert tasks[1].data["additional_notes"][stage.name] == "skipped (generation_error)"
+    stage.teardown()
+
+
+@pytest.mark.parametrize("failure", [400, 429, 500, 503, "connection"])
+def test_isolation_still_raises_every_other_failure(endpoint: Callable, failure: int | str) -> None:
+    def handle(request: httpx.Request) -> httpx.Response:
+        if json.loads(request.content)["messages"][-1]["content"] == "fail":
+            if failure == "connection":
+                msg = "connection refused"
+                raise httpx.ConnectError(msg, request=request)
+            return httpx.Response(failure, json={"error": {"message": "busy", "type": "server_error"}})
+        return _completion("new output")
+
+    endpoint(handle)
+    stage = _stage(max_retries=0, max_concurrent_requests=1, isolate_failed_requests=True)
+    tasks = [AudioTask(data={"text": "good"}), AudioTask(data={"text": "fail"})]
+    with pytest.raises((APIStatusError, APIConnectionError)):
+        stage.process_batch(tasks)
+    assert all("processed_text" not in task.data for task in tasks)
+    stage.teardown()
 
 
 @pytest.mark.parametrize("status", [408, 409, 429, 500, 503])
@@ -840,26 +927,36 @@ def test_parallel_prompts_share_concurrency_and_keep_per_operation_configs(endpo
     stage.teardown()
 
 
-def test_parallel_http_failure_is_atomic_across_operations(endpoint: Callable) -> None:
+@pytest.mark.parametrize(("error", "expected"), [(None, "original"), ("SKIP", "SKIP")])
+def test_parallel_operation_failure_is_isolated(endpoint: Callable, error: str | None, expected: str) -> None:
     def handle(request: httpx.Request) -> httpx.Response:
         if json.loads(request.content)["messages"][0]["content"] == "Fail":
-            return httpx.Response(400, json={"error": {"message": "bad", "type": "invalid_request_error"}})
+            return _panic()
         return _completion("changed")
 
-    clients = endpoint(handle)
+    endpoint(handle)
     stage = _stage(
         prompt="",
         max_retries=0,
+        isolate_failed_requests=True,
         operations=[
-            {"name": "caption", "prompt": "Caption", "output_text_key": "caption"},
-            {"name": "qa", "prompt": "Fail", "output_text_key": "qa"},
+            {"name": "caption", "prompt": "Caption", "output_text_key": "caption", "generation_error_text": error},
+            {"name": "qa", "prompt": "Fail", "output_text_key": "qa", "generation_error_text": error},
         ],
     )
     task = AudioTask(data={"text": "original"})
-    with pytest.raises(APIStatusError):
-        stage.process(task)
-    assert task.data == {"text": "original"}
-    assert clients[0].is_closed()
+    stage.process(task)
+    assert task.data["caption"] == "changed"
+    assert task.data["qa"] == expected
+    assert task.data["additional_notes"]["qa"] == "skipped (generation_error)"
+
+
+@pytest.mark.parametrize(
+    "option", [{"generation_error_text": 0}, {"isolate_failed_requests": "yes"}, {"ignore_skip_me": "yes"}]
+)
+def test_invalid_option_types_fail_early(option: dict) -> None:
+    with pytest.raises(TypeError, match=next(iter(option))):
+        _stage(**option)
 
 
 @pytest.mark.parametrize(
@@ -875,3 +972,56 @@ def test_parallel_http_failure_is_atomic_across_operations(endpoint: Callable) -
 def test_parallel_groups_reject_conflicting_or_dependent_operations(second: dict) -> None:
     with pytest.raises(ValueError, match="Parallel operations"):
         _stage(prompt="", operations=[{"name": "first", "prompt": "First", "output_text_key": "out"}, second])
+
+
+def test_other_model_languages_pass_through_untouched(endpoint: Callable) -> None:
+    sent = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        sent.append(json.loads(request.content)["messages"][-1]["content"])
+        return _completion("Sindhi")
+
+    endpoint(handle)
+    others = {"fasttext": ["HI"], "indiclid": []}
+    stage = _stage(mode="language_id", output_text_key="detected_language", other_model_languages=others)
+    tasks = stage.process_batch(
+        [
+            AudioTask(data={"text": "sindhi text", "source_lang": "sd"}),
+            AudioTask(data={"text": "hindi text", "source_lang": "hi"}),
+        ]
+    )
+    assert sent == ["sindhi text"]
+    assert tasks[0].data["detected_language"] == "Sindhi"
+    assert tasks[0].data["additional_notes"]["LLMLanguageVerification"] == "passed (Sindhi-sd)"
+    assert tasks[1].data == {"text": "hindi text", "source_lang": "hi"}
+    stage.teardown()
+
+
+def test_other_model_languages_need_a_language_on_each_row(endpoint: Callable) -> None:
+    endpoint(lambda _request: _completion("unused"))
+    with pytest.raises(ValueError, match="must be a non-empty string for routed inference"):
+        _stage(other_model_languages={"fasttext": ["hi"]}).process_batch([AudioTask(data={"text": "text"})])
+
+
+@pytest.mark.parametrize(
+    ("others", "error", "match"),
+    [
+        ({"fasttext": ["hi"], "indiclid": ["HI"]}, ValueError, "listed under both"),
+        (["hi"], TypeError, "map each model"),
+        ({"fasttext": "hi"}, TypeError, "list of language codes"),
+        ({"fasttext": [""]}, TypeError, "non-empty language codes"),
+    ],
+)
+def test_other_model_languages_are_validated(others: object, error: type[Exception], match: str) -> None:
+    with pytest.raises(error, match=match):
+        _stage(other_model_languages=others)
+
+
+def test_ignore_skip_me_processes_flagged_rows_and_keeps_the_flag(endpoint: Callable) -> None:
+    endpoint(lambda _request: _completion("English"))
+    stage = _stage(mode="language_id", output_text_key="detected_language", ignore_skip_me=True)
+    (task,) = stage.process_batch([AudioTask(data={"text": "hello", "source_lang": "en", "_skipme": "prior filter"})])
+    assert task.data["detected_language"] == "English"
+    assert task.data["_skipme"] == "prior filter"
+    assert task.data["additional_notes"]["LLMLanguageVerification"] == "skipped (already flagged)"
+    stage.teardown()

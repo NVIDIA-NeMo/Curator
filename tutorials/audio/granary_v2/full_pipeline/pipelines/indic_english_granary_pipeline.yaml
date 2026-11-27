@@ -1,0 +1,173 @@
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+# English speech in Indic recordings (Indian-accented English); see README.md.
+# Run with: main.py -cn indic_english_granary_pipeline
+defaults:
+  - common
+  - override hydra/job_logging: none
+  - override hydra/hydra_logging: none
+  - _self_
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+  # prompts/ sits next to pipelines/; like the other repository paths here, this is relative to the checkout root.
+  searchpath:
+    - file://tutorials/audio/granary_v2/full_pipeline
+
+documentation: |
+  Extract metadata and Opus speech clips from Indic recordings with the Indic pipeline's
+  language ID (SpeechBrain + Indic Transcribe + Whisper), keep the English clips, transcribe
+  them with Qwen3-Omni and recover with Indic Transcribe (TensorRT-LLM), then enrich the
+  selected text like the English pipeline.
+  metadata.jsonl retains every metadata result, including rejected/audit rows;
+  indic_english.jsonl contains the selected clips with ASR and text features.
+
+output_path: ${output_dir}/indic_english.jsonl
+
+# Indic recordings are cleaned with the Indic rules, English included.
+regex_rule_set: indic
+
+# This pipeline runs in the Indic image (TensorRT-LLM, Torch 2.9.1, vLLM's CPU build only). Qwen3-Omni and the
+# text model therefore run with vLLM 0.22 (Torch 2.11) in isolated Ray environments, as the Indic text replicas do.
+vllm_uv:
+  packages:
+    - vllm==0.22.0+cu129
+  uv_pip_install_options:
+    - --torch-backend
+    - cu129
+    - --index-strategy
+    - unsafe-best-match
+    - --extra-index-url
+    - https://wheels.vllm.ai/0.22.0/cu129
+
+# One replica up from the start, for the reason in indic_granary_pipeline.yaml.
+text_min_replicas: 1
+
+text_model:
+  runtime_env:
+    uv:
+      packages:
+        - vllm==0.22.0+cu129
+        - transformers==5.8.0
+      uv_pip_install_options: ${vllm_uv.uv_pip_install_options}
+    config:
+      setup_timeout_seconds: 1800
+  # English fits in 2048 tokens (see common.yaml).
+  engine_kwargs:
+    max_model_len: 2048
+
+stages:
+  - ${shared.manifest_reader}
+  - ${shared.resample_audio_stage}
+  - ${shared.inference_sortformer_stage}
+  - ${shared.v_a_d_segmentation_stage_tensorrt}
+  - ${shared.s_e_d_inference_stage_tensorrt}
+  - ${shared.s_e_d_postprocessing_stage}
+  - ${shared.speech_brain_lang_i_d}
+
+  # Language ID as in indic_granary_pipeline.yaml, so a clip is English by the same decision as the Indic run.
+  - ${shared.indic_transcribe_lang_i_d}
+  - ${shared.whisper_lang_i_d_tertiary}
+  - ${shared.select_audio_language_stage}
+  - ${shared.audio_segment_writer_stage}
+  - ${shared.metadata_manifest_writer}
+
+  # Keep the full metadata audit above; only English clips reach ASR.
+  - _target_: nemo_curator.stages.audio.common.PreserveByValueConditionsStage
+    _convert_: all
+    conditions:
+      - {input_value_key: source_lang, target_value: en, operator: eq}
+    condition_logic: or
+    missing_value_policy: drop
+  - ${shared.resample_clip}
+
+  # Qwen3-Omni on one GPU (tensor parallelism 1) with the English prompt.
+  - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
+    waveform_key: waveform
+    sample_rate_key: sample_rate
+    keep_waveform: true
+    name: QwenOmni_primary
+    adapter_target: nemo_curator.models.asr.qwen_omni.QwenOmniASRAdapter
+    model_id: ${model_id}
+    default_language: en
+    supported_language_codes: [en]
+    pred_text_key: primary_model_prediction
+    batch_size: 64
+    # 64 clips x the 40 s VAD cap: each batch reaches the model whole, unsplit.
+    max_audio_sec_per_actor: 2560.0
+    resources:
+      gpus: 1
+    worker_runtime_env:
+      uv:
+        # ASRStage imports torchaudio, so it must match vLLM's Torch.
+        packages:
+          - vllm==0.22.0+cu129
+          - torchaudio==2.11.0
+          - torchvision==0.26.0
+        uv_pip_install_options: ${vllm_uv.uv_pip_install_options}
+      env_vars:
+        VLLM_WORKER_MULTIPROC_METHOD: spawn
+        VLLM_USE_DEEP_GEMM: "0"
+        CUDA_HOME: /usr/local/cuda-12.9
+        CUDA_PATH: /usr/local/cuda-12.9
+        FLASHINFER_NVCC: /usr/local/cuda-12.9/bin/nvcc
+        VLLM_CACHE_ROOT: ${cache_root}/vllm
+        TORCHINDUCTOR_CACHE_DIR: ${cache_root}/torchinductor
+        TRITON_CACHE_DIR: ${cache_root}/triton
+      config:
+        setup_timeout_seconds: 1800
+    adapter_kwargs:
+      revision: ${model_revision}
+      prompt_content_order: text_audio
+      max_output_tokens: 256
+      vllm_kwargs:
+        max_model_len: 4096
+        max_num_seqs: 128
+        gpu_memory_utilization: 0.85
+        dtype: auto
+        trust_remote_code: true
+        enable_prefix_caching: true
+        prefix_caching_hash_algo: xxhash
+        # Audio only: an image or video slot makes vLLM 0.22 profile the vision encoder, which fails at start-up.
+        limit_mm_per_prompt:
+          image: 0
+          video: 0
+          audio: 2
+        seed: 1234
+      sampling_kwargs:
+        temperature: 0.0
+        top_k: 1
+        repetition_penalty: 1.0
+      prompt_text: ${prompts.omni_asr}
+      en_prompt_text: ${prompts.omni_asr_english}
+  - ${shared.whisper_hallucination_primary}
+
+  # Indic Transcribe recovers every row; its engine's tokenizer includes English.
+  - _target_: nemo_curator.stages.audio.inference.indic_transcribe.InferenceIndicTranscribeStage
+    keep_waveform: false
+    name: IndicTranscribe_recovery
+    engine_dir: ${model_dir}/indic_transcribe
+    num_beams: 4
+    max_new_tokens: 347
+    pnc: false
+    kv_cache_free_gpu_memory_fraction: 0.1
+    cross_kv_cache_fraction: 0.1
+    sample_rate_key: sample_rate
+    pred_text_key: fallback_model_prediction
+    batch_size: 64
+    # The Indic Transcribe encoder's TensorRT execution context asks for about 40 GB.
+    resources:
+      gpu_memory_gb: 50
+  - ${shared.whisper_hallucination_asr}
+  - ${shared.select_best_prediction_stage}
+  - ${shared.regex_substitution_stage}
+  - ${shared.abbreviation_concat_stage}
+  - ${shared.pn_c_restoration}
+  - ${shared.language_id}
+  - ${shared.text_normalization}
+  - ${shared.fused_text_l_l_m}
+  - ${shared.i_t_n_restoration}
+  - ${shared.disfluency_removal}
+  - ${shared.manifest_writer_stage}

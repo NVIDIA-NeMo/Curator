@@ -55,6 +55,11 @@ _DEFAULT_INDIC_LANGUAGES: frozenset[str] = frozenset(
     }
 )
 
+# SpeechBrain and Whisper have no code for these Indic languages, so the three models can never agree on them.
+_DEFAULT_INDIC_TRANSCRIBE_ONLY_LANGUAGES: frozenset[str] = frozenset(
+    {"or", "brx", "doi", "kok", "ks", "mai", "mni", "sat"}
+)
+
 _MISSING_PREDICTIONS = "skipped due to missing langID predictions."
 _MISSING_WHISPER = "skipped due to missing or empty whisper langID prediction."
 _DISAGREEMENT = "skipped due to disagreement between langID models."
@@ -97,9 +102,12 @@ class SelectAudioLanguageStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
     is one of this selector's own three rejection reasons. An unrelated skip
     reason belongs to another pipeline stage and is intentionally preserved.
 
-    Precedence is: missing results; unconditional Whisper English; missing or
-    empty Whisper; three-way primary/Indic Transcribe/Whisper agreement; primary/Whisper
-    agreement for non-Indic languages; disagreement.
+    Precedence is: missing results; Indic Transcribe's answer when it is in
+    ``indic_transcribe_only_languages`` and the primary and Whisper both answer
+    a language in ``indic_languages``; unconditional Whisper English; missing or
+    empty Whisper; three-way primary/Indic Transcribe/Whisper agreement on a
+    language in ``indic_languages``; primary/Whisper agreement for non-Indic
+    languages; disagreement.
     """
 
     results_key: str = "lid"
@@ -112,6 +120,9 @@ class SelectAudioLanguageStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
     indic_transcribe_model_id: str = "IndicTranscribeLangID"
     whisper_model_id: str = "WhisperLangID"
     indic_languages: frozenset[str] = field(default_factory=lambda: _DEFAULT_INDIC_LANGUAGES)
+    indic_transcribe_only_languages: frozenset[str] = field(
+        default_factory=lambda: _DEFAULT_INDIC_TRANSCRIBE_ONLY_LANGUAGES
+    )
 
     name: str = "SelectBestLIDPrediction"
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
@@ -154,10 +165,12 @@ class SelectAudioLanguageStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
         if len(set(model_ids)) != len(model_ids):
             msg = "SelectAudioLanguageStage model IDs must be distinct"
             raise ValueError(msg)
-        if not all(isinstance(language, str) and language for language in self.indic_languages):
-            msg = "SelectAudioLanguageStage.indic_languages must contain only non-empty strings"
-            raise ValueError(msg)
-        self.indic_languages = frozenset(self.indic_languages)
+        for field_name in ("indic_languages", "indic_transcribe_only_languages"):
+            languages = getattr(self, field_name)
+            if not all(isinstance(language, str) and language for language in languages):
+                msg = f"SelectAudioLanguageStage.{field_name} must contain only non-empty strings"
+                raise ValueError(msg)
+            setattr(self, field_name, frozenset(languages))
 
     def inputs(self) -> tuple[list[str], list[str]]:
         # ``results_key`` is optional by design: upstream terminal skips and
@@ -183,7 +196,7 @@ class SelectAudioLanguageStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
             cardinality="1:1",
         )
 
-    def process(self, task: AudioTask) -> AudioTask:
+    def process(self, task: AudioTask) -> AudioTask:  # noqa: PLR0911 - one return per precedence rule
         raw_results = task.data.get(self.results_key, {})
         if not isinstance(raw_results, dict):
             msg = f"task.data[{self.results_key!r}] must be a mapping, got {type(raw_results).__name__}"
@@ -205,6 +218,16 @@ class SelectAudioLanguageStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
         canary = predictions.get(self.indic_transcribe_model_id)
         whisper = predictions.get(self.whisper_model_id)
 
+        if (
+            primary is not None
+            and canary is not None
+            and whisper is not None
+            and primary.language in self.indic_languages
+            and canary.language in self.indic_transcribe_only_languages
+            and whisper.language in self.indic_languages
+        ):
+            return self._accept(task, canary, f"used {canary.tag}, recovery Indic language (all models Indic).")
+
         if whisper is not None and whisper.language == "en":
             return self._accept(task, whisper, f"used {whisper.tag}, English language.")
 
@@ -221,6 +244,7 @@ class SelectAudioLanguageStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
             and canary is not None
             and canary.language == primary.language
             and whisper.language == primary.language
+            and canary.language in self.indic_languages
         ):
             return self._accept(task, canary, f"used {canary.tag}, agreement between all 3 langID models.")
 

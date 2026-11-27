@@ -416,14 +416,6 @@ class QwenOmniASRAdapter:
         if len(valid_inputs) < n:
             logger.warning(f"Skipped {n - len(valid_inputs)}/{n} corrupt audio samples")
 
+        # Only inputs that failed preparation are skipped; an empty model output stays plain empty text.
         pred_texts = self._infer_batch(valid_inputs, valid_indices, n)
-        empty_output_indices = {i for i in valid_indices if not pred_texts[i]}
-        if empty_output_indices:
-            skipped_indices.update(empty_output_indices)
-            logger.warning(
-                "Skipping {}/{} audio samples with empty vLLM output",
-                len(empty_output_indices),
-                len(valid_indices),
-            )
-
         return pred_texts, skipped_indices

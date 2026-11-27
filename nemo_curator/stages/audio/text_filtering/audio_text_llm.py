@@ -20,11 +20,13 @@ import re
 import threading
 import unicodedata
 import weakref
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
+from http import HTTPStatus
 from typing import ClassVar, Literal
 
 from loguru import logger
+from openai import InternalServerError
 from openai.types.chat import ChatCompletion
 
 from nemo_curator.models.client.llm_client import GenerationConfig
@@ -44,6 +46,17 @@ from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
 
+def _is_detokenizer_panic(exc: BaseException) -> bool:
+    """Return whether ``exc`` is the serving frontend's Rust detokenizer UTF-8 boundary panic."""
+    message = str(exc)
+    return (
+        isinstance(exc, InternalServerError)
+        and exc.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+        and "JoinError::Panic" in message
+        and "is not a char boundary" in message
+    )
+
+
 @dataclass
 class AudioTextLLMStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """Transform an audio transcript using a shared inference server, such as Dynamo.
@@ -59,9 +72,12 @@ class AudioTextLLMStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     Both reject outputs retaining less than ``min_word_retention_ratio`` of
     the input words when the input has at least ``min_words_for_deletion_check``
     words. ``'none'`` disables these rewrite heuristics, for example for captions.
-    Responses use the reference rewrite guards; unvalidated operations retain
+    Responses use these rewrite guards; unvalidated operations retain
     their response text, including empty or truncated text.
-    Request failures propagate after the shared client's retries.
+    A request that still fails after the shared client's retries fails the batch, except the serving frontend's
+    detokenizer panic when ``isolate_failed_requests`` is set (see Args); that row then gets the note
+    ``skipped (generation_error)``, and in ``mode='language_id'`` its output is verified like any prediction. The
+    batch deadline and cancellation always propagate.
 
     ``mode='recover_entities'`` renders a system/user prompt from the normalized
     transcript and ``ground_truth_key``, then removes reasoning/fence wrappers.
@@ -88,6 +104,19 @@ class AudioTextLLMStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         skip_me_key: Existing skip reason; language verification may set it for
             an unparseable or mismatched single-language prediction. Rows are
             retained, so downstream stages must honor this flag to exclude them.
+        other_model_languages: Optional ``{model: [language, ...]}`` of languages other stages
+            check, such as the ``TextLanguageIDStage`` split; rows in those languages pass through
+            untouched, without a request or a note. Every row then needs a non-empty language;
+            an empty one, or a language listed under two models, raises ``ValueError``.
+        ignore_skip_me: Process rows even when ``skip_me_key`` is set. Language
+            verification still never replaces an existing skip reason.
+        isolate_failed_requests: Keep a batch running when a request hits the serving
+            frontend's detokenizer panic (HTTP 500 ``JoinError::Panic ... is not a char
+            boundary``), which recurs for that row on every retry. Any other failure still
+            raises; ``False`` raises the panic too.
+        generation_error_text: Output written when a row's request fails under
+            ``isolate_failed_requests``, for example ``SKIP`` for a question-answer
+            operation whose output must not hold a transcript. ``None`` keeps the input text.
     """
 
     endpoint: str
@@ -117,10 +146,15 @@ class AudioTextLLMStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     skip_me_key: str = "_skipme"
     notes_key: str = "additional_notes"
     skip_if_output_exists: bool = False
+    other_model_languages: dict[str, list[str]] | None = None
+    ignore_skip_me: bool = False
+    isolate_failed_requests: bool = False
+    generation_error_text: str | None = None
     name: str = "AudioTextLLM"
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
     _runner: asyncio.Runner | None = field(default=None, init=False, repr=False, compare=False)
     _client: AsyncOpenAIClient | None = field(default=None, init=False, repr=False, compare=False)
+    _skip_languages: frozenset[str] = field(default_factory=frozenset, init=False, repr=False, compare=False)
     _cleanup: weakref.finalize | None = field(default=None, init=False, repr=False, compare=False)
     _runtime_lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False, compare=False)
 
@@ -152,7 +186,7 @@ class AudioTextLLMStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                 key_roles[operation.ground_truth_key] = "reference_text"
             else:
                 reads.append(operation.text_key)
-                if "{language_rules}" in operation.prompt:
+                if "{language_rules}" in operation.prompt or operation.other_model_languages:
                     reads.append(operation.language_key)
                 elif "{language}" in operation.prompt or operation.mode == "language_id":
                     optional_reads.append(operation.language_key)
@@ -299,6 +333,15 @@ class AudioTextLLMStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         if not 0 <= self.min_word_retention_ratio <= 1:
             msg = "min_word_retention_ratio must be between zero and one"
             raise ValueError(msg)
+        for key in ("isolate_failed_requests", "ignore_skip_me"):
+            if not isinstance(getattr(self, key), bool):
+                msg = f"{key} must be a boolean"
+                raise TypeError(msg)
+        if self.other_model_languages:
+            self._skip_languages = self._languages_of_other_models(self.other_model_languages)
+        if self.generation_error_text is not None and not isinstance(self.generation_error_text, str):
+            msg = "generation_error_text must be a string or None"
+            raise TypeError(msg)
         if self.generation_config is None:
             self.generation_config = GenerationConfig()
         elif isinstance(self.generation_config, Mapping):
@@ -347,6 +390,9 @@ class AudioTextLLMStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                 "max_concurrent_requests",
                 "request_timeout_s",
                 "max_retries",
+                "other_model_languages",
+                "ignore_skip_me",
+                "isolate_failed_requests",
                 "language_key",
                 "notes_key",
                 "skip_me_key",
@@ -427,7 +473,7 @@ class AudioTextLLMStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
 
     async def _generate(
         self, messages: list[list[dict[str, str]]], configs: list[GenerationConfig]
-    ) -> list[ChatCompletion]:
+    ) -> list[ChatCompletion | Exception]:
         client = self._client
         assert client is not None  # noqa: S101
         requests = [
@@ -437,9 +483,15 @@ class AudioTextLLMStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             for message, config in zip(messages, configs, strict=True)
         ]
         try:
-            return list(
-                await asyncio.wait_for(asyncio.gather(*requests), timeout=self._batch_timeout(len(messages), client))
+            results = await asyncio.wait_for(
+                asyncio.gather(*requests, return_exceptions=self.isolate_failed_requests),
+                timeout=self._batch_timeout(len(messages), client),
             )
+            for result in results:
+                # Only the per-row detokenizer panic is isolated; cancellation and every other failure propagate.
+                if isinstance(result, BaseException) and not _is_detokenizer_panic(result):
+                    raise result
+            return results
         finally:
             for request in requests:
                 request.cancel()
@@ -458,6 +510,9 @@ class AudioTextLLMStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             if not isinstance(task, AudioTask):
                 msg = "AudioTextLLMStage only accepts AudioTask inputs"
                 raise TypeError(msg)
+            if not self._is_source_language_enabled(task.data):
+                continue
+            flagged = bool(task.data.get(self.skip_me_key)) and not self.ignore_skip_me
             if self.skip_if_output_exists and self.output_text_key in task.data:
                 pending.append((index, task.data[self.output_text_key], "skipped (output exists)"))
                 continue
@@ -465,7 +520,7 @@ class AudioTextLLMStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                 normalized = task.data.get(self.text_key, "")
                 normalized = normalized if isinstance(normalized, str) else ""
                 ground_truth = task.data.get(self.ground_truth_key, "")
-                if task.data.get(self.skip_me_key):
+                if flagged:
                     pending.append((index, normalized, "skipped (flagged)"))
                 elif not normalized.strip() or not isinstance(ground_truth, str) or not ground_truth.strip():
                     pending.append((index, normalized, "skipped (empty)"))
@@ -473,14 +528,13 @@ class AudioTextLLMStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                     messages.append(self._build_messages(normalized, task.data))
                     indices.append(index)
                 continue
-            if task.data.get(self.skip_me_key):
+            if flagged:
                 pending.append((index, task.data.get(self.output_text_key, ""), "skipped (flagged)"))
                 continue
-            if self.text_key not in task.data:
-                msg = f"Missing input field {self.text_key!r}"
-                raise ValueError(msg)
-            text = task.data[self.text_key]
-            if not isinstance(text, str):
+            text = task.data.get(self.text_key)
+            if text is None:
+                text = ""
+            elif not isinstance(text, str):
                 msg = f"{self.text_key} must be a string"
                 raise TypeError(msg)
             if not text.strip():
@@ -489,6 +543,37 @@ class AudioTextLLMStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             messages.append(self._build_messages(text, task.data))
             indices.append(index)
         return pending, indices, messages
+
+    @staticmethod
+    def _languages_of_other_models(other_model_languages: Mapping[str, object]) -> frozenset[str]:
+        if not isinstance(other_model_languages, Mapping):
+            msg = "other_model_languages must map each model to its language codes"
+            raise TypeError(msg)
+        model_of: dict[str, str] = {}
+        for model, languages in other_model_languages.items():
+            if isinstance(languages, str) or not isinstance(languages, Sequence):
+                msg = f"other_model_languages[{model!r}] must be a list of language codes"
+                raise TypeError(msg)
+            for raw_language in languages:
+                if not isinstance(raw_language, str) or not raw_language.strip():
+                    msg = f"other_model_languages[{model!r}] must contain only non-empty language codes"
+                    raise TypeError(msg)
+                language = raw_language.strip().lower()
+                if language in model_of:
+                    msg = f"{language!r} is listed under both {model_of[language]!r} and {model!r}"
+                    raise ValueError(msg)
+                model_of[language] = model
+        return frozenset(model_of)
+
+    def _is_source_language_enabled(self, data: dict) -> bool:
+        """Return whether this row's language is left to this stage by ``other_model_languages``."""
+        if not self._skip_languages:
+            return True
+        raw_language = data.get(self.language_key)
+        if not isinstance(raw_language, str) or not raw_language.strip():
+            msg = f"{self.name}: {self.language_key!r} must be a non-empty string for routed inference"
+            raise ValueError(msg)
+        return raw_language.strip().lower() not in self._skip_languages
 
     def _read_response(self, original: str, response: ChatCompletion) -> tuple[str, str]:
         choice = response.choices[0] if response.choices else None
@@ -536,7 +621,7 @@ class AudioTextLLMStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         finally:
             self._runtime_lock.release()
 
-    def _process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
+    def _process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:  # noqa: C901
         pending = []
         requests = []
         messages = []
@@ -574,6 +659,12 @@ class AudioTextLLMStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
                 raise RuntimeError(msg)
             for (operation, index), response in zip(requests, responses, strict=True):
                 original = tasks[index].data[operation.text_key]
+                if isinstance(response, Exception):
+                    logger.warning("{}: request for row {} failed: {}", operation.name, index, response)
+                    metrics["num_fallbacks"] += 1
+                    failed = original if operation.generation_error_text is None else operation.generation_error_text
+                    pending.append((operation, index, failed, "skipped (generation_error)"))
+                    continue
                 result, note = operation._read_response(original, response)
                 metrics["num_fallbacks"] += note.startswith("fallback (")
                 pending.append((operation, index, result, note))

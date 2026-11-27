@@ -17,9 +17,9 @@ import json
 import os
 import tempfile
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Literal
 
 from fsspec.core import url_to_fs
 from loguru import logger
@@ -37,10 +37,25 @@ class ManifestWriterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     Audio-agent preparation truncates once before workers are serialized. Worker and
     node setup only verify the shared run reservation. Standalone setup() retains
     its historical truncate behavior when no driver reservation was prepared.
+
+    ``mode="error"`` instead refuses an existing ``output_path`` when the stage is
+    built, before any stage runs, as the text writers' ``mode="error"`` does.
     """
 
     output_path: str
     name: str = "manifest_writer"
+    # Not an agent parameter: it never changes what is written, so pipeline identities stay stable.
+    mode: Literal["overwrite", "error"] = field(default="overwrite", metadata={"agent_param": False})
+
+    def __post_init__(self) -> None:
+        if self.mode not in ("overwrite", "error"):
+            msg = f"ManifestWriterStage.mode must be 'overwrite' or 'error', got {self.mode!r}"
+            raise ValueError(msg)
+        if self.mode == "error":
+            fs, path = url_to_fs(self.output_path)
+            if fs.exists(path):
+                msg = f"Output already exists: {self.output_path}; choose a new output path"
+                raise FileExistsError(msg)
 
     # ``output_path`` is required, so static discovery cannot instantiate this
     # stage. Publish invariant sink behavior so an agent never mistakes it for
