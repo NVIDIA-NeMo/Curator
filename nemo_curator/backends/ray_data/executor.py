@@ -12,21 +12,30 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import TYPE_CHECKING, Any
+import time
+from typing import Any
 
 import ray
 from loguru import logger
+from ray.actor import ActorHandle
 from ray.data import DataContext, Dataset
 
 from nemo_curator.backends.base import BaseExecutor
-from nemo_curator.backends.utils import execute_setup_on_node, register_loguru_serializer
+from nemo_curator.backends.utils import (
+    execute_setup_on_node,
+    get_available_cpu_gpu_resources,
+    register_loguru_serializer,
+)
+from nemo_curator.core.serve import is_inference_server_active
+from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import EmptyTask, Task
 
-from .adapter import RayDataStageAdapter
+from .adapter import RayDataStageAdapter, TeardownTracker
 from .diagnostics import DiagnosticsInstallStatus, install_ray_data_diagnostics
+from .utils import get_gpu_actor_initial_workers, is_ray_data_actor_stage
 
-if TYPE_CHECKING:
-    from nemo_curator.stages.base import ProcessingStage
+# How long to wait, after the pipeline finishes, for actor stages to run ``teardown``.
+TEARDOWN_TIMEOUT_S = 60.0
 
 
 class RayDataExecutor(BaseExecutor):
@@ -51,7 +60,7 @@ class RayDataExecutor(BaseExecutor):
         """
         super().__init__(config, ignore_head_node)
 
-    def execute(self, stages: list["ProcessingStage"], initial_tasks: list[Task] | None = None) -> list[Task]:
+    def execute(self, stages: list[ProcessingStage], initial_tasks: list[Task] | None = None) -> list[Task]:
         """Execute the pipeline stages using Ray Data.
 
         Args:
@@ -73,6 +82,8 @@ class RayDataExecutor(BaseExecutor):
         register_loguru_serializer()
         # This prevents verbose logging from Ray Data about serialization of the dataclass
         DataContext.get_current().enable_fallback_to_arrow_object_ext_type = True
+        execution_options = DataContext.get_current().execution_options
+        previous_resource_limits = execution_options.resource_limits
         # Initialize with initial tasks if provided, otherwise start with EmptyTask
         tasks: list[Task] = initial_tasks or [EmptyTask()]
         output_tasks: list[Task] = []
@@ -86,7 +97,16 @@ class RayDataExecutor(BaseExecutor):
                 ignore_reinit_error=True, runtime_env={"env_vars": {"RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES": ""}}
             )
 
-            # Convert tasks to dataset
+            _, available_gpus = get_available_cpu_gpu_resources(ignore_head_node=self.ignore_head_node)
+            # Ray Data budgets against total cluster GPUs; leave out the ones the server holds. Never raise the
+            # user's GPU limit, and keep their exclude_resources (Ray Data rejects both set for one resource).
+            if is_inference_server_active() and not execution_options.exclude_resources.gpu:
+                gpu_limit = min(previous_resource_limits.gpu, available_gpus)
+                execution_options.resource_limits = previous_resource_limits.copy(gpu=gpu_limit)
+            initial_workers = get_gpu_actor_initial_workers(stages, available_gpus)
+            teardown_tracker = TeardownTracker.remote() if any(map(_runs_teardown, stages)) else None
+
+            # Convert tasks to dataset (after setting resource limits: datasets copy the DataContext)
             current_dataset = self._tasks_to_dataset(tasks)
 
             # Execute setup on node for all stages
@@ -100,7 +120,14 @@ class RayDataExecutor(BaseExecutor):
                 logger.info(f"  CPU cores: {stage.resources.cpus}, GPU ratio: {stage.resources.gpus}")
 
                 # Create adapter for this stage
-                adapter = RayDataStageAdapter(stage, ignore_head_node=self.ignore_head_node)
+                next_stage = stages[i + 1] if i + 1 < len(stages) else None
+                adapter = RayDataStageAdapter(
+                    stage,
+                    ignore_head_node=self.ignore_head_node,
+                    downstream_batch_size=next_stage.batch_size if next_stage is not None else None,
+                    initial_workers=initial_workers[i],
+                    teardown_tracker=teardown_tracker if _runs_teardown(stage) else None,
+                )
 
                 # Apply stage transformation
                 current_dataset = adapter.process_dataset(current_dataset)
@@ -112,7 +139,10 @@ class RayDataExecutor(BaseExecutor):
             # TODO: add pipeline configuration to check if user wants to return last stages output to driver
             output_tasks = self._dataset_to_tasks(current_dataset)
             logger.info(f"Pipeline completed. Final results: {len(output_tasks)} tasks")
+            if teardown_tracker is not None:
+                _wait_for_teardown(teardown_tracker, TEARDOWN_TIMEOUT_S)
         finally:
+            execution_options.resource_limits = previous_resource_limits
             # This ensures we unset all the env vars set above during initialize and kill the pending actors.
             ray.shutdown()
         return output_tasks
@@ -146,3 +176,18 @@ class RayDataExecutor(BaseExecutor):
         for item in items:
             tasks.append(item["item"])
         return tasks
+
+
+def _runs_teardown(stage: ProcessingStage) -> bool:
+    """Whether the stage overrides ``teardown`` and runs in Ray Data actors (tasks keep no state)."""
+    return type(stage).teardown is not ProcessingStage.teardown and is_ray_data_actor_stage(stage)
+
+
+def _wait_for_teardown(teardown_tracker: ActorHandle, timeout_s: float) -> None:
+    """Wait until every actor that finished setup has run teardown; ``ray.shutdown()`` would kill them first."""
+    deadline = time.monotonic() + timeout_s
+    while (pending := ray.get(teardown_tracker.num_pending.remote())) > 0:
+        if time.monotonic() >= deadline:
+            logger.warning(f"{pending} Ray Data actors did not finish teardown within {timeout_s}s.")
+            return
+        time.sleep(0.5)

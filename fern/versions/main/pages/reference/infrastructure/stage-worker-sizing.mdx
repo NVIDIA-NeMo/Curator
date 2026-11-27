@@ -111,7 +111,9 @@ Ray Data receives `ActorPoolStrategy(min_size=2, max_size=8, initial_size=4)`.
 | --- | --- | --- | --- |
 | `RayStageSpecKeys.MIN_WORKERS` | `"min_workers"` | `1` | Minimum live actors |
 | `RayStageSpecKeys.MAX_WORKERS` | `"max_workers"` | `None` | Maximum live actors; `None` leaves the pool unbounded by this setting |
-| `RayStageSpecKeys.INITIAL_WORKERS` | `"initial_workers"` | `None` | Initial pool size selected by Ray Data |
+| `RayStageSpecKeys.INITIAL_WORKERS` | `"initial_workers"` | GPU actor stages: their share of the free GPUs; others: `None` | Initial pool size |
+
+Without `INITIAL_WORKERS`, each GPU actor stage starts with an equal share of the GPUs that are free when the pipeline starts (`free GPUs / number of GPU actor stages / GPUs per actor`, at least `min_workers`, at most `max_workers`). Otherwise Ray Data would start the pool with one actor and add at most one per scheduling decision.
 
 Ray validates the relationship among the three values. For example, an initial size greater than the maximum raises `ValueError` with the stage name and the underlying actor-pool validation message.
 
@@ -154,7 +156,7 @@ Ray Data pool sizes are cluster-wide, so Curator counts alive nodes and sets the
 | --- | --- |
 | Actor stage with positive `num_workers` only | Fixed actor pool |
 | More than one of `num_workers`, `num_workers_per_node`, or min/max/initial keys | Raises `ValueError` when the stage is constructed or configured |
-| Actor stage without positive `num_workers`, no sizing keys | Autoscaling actor pool with `min_size=1`, `max_size=None`, and `initial_size=None` |
+| Actor stage without positive `num_workers`, no sizing keys | Autoscaling actor pool with `min_size=1`, `max_size=None`, and `initial_size=None` (GPU stages: their share of the free GPUs) |
 | Task stage with positive `num_workers` | Fixed task pool |
 | Task stage with min/max/initial keys | Keys are ignored; Curator logs a warning because they apply only to actor stages |
 | Invalid actor-pool bounds | Raises `ValueError` |
