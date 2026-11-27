@@ -427,28 +427,28 @@ def test_executor_kwargs_are_passed_to_xenna(mock_get_class: MagicMock):
     cfg = OmegaConf.create(
         {
             "execution_mode": "batch",
-            "executor_kwargs": {"config": {"logging_interval": 10}, "ignore_head_node": True},
+            "executor_kwargs": {"config": {"logging_interval": 10}},
         }
     )
 
     create_executor_from_yaml(cfg)
 
     mock_get_class.assert_called_once_with("nemo_curator.backends.xenna.XennaExecutor")
-    executor_cls.assert_called_once_with(
-        config={"logging_interval": 10, "execution_mode": "batch"}, ignore_head_node=True
-    )
+    executor_cls.assert_called_once_with(config={"logging_interval": 10, "execution_mode": "batch"})
 
 
 @patch("hydra.utils.get_class")
 def test_executor_kwargs_are_passed_to_ray_data(mock_get_class: MagicMock):
     executor_cls = MagicMock()
     mock_get_class.return_value = executor_cls
-    cfg = OmegaConf.create({"backend": "ray_data", "executor_kwargs": {"config": {"foo": 1}}})
+    cfg = OmegaConf.create(
+        {"backend": "ray_data", "executor_kwargs": {"config": {"foo": 1}, "ignore_head_node": True}}
+    )
 
     create_executor_from_yaml(cfg)
 
     mock_get_class.assert_called_once_with("nemo_curator.backends.ray_data.RayDataExecutor")
-    executor_cls.assert_called_once_with(config={"foo": 1})
+    executor_cls.assert_called_once_with(config={"foo": 1}, ignore_head_node=True)
 
 
 def test_unknown_executor_backend_raises_error():

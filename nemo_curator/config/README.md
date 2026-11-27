@@ -34,7 +34,7 @@ backend: xenna              # xenna (default) or ray_data
 execution_mode: streaming   # Xenna only: streaming (default) or batch
 executor_kwargs:            # passed to the executor constructor
   config: {logging_interval: 30}
-  ignore_head_node: true
+  # ignore_head_node: true  # Ray Data only; XennaExecutor raises a ValueError
 ```
 
 Each entry under `stages` is a Hydra `_target_` plus constructor arguments. `resources`, `num_workers`, and `num_workers_per_node` are applied with `stage.with_(...)` instead:

@@ -94,7 +94,7 @@ FLEURS language codes follow the dataset convention (e.g., `en_us`, `fr_fr`, `hy
 | `xenna` | Default. Cosmos-Xenna streaming engine with automatic worker allocation. | Most workloads, CI/nightly benchmarks. |
 | `ray_data` | Built on Ray Data `map_batches`. | Development, machines without Xenna GPU support. |
 
-Constructor arguments for the chosen executor go under `executor_kwargs`, for example `+executor_kwargs.config.logging_interval=30` or `+executor_kwargs.ignore_head_node=true`.
+Constructor arguments for the chosen executor go under `executor_kwargs`, for example `+executor_kwargs.config.logging_interval=30`. `+executor_kwargs.ignore_head_node=true` works only with `backend=ray_data`; `XennaExecutor` raises a `ValueError` for it.
 
 Both backends run on top of Ray. `nemo_curator/config/run.py` uses `RayClient` to manage the Ray cluster lifecycle (start/stop, port allocation, dashboard). `RayClient` is started before the pipeline runs and stopped when it finishes.
 
