@@ -29,6 +29,6 @@ params_of_note:
 notes:
   - "Unreadable or empty audio, mixed sample rates, an existing destination or a write failure drop the whole conversation (no output row)."
   - "A turn with a missing or unusable RTTM keeps its full audio, and the row gets mfa_fallback=True."
-  - "Inside each turn the keys audio_filepath, rttm_filepath, ctm_filepath, mfa_skipped, speaker and turn_index are fixed names."
+  - "Inside each turn the key names are fixed: audio_filepath, speaker and turn_index (required), and rttm_filepath, ctm_filepath, mfa_skipped, conversation_id, overlap, text or utterance, reference_audio and reference_voice (read when present). A turn key renamed upstream is not read, so its value comes out empty or default (for example the segment-list words or a speaker's reference_voice)."
 verified: {params: mechanical, tags: best_guess, resource: best_guess, use_cases: best_guess, domain: best_guess}
 provenance: {model_card_url: null, card_version: 1, last_validated: "2026-11-23"}
