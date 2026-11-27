@@ -74,7 +74,7 @@ builder = ALMDataBuilderStage(
 
 ### Preserving Segment Fields
 
-By default, the stage drops `words` from segments and `words,segments` from the top level. To preserve all fields:
+By default, the stage drops `["words"]` from segments and `["words", "segments"]` from the top level. To preserve all fields:
 
 ```python
 builder = ALMDataBuilderStage(

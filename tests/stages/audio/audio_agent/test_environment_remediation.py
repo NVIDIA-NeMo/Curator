@@ -154,6 +154,36 @@ def test_tdt_gpu_recipe_blocks_on_cuda_mismatch() -> None:
     assert all(choice["id"] != "use_ctc_alignment_variant" for choice in decision["choices"])
 
 
+@pytest.mark.parametrize(
+    "ref",
+    [
+        # The tagging recipes' alignment pass.
+        (
+            "ASRStage",
+            {
+                "adapter_target": "nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter",
+                "model_id": "nvidia/parakeet-tdt_ctc-1.1b",
+                "adapter_kwargs": {"enable_local_attention": True, "decoder_type": "rnnt", "timestamps": True},
+                "max_audio_sec_per_actor": 1280.0,
+                "max_inference_duration_s": 1280.0,
+                "resources": {"cpus": 1, "gpus": 1},
+            },
+        ),
+        ("SplitASRAlignJoinStage", {}),
+    ],
+)
+def test_rnnt_alignment_offers_conditional_ctc_variant(ref: tuple[str, dict]) -> None:
+    stages = _build(ref)
+
+    decision = environment_preflight(stages, _cuda_mismatch(), operation="smoke")
+    diagnosis = diagnose_failure("CUDA_ERROR_UNSUPPORTED_PTX_VERSION (error 222)", stages=stages, env=_cuda_mismatch())
+
+    for packet in (decision, diagnosis):
+        ctc = _choice(packet, "use_ctc_alignment_variant")
+        assert ctc["availability"] == "conditional"
+        assert ctc["applies_to"] == ["ASRStage"]
+
+
 def test_mixed_pipeline_with_nemo_sortformer_offers_conditional_cpu_variant() -> None:
     stages = _build(
         ("UTMOSFilterStage", {"resources": {"cpus": 1, "gpus": 1}}),

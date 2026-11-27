@@ -49,6 +49,7 @@ class StageEnvironmentRequirement:
     hard_gpu: bool = False
     gpu_optional: bool | None = None
     cuda_runtime_jit: bool | None = False
+    ctc_alignment_variant: bool = False
     requires_ffmpeg: bool = False
     requires_internet_first_run: bool = False
     writes_to_disk: bool = False
@@ -146,12 +147,17 @@ def _execution_requirements(stages: list[Any]) -> list[StageEnvironmentRequireme
             secret for secret in runtime_secrets if bool(getattr(stage, secret.lower(), None))
         ]
         cuda_runtime_jit: bool | None = False
-        decoder_type = (getattr(stage, "adapter_kwargs", None) or {}).get("decoder_type")
+        adapter_kwargs = getattr(stage, "adapter_kwargs", None) or {}
+        decoder_type = adapter_kwargs.get("decoder_type")
+        ctc_alignment_variant = name == "SplitASRAlignJoinStage"
         if name == "SplitASRAlignJoinStage":
             cuda_runtime_jit = str(decoder_type or "rnnt").lower() != "ctc"
         elif name == "ASRStage":
             adapter_target = str(getattr(stage, "adapter_target", "") or "")
             if adapter_target == "nemo_curator.models.audio.asr.nemo_asr.NeMoASRAdapter":
+                # An RNNT pass with word timestamps is an alignment (the tagging recipes, and
+                # SplitASRAlignJoinStage once decomposed); a hybrid checkpoint may switch it to CTC.
+                ctc_alignment_variant = str(decoder_type).lower() == "rnnt" and bool(adapter_kwargs.get("timestamps"))
                 model_id = str(getattr(stage, "model_id", "") or "").lower()
                 if decoder_type:
                     cuda_runtime_jit = str(decoder_type).lower() != "ctc"
@@ -171,6 +177,7 @@ def _execution_requirements(stages: list[Any]) -> list[StageEnvironmentRequireme
                 hard_gpu=hard_gpu,
                 gpu_optional=gpu_optional,
                 cuda_runtime_jit=cuda_runtime_jit,
+                ctc_alignment_variant=ctc_alignment_variant,
                 requires_ffmpeg=bool(getattr(gates, "requires_ffmpeg", False)),
                 requires_internet_first_run=bool(getattr(gates, "requires_internet_first_run", False)),
                 writes_to_disk=bool(getattr(gates, "writes_to_disk", False)),
@@ -329,7 +336,7 @@ def _cpu_choice(
 
 
 def _ctc_choice(requirements: list[StageEnvironmentRequirement]) -> dict[str, Any] | None:
-    eligible = sorted({req.stage for req in requirements if req.stage == "SplitASRAlignJoinStage"})
+    eligible = sorted({req.stage for req in requirements if req.ctc_alignment_variant})
     if not eligible:
         return None
     return RemediationOption(

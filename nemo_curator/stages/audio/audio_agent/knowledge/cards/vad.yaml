@@ -80,7 +80,7 @@ comparison:
   language_support: "language-agnostic (speech-probability based; Silero supports 6000+ languages). (external)"
   latency_hint: "very light; CPU-friendly (<1 ms per chunk)"
   config_complexity: "low-medium (threshold + duration bounds)"
-  choose_when: "cheap, language-agnostic silence removal / utterance chunking. Select adapter_target=nemo_curator.models.audio.vad.whisperx.WhisperXVADAdapter for WhisperX's pyannote-based VAD."
+  choose_when: "cheap, language-agnostic silence removal / utterance chunking. Select adapter_target=nemo_curator.models.audio.vad.whisperx.WhisperXVADAdapter for WhisperX's pyannote-based VAD, and also set resources.gpus=1: with the default resources.gpus=0 WhisperX runs on CPU."
   known_limitations: "VAD only (no speaker labels); changes granularity to per-segment; writes segments, not a score"
 conflicts_with: []
 notes:
