@@ -14,6 +14,7 @@
 
 import errno
 import fcntl
+import json
 import os
 import sys
 from pathlib import Path
@@ -161,6 +162,32 @@ def test_run_data_setups_keeps_files_of_concurrent_jobs_in_the_shared_session(
 
     assert failed == set()
     assert [path.read_text() for path in other_jobs_files] == ["another job", "another job"]
+
+
+def test_run_data_setups_returns_a_setup_that_cannot_start_as_failed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CURATOR_BENCHMARK_PATH_MODE", "host")
+    session = Session.from_dict(
+        {
+            "paths": [{"name": "results_path", "host_path": str(tmp_path / "results")}],
+            "datasets": [{"name": "dataset_a", "formats": [{"type": "jsonl", "path": "a.jsonl"}]}],
+            "data_setups": [{"name": "dataset_a", "script": "prepare_dataset.py", "args": "--out={no_such_path}"}],
+            "entries": [{"name": "uses_a", "script": "benchmark.py", "args": "--input {dataset:dataset_a,jsonl}"}],
+        }
+    )
+    run_command = Mock()
+    monkeypatch.setattr(benchmark_run, "run_command_with_timeout", run_command)
+
+    failed = benchmark_run.run_data_setups(
+        session.data_setups, session.path_resolver, session.dataset_resolver, tmp_path
+    )
+
+    assert failed == {"dataset_a"}
+    run_command.assert_not_called()
+    results = json.loads((tmp_path / "data_setup" / "dataset_a" / "results.json").read_text())
+    assert results["success"] is False
+    assert "no_such_path" in results["error"]
 
 
 def test_run_data_setups_runs_every_setup_and_returns_the_failed_names(

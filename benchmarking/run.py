@@ -234,22 +234,21 @@ def run_data_setup_entry(
     # Never empty this folder: concurrent nightly jobs share the session folder.
     ensure_dir(logs_path)
 
-    cmd = setup_entry.get_command_to_run(setup_path, path_resolver, dataset_resolver)
     logger.info(f"🔧 Running data setup {setup_entry.name}")
-    logger.info(f"\tRunning command {' '.join(cmd) if isinstance(cmd, list) else cmd}")
     started_exec = time.time()
     result_data: dict[str, Any] = {
         "name": setup_entry.name,
         "success": False,
-        "cmd": cmd,
         "exec_started_at": started_exec,
         "logs_dir": logs_path,
     }
     try:
-        subprocess_env, configured_env_names = build_subprocess_environment(
-            setup_entry, setup_path, path_resolver, dataset_resolver
-        )
         try:
+            cmd = result_data["cmd"] = setup_entry.get_command_to_run(setup_path, path_resolver, dataset_resolver)
+            logger.info(f"\tRunning command {' '.join(cmd) if isinstance(cmd, list) else cmd}")
+            subprocess_env, configured_env_names = build_subprocess_environment(
+                setup_entry, setup_path, path_resolver, dataset_resolver
+            )
             with _data_setup_lock(setup_entry.name, path_resolver, timeout_s=setup_entry.timeout_s):
                 run_data = run_command_with_timeout(
                     command=cmd,
@@ -260,7 +259,8 @@ def run_data_setup_entry(
                     run_id=f"data_setup-{setup_entry.name}-{int(started_exec)}",
                     fancy=os.environ.get("CURATOR_BENCHMARKING_DEBUG", "0") == "0",
                 )
-        except TimeoutError as e:
+        # Sinks have started, so a setup that cannot start must fail only the entries that use its dataset.
+        except Exception as e:
             logger.error(f"\tData setup {setup_entry.name} not run: {e}")
             result_data["error"] = str(e)
             return False
