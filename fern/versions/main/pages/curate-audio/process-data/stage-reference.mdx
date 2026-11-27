@@ -161,14 +161,14 @@ stage = InferenceIndicConformerHybridStage(decode_mode="rnnt")
 | `backend` | `"nemo"` | `"tensorrt"` replaces only the Conformer encoder with an FP16 engine from `tensorrt_engine_dir` |
 | `rnnt_precision` | `"fp32"` | `fp32`, `fp16`, or `bf16` |
 
-### InferenceIndicCanaryStage
+### InferenceIndicTranscribeStage
 
-Transcribes Indic audio with an existing Canary TensorRT-LLM engine. It needs the [Indic Canary TensorRT-LLM image](/reference/infra/container-environments#indic-canary-tensorrt-llm-image) built from `docker/audio/Dockerfile.trt_llm`, not the standard audio environment. Unsupported languages are marked with `_skipme`.
+Transcribes Indic audio with an existing Indic Transcribe TensorRT-LLM engine. It needs the [Indic Transcribe TensorRT-LLM image](/reference/infra/container-environments#indic-transcribe-tensorrt-llm-image) built from `docker/audio/Dockerfile.trt_llm`, not the standard audio environment. Unsupported languages are marked with `_skipme`.
 
 ```python
-from nemo_curator.stages.audio.inference.indic_canary import InferenceIndicCanaryStage
+from nemo_curator.stages.audio.inference.indic_transcribe import InferenceIndicTranscribeStage
 
-stage = InferenceIndicCanaryStage(engine_dir="/engines/indic_canary", num_beams=4)
+stage = InferenceIndicTranscribeStage(engine_dir="/engines/indic_transcribe", num_beams=4)
 ```
 
 | Parameter | Default | Description |
@@ -232,7 +232,7 @@ from nemo_curator.stages.audio.postprocessing.lid_selection import SelectAudioLa
 stage = SelectAudioLanguageStage()
 ```
 
-The model IDs it looks for (`speechbrain_model_id`, `indic_canary_model_id`, `whisper_model_id`) default to `SpeechBrainLangID`, `IndicCanaryLangID`, and `WhisperLangID`.
+The model IDs it looks for (`speechbrain_model_id`, `indic_transcribe_model_id`, `whisper_model_id`) default to `SpeechBrainLangID`, `IndicTranscribeLangID`, and `WhisperLangID`.
 
 ## Transcript Text Processing
 

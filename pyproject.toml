@@ -307,7 +307,7 @@ interleaved_cuda12 = [
 
 # Synthetic Data Generation (SDG) Dependencies
 sdg_cpu = [
-    "data-designer==0.9.1",
+    "data-designer>=1.0.1",
 ]
 
 sdg_cuda12 = [
@@ -379,10 +379,11 @@ constraint-dependencies = [
     "transformers>=4.56.0,<5.0", # tranfomers>5 breaks with hf_hub<1.0 added in override
 ]
 override-dependencies = [
+    "fsspec>=2026.6.0", # Required by data-designer-engine==1.0.1; overrides lightning==2.4.0's fsspec<2026.0 cap (lightning<=2.4.0 from nemo-toolkit[asr]>=3.0.0)
     "hydra-core==1.3.4", # Overrides nemo-toolkit[asr]'s <=1.3.2 cap for the security update
-    "huggingface-hub>=0.34,<1.0", # Overrides Transformers' <1 cap and data-designer==0.9.1's >=1.0.1 requirement
+    "huggingface-hub>=0.34,<1.0", # Override Transformers' <1 cap and data-designer==1.0.1's >=1.0.1 requirement
     "numba==0.65.0", # Override RAPIDS/legacy caps for the inference image; vLLM 0.22 requires numba 0.65.0
-    "packaging>=25", # Required by data-designer==0.9.1; overrides Lightning's packaging<25 cap from nemo-toolkit[asr]
+    "packaging>=25", # Required by data-designer==1.0.1; overrides Lightning's packaging<25 cap (lightning<=2.4.0) from nemo-toolkit[asr]
     "setuptools>=80.10.1", # Override setuptools range in other dependencies to address CVE GHSA-58pv-8j8x-9vj2
     "torch==2.11.0; sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')", # Match vLLM's CUDA requirements; Linux resolves to cu129 via tool.uv.sources
     "torchaudio==2.11.0; sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')", # Match torch==2.11.0
@@ -390,9 +391,7 @@ override-dependencies = [
     "torchcodec~=0.11.0; platform_machine == 'x86_64' and platform_system != 'Darwin'", # TorchCodec 0.11 matches torch 2.11; TorchCodec does not declare a torch dependency, so enforce the ABI-compatible series across direct and transitive requirements; satisfies pyannote-audio's >=0.7.0 floor; x86_64-only since aarch64 lacks wheels
     "nixl-cu12>=0.10.0; platform_system == 'Linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",  # Use the CUDA 12 backend on both supported Linux architectures.
     "xgrammar>=0.1.32", # Override vllm's ==0.1.29 pin to address CVE GHSA-7rgv-gqhr-fxg3 (DoS via multi-layer nesting)
-    "pandas>=3.0.0, <= 3.0.4", # Override data-designers constraint of <3
-    "pyarrow>=19,<24", # Matches RAPIDS/cuDF; overrides data-designer==0.9.1's pyarrow>=24 requirement
-    "cryptography>=50.0.1", # Override data-designer==0.9.1's 49.0.0 pin
+    "pyarrow>=19,<24", # Matches RAPIDS/cuDF; overrides data-designer==1.0.1's pyarrow>=24 requirement
 ]
 
 

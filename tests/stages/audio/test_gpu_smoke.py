@@ -26,8 +26,8 @@ import pytest
 import soundfile as sf
 
 from nemo_curator.stages.audio.filtering import BandFilterStage, SIGMOSFilterStage, UTMOSFilterStage
-from nemo_curator.stages.audio.inference.indic_canary import InferenceIndicCanaryStage
 from nemo_curator.stages.audio.inference.indic_conformer_hybrid import InferenceIndicConformerHybridStage
+from nemo_curator.stages.audio.inference.indic_transcribe import InferenceIndicTranscribeStage
 from nemo_curator.stages.audio.inference.lid.stage import AudioLIDInferenceStage
 from nemo_curator.stages.audio.inference.sed.stage import SEDInferenceStage
 from nemo_curator.stages.audio.inference.speaker_diarization.stage import InferenceSortformerStage
@@ -105,8 +105,10 @@ def test_indic_conformer_hybrid(wav_filepath: Path) -> None:
     assert isinstance(out.data["asr_prediction"], str)
 
 
-@pytest.mark.skipif(not os.environ.get("INDIC_CANARY_ENGINE_DIR"), reason="needs a Canary TensorRT-LLM engine")
-def test_indic_canary(wav_filepath: Path) -> None:
-    stage = InferenceIndicCanaryStage(engine_dir=os.environ["INDIC_CANARY_ENGINE_DIR"])
+@pytest.mark.skipif(
+    not os.environ.get("INDIC_TRANSCRIBE_ENGINE_DIR"), reason="needs an Indic Transcribe TensorRT-LLM engine"
+)
+def test_indic_transcribe(wav_filepath: Path) -> None:
+    stage = InferenceIndicTranscribeStage(engine_dir=os.environ["INDIC_TRANSCRIBE_ENGINE_DIR"])
     (out,) = _run(stage, _hindi_task(wav_filepath))
     assert isinstance(out.data["asr_prediction"], str)

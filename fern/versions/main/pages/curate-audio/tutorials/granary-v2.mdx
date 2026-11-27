@@ -15,7 +15,7 @@ The Granary v2 tutorials build speech training data: prepare speech clips and me
 | Step | Tutorial | Result |
 |---|---|---|
 | Prepare recordings | [Metadata extraction](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials/audio/granary_v2/metadata) | Opus speech clips with speaker, sound-event, and language metadata |
-| Transcribe Hindi clips | [Indic ASR](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials/audio/granary_v2/indic_asr) | Canary and Parakeet predictions, the selected and cleaned transcript, and WER |
+| Transcribe Hindi clips | [Indic ASR](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials/audio/granary_v2/indic_asr) | Indic Transcribe and Parakeet predictions, the selected and cleaned transcript, and WER |
 | Transcribe with Qwen3-Omni | [Qwen Omni ASR](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials/audio/granary_v2/qwen_omni_asr) | Transcripts checked for hallucinations and cleaned for downstream use |
 | Process transcripts | [Text pipeline](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials/audio/granary_v2/text_pipeline) | Entity recovery, punctuation, language verification, normalization, and text features |
 
@@ -23,9 +23,9 @@ Choose the ASR tutorial that matches your language and models. Each tutorial can
 
 ## What Each Pipeline Does
 
-**Metadata extraction** resamples recordings to mono 16 kHz and runs Sortformer diarization, Silero voice activity detection, and CNN14 sound event detection. It then identifies the language with a SpeechBrain, Indic Canary, and Whisper ensemble (`AudioLIDInferenceStage` and `SelectAudioLanguageStage`) and writes one Opus clip per speech segment with `AudioSegmentWriterStage`. It does not transcribe.
+**Metadata extraction** resamples recordings to mono 16 kHz and runs Sortformer diarization, Silero voice activity detection, and CNN14 sound event detection. It then identifies the language with a SpeechBrain, Indic Transcribe, and Whisper ensemble (`AudioLIDInferenceStage` and `SelectAudioLanguageStage`) and writes one Opus clip per speech segment with `AudioSegmentWriterStage`. It does not transcribe.
 
-**Indic ASR** prepares Hindi clips with `PrepareIndicASRInputStage`, transcribes each clip with `InferenceIndicCanaryStage` (primary) and `InferenceParakeetStage` (recovery candidate), and checks both with `WhisperHallucinationStage`. `SelectBestPredictionStage` picks the final text, which `RegexSubstitutionStage` and `AbbreviationConcatStage` clean, and `GetPairwiseWerStage` scores against the reference.
+**Indic ASR** prepares Hindi clips with `PrepareIndicASRInputStage`, transcribes each clip with `InferenceIndicTranscribeStage` (primary) and `InferenceParakeetStage` (recovery candidate), and checks both with `WhisperHallucinationStage`. `SelectBestPredictionStage` picks the final text, which `RegexSubstitutionStage` and `AbbreviationConcatStage` clean, and `GetPairwiseWerStage` scores against the reference.
 
 **Qwen Omni ASR** transcribes with `ASRStage` and the `QwenOmniASRAdapter`, flags suspicious text with `WhisperHallucinationStage`, falls back to the existing transcript when the generated text is flagged, and cleans the selected text.
 
@@ -48,7 +48,7 @@ Each README lists the required arguments for its pipeline and an optional Ray Da
 
 ## Environment
 
-The metadata and Indic ASR tutorials share an image built from the `granary` target of `docker/audio/Dockerfile.trt_llm`, because Indic Canary needs TensorRT-LLM. Refer to [Indic Canary TensorRT-LLM Image](/reference/infra/container-environments#indic-canary-tensorrt-llm-image). The Qwen Omni ASR and text pipelines have their own environment requirements, described in their READMEs. The published configurations target one node with eight H100 80 GB GPUs.
+The metadata and Indic ASR tutorials share an image built from the `granary` target of `docker/audio/Dockerfile.trt_llm`, because Indic Transcribe needs TensorRT-LLM. Refer to [Indic Transcribe TensorRT-LLM Image](/reference/infra/container-environments#indic-transcribe-tensorrt-llm-image). The Qwen Omni ASR and text pipelines have their own environment requirements, described in their READMEs. The published configurations target one node with eight H100 80 GB GPUs.
 
 ## Related Topics
 

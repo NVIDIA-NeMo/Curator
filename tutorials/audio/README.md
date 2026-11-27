@@ -56,7 +56,7 @@ python nemo_curator/config/run.py \
 | Transcribe a manifest with Qwen3-ASR through the generic ASR adapter | [**qwen_asr/**](qwen_asr/) | Yes (1 per ASR actor) | Bundled sample or your own manifest |
 | Transcribe a manifest with Faster-Whisper Large-v3 through the generic ASR adapter | [**faster_whisper/**](faster_whisper/) | Recommended (1 per ASR actor) or CPU | Bundled sample or your own manifest |
 | Diarize whole recordings with Streaming Sortformer through the shared diarization adapter | [**sortformer/**](sortformer/) | Yes (1 per actor) | Bundled sample or your own manifest |
-| Transcribe Hindi audio with Indic Canary and Parakeet, check the text, and measure WER | [**granary_v2/indic_asr/**](granary_v2/indic_asr/) | Yes (80 GB H100 with compatible engines) | Two public FLEURS clips; model engine bundles supplied separately |
+| Transcribe Hindi audio with Indic Transcribe and Parakeet, check the text, and measure WER | [**granary_v2/indic_asr/**](granary_v2/indic_asr/) | Yes (80 GB H100 with compatible engines) | Two public FLEURS clips; model engine bundles supplied separately |
 | Restore punctuation, normalize ASR transcripts and generate text features | [**granary_v2/text_pipeline/**](granary_v2/text_pipeline/) | 8 GPUs for the included model server; CPU client with an existing endpoint | Two bundled English transcripts; no audio download |
 | Extract Granary speech clips, speaker turns, sound events, and language metadata | [**granary_v2/metadata/**](granary_v2/metadata/) | Yes; hardware-compatible TensorRT engines required | Two public FLEURS clips or your own recordings; local model bundles required |
 | Produce word-level TextGrid/RTTM/CTM alignments with Montreal Forced Aligner | [**alignment/**](alignment/) | No (CPU-only) | Bring your own audio manifest |
@@ -143,7 +143,7 @@ docker build -f docker/audio/Dockerfile.trt_llm -t curator-indic-trtllm .
 docker run --rm --gpus all curator-indic-trtllm python docker/audio/check_trt_llm.py
 ```
 
-It runs Curator, Canary TensorRT-LLM, and Parakeet TensorRT in one Python 3.12 /
+It runs Curator, Indic Transcribe TensorRT-LLM, and Parakeet TensorRT in one Python 3.12 /
 Torch 2.9.1 environment, without changing the normal Curator dependency stack.
 Do not run root `uv sync` inside this image. See the
 [Indic ASR tutorial](granary_v2/indic_asr/README.md#1-build-and-check-the-environment) for mounts

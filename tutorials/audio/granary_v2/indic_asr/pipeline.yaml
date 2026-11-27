@@ -6,7 +6,7 @@
 #   python nemo_curator/config/run.py \
 #     --config-path ../../tutorials/audio/granary_v2/indic_asr --config-name pipeline \
 #     dataset_dir=/data/indic_asr output_path=/outputs/indic_asr.jsonl \
-#     indic_canary_engine_dir=/models/indic_canary \
+#     indic_transcribe_engine_dir=/models/indic_transcribe \
 #     parakeet_tensorrt_engine_dir=/models/parakeet
 
 defaults:
@@ -22,7 +22,7 @@ hydra:
 documentation: |
   Hindi Indic ASR Pipeline
   ########################
-  Read two public Hindi clips, transcribe with Indic Canary and Parakeet,
+  Read two public Hindi clips, transcribe with Indic Transcribe and Parakeet,
   check hallucinations, select a transcript, clean it, and calculate WER.
   Supply both hardware-compatible model engine directories. See README.md
   for environment installation, sample download, and the required engine files.
@@ -31,7 +31,7 @@ documentation: |
 dataset_dir: ./data/indic_asr
 manifest_path: ${dataset_dir}/manifest.jsonl
 output_path: ./indic_asr_output.jsonl
-indic_canary_engine_dir: ???
+indic_transcribe_engine_dir: ???
 parakeet_tensorrt_engine_dir: ???
 regex_yaml: tutorials/audio/granary_v2/indic_asr/regex.yaml
 hall_phrases: tutorials/audio/whisper_hallucination/phrases.txt
@@ -73,9 +73,9 @@ stages:
     num_workers: ${prep_workers}
 
   # 3. Primary ASR: TensorRT encoder + TensorRT-LLM decoder.
-  - _target_: nemo_curator.stages.audio.inference.indic_canary.InferenceIndicCanaryStage
-    name: IndicCanary_primary
-    engine_dir: ${indic_canary_engine_dir}
+  - _target_: nemo_curator.stages.audio.inference.indic_transcribe.InferenceIndicTranscribeStage
+    name: IndicTranscribe_primary
+    engine_dir: ${indic_transcribe_engine_dir}
     num_beams: 4
     max_new_tokens: 347
     pnc: false
@@ -142,7 +142,7 @@ stages:
       fallback_source_label: fallback
       reference_text_key: granary_v1_prediction
       use_ground_truth_for_short_audio: false
-      primary_model_type: indic_canary
+      primary_model_type: indic_transcribe
       language_key: source_lang
     batch_size: ${asr_batch_size}
 

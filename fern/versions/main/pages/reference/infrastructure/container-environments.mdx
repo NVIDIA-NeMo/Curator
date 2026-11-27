@@ -112,15 +112,15 @@ Keep input videos and output clips under `/workspace` (or mount their host direc
 
 `h264_nvenc` requires NVIDIA hardware with NVENC support. NVIDIA A100 and H100 GPUs do not include NVENC hardware; use `libvpx-vp9` on those GPUs. For Python package installs, the [Installation Guide](/get-started/installation#install-ffmpeg-for-audio-and-video-source-installs) also documents user-local and host-level FFmpeg options.
 
-## Indic Canary TensorRT-LLM Image
+## Indic Transcribe TensorRT-LLM Image
 
-`InferenceIndicCanaryStage` runs a prebuilt Canary TensorRT-LLM engine inside the Curator worker. TensorRT-LLM 1.2.1 and the existing engines need Python 3.12, Torch 2.9.1 (CUDA 12.8), and TensorRT 10.14.1.48.post1, while the base image uses Python 3.13 and Torch 2.11. The two stacks cannot share one environment. Indic Canary therefore keeps its own image, built from `docker/audio/Dockerfile.trt_llm`. That image runs the entire Indic pipeline and does not extend the base image.
+`InferenceIndicTranscribeStage` runs a prebuilt Indic Transcribe TensorRT-LLM engine inside the Curator worker. TensorRT-LLM 1.2.1 and the existing engines need Python 3.12, Torch 2.9.1 (CUDA 12.8), and TensorRT 10.14.1.48.post1, while the base image uses Python 3.13 and Torch 2.11. The two stacks cannot share one environment. Indic Transcribe therefore keeps its own image, built from `docker/audio/Dockerfile.trt_llm`. That image runs the entire Indic pipeline and does not extend the base image.
 
 The Dockerfile has two targets:
 
 | Target | Contents | Use |
 |---|---|---|
-| `final` (default) | Curator with the `audio_cuda12` extra, TensorRT-LLM, NeMo 3.0.0, and a minimal FFmpeg build with the audio codecs the pipeline uses | Indic Canary and the other stages of the Indic pipeline |
+| `final` (default) | Curator with the `audio_cuda12` extra, TensorRT-LLM, NeMo 3.0.0, and a minimal FFmpeg build with the audio codecs the pipeline uses | Indic Transcribe and the other stages of the Indic pipeline |
 | `granary` | `final` plus a pinned NeMo reference commit and CUDA 13 forward-compatibility libraries | The [Granary v2 tutorials](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials/audio/granary_v2) |
 
 Build from the repository root. The build checks the installed packages with `docker/audio/check_trt_llm.py --build-only`:
@@ -145,9 +145,9 @@ docker run --rm -it --gpus all --ipc=host \
 ```
 
 ```python
-from nemo_curator.stages.audio.inference.indic_canary import InferenceIndicCanaryStage
+from nemo_curator.stages.audio.inference.indic_transcribe import InferenceIndicTranscribeStage
 
-stage = InferenceIndicCanaryStage(engine_dir="/models/indic_canary")
+stage = InferenceIndicTranscribeStage(engine_dir="/models/indic_transcribe")
 ```
 
 Do not run `uv sync` inside this image, because that replaces its pinned inference environment. The [Granary v2 Indic ASR tutorial](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials/audio/granary_v2/indic_asr) has the complete build, runtime setup, and engine-building commands, including memory-bounded `buildx` settings for large builds.

@@ -25,7 +25,7 @@ params_of_note:
   confidence_key: "Chosen component's numeric confidence inside notes_key, default source_lid_confidence; zero on rejection."
   skip_me_key: "Default _skipme. Rejection sets a selector-owned reason; acceptance clears only this selector's own three rejection reasons."
   speechbrain_model_id: "Primary slot, default SpeechBrainLangID. This configures identity, not a model download."
-  indic_canary_model_id: "Canary slot, default IndicCanaryLangID. Its confidence is selected in the three-way-agreement branch."
+  indic_transcribe_model_id: "Indic Transcribe slot, default IndicTranscribeLangID. Its confidence is selected in the three-way-agreement branch."
   whisper_model_id: "Whisper slot, default WhisperLangID. English wins, and Whisper also supplies the confidence for non-Indic primary/Whisper agreement."
   indic_languages: "Exact policy set requiring three-way agreement; defaults: hi, ta, bn, ur, gu, mr, ml, kn, te, or, as, pa, ne, sa, sd, si, kok, mai, doi, ks, mni, sat, brx, bo. This is not a model-coverage declaration."
 param_dependencies:
@@ -39,17 +39,17 @@ semantic_facts:
     scope: "One task, based on its components' potentially different leading windows."
     propagation: "The row survives every selection/rejection branch. Raw results_key is consumed, while component labels, scores and decision notes remain in notes_key."
     counterexamples:
-      - "Whisper English is accepted even when primary/Canary disagree; this is explicit precedence, not a majority vote."
-      - "Primary/Whisper agreement on hi is insufficient with the default Indic set unless Canary also agrees."
+      - "Whisper English is accepted even when primary/Indic Transcribe disagree; this is explicit precedence, not a majority vote."
+      - "Primary/Whisper agreement on hi is insufficient with the default Indic set unless Indic Transcribe also agrees."
       - "Filtering only source_lang != skipped retains missing-prediction rows whose output is empty."
   source_lid_confidence:
     meaning: "The selected model's original numeric confidence, or zero after rejection."
     unit: "float in [0,1]; component-specific"
-    provenance: "Whisper for English/non-Indic two-way agreement; Canary for three-way agreement."
+    provenance: "Whisper for English/non-Indic two-way agreement; Indic Transcribe for three-way agreement."
     scope: "Chosen component, not an ensemble posterior."
     propagation: "Stored inside notes_key under confidence_key. Component audit confidences are separately formatted to three-decimal strings under tag-derived note names."
     counterexamples:
-      - "The shipped Canary adapter uses 1.0 as a recognized-token marker; agreement does not turn it into calibrated certainty."
+      - "The shipped Indic Transcribe adapter uses 1.0 as a recognized-token marker; agreement does not turn it into calibrated certainty."
   _skipme:
     meaning: "Selector rejection reason for missing predictions, missing/empty Whisper, or disagreement."
     unit: "reason string when rejected"
@@ -59,7 +59,7 @@ semantic_facts:
     counterexamples:
       - "AudioSegmentWriterStage does not suppress writing merely because a LID rejection flag is set."
 notes:
-  - "Policy order after validation: (1) missing/empty result mapping -> empty output; (2) Whisper en -> accept Whisper; (3) missing/empty Whisper -> empty output; (4) all three same -> accept Canary; (5) primary/Whisper agree outside indic_languages -> accept Whisper; (6) otherwise skipped."
+  - "Policy order after validation: (1) missing/empty result mapping -> empty output; (2) Whisper en -> accept Whisper; (3) missing/empty Whisper -> empty output; (4) all three same -> accept Indic Transcribe; (5) primary/Whisper agree outside indic_languages -> accept Whisper; (6) otherwise skipped."
   - "All present results are validated before the English fast path. Unknown IDs, malformed components, non-finite/out-of-range confidence or duplicate tags raise instead of becoming ordinary disagreement."
   - "Repeated execution is not a no-op: the first successful call removes raw results, so a second call without replenishing them takes the missing-predictions branch."
   - "If a downstream NeMoSpeechWriterStage needs all source rows accounted for, preserve rejected rows as appropriate audit/placeholder outputs; an ordinary row-dropping filter can make shard finalization incomplete."
