@@ -26,7 +26,8 @@ uv sync --no-progress --link-mode copy --locked $EXTRA_FLAGS --group test
 
 export CUSTOM_HF_DATASET=/home/TestData/HF_HOME
 
-if [[ "$GPU_TEST_PATHS" == *"stages/audio"* ]]; then
+# Every audio group (stages, ASR and SED model tests) installs audio_cuda12 and needs FFmpeg.
+if [[ " $GPU_TEST_EXTRAS " == *" audio_cuda12 "* ]]; then
     apt-get update -qq && apt-get install -y --no-install-recommends ffmpeg
 fi
 

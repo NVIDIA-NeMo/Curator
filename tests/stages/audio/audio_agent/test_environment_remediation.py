@@ -306,17 +306,12 @@ def test_external_ray_does_not_treat_other_driver_facts_as_worker_facts(
     assert {issue["code"] for issue in decision["issues"]} == {"remote_worker_environment_unverified"}
 
 
-def test_a_genuinely_missing_package_is_caught_earlier_than_preflight() -> None:
-    """A per-stage package table used to gate this, and could never observe the condition.
+def test_a_missing_model_package_keeps_the_stage_and_names_its_extra() -> None:
+    """Stages import their model package on first use, as the audio README asks.
 
-    ``missing_packages`` comes from ``importlib.util.find_spec`` -- the SAME probe the
-    catalog uses to decide which stage modules imported. So a package that is really absent
-    removes its stages from the catalog, the recipe cannot reference them at all, and the
-    per-stage gate never saw a recipe it could act on. Every new module still had to be
-    added to that table to keep it honest.
-
-    What actually protects the caller is checked here: the stage is not registered, and
-    ``discover()`` reports the import error that explains why.
+    So a missing package does not remove the stage from the catalog (``unknown_stage``);
+    loading the model raises an ``ImportError`` that names the extra to install, like the
+    model adapters do (``NeMoASRAdapter``, ``NeMoSortformerAdapter``).
     """
     import json
     import subprocess
@@ -332,11 +327,14 @@ class Block(MetaPathFinder):
         return None
 sys.meta_path.insert(0, Block())
 from nemo_curator.stages.audio import audio_agent as aa
+from nemo_curator.stages.audio.inference.vad.whisperx_vad import WhisperXVADModel
 out = aa.validate({"stages": [{"ref": "WhisperXVADStage", "params": {}}]})
-print("RESULT" + json.dumps({
-    "codes": [i["code"] for i in out["issues"]],
-    "unavailable": bool(aa.discover().get("unavailable")),
-}))
+try:
+    WhisperXVADModel(device="cpu")
+    error = ""
+except ImportError as exc:
+    error = str(exc)
+print("RESULT" + json.dumps({"codes": [i["code"] for i in out["issues"]], "error": error}))
 """.replace("json.dumps", "__import__('json').dumps")
 
     proc = subprocess.run(  # noqa: S603 - fixed argv, this interpreter, no shell
@@ -345,8 +343,8 @@ print("RESULT" + json.dumps({
     payload = next(line[len("RESULT") :] for line in proc.stdout.splitlines() if line.startswith("RESULT"))
     result = json.loads(payload)
 
-    assert "unknown_stage" in result["codes"], "the stage is not registered when its package is absent"
-    assert result["unavailable"], "discover() reports WHY the module is unavailable"
+    assert "unknown_stage" not in result["codes"], "the stage stays registered without its model package"
+    assert "uv sync --extra audio_common" in result["error"], "loading the model names the extra to install"
 
 
 def test_missing_unselected_audio_package_does_not_block_recipe() -> None:

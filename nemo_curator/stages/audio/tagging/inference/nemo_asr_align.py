@@ -27,12 +27,9 @@ import time
 from dataclasses import KW_ONLY, dataclass, field
 from typing import Any, ClassVar
 
-import nemo.collections.asr as nemo_asr
 import torch
 import torchaudio
 from loguru import logger
-from nemo.collections.asr.parts.submodules.ctc_decoding import CTCDecodingConfig
-from nemo.collections.asr.parts.submodules.rnnt_decoding import RNNTDecodingConfig
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.stages.audio._agent._agent_ready import (
@@ -46,6 +43,15 @@ from nemo_curator.stages.audio._agent._agent_ready import (
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
+
+
+def _nemo_asr_module() -> Any:  # noqa: ANN401
+    try:
+        import nemo.collections.asr as nemo_asr
+    except ImportError as exc:
+        msg = "NeMoASRAlignerStage requires the audio_common extra: uv sync --extra audio_common"
+        raise ImportError(msg) from exc
+    return nemo_asr
 
 
 @dataclass
@@ -238,6 +244,7 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
             raise ValueError(msg)
 
     def load_model(self) -> None:
+        nemo_asr = _nemo_asr_module()
         if self.model_path:
             self._asr_model = nemo_asr.models.ASRModel.restore_from(restore_path=self.model_path)
         else:
@@ -252,6 +259,7 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
         if self._asr_model is None:
             if self.model_path:
                 return
+            nemo_asr = _nemo_asr_module()
             try:
                 nemo_asr.models.ASRModel.from_pretrained(model_name=self.model_name, return_model_file=True)
             except Exception as e:
@@ -271,6 +279,9 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
                 self_attention_model="rel_pos_local_attn", att_context_size=[128, 128]
             )
             self._asr_model.change_subsampling_conv_chunking_factor(1)
+
+        from nemo.collections.asr.parts.submodules.ctc_decoding import CTCDecodingConfig
+        from nemo.collections.asr.parts.submodules.rnnt_decoding import RNNTDecodingConfig
 
         decoding_cfg = CTCDecodingConfig() if self.decoder_type == "ctc" else RNNTDecodingConfig()
 

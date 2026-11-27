@@ -128,6 +128,11 @@ audio_common = [
     "opencc-python-reimplemented",
     "pyannote-audio>=4.0.0; platform_machine == 'x86_64' and platform_system != 'Darwin'",
     "whisperx>=3.8.4; platform_machine == 'x86_64' and platform_system != 'Darwin'",
+    # Imported directly by Curator code, so declare them rather than relying on transitive installs.
+    "faster-whisper>=1.2.1; platform_machine == 'x86_64' and platform_system != 'Darwin'",  # FasterWhisperASR adapter
+    "lhotse>=1.33.0",  # NeMoSpeechReaderStage tarred-manifest reading
+    "mcp>=1.30.0",  # audio agent MCP server (nemo-curator-audio)
+    "wget",  # dataset downloads in stages/audio/datasets/file_utils.py
     # NOTE: chatterbox-tts is intentionally NOT declared here. It hard-pins
     # transformers==5.2.0 and torch==2.6.0 (0.1.4-0.1.6 pin transformers==4.46.3),
     # all incompatible with Curator's transformers>=4.56,<5.0 / torch==2.10.0.
