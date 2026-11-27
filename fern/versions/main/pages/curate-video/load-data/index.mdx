@@ -48,6 +48,37 @@ pipe.add_stage(VideoReader(input_video_path="s3://my-bucket/videos/", video_limi
 pipe.run()
 ```
 
+### S3-Compatible Object Storage
+
+`VideoReader` reads `s3://` URLs with `s3fs`, which resolves credentials, region, and endpoint through the standard AWS configuration chain. To read from an S3-compatible service other than Amazon S3 (for example, Backblaze B2, Cloudflare R2, or MinIO), set the service endpoint and region in the environment before you run the pipeline:
+
+```bash
+export AWS_ACCESS_KEY_ID="<access-key-id>"
+export AWS_SECRET_ACCESS_KEY="<secret-access-key>"
+export AWS_ENDPOINT_URL="https://s3.example-region.example.com"
+export AWS_DEFAULT_REGION="example-region"
+```
+
+You can set the same values as `endpoint_url` and `region` in a profile in `~/.aws/config` instead. Ray workers read these settings from their own environment, so on a multi-node cluster set them on every node or pass them through the Ray `runtime_env`.
+
+If the service rejects the default integrity checksums that recent AWS SDK releases add to requests, also set:
+
+```bash
+export AWS_REQUEST_CHECKSUM_CALCULATION="when_required"
+export AWS_RESPONSE_CHECKSUM_VALIDATION="when_required"
+```
+
+Stages that accept `storage_options`, such as the deduplication workflows, also accept the endpoint and region directly. Pass the dictionary under the `storage_options` key of `read_kwargs` and `write_kwargs`:
+
+```python
+storage_options = {
+    "endpoint_url": "https://s3.example-region.example.com",
+    "client_kwargs": {"region_name": "example-region"},
+}
+read_kwargs = {"storage_options": storage_options}
+write_kwargs = {"storage_options": storage_options}
+```
+
 ## Explicit File List (JSON)
 
 For remote datasets, `ClientPartitioningStage` can use an explicit file list JSON. Each entry must be an absolute path under the specified root.
