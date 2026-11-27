@@ -70,11 +70,12 @@ _DEFAULT_INITIAL_KEYS: frozenset[str] = frozenset({"audio_filepath"})
 
 # The role of the key a tensor producer parks its waveform under. Tracking the carrier
 # rather than a bare "a tensor is resident" flag is what lets a stage that DROPS that key
-# end the residency, instead of only a stage flagged ``sanitizes_output``.
+# end the residency, instead of only a stage flagged ``sanitizes_output``. A tensor write
+# that names no waveform-roled key tracks every key it names instead.
 _TENSOR_ROLE = "waveform"
-# Stand-in for a producer that declares ``produces=["tensor"]`` without naming a
-# waveform-roled key. Its residency is still tracked, but no key removal can match it, so
-# only an explicit sanitizer clears it -- deliberately the pre-existing behaviour.
+# Stand-in for a producer that declares ``produces=["tensor"]`` without naming any key.
+# Its residency is still tracked, but no key removal can match it, so only an explicit
+# sanitizer clears it.
 _UNNAMED_TENSOR = "<unnamed tensor>"
 
 
@@ -1237,13 +1238,21 @@ def _advance_tensor_residency(
         segment_carriers = {
             key for key in segment_tensor_writes if contract.key_roles.get(key, role_for_value(key)) == _TENSOR_ROLE
         }
+        for spec in [contract.writes, *(c.writes for c in reachable_conditionals)]:
+            roles = {
+                contract.key_roles.get(key, role_for_value(key)) for key in [*spec.data_keys, *spec.segment_data_keys]
+            }
+            if "tensor" in spec.produces and _TENSOR_ROLE not in roles:
+                # A tensor write naming no waveform (e.g. SED's frame matrix) carries a non-audio
+                # tensor under every key it names, so a later ``removes_keys`` of it ends residency.
+                task_carriers |= set(spec.data_keys)
+                segment_carriers |= set(spec.segment_data_keys)
         if task_carriers or segment_carriers:
             walk.tensor_keys |= task_carriers
             walk.segment_tensor_keys |= segment_carriers
         else:
-            # ``produces=["tensor"]`` but no waveform-roled key names the carrier: keep the
-            # pre-split behaviour of tracking it as a top-level unnamed tensor only a
-            # sanitizer can clear.
+            # ``produces=["tensor"]`` but no key names the carrier: track it as a top-level
+            # unnamed tensor only a sanitizer can clear.
             walk.tensor_keys |= {_UNNAMED_TENSOR}
     if contract.gates.sanitizes_output:
         walk.tensor_keys.clear()

@@ -15,17 +15,24 @@
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import yaml
 
+from nemo_curator.stages.audio._agent._agent_ready import (
+    AgentReady,
+    ConditionalWrite,
+    IOSpec,
+    Role,
+    StageContract,
+)
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
 
 @dataclass
-class RegexSubstitutionStage(ProcessingStage[AudioTask, AudioTask]):
+class RegexSubstitutionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """Apply an ordered list of regex substitutions to one transcript field.
 
     Provide exactly one of ``regex_params_yaml`` or inline ``rules``. Each must
@@ -52,6 +59,22 @@ class RegexSubstitutionStage(ProcessingStage[AudioTask, AudioTask]):
     rules: list[dict[str, Any]] | None = None
 
     _rules: list[dict[str, Any]] = field(default_factory=list, init=False, repr=False)
+
+    KEY_ROLE_OVERRIDES: ClassVar[dict[str, Role]] = {"output_text_key": "text"}
+
+    def describe(self) -> StageContract:
+        return StageContract(
+            reads=IOSpec(data_keys=[self.text_key]),
+            optional_reads=IOSpec(data_keys=[self.skip_me_key, self.language_key]),
+            writes=IOSpec(data_keys=[self.output_text_key]),
+            conditional_writes=[
+                ConditionalWrite(
+                    writes=IOSpec(data_keys=[self.skip_me_key]),
+                    condition="the rules empty a non-blank transcript on an unskipped row",
+                )
+            ],
+            cardinality="1:1",
+        )
 
     def __post_init__(self) -> None:
         if bool(self.regex_params_yaml) == (self.rules is not None):

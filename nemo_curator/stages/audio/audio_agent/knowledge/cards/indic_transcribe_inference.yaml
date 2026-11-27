@@ -1,0 +1,21 @@
+stage_id: InferenceIndicTranscribeStage
+category: transcribe
+summary: "Transcribe Indic in-memory waveforms with a prebuilt Indic Transcribe TensorRT-LLM engine."
+tags: [needs_gpu, batch_only]
+model_id: null
+resource:
+  gpu_optional: false
+  bound: gpu
+composition:
+  typical_downstream: [SelectBestPredictionStage, WhisperHallucinationStage]
+params_of_note:
+  engine_dir: "Local TensorRT-LLM engine directory (encoder, decoder, preprocessor); nothing is downloaded."
+  max_duration_sec: "Encoder window; longer audio is truncated and noted in notes_key (split with VAD first)."
+  source_lang_key: "Per-row language code (default source_lang)."
+  pred_text_key: "Output transcript (default asr_prediction)."
+notes:
+  - "Unsupported languages get an empty prediction, a note, and skip_me_key set to lang_not_supported:<stage name> unless an upstream reason exists."
+  - "Not declared per-row independent: TensorRT-LLM pads each batch to its longest row."
+  - "Requires the TensorRT-LLM runtime (docker/audio/Dockerfile.trt_llm)."
+verified: {params: mechanical, tags: mechanical, resource: best_guess}
+provenance: {model_card_url: null, card_version: 1, last_validated: "2026-11-19"}

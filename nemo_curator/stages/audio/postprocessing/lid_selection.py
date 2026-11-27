@@ -116,8 +116,8 @@ class SelectAudioLanguageStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
     name: str = "SelectBestLIDPrediction"
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 
-    KEY_ROLE_OVERRIDES: ClassVar = {"results_key": "prediction", "output_key": "prediction"}
-    INTERNAL_KEY_FIELDS = frozenset({"confidence_key", "skip_me_key", "notes_key"})
+    KEY_ROLE_OVERRIDES: ClassVar = {"results_key": "prediction", "output_key": "language"}
+    INTERNAL_KEY_FIELDS = frozenset({"confidence_key"})
 
     def __post_init__(self) -> None:
         key_fields = (

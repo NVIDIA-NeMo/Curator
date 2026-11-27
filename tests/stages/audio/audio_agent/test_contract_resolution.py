@@ -484,13 +484,11 @@ class TestConstructingAStageTouchesNothing:
         ("nemo_curator.stages.audio.inference.parakeet", "InferenceParakeetStage"),
     ],
 )
-def test_upstream_asr_wrappers_remain_importable_but_not_agent_selectable(module: str, name: str) -> None:
+def test_asr_wrappers_are_agent_selectable(module: str, name: str) -> None:
     import importlib
 
-    assert hasattr(importlib.import_module(module), name)
-    assert name not in {entry["stage"] for entry in _verb_inspection.discover()["stages"]}
-    with pytest.raises(KeyError, match="not a registered agent-ready audio stage"):
-        resolve_stage_class(name)
+    assert resolve_stage_class(name) is getattr(importlib.import_module(module), name)
+    assert name in {entry["stage"] for entry in _verb_inspection.discover()["stages"]}
 
 
 def test_fleurs_resolution_exposes_runtime_required_params() -> None:

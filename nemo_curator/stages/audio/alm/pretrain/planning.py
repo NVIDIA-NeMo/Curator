@@ -350,6 +350,8 @@ class OverlapFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.segments_key]
 
+    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(gates=Gates(per_row_independent=True))
+
     def describe(self) -> StageContract:
         return StageContract(
             reads=IOSpec(data_keys=[self.segments_key]),
@@ -448,6 +450,8 @@ class SnippetCutPlannerStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.snippet_plan_key]
+
+    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(gates=Gates(per_row_independent=True))
 
     def describe(self) -> StageContract:
         return StageContract(

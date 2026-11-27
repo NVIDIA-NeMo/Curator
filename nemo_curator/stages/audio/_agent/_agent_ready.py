@@ -72,6 +72,9 @@ Role = Literal[
     "windows",
     "manifest_path",
     "output_path",
+    "language",
+    "skip_reason",
+    "notes",
     "unknown",
 ]
 

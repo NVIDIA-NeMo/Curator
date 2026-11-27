@@ -77,10 +77,6 @@ class PrepareIndicASRInputStage(AgentReady, ProcessingStage[AudioTask, AudioTask
 
     KEY_ROLE_OVERRIDES: ClassVar[dict[str, Role]] = {
         "granary_v1_prediction_key": "reference_text",
-        # The shared role vocabulary has no language or audit-note role.
-        "source_lang_key": "unknown",
-        "notes_key": "unknown",
-        "skip_me_key": "unknown",
     }
 
     def describe(self) -> StageContract:

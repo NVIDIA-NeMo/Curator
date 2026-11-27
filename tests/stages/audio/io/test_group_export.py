@@ -24,6 +24,7 @@ import pytest
 
 from nemo_curator.backends.ray_data.adapter import RayDataStageAdapter
 from nemo_curator.stages.audio._agent._agent_registry import build_contract
+from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
 from nemo_curator.stages.audio._agent._planning import validate_pipeline
 from nemo_curator.stages.audio.io.group_export import ManifestGroupExportStage
 from nemo_curator.tasks import AudioTask
@@ -775,3 +776,7 @@ def test_group_export_can_follow_a_reused_metadata_manifest(tmp_path: Path) -> N
         ]
     )
     assert continuation._resume_breaks_on_disk_boundary(recipe, 2) is None
+
+
+def test_group_export_is_agent_ready(tmp_path: Path) -> None:
+    assert_agent_ready(ManifestGroupExportStage(output_dir=str(tmp_path)), run=False)

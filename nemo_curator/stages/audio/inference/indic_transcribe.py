@@ -21,10 +21,12 @@ Model card: https://huggingface.co/bodhan-ai/indic-transcribe-core
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from nemo_curator.models.asr.indic_transcribe import IndicTranscribeTRTLLMASR
+from nemo_curator.stages.audio._agent._agent_ready import Gates, StageContract, StaticHints
 from nemo_curator.stages.audio.inference.asr.stage import ASRStage, _set_note
 from nemo_curator.stages.resources import Resources
 
@@ -86,6 +88,10 @@ class InferenceIndicTranscribeStage(ASRStage):
     prefetch_fail_on_error: bool = field(default=True, init=False, repr=False)
     adapter_kwargs: dict[str, Any] = field(default_factory=dict, init=False, repr=False)
 
+    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
+        gates=Gates(requires_gpu=True, requires_internet_first_run=False, per_row_independent=False)
+    )
+
     def __post_init__(self) -> None:
         self.model_id = self.engine_dir
         self.adapter_kwargs = {
@@ -98,6 +104,12 @@ class InferenceIndicTranscribeStage(ASRStage):
             "cross_kv_cache_fraction": self.cross_kv_cache_fraction,
         }
         super().__post_init__()
+
+    def describe(self) -> StageContract:
+        # The engine is local; ASRStage leaves this unreviewed TensorRT-LLM adapter not row-independent.
+        contract = super().describe()
+        gates = dataclasses.replace(contract.gates, requires_internet_first_run=False)
+        return dataclasses.replace(contract, gates=gates)
 
     def _create_adapter(self) -> IndicTranscribeTRTLLMASR:
         """Construct the Indic Transcribe adapter via its ``engine_dir`` API."""

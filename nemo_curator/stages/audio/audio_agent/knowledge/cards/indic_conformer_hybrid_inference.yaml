@@ -1,0 +1,20 @@
+stage_id: InferenceIndicConformerHybridStage
+category: transcribe
+summary: "Transcribe Indic in-memory waveforms with an IndicConformer hybrid CTC/RNNT checkpoint (NeMo, optionally with a TensorRT encoder)."
+tags: [needs_gpu, needs_internet_first_run, batch_only]
+model_id: ai4bharat/indicconformer_stt_hi_hybrid_ctc_rnnt_large
+resource:
+  gpu_optional: false
+  bound: gpu
+composition:
+  typical_downstream: [SelectBestPredictionStage, WhisperHallucinationStage]
+params_of_note:
+  decode_mode: "'rnnt' (default) or 'ctc'."
+  backend: "'nemo' (default) or 'tensorrt' (encoder only; requires tensorrt_engine_dir)."
+  source_lang_key: "Per-row language code (default source_lang); missing or unsupported codes get an empty prediction and a note."
+  pred_text_key: "Output transcript (default asr_prediction)."
+notes:
+  - "Both backends restore the checkpoint from model_id."
+  - "Declared per-row independent only for the NeMo backend."
+verified: {params: mechanical, tags: mechanical, resource: best_guess}
+provenance: {model_card_url: null, card_version: 1, last_validated: "2026-11-19"}

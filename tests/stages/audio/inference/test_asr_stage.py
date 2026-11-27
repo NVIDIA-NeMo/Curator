@@ -1440,3 +1440,17 @@ def test_language_contract_matches_transcribed_and_reused_rows(reuse: bool) -> N
     else:
         assert output.data["detected_language"] == "en"
         assert "detected_language" in report.produced_keys
+
+
+@pytest.mark.parametrize(
+    ("adapter_target", "independent"),
+    [
+        ("nemo_curator.models.asr.nemo_asr.NeMoASRAdapter", True),
+        (rh._ASR_TARGET, False),
+    ],
+)
+def test_row_independence_is_declared_per_reviewed_adapter(adapter_target: str, independent: bool) -> None:
+    stage = rh.ASRStage(max_audio_sec_per_actor=2400.0, adapter_target=adapter_target, model_id="mock/model")
+
+    assert stage.describe().gates.per_row_independent is independent
+    assert rh.ASRStage.AGENT_STATIC.gates.per_row_independent is False

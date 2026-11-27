@@ -378,7 +378,9 @@ acceptance: do not promise an automatic `met` verdict or silently weaken it.
 - `dangling_key`: align the producer's `*_key` value with what the consumer reads.
 - `tensor_into_sink`: insert `AudioToDocumentStage`, then write its
   `DocumentBatch` with `DocumentBatchJsonlWriterStage`. Keep
-  `ManifestWriterStage` for already-serializable `AudioTask` flows only.
+  `ManifestWriterStage` for already-serializable `AudioTask` flows only. If a stage
+  removes the tensor key (`SEDPostprocessingStage` removes `_sed_framewise`), insert
+  it before the sink instead.
 - `card_*`: honor the model constraint (e.g. `batch_size` fixed, `<= max_speakers`).
 - `ffmpeg_missing` / `missing_secret` / `gpu_unavailable`: surface as setup steps.
 

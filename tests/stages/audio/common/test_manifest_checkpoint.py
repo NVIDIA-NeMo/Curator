@@ -20,6 +20,7 @@ import pytest
 
 from nemo_curator.backends.base import WorkerMetadata
 from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
 from nemo_curator.stages.audio.common import (
     CreateInitialManifestAudioFolderStage,
     ManifestCheckpointStage,
@@ -428,3 +429,7 @@ def test_standalone_checkpoint_completes_multiple_appends(tmp_path: Path) -> Non
     stage.finalize()
     assert len(out.read_text().splitlines()) == 2
     assert Path(f"{out}._COMPLETE").exists()
+
+
+def test_manifest_checkpoint_is_agent_ready(tmp_path: Path) -> None:
+    assert_agent_ready(ManifestCheckpointStage(str(tmp_path / "checkpoint.jsonl")), run=False)

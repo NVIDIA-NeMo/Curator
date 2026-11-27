@@ -14,13 +14,13 @@
 
 import time
 from dataclasses import KW_ONLY, dataclass
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal
 
 import soundfile
 from loguru import logger
 
 from nemo_curator.backends.base import WorkerMetadata
-from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract
+from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract, StaticHints
 from nemo_curator.stages.audio.common.helpers import ensure_waveform_2d
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask
@@ -70,6 +70,8 @@ class GetAudioDurationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.duration_key]
+
+    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(gates=Gates(per_row_independent=True))
 
     def describe(self) -> StageContract:
         from nemo_curator.stages.audio._agent._residency import residency_read_specs

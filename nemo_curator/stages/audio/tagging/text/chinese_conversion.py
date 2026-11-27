@@ -15,7 +15,7 @@
 """Chinese text conversion stage (Traditional -> Simplified, etc.)."""
 
 from dataclasses import KW_ONLY, dataclass, field
-from typing import Any
+from typing import Any, ClassVar
 
 from loguru import logger
 from opencc import OpenCC
@@ -27,6 +27,7 @@ from nemo_curator.stages.audio._agent._agent_ready import (
     Gates,
     IOSpec,
     StageContract,
+    StaticHints,
 )
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask
@@ -66,6 +67,8 @@ class ChineseConversionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.segments_key]
+
+    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(gates=Gates(per_row_independent=True))
 
     def describe(self) -> StageContract:
         return StageContract(

@@ -51,12 +51,21 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, cast
 
 import numpy as np
 from loguru import logger
 
 from nemo_curator.models.audio.sed.base import SEDAdapter
+from nemo_curator.stages.audio._agent._agent_ready import (
+    AgentReady,
+    ConditionalWrite,
+    Gates,
+    IOSpec,
+    Role,
+    StageContract,
+    StaticHints,
+)
 from nemo_curator.stages.audio.common import ensure_mono, ensure_waveform_2d
 from nemo_curator.stages.audio.inference.base import AdapterInferenceStage
 from nemo_curator.stages.resources import Resources
@@ -68,7 +77,7 @@ if TYPE_CHECKING:
 
 
 @dataclass
-class SEDInferenceStage(AdapterInferenceStage[SEDAdapter]):
+class SEDInferenceStage(AgentReady, AdapterInferenceStage[SEDAdapter]):
     """Run sound-event detection through a YAML-selectable adapter.
 
     Set ``waveform_key`` to consume in-memory audio plus ``sample_rate_key``.
@@ -120,6 +129,14 @@ class SEDInferenceStage(AdapterInferenceStage[SEDAdapter]):
     batch_size: int = 32
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0, gpu_memory_gb=4.0))
 
+    BATCH_ONLY = True
+    KEY_ROLE_OVERRIDES: ClassVar[dict[str, Role]] = {"npz_filepath_key": "output_path"}
+    # Framewise outputs are value-matched by SEDPostprocessingStage.
+    INTERNAL_KEY_FIELDS: ClassVar[frozenset[str]] = frozenset({"framewise_output_key", "valid_frames_key", "fps_key"})
+    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
+        gates=Gates(requires_gpu=True, requires_internet_first_run=True, per_row_independent=False)
+    )
+
     def __post_init__(self) -> None:
         super().__post_init__()
         if not isinstance(self.sample_rate, int) or isinstance(self.sample_rate, bool) or self.sample_rate <= 0:
@@ -150,6 +167,45 @@ class SEDInferenceStage(AdapterInferenceStage[SEDAdapter]):
         if self.save_npz:
             output_keys.append(self.npz_filepath_key)
         return [], output_keys
+
+    def describe(self) -> StageContract:
+        outputs = [self.framewise_output_key, self.valid_frames_key, self.fps_key]
+        if self.save_npz:
+            outputs.append(self.npz_filepath_key)
+        prepared = f"'{self.skip_me_key}' is empty and the row's audio is prepared"
+        return StageContract(
+            reads=IOSpec(
+                data_keys=self.inputs()[1],
+                accepts=["waveform" if self.waveform_key else "file"],
+            ),
+            optional_reads=IOSpec(
+                data_keys=[self.skip_me_key, self.audio_filepath_key, *(outputs if self.skip_if_output_exists else [])]
+            ),
+            conditional_writes=[
+                # The frame matrix is a NumPy array: a JSON sink must not get it until a stage removes it.
+                ConditionalWrite(
+                    writes=IOSpec(data_keys=[self.framewise_output_key], produces=["tensor"]),
+                    condition=prepared,
+                ),
+                ConditionalWrite(writes=IOSpec(data_keys=outputs[1:]), condition=prepared),
+                ConditionalWrite(
+                    writes=IOSpec(data_keys=[self.skip_me_key]),
+                    condition="audio loading or preparation fails for the row",
+                ),
+            ],
+            cardinality="1:1",
+            gates=Gates(
+                requires_gpu=self.resources.requires_gpu,
+                requires_internet_first_run=True,
+                writes_to_disk=self.save_npz,
+                output_path_params=["output_dir"] if self.save_npz else None,
+                lifecycle_side_effects=True,
+                # Waveform-only rows name their NPZ sidecar after the task ID.
+                requires_stable_task_id=self.save_npz and bool(self.waveform_key),
+                # The adapter pads each batch; frame matrices follow the batch's longest row.
+                per_row_independent=False,
+            ),
+        )
 
     def _prepare_waveform(self, waveform: object, sample_rate: object) -> np.ndarray:
         """Return contiguous mono float32 samples at the adapter sample rate."""

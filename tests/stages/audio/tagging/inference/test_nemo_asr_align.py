@@ -45,18 +45,12 @@ def _stub_asr(stage: NeMoASRAlignerStage) -> MagicMock:
 class TestNeMoASRAlignerStage:
     def test_io_contracts(self) -> None:
         full_audio_stage = NeMoASRAlignerStage(infer_segment_only=False)
-        assert full_audio_stage.inputs() == (
-            ["data"],
-            ["duration", "segments", "split_filepaths", "split_metadata"],
-        )
-        assert full_audio_stage.outputs() == (
-            ["data"],
-            ["duration", "segments", "split_filepaths", "split_metadata"],
-        )
+        assert full_audio_stage.inputs() == (["data"], ["split_filepaths", "split_metadata"])
+        assert full_audio_stage.outputs() == (["data"], ["split_metadata"])
 
         segment_stage = NeMoASRAlignerStage(infer_segment_only=True)
-        assert segment_stage.inputs() == (["data"], ["resampled_audio_filepath", "segments"])
-        assert segment_stage.outputs() == (["data"], ["resampled_audio_filepath", "segments"])
+        assert segment_stage.inputs() == (["data"], ["segments"])
+        assert segment_stage.outputs() == (["data"], ["segments"])
 
     def test_describe_scopes_configured_full_and_segment_writes(self) -> None:
         full = build_contract(

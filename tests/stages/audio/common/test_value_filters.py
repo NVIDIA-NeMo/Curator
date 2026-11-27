@@ -22,6 +22,7 @@ import numpy as np
 import pytest
 import torch
 
+from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
 from nemo_curator.stages.audio.common import (
     GetAudioDurationStage,
     ManifestReader,
@@ -534,3 +535,12 @@ def test_condition_configuration_identity_cannot_follow_external_mutation() -> N
     assert pipeline_identity([second]) != identity
     assert len(first.process_batch([AudioTask(data={"duration": 1.5})])) == 1
     assert second.process_batch([AudioTask(data={"duration": 1.5})]) == []
+
+
+def test_preserve_by_value_conditions_is_agent_ready() -> None:
+    assert_agent_ready(
+        PreserveByValueConditionsStage({"mos": 3.0}),
+        lambda: AudioTask(data={"mos": 4.0}),
+        expected_cardinality="filter",
+        available_keys={"mos"},
+    )

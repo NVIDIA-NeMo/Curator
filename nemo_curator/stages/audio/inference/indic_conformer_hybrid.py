@@ -16,8 +16,9 @@
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from nemo_curator.models.audio.indic_conformer_hybrid import (
     INDIC_CONFORMER_HYBRID_LANGS,
@@ -25,6 +26,9 @@ from nemo_curator.models.audio.indic_conformer_hybrid import (
 )
 from nemo_curator.stages.audio.inference.asr.stage import ASRStage
 from nemo_curator.stages.resources import Resources
+
+if TYPE_CHECKING:
+    from nemo_curator.stages.audio._agent._agent_ready import StageContract
 
 _ADAPTER_TARGET = "nemo_curator.models.audio.indic_conformer_hybrid.IndicConformerHybridASR"
 
@@ -102,6 +106,12 @@ class InferenceIndicConformerHybridStage(ASRStage):
         if self.backend == "tensorrt":
             self.adapter_kwargs["tensorrt_engine_dir"] = self.tensorrt_engine_dir
         super().__post_init__()
+
+    def describe(self) -> StageContract:
+        # Both backends share one adapter target; only the NeMo backend (lengths preserved) was reviewed.
+        contract = super().describe()
+        gates = dataclasses.replace(contract.gates, per_row_independent=self.backend == "nemo")
+        return dataclasses.replace(contract, gates=gates)
 
 
 __all__ = [

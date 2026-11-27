@@ -18,6 +18,7 @@ Merge Alignment and Diarization Stage.
 
 import time
 from dataclasses import KW_ONLY, dataclass
+from typing import ClassVar
 
 from loguru import logger
 
@@ -27,6 +28,7 @@ from nemo_curator.stages.audio._agent._agent_ready import (
     Gates,
     IOSpec,
     StageContract,
+    StaticHints,
 )
 from nemo_curator.stages.audio._agent._residency import validate_audio_key_configuration
 from nemo_curator.stages.base import ProcessingStage
@@ -84,6 +86,8 @@ class MergeAlignmentDiarizationStage(AgentReady, ProcessingStage[AudioTask, Audi
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.alignment_key, self.segments_key]
+
+    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(gates=Gates(per_row_independent=True))
 
     def describe(self) -> StageContract:
         return StageContract(

@@ -25,6 +25,7 @@ from nemo_curator.models.asr.indic_parakeet_rnnt_tensorrt import (
     TensorRTParakeetRNNTAdapter,
 )
 from nemo_curator.models.asr.nemo_asr import NeMoASRAdapter
+from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
 from nemo_curator.stages.audio.inference.parakeet import (
     PARAKEET_TDT_0_6B_V3_LANGS,
     InferenceParakeetStage,
@@ -132,3 +133,20 @@ def test_language_filter_only_sends_supported_rows_to_adapter() -> None:
 def test_stage_rejects_unsupported_runtime_configuration(kwargs: dict[str, object], message: str) -> None:
     with pytest.raises(ValueError, match=message):
         InferenceParakeetStage(**kwargs)  # type: ignore[arg-type]
+
+
+def test_stage_is_agent_ready() -> None:
+    stage = InferenceParakeetStage()
+    stage._adapter = MagicMock()
+    stage._adapter.transcribe_batch.return_value = [ASRResult(text="hello", extras={"language_code": "en"})]
+
+    assert_agent_ready(
+        stage,
+        lambda: _task("en"),
+        expected_cardinality="1:1",
+        available_keys={"waveform", "sampling_rate", "source_lang"},
+    )
+    assert stage.describe().gates.per_row_independent is True
+    tensorrt = InferenceParakeetStage(backend="tensorrt", tensorrt_engine_dir="/engines/parakeet")
+    assert tensorrt.describe().gates.per_row_independent is False
+    assert tensorrt.describe().gates.requires_internet_first_run is False

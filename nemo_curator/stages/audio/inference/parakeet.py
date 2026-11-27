@@ -16,12 +16,16 @@
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from nemo_curator.models.asr.nemo_asr import NeMoASRAdapter
 from nemo_curator.stages.audio.inference.asr.stage import ASRStage
 from nemo_curator.stages.resources import Resources
+
+if TYPE_CHECKING:
+    from nemo_curator.stages.audio._agent._agent_ready import StageContract
 
 PARAKEET_TDT_0_6B_V3_LANGS: frozenset[str] = frozenset(
     {
@@ -124,6 +128,12 @@ class InferenceParakeetStage(ASRStage):
                 "use_cuda_graph_decoder": False,
             }
         super().__post_init__()
+
+    def describe(self) -> StageContract:
+        # The TensorRT backend loads a local engine; ASRStage derives row independence from adapter_target.
+        contract = super().describe()
+        gates = dataclasses.replace(contract.gates, requires_internet_first_run=self.backend == "nemo")
+        return dataclasses.replace(contract, gates=gates)
 
 
 __all__ = ["PARAKEET_TDT_0_6B_V3_LANGS", "InferenceParakeetStage", "NeMoASRAdapter"]

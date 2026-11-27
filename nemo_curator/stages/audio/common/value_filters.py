@@ -17,9 +17,9 @@ import time
 from collections.abc import Mapping
 from dataclasses import dataclass
 from operator import eq, ge, gt, le, lt, ne
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal
 
-from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract
+from nemo_curator.stages.audio._agent._agent_ready import AgentReady, Gates, IOSpec, StageContract, StaticHints
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask
 
@@ -63,6 +63,8 @@ class PreserveByValueStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.input_value_key]
+
+    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(gates=Gates(per_row_independent=True))
 
     def describe(self) -> StageContract:
         return StageContract(
@@ -247,6 +249,8 @@ class PreserveByValueConditionsStage(AgentReady, ProcessingStage[AudioTask, Audi
         if self.items_key is not None:
             return [], [self.items_key]
         return [], [condition.input_value_key for condition in self._conditions]
+
+    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(gates=Gates(per_row_independent=True))
 
     def describe(self) -> StageContract:
         logic = self.condition_logic.upper()

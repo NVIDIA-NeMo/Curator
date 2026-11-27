@@ -18,6 +18,7 @@ from copy import deepcopy
 
 import pytest
 
+from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
 from nemo_curator.stages.audio.text_filtering import SelectBestPredictionStage
 from nemo_curator.tasks import AudioTask
 
@@ -610,3 +611,21 @@ def test_reference_decision_parity_precedence_and_fallthrough() -> None:
         else:
             assert task.data["omni_asr_agreement_wer"] == expected_wer, name
         assert task.data["additional_notes"]["SelectBestPrediction"] == expected_note, name
+
+
+def test_select_best_prediction_is_agent_ready() -> None:
+    contract = assert_agent_ready(
+        SelectBestPredictionStage(),
+        lambda: AudioTask(
+            data={
+                "primary_model_prediction": "hello world",
+                "fallback_model_prediction": "hello world",
+                "_skipme": "Hallucination:WhisperHallucination",
+                "source_lang": "en",
+            }
+        ),
+        expected_cardinality="1:1",
+        available_keys={"primary_model_prediction", "fallback_model_prediction", "_skipme", "source_lang"},
+    )
+    assert contract.key_roles["best_prediction"] == "text"
+    assert contract.key_roles["primary_fallback_agreement_wer"] == "score"

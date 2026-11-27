@@ -32,7 +32,14 @@ import soundfile
 from loguru import logger
 
 from nemo_curator.models.audio.lid.base import AudioLIDAdapter, AudioLIDResult
-from nemo_curator.stages.audio._agent._agent_ready import AgentReady, ConditionalWrite, Gates, IOSpec, StageContract
+from nemo_curator.stages.audio._agent._agent_ready import (
+    AgentReady,
+    ConditionalWrite,
+    Gates,
+    IOSpec,
+    StageContract,
+    StaticHints,
+)
 from nemo_curator.stages.audio._agent._residency import validate_audio_key_configuration
 from nemo_curator.stages.audio.common import ensure_mono, ensure_waveform_2d
 from nemo_curator.stages.audio.inference.base import AdapterInferenceStage
@@ -123,7 +130,6 @@ class AudioLIDInferenceStage(AgentReady, AdapterInferenceStage[AudioLIDAdapter])
 
     BATCH_ONLY = True
     KEY_ROLE_OVERRIDES: ClassVar = {"results_key": "prediction"}
-    INTERNAL_KEY_FIELDS = frozenset({"skip_me_key"})
 
     def __post_init__(self) -> None:
         super().__post_init__()
@@ -207,6 +213,12 @@ class AudioLIDInferenceStage(AgentReady, AdapterInferenceStage[AudioLIDAdapter])
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.results_key, self.skip_me_key]
+
+    AGENT_STATIC: ClassVar[StaticHints] = StaticHints(
+        gates=Gates(
+            requires_gpu=True, requires_internet_first_run=True, lifecycle_side_effects=True, per_row_independent=False
+        )
+    )
 
     def describe(self) -> StageContract:
         """Declare task-local results without loading the configurable adapter."""

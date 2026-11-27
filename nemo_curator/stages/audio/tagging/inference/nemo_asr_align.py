@@ -297,14 +297,15 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
         logger.info(f"[{self.name}] Initialized ASR model on {self._device}")
 
     def inputs(self) -> tuple[list[str], list[str]]:
+        # The segment audio path is one of two keys (see describe), so only segments is required.
         if self.infer_segment_only:
-            return ["data"], [self.resampled_audio_filepath_key, self.segments_key]
-        return ["data"], ["duration", self.segments_key, self.split_filepaths_key, self.split_metadata_key]
+            return ["data"], [self.segments_key]
+        return ["data"], [self.split_filepaths_key, self.split_metadata_key]
 
     def outputs(self) -> tuple[list[str], list[str]]:
         if self.infer_segment_only:
-            return ["data"], [self.resampled_audio_filepath_key, self.segments_key]
-        return ["data"], ["duration", self.segments_key, self.split_filepaths_key, self.split_metadata_key]
+            return ["data"], [self.segments_key]
+        return ["data"], [self.split_metadata_key]
 
     def describe(self) -> StageContract:
         if self.infer_segment_only:

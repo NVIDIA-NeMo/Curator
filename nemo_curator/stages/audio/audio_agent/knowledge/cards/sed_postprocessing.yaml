@@ -1,0 +1,15 @@
+stage_id: SEDPostprocessingStage
+category: quality
+summary: "Threshold SED framewise probabilities into labelled sound events (sed_events) and drop the in-memory matrix."
+tags: []
+model_id: null
+resource: {cpus: 1.0, gpu_mem_gb: 0.0, gpu_optional: false, bound: cpu}
+composition:
+  typical_upstream: [SEDInferenceStage]
+params_of_note:
+  threshold: "Probability threshold for an event."
+  emit_superclasses: "Emit grouped superclass events (speech, music, ...) instead of per-class events."
+  framewise_key: "In-memory matrix (default _sed_framewise); npz_filepath_key is the fallback."
+  events_key: "Output event list (default sed_events)."
+verified: {params: mechanical, tags: mechanical, resource: best_guess}
+provenance: {model_card_url: null, card_version: 1, last_validated: "2026-11-19"}

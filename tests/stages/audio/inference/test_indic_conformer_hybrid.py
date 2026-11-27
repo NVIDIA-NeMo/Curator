@@ -21,6 +21,7 @@ import pytest
 
 from nemo_curator.models.asr.base import ASRResult
 from nemo_curator.models.audio.indic_conformer_hybrid import IndicConformerHybridASR
+from nemo_curator.stages.audio._agent._conformance import assert_agent_ready
 from nemo_curator.stages.audio.inference.indic_conformer_hybrid import (
     INDIC_CONFORMER_HYBRID_LANGS,
     InferenceIndicConformerHybridStage,
@@ -140,3 +141,19 @@ def test_unsupported_language_is_not_marked_for_global_skip() -> None:
 def test_stage_rejects_unsupported_runtime_configuration(kwargs: dict[str, object], message: str) -> None:
     with pytest.raises(ValueError, match=message):
         InferenceIndicConformerHybridStage(**kwargs)  # type: ignore[arg-type]
+
+
+def test_stage_is_agent_ready() -> None:
+    stage = InferenceIndicConformerHybridStage(model_id="ai4bharat/test-checkpoint")
+    stage._adapter = MagicMock()
+    stage._adapter.transcribe_batch.return_value = [ASRResult(text="namaste", extras={"language_code": "hi"})]
+
+    assert_agent_ready(
+        stage,
+        _task,
+        expected_cardinality="1:1",
+        available_keys={"waveform", "sampling_rate", "source_lang"},
+    )
+    assert stage.describe().gates.per_row_independent is True
+    tensorrt = InferenceIndicConformerHybridStage(backend="tensorrt", tensorrt_engine_dir="/engines/conformer")
+    assert tensorrt.describe().gates.per_row_independent is False
