@@ -139,10 +139,12 @@ output with `extras_key=null`.
 Rows remain in the output when inference is skipped:
 
 - unreadable audio uses `_skipme: audio_load_error`;
-- audio shorter than the adapter minimum uses `_skipme: empty_audio`;
 - unsupported languages use `_skipme: language_not_supported`;
 - missing language metadata uses `_skipme: language_missing` unless
   `default_language` is configured.
+
+Audio shorter than the adapter minimum (1600 samples) and an empty transcript
+are written as empty text without a `_skipme` reason.
 
 The default language allowlist matches the
 [official Qwen3-ASR language table](https://github.com/QwenLM/Qwen3-ASR#supported-languages):

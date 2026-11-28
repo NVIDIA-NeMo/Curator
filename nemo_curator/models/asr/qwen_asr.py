@@ -68,6 +68,9 @@ class QwenASRAdapter:
     Qwen-Omni adapter convention. Adapter-owned settings cannot be overridden
     through this mapping. Its default is empty, so normal construction exactly
     matches the nkoluguri reference engine arguments.
+
+    A clip too short to transcribe, a clip without a sample rate and an empty
+    transcript all come back as plain empty text, never as skipped results.
     """
 
     model_id: str = _DEFAULT_QWEN3_ASR_MODEL
@@ -189,7 +192,7 @@ class QwenASRAdapter:
             audio_inputs.append((waveform, source_rate))
             languages.append(item.get("language"))
 
-        results = [ASRResult(text="", skipped=True) for _ in items]
+        results = [ASRResult(text="") for _ in items]
         if not audio_inputs:
             logger.warning(
                 "QwenASRAdapter: all {} items were shorter than {} samples or lacked a sample rate",
@@ -218,7 +221,6 @@ class QwenASRAdapter:
             detected_language = getattr(output, "language", "") or ""
             results[index] = ASRResult(
                 text=text,
-                skipped=not text.strip(),
                 extras={"detected_language": str(detected_language)} if detected_language else {},
             )
         return results

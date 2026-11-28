@@ -61,7 +61,7 @@ def test_opus_round_trip_and_metadata(tmp_path: Path) -> None:
     assert sample_rate == 16000
     assert waveform.shape == (16000,)
     assert np.sqrt(np.mean((waveform - original) ** 2)) < 0.01
-    assert output.data["duration"] == 1.0
+    assert output.data.duration == 1.0  # attribute access survives for downstream stages
     assert output.data["audio_item_id"] != "recording"
     assert output.data["original_file"] == "/recordings/a.wav"
     assert output.data["start_ms"] == 2000

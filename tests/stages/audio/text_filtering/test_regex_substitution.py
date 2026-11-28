@@ -343,6 +343,40 @@ def test_requires_exactly_one_rules_source(regex_params_yaml: str, rules: list[d
         RegexSubstitutionStage(regex_params_yaml=regex_params_yaml, rules=rules)
 
 
+def test_rule_set_selects_one_named_list(tmp_path: Path) -> None:
+    path = _rules(tmp_path, {"default": [{"pattern": "a", "repl": "b"}], "indic": [{"pattern": "a", "repl": "c"}]})
+    stage = RegexSubstitutionStage(regex_params_yaml=path, rule_set="indic")
+    stage.setup()
+    task = AudioTask(data={"pred_text": "aa"})
+
+    stage.process(task)
+
+    assert task.data["text"] == "cc"
+
+
+@pytest.mark.parametrize(
+    ("document", "rule_set", "error", "message"),
+    [
+        ({"default": [{"pattern": "a", "repl": "b"}]}, "", TypeError, "must contain a list"),
+        ({"default": [{"pattern": "a", "repl": "b"}]}, "indic", ValueError, r"no rule set 'indic'.*\['default'\]"),
+        ([{"pattern": "a", "repl": "b"}], "default", TypeError, "maps names to lists"),
+        ({"default": {"pattern": "a", "repl": "b"}}, "default", TypeError, "must contain a list"),
+    ],
+)
+def test_rule_set_errors(
+    tmp_path: Path, document: object, rule_set: str, error: type[Exception], message: str
+) -> None:
+    stage = RegexSubstitutionStage(regex_params_yaml=_rules(tmp_path, document), rule_set=rule_set)
+
+    with pytest.raises(error, match=message):
+        stage.setup()
+
+
+def test_rule_set_needs_a_rules_file() -> None:
+    with pytest.raises(ValueError, match="cannot be used with inline rules"):
+        RegexSubstitutionStage(rules=[{"pattern": "a", "repl": "b"}], rule_set="default")
+
+
 def _lang_stage(rules: list[dict[str, object]]) -> RegexSubstitutionStage:
     stage = RegexSubstitutionStage(rules=rules)
     stage.setup()
@@ -430,8 +464,7 @@ _GRANARY_V2_DIR = Path(__file__).resolve().parents[4] / "tutorials" / "audio" / 
     ],
 )
 def test_production_rules_keep_greek_question_mark(text: str, language: str | None, expected: str) -> None:
-    stage = RegexSubstitutionStage(regex_params_yaml=str(_GRANARY_V2_DIR / "indic_asr" / "regex.yaml"))
-    stage.setup()
+    stage = _granary_stage("default")
     data = {"pred_text": text}
     if language is not None:
         data["source_lang"] = language
@@ -442,27 +475,7 @@ def test_production_rules_keep_greek_question_mark(text: str, language: str | No
     assert task.data["text"] == expected
 
 
-def test_qwen_omni_pipeline_carries_the_same_language_rules() -> None:
-    """The Qwen-Omni pipeline inlines its regex rules; its language-filtered rules must match regex.yaml."""
-
-    def language_rules(rules: list[dict[str, object]]) -> list[dict[str, object]]:
-        return [r for r in rules if "langs" in r or "exclude_langs" in r or r["pattern"] == "\u037e"]
-
-    production = yaml.safe_load((_GRANARY_V2_DIR / "indic_asr" / "regex.yaml").read_text(encoding="utf-8"))
-    pipeline = yaml.safe_load((_GRANARY_V2_DIR / "qwen_omni_asr" / "pipeline.yaml").read_text(encoding="utf-8"))
-    inline = next(
-        s["rules"]
-        for s in pipeline["stages"]
-        if isinstance(s, dict) and str(s.get("_target_", "")).endswith("RegexSubstitutionStage")
-    )
-
-    assert language_rules(production)
-    assert language_rules(inline) == language_rules(production)
-
-
-_GRANARY_REGEX_YAML = (
-    Path(__file__).resolve().parents[4] / "tutorials" / "audio" / "granary_v2" / "indic_asr" / "regex.yaml"
-)
+_GRANARY_REGEX_YAML = _GRANARY_V2_DIR / "full_pipeline" / "prompts" / "regex.yaml"
 
 
 @pytest.mark.parametrize(
@@ -498,6 +511,7 @@ def test_production_whitelist_preserves_covered_language_letters(text: str) -> N
     """
     stage = RegexSubstitutionStage(
         regex_params_yaml=str(_GRANARY_REGEX_YAML),
+        rule_set="default",
         text_key="pred_text",
         output_text_key="cleaned_text",
     )
@@ -509,44 +523,46 @@ def test_production_whitelist_preserves_covered_language_letters(text: str) -> N
     assert task.data["cleaned_text"] == text
 
 
-def _whitelist_patterns(node: object) -> list[str]:
-    """Collect every character-whitelist pattern (a negated class replaced by a space)."""
-    if isinstance(node, dict):
-        found = [p for v in node.values() for p in _whitelist_patterns(v)]
-        pattern = node.get("pattern")
-        if isinstance(pattern, str) and pattern.startswith("[^") and node.get("repl") == " ":
-            found.append(pattern)
-        return found
-    if isinstance(node, list):
-        return [p for v in node for p in _whitelist_patterns(v)]
-    return []
+def _granary_stage(rule_set: str) -> RegexSubstitutionStage:
+    stage = RegexSubstitutionStage(regex_params_yaml=str(_GRANARY_REGEX_YAML), rule_set=rule_set)
+    stage.setup()
+    return stage
 
 
-def test_qwen_omni_whitelist_matches_production_rule_file() -> None:
-    """qwen_omni_asr/pipeline.yaml carries an inline copy of the whitelist.
+@pytest.mark.parametrize(
+    ("language", "text", "default", "indic"),
+    [
+        # Only the Indic rules keep Meetei Mayek and Ol Chiki, sentence marks included.
+        ("mni", "ꯃꯅꯤꯄꯨꯔ ꯂꯣꯟ ꯫", "", "ꯃꯅꯤꯄꯨꯔ ꯂꯣꯟ ꯫"),
+        ("sat", "ᱥᱟᱱᱛᱟᱲᱤ ᱯᱟᱹᱛᱷᱟᱜ ᱾", "", "ᱥᱟᱱᱛᱟᱲᱤ ᱯᱟᱹᱛᱷᱟᱜ ᱾"),
+        ("mni", "ꫠꫡ", "", "ꫠꫡ"),
+        # Only the default rules carry the later letter and Greek punctuation fixes.
+        ("el", "Πώς είσαι;", "Πώς είσαι;", "Πώ είσαι,"),
+        ("vi", "mình cũng biết", "mình cũng biết", "mình c ng biết"),
+        # Both map the danda and Urdu punctuation to ASCII, and semicolons to commas.
+        ("hi", "क्या हाल है।", "क्या हाल है.", "क्या हाल है."),
+        ("ur", "کیا؟ ہاں، ٹھیک ہے\u06d4", "کیا? ہاں, ٹھیک ہے.", "کیا? ہاں, ٹھیک ہے."),  # U+06D4 Arabic full stop
+        ("en", "first; second... ok", "first, second. ok", "first, second. ok"),
+    ],
+)
+def test_granary_rule_sets_differ_where_expected(language: str, text: str, default: str, indic: str) -> None:
+    """``default`` holds the Granary v2 ASR rules; ``indic`` holds the Indic ASR rules."""
+    for rule_set, expected in (("default", default), ("indic", indic)):
+        task = AudioTask(data={"pred_text": text, "source_lang": language})
 
-    The copy silently missed the letter fixes made to indic_asr/regex.yaml, so the
-    Qwen-Omni path kept stripping them. Both copies must stay identical.
-    """
-    qwen_yaml = _GRANARY_REGEX_YAML.parents[1] / "qwen_omni_asr" / "pipeline.yaml"
-    production = _whitelist_patterns(yaml.safe_load(_GRANARY_REGEX_YAML.read_text(encoding="utf-8")))
-    inline = _whitelist_patterns(yaml.safe_load(qwen_yaml.read_text(encoding="utf-8")))
+        _granary_stage(rule_set).process(task)
 
-    assert len(production) == 1
-    assert inline == production
-
-
-_GRANARY_V2 = Path(__file__).resolve().parents[4] / "tutorials/audio/granary_v2"
+        assert task.data["text"] == expected, rule_set
 
 
 def _shipped_rules(name: str) -> list[dict[str, object]]:
-    if name == "indic_asr":
-        return yaml.safe_load((_GRANARY_V2 / "indic_asr/regex.yaml").read_text(encoding="utf-8"))
-    stages = yaml.safe_load((_GRANARY_V2 / "qwen_omni_asr/pipeline.yaml").read_text(encoding="utf-8"))["stages"]
+    if name == "full_pipeline":
+        return yaml.safe_load(_GRANARY_REGEX_YAML.read_text(encoding="utf-8"))["default"]
+    stages = yaml.safe_load((_GRANARY_V2_DIR / "qwen_omni_asr/pipeline.yaml").read_text(encoding="utf-8"))["stages"]
     return next(s["rules"] for s in stages if s.get("output_text_key") == "cleaned_text")
 
 
-@pytest.mark.parametrize("rules", ["indic_asr", "qwen_omni_asr"])
+@pytest.mark.parametrize("rules", ["full_pipeline", "qwen_omni_asr"])
 @pytest.mark.parametrize(
     ("language", "text", "expected"),
     [("el", "Πού ήσουν?? Εδώ;; Γιατί;;", "Πού ήσουν; Εδώ; Γιατί;"), ("en", "Where?? Here;;", "Where? Here,")],
@@ -560,7 +576,7 @@ def test_shipped_rules_collapse_repeated_question_marks(rules: str, language: st
     assert task.data["text"] == expected
 
 
-@pytest.mark.parametrize("rules", ["indic_asr", "qwen_omni_asr"])
+@pytest.mark.parametrize("rules", ["full_pipeline", "qwen_omni_asr"])
 @pytest.mark.parametrize(
     ("language", "text", "expected"),
     [

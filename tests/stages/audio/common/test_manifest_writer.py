@@ -65,6 +65,30 @@ def test_writer_direct_setup_replaces_existing_output(tmp_path: Path) -> None:
     assert path.read_text() == ""
 
 
+def test_error_mode_refuses_existing_output_when_built(tmp_path: Path) -> None:
+    path = tmp_path / "output.jsonl"
+    path.write_text('{"old": true}\n')
+
+    with pytest.raises(FileExistsError, match="choose a new output path"):
+        ManifestWriterStage(str(path), mode="error")
+    assert path.read_text() == '{"old": true}\n'
+
+
+def test_error_mode_checks_only_when_built(tmp_path: Path) -> None:
+    path = tmp_path / "output.jsonl"
+    writer = ManifestWriterStage(str(path), mode="error")
+    worker = pickle.loads(pickle.dumps(writer))  # noqa: S301
+    worker.setup()
+    worker.process(AudioTask(data={"row": 1}))
+
+    assert [json.loads(line) for line in path.read_text().splitlines()] == [{"row": 1}]
+
+
+def test_writer_mode_is_validated(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="'overwrite' or 'error'"):
+        ManifestWriterStage(str(tmp_path / "output.jsonl"), mode="append")
+
+
 def test_writer_driver_preparation_occurs_once_and_worker_hooks_never_truncate(tmp_path: Path) -> None:
     path = tmp_path / "output.jsonl"
     path.write_text('{"old": true}\n')

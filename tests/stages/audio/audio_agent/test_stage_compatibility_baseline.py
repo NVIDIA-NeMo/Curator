@@ -94,9 +94,10 @@ ADDITIVE_STAGE_NAMES = (
 # every changed constructor default, parameter, and contract. A new digest records
 # an intentional compatibility change; it must never conceal an unexplained one.
 # This surface includes adapter-backed VAD/diarization, conservative IO gates,
-# and the additive resampling/timestamp parameters shipped with those stages.
+# the additive resampling/timestamp parameters shipped with those stages, and
+# ManifestWriterStage's additive mode (default "overwrite").
 EXPECTED_LEGACY_COMPATIBILITY_SHA256 = (
-    "f834c4c69829f0fcd92036cb56b49d19b2d39189200de8b49aa95a12f2e78e9b"  # pragma: allowlist secret
+    "d9000f65f55079c35e9265c70475b0b28001d4e85ae65d088f5c9f740f5e6017"  # pragma: allowlist secret
 )
 
 
@@ -223,6 +224,13 @@ def test_stage_defaults_and_static_contracts_are_backward_compatible() -> None:
         "constructor defaults and static contracts before updating this baseline. "
         f"Expected {EXPECTED_LEGACY_COMPATIBILITY_SHA256}, got {actual}."
     )
+
+
+def test_manifest_writer_mode_is_explicitly_additive() -> None:
+    cls = get_agent_ready_stage_class("ManifestWriterStage")
+
+    assert _constructor_defaults(cls)["mode"] == "overwrite"
+    assert [parameter.name for parameter in static_contract(cls).params] == ["output_path"]
 
 
 def test_document_batch_writer_is_explicitly_additive() -> None:

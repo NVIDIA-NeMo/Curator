@@ -245,36 +245,36 @@ def test_transcribe_batch_returns_empty_for_empty_input() -> None:
     assert adapter.transcribe_batch([]) == []
 
 
-def test_transcribe_batch_preserves_skipped_positions() -> None:
-    """A too-short row keeps its slot so the caller's 1:1 mapping survives."""
+def test_transcribe_batch_preserves_too_short_positions() -> None:
+    """A too-short row keeps its slot so the caller's 1:1 mapping survives, as plain empty text."""
     model = _mock_model(["only valid"])
     adapter = _adapter_with_model(model)
 
     results = adapter.transcribe_batch([_item(_MIN_SAMPLES - 1), _item()])
 
-    assert results[0].skipped is True
+    assert results[0].skipped is False
     assert results[0].text == ""
     assert results[1].skipped is False
     assert results[1].text == "only valid"
     assert len(model.transcribe.call_args.kwargs["audio"]) == 1
 
 
-def test_transcribe_batch_skips_rows_without_a_sample_rate() -> None:
+def test_transcribe_batch_leaves_rows_without_a_sample_rate_empty() -> None:
     model = _mock_model(["kept"])
     adapter = _adapter_with_model(model)
 
     results = adapter.transcribe_batch([_item(sample_rate=0), _item()])
 
-    assert [r.skipped for r in results] == [True, False]
+    assert [(r.text, r.skipped) for r in results] == [("", False), ("kept", False)]
 
 
-def test_transcribe_batch_returns_all_skipped_when_nothing_is_usable() -> None:
+def test_transcribe_batch_returns_all_empty_when_nothing_is_usable() -> None:
     model = _mock_model([])
     adapter = _adapter_with_model(model)
 
     results = adapter.transcribe_batch([_item(_MIN_SAMPLES - 1), _item(10)])
 
-    assert [r.skipped for r in results] == [True, True]
+    assert [(r.text, r.skipped) for r in results] == [("", False), ("", False)]
     model.transcribe.assert_not_called()
 
 
@@ -306,7 +306,7 @@ def test_transcribe_batch_omits_detected_language_when_absent() -> None:
 
 
 @pytest.mark.parametrize("empty_text", ["", "   ", None])
-def test_transcribe_batch_marks_empty_outputs_skipped(empty_text: str | None) -> None:
+def test_transcribe_batch_returns_empty_outputs_unskipped(empty_text: str | None) -> None:
     model = MagicMock()
     model.transcribe.return_value = [SimpleNamespace(text=empty_text, language="English")]
     adapter = _adapter_with_model(model)
@@ -314,7 +314,7 @@ def test_transcribe_batch_marks_empty_outputs_skipped(empty_text: str | None) ->
     result = adapter.transcribe_batch([_item()])[0]
 
     assert result.text == ("" if empty_text is None else empty_text)
-    assert result.skipped is True
+    assert result.skipped is False
 
 
 def test_transcribe_batch_rejects_output_count_mismatch() -> None:

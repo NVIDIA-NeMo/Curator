@@ -33,7 +33,7 @@ manifest_path: ${dataset_dir}/manifest.jsonl
 output_path: ./indic_asr_output.jsonl
 indic_transcribe_engine_dir: ???
 parakeet_tensorrt_engine_dir: ???
-regex_yaml: tutorials/audio/granary_v2/indic_asr/regex.yaml
+regex_yaml: tutorials/audio/granary_v2/full_pipeline/prompts/regex.yaml
 hall_phrases: tutorials/audio/whisper_hallucination/phrases.txt
 
 backend: xenna
@@ -152,6 +152,7 @@ stages:
     _args_:
     - _target_: nemo_curator.stages.audio.text_filtering.RegexSubstitutionStage
       regex_params_yaml: ${regex_yaml}
+      rule_set: default
       text_key: best_prediction
       output_text_key: cleaned_text
     batch_size: ${asr_batch_size}

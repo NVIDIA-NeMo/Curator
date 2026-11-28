@@ -1,0 +1,32 @@
+# syntax=docker/dockerfile:1
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Image for the two Indic pipelines: the Granary base plus the Ray Serve LLM driver, which needs vLLM 0.22's CPU build
+# (a CUDA build cannot load against this Torch 2.9.1) and the matching Ray 2.57. The text engine runs vLLM 0.22 in
+# the replicas' isolated environments, so the TensorRT-LLM stack stays unchanged. Build the base first (README.md
+# section 1): docker/audio/Dockerfile.trt_llm --target granary; it already holds this checkout at /opt/Curator.
+ARG BASE_IMAGE=curator-granary-base
+FROM ${BASE_IMAGE}
+
+# Freeze every installed package as an override so the TensorRT-LLM stack stays unchanged; only Ray, vLLM and
+# grpcio-reflection are left free to change.
+RUN uv pip freeze --python /opt/venv/bin/python --exclude-editable \
+        | grep -v -i -E '^(ray|vllm|grpcio-reflection)==' > /tmp/granary-overrides.txt \
+    && uv pip install --no-config --no-sources --python /opt/venv/bin/python \
+        --overrides /tmp/granary-overrides.txt --only-binary :all: \
+        --extra-index-url https://wheels.vllm.ai/0.22.0/cpu --index-strategy unsafe-best-match \
+        'ray[serve]==2.57.0' 'vllm==0.22.0+cpu' 'uvloop' 'grpcio-reflection==1.85.1' \
+    && rm /tmp/granary-overrides.txt
+
+# The text model's serving workers JIT-compile FlashInfer kernels with CUDA 12.9 (selected through
+# CUDA_HOME in the YAML's runtime_env); the audio runtime keeps its CUDA 12.8 alias.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        cuda-nvcc-12-9=12.9.86-1 cuda-cudart-dev-12-9=12.9.79-1 \
+        cuda-cccl-12-9=12.9.27-1 libcurand-dev-12-9 \
+    && rm -rf /var/lib/apt/lists/* \
+    && update-alternatives --set cuda /usr/local/cuda-12.8
+
+# vLLM tensor-parallel CUDA graphs need CUDA-IPC-compatible allocations; the Granary base enables expandable segments.
+ENV PYTORCH_CUDA_ALLOC_CONF=expandable_segments:False

@@ -126,6 +126,42 @@ def test_indic_language_without_three_way_agreement_is_rejected() -> None:
     )
 
 
+def test_three_way_agreement_outside_the_indic_set_uses_whisper() -> None:
+    task = SelectAudioLanguageStage().process(_task(_full_results(primary="fr", canary="fr", whisper="fr")))
+
+    assert task.data["source_lang"] == "fr"
+    assert task.data["additional_notes"]["source_lid_confidence"] == 0.9
+
+
+@pytest.mark.parametrize("language", ["or", "brx", "doi", "kok", "ks", "mai", "mni", "sat"])
+def test_indic_transcribe_only_language_is_accepted_when_both_other_models_answer_indic(language: str) -> None:
+    task = SelectAudioLanguageStage().process(_task(_full_results(primary="hi", canary=language, whisper="bn")))
+
+    assert task.data["source_lang"] == language
+    assert task.data["additional_notes"]["source_lid_confidence"] == 0.8
+    assert task.data["additional_notes"]["SelectBestLIDPrediction"] == (
+        "used secondary, recovery Indic language (all models Indic)."
+    )
+    assert "_skipme" not in task.data
+
+
+@pytest.mark.parametrize(
+    ("primary", "whisper", "source_lang"),
+    [("hi", "en", "en"), ("fr", "hi", "skipped"), ("hi", "fr", "skipped")],
+)
+def test_indic_transcribe_only_language_needs_both_other_models_to_answer_indic(
+    primary: str, whisper: str, source_lang: str
+) -> None:
+    task = SelectAudioLanguageStage().process(_task(_full_results(primary=primary, canary="or", whisper=whisper)))
+    assert task.data["source_lang"] == source_lang
+
+
+def test_empty_indic_transcribe_only_set_requires_three_way_agreement() -> None:
+    stage = SelectAudioLanguageStage(indic_transcribe_only_languages=[])
+    task = stage.process(_task(_full_results(primary="hi", canary="or", whisper="bn")))
+    assert task.data["source_lang"] == "skipped"
+
+
 def test_component_notes_record_model_prediction_and_three_decimal_confidence() -> None:
     task = SelectAudioLanguageStage().process(_task(_full_results()))
     notes = task.data["additional_notes"]
@@ -181,7 +217,7 @@ def test_success_preserves_an_unrelated_upstream_skip_reason() -> None:
     assert task.data["_skipme"] == "bad transcript"
 
 
-def test_custom_indic_set_changes_only_the_non_indic_agreement_rule() -> None:
+def test_custom_indic_set_changes_the_non_indic_agreement_rule() -> None:
     stage = SelectAudioLanguageStage(indic_languages=frozenset({"xx"}))
     task = stage.process(_task(_full_results(primary="hi", canary="ta", whisper="hi")))
     assert task.data["source_lang"] == "hi"

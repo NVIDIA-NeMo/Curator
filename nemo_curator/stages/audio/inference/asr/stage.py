@@ -22,6 +22,7 @@ predictions. The concrete adapter is resolved at runtime from
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from numbers import Real
 from typing import TYPE_CHECKING, Any, ClassVar, cast
@@ -85,6 +86,7 @@ _LANG_CODE_TO_NAME: dict[str, str] = {
     "mk": "Macedonian",
     "ml": "Malayalam",
     "mr": "Marathi",
+    "ms": "Malay",
     "mt": "Maltese",
     "nl": "Dutch",
     "no": "Norwegian",
@@ -100,11 +102,12 @@ _LANG_CODE_TO_NAME: dict[str, str] = {
     "ta": "Tamil",
     "te": "Telugu",
     "th": "Thai",
-    "tl": "Tagalog",
+    "tl": "Filipino",  # Qwen3-ASR registers Tagalog as Filipino; Whisper reads the code, not this name
     "tr": "Turkish",
     "uk": "Ukrainian",
     "ur": "Urdu",
     "vi": "Vietnamese",
+    "yue": "Cantonese",
     "zh": "Chinese",
 }
 
@@ -125,6 +128,15 @@ def _set_note(
         notes = {}
         task_data[notes_key] = notes
     notes[stage_name] = value
+
+
+def _plain_container(value: Any) -> Any:  # noqa: ANN401
+    """Copy nested mappings and sequences into plain dicts and lists."""
+    if isinstance(value, Mapping):
+        return {str(key): _plain_container(item) for key, item in value.items()}
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+        return [_plain_container(item) for item in value]
+    return value
 
 
 @dataclass
@@ -180,6 +192,8 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
     max_inference_duration_s: float = 2400.0
     local_bucketing: bool = False
     num_workers_override: int | None = None
+    # Ray runtime_env for this stage's workers (e.g. a vLLM CUDA build the image lacks); None keeps the image's.
+    worker_runtime_env: dict[str, Any] | None = None
 
     BATCH_ONLY = True
     INTERNAL_KEY_FIELDS = frozenset({"source_lang_key", "language_key", "extras_key", "skip_me_key", "notes_key"})
@@ -189,6 +203,12 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
 
     def __post_init__(self) -> None:  # noqa: C901, PLR0912, PLR0915
         super().__post_init__()
+        if self.worker_runtime_env is not None:
+            if not isinstance(self.worker_runtime_env, Mapping):
+                msg = "ASRStage.worker_runtime_env must be a mapping or None"
+                raise TypeError(msg)
+            # Ray receives plain containers; a YAML config arrives as nested config objects.
+            self.runtime_env = _plain_container(self.worker_runtime_env)
         for field_name, key in (("skip_me_key", self.skip_me_key), ("notes_key", self.notes_key)):
             if not isinstance(key, str) or not key.strip():
                 msg = f"ASRStage.{field_name} must be a non-empty string"
@@ -784,8 +804,14 @@ class ASRStage(AgentReady, AdapterInferenceStage[ASRAdapter]):
                 f"lang_not_supported:{unsupported_language}",
                 self.notes_key,
             )
-        elif self.language_key is not None:
-            task.data[self.language_key] = str(result.extras.get("language_code") or item["language_code"] or "")
+        else:
+            _set_note(task.data, self.name, self.model_id or self.adapter_target, self.notes_key)
+            # Clear another group's lang_not_supported note; SelectBestPredictionStage reads it as unsupported.
+            notes = task.data[self.notes_key]
+            if str(notes.get(self.pred_text_key, "")).startswith("lang_not_supported"):
+                del notes[self.pred_text_key]
+            if self.language_key is not None:
+                task.data[self.language_key] = str(result.extras.get("language_code") or item["language_code"] or "")
 
     def _resolve_skip_reason(self, result: ASRResult) -> str:
         """Return the configured machine-readable reason for a skipped result."""

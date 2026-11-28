@@ -1,0 +1,100 @@
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+# European recording-to-transcript pipeline for the Parakeet-v3 + Whisper language group; see README.md.
+# Run with: main.py -cn european_parakeet_v3_granary_pipeline
+defaults:
+  - common
+  - override hydra/job_logging: none
+  - override hydra/hydra_logging: none
+  - _self_
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+  # prompts/ sits next to pipelines/; like the other repository paths here, this is relative to the checkout root.
+  searchpath:
+    - file://tutorials/audio/granary_v2/full_pipeline
+
+documentation: |
+  Extract metadata and Opus speech clips from recordings (language ID: SpeechBrain
+  + Whisper), keep clips in 8 European languages (pl cs ro hu el fi da sv), transcribe
+  them with Parakeet-v3 + Whisper, then enrich the selected text.
+  metadata.jsonl retains every metadata result, including rejected/audit rows;
+  european_parakeet_v3.jsonl contains the selected clips with ASR and text features.
+
+output_path: ${output_dir}/european_parakeet_v3.jsonl
+
+stages:
+  - ${shared.manifest_reader}
+  - ${shared.resample_audio_stage}
+  - ${shared.inference_sortformer_stage}
+  - ${shared.v_a_d_segmentation_stage}
+  - ${shared.s_e_d_inference_stage}
+  - ${shared.s_e_d_postprocessing_stage}
+  - ${shared.speech_brain_lang_i_d}
+  - ${shared.whisper_lang_i_d}
+  - ${shared.select_audio_language_stage}
+  - ${shared.audio_segment_writer_stage}
+  - ${shared.metadata_manifest_writer}
+
+  # Keep the full metadata audit above; only clips in this group's languages reach ASR.
+  - _target_: nemo_curator.stages.audio.common.PreserveByValueConditionsStage
+    _convert_: all
+    conditions:
+      - {input_value_key: source_lang, target_value: pl, operator: eq}
+      - {input_value_key: source_lang, target_value: cs, operator: eq}
+      - {input_value_key: source_lang, target_value: ro, operator: eq}
+      - {input_value_key: source_lang, target_value: hu, operator: eq}
+      - {input_value_key: source_lang, target_value: el, operator: eq}
+      - {input_value_key: source_lang, target_value: fi, operator: eq}
+      - {input_value_key: source_lang, target_value: da, operator: eq}
+      - {input_value_key: source_lang, target_value: sv, operator: eq}
+    condition_logic: or
+    missing_value_policy: drop
+  - ${shared.resample_clip}
+  - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
+    waveform_key: waveform
+    sample_rate_key: sample_rate
+    keep_waveform: true
+    name: ParakeetV3_primary
+    adapter_target: nemo_curator.models.asr.nemo_asr.NeMoASRAdapter
+    model_id: nvidia/parakeet-tdt-0.6b-v3
+    supported_language_codes: [pl, cs, ro, hu, el, fi, da, sv]
+    max_audio_sec_per_actor: 2400.0
+    pred_text_key: primary_model_prediction
+    batch_size: 64
+    adapter_kwargs:
+      empty_audio_marks_skip: false
+      use_cuda_graph_decoder: false
+    resources:
+      gpu_memory_gb: 8
+
+  - ${shared.whisper_hallucination_primary}
+
+  - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
+    waveform_key: waveform
+    sample_rate_key: sample_rate
+    keep_waveform: false
+    name: Whisper_recovery
+    adapter_target: nemo_curator.models.asr.faster_whisper.FasterWhisperASR
+    supported_language_codes: [pl, cs, ro, hu, el, fi, da, sv]
+    preserve_existing_skip: true
+    max_audio_sec_per_actor: 2400.0
+    pred_text_key: fallback_model_prediction
+    model_id: large-v3
+    batch_size: 16
+    resources:
+      gpu_memory_gb: 16
+
+  - ${shared.whisper_hallucination_asr}
+  - ${shared.select_best_prediction_stage}
+  - ${shared.regex_substitution_stage}
+  - ${shared.abbreviation_concat_stage}
+  - ${shared.pn_c_restoration}
+  - ${shared.language_id}
+  - ${shared.text_normalization}
+  - ${shared.fused_text_l_l_m}
+  - ${shared.i_t_n_restoration}
+  - ${shared.disfluency_removal}
+  - ${shared.manifest_writer_stage}

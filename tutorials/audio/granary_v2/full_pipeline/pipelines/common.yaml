@@ -1,0 +1,475 @@
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+# Settings and stages shared by the English, European and Indic pipelines; each pipeline YAML adds its own
+# language ID, ASR stages and output file, and lists these stages as ${shared.<name>}.
+defaults:
+  - prompts: [pnc_restoration, pnc_restoration_indic, pnc_language_rules, language_id, text_normalization, captioning, code_switching, code_switching_indic, speech_qa, itn_restoration, itn_restoration_indic, disfluency_removal, omni_asr, omni_asr_english, itn_language_rules]
+  - _self_
+manifest_path: ???
+model_dir: ???
+output_dir: ???
+workspace_dir: ${output_dir}/asr_workspace
+model_id: Qwen/Qwen3-Omni-30B-A3B-Instruct
+model_revision: 26291f793822fb6be9555850f06dfe95f2d7e695  # pragma: allowlist secret
+recovery_model_id: Qwen/Qwen3-ASR-0.6B
+recovery_model_revision: 5eb144179a02acc5e5ba31e748d22b0cf3e303b0  # pragma: allowlist secret
+endpoint: ???
+text_key: abbreviated_text
+language_key: source_lang
+regex_yaml: tutorials/audio/granary_v2/full_pipeline/prompts/regex.yaml
+# The rule set in regex.yaml; the Indic pipelines use `indic`.
+regex_rule_set: default
+
+backend: ray_data
+batch_size: 128
+num_workers: 12
+max_concurrent_requests: 256
+request_timeout_s: 600
+max_retries: 3
+# A text request that still fails after the retries fails its batch; the Indic pipeline isolates only the
+# serving frontend's detokenizer panic, keeping that row's input text.
+isolate_failed_text_requests: false
+# Process rows even when _skipme is set. Language verification still never replaces an existing skip reason.
+ignore_skip_me: false
+
+# Languages the LLM language ID leaves to a CPU model (fasttext: lid.176, indiclid: IndicLID-FTN; Indic pipeline only).
+language_id_split: {}
+fasttext_lid_model_path: ${model_dir}/lid.176.bin
+indiclid_lid_model_path: ${model_dir}/indiclid-ftn/model_baseline_roman.bin
+
+# Text model for English and European; the Indic pipeline overrides it with Gemma-4-31B-it-FP8.
+model_identifier: Qwen/Qwen3.6-27B-FP8
+model_name: ${model_identifier}
+# When both transcripts are flagged as hallucinations, the primary is kept (and its flag cleared) if the two agree this
+# closely (percent of words, or characters for languages written without spaces): at most 20% error.
+min_agreement_pct: 80.0
+# Code-switching prompt; the Indic pipeline overrides it with prompts.code_switching_indic.
+code_switching_prompt: ${prompts.code_switching}
+
+# Required only when starting the configured server; keep caches runtime/GPU-specific.
+cache_root: ???
+
+ray_client:
+  _target_: nemo_curator.core.client.RayClient
+  include_dashboard: false
+  num_cpus: 128
+  object_store_memory: 536870912000
+
+# Replicas of the text server that stay up from the start. 0 holds no GPU until the audio stages free one; both Indic
+# pipelines set 1.
+text_min_replicas: 0
+
+# Text model settings for the Ray Serve server below; the Indic pipelines override its runtime_env and engine_kwargs.
+text_model:
+  runtime_env:
+    uv:
+      packages:
+        - transformers==5.8.0
+    env_vars:
+      VLLM_USE_DEEP_GEMM: "0"
+      # FlashInfer JIT-compiles kernels (sampling, and Qwen3.6's GDN prefill); the image's CUDA 12.9 toolkit matches
+      # the worker's Torch.
+      CUDA_HOME: /usr/local/cuda-12.9
+      CUDA_PATH: /usr/local/cuda-12.9
+      FLASHINFER_NVCC: /usr/local/cuda-12.9/bin/nvcc
+      # The Indic image sets MAX_JOBS=1, which compiles those kernels one file at a time (over an hour for the 66 GDN
+      # prefill files). Empty counts as unset, so the build runs in parallel as in the full image.
+      MAX_JOBS: ""
+      VLLM_CACHE_ROOT: ${cache_root}/vllm
+      TORCHINDUCTOR_CACHE_DIR: ${cache_root}/torchinductor
+      TRITON_CACHE_DIR: ${cache_root}/triton
+  engine_kwargs:
+    # Two GPUs per replica and at most four replicas: one 8-GPU node.
+    tensor_parallel_size: 2
+    # Longest (ITN) prompt + 1,600 transcript chars (40 s x 40 chars/s) + 512 output tokens: 2,029 tokens in English
+    # (2048 there), up to 2,462 elsewhere (3072). vLLM rejects longer prompts and shortens the output.
+    max_model_len: 3072
+    gpu_memory_utilization: 0.85
+    kv_cache_dtype: auto
+    max_num_seqs: 256
+    max_num_batched_tokens: 8192
+    language_model_only: true
+    trust_remote_code: true
+    revision: a56219b8202864dc6d3e565be5ff1eea01f54cb4  # pragma: allowlist secret - public model revision
+    compilation_config:
+      cache_dir: ${cache_root}/vllm/compile
+
+# The tutorial entrypoint manages this server on the pipeline's Ray cluster.
+inference_server:
+  _target_: nemo_curator.core.serve.InferenceServer
+  _convert_: all
+  name: audio_text_processing
+  health_check_timeout_s: 1200
+  models:
+    - _target_: nemo_curator.core.serve.RayServeModelConfig
+      model_identifier: ${model_identifier}
+      model_name: ${model_name}
+      # Serve scales on request load within these bounds; a replica starts only when two GPUs are free.
+      deployment_config:
+        autoscaling_config:
+          min_replicas: ${text_min_replicas}
+          max_replicas: 4
+          # Ray's LLM default is 1e9, which never scales up. Half of max_num_seqs keeps a queue short.
+          target_ongoing_requests: 128
+      runtime_env: ${text_model.runtime_env}
+      engine_kwargs: ${text_model.engine_kwargs}
+
+# Shared HTTP-client settings; each stage below supplies its own operation.
+text_stage: &text_stage
+  _target_: nemo_curator.stages.audio.text_filtering.AudioTextLLMStage
+  _convert_: all
+  endpoint: ${endpoint}
+  model_name: ${model_name}
+  language_key: ${language_key}
+  batch_size: ${batch_size}
+  num_workers_override: ${num_workers}
+  max_concurrent_requests: ${max_concurrent_requests}
+  request_timeout_s: ${request_timeout_s}
+  max_retries: ${max_retries}
+  ignore_skip_me: ${ignore_skip_me}
+  isolate_failed_requests: ${isolate_failed_text_requests}
+
+shared:
+  manifest_reader:
+    _target_: nemo_curator.stages.audio.common.ManifestReader
+    manifest_path: ${manifest_path}
+
+  resample_audio_stage:
+    _target_: nemo_curator.stages.audio.tagging.resample_audio.ResampleAudioStage
+    resampled_audio_dir: ${output_dir}/resampled  # required argument, unused with write_to_disk: false
+    target_codec: pcm_f32le
+    keep_waveform_in_task: true
+    write_to_disk: false
+
+  inference_sortformer_stage:
+    _target_: nemo_curator.stages.audio.inference.speaker_diarization.stage.InferenceSortformerStage
+    model_id: ${model_dir}/sortformer.nemo
+    model_path: ${model_dir}/sortformer.nemo
+    waveform_key: waveform
+    rttm_out_dir: ${output_dir}/rttm
+    # null keeps the checkpoint's own streaming settings.
+    chunk_len: null
+    chunk_left_context: null
+    chunk_right_context: null
+    fifo_len: null
+    spkcache_update_period: null
+    spkcache_len: null
+    inference_batch_size: 1
+    batch_size: 1
+    fail_on_audio_error: true
+    adapter_kwargs:
+      precision: fp32
+      compile_encoder: false
+    resources:
+      gpu_memory_gb: 16
+
+  # Silero VAD and PANNs SED run on torch; the two Indic pipelines use the *_tensorrt engines instead.
+  v_a_d_segmentation_stage: &vad_segmentation
+    _target_: nemo_curator.stages.audio.segmentation.VADSegmentationStage
+    adapter_target: nemo_curator.models.audio.vad.silero.SileroVADAdapter
+    threshold: 0.5
+    min_interval_ms: 1000
+    speech_pad_ms: 100
+    min_duration_sec: 0.5
+    max_duration_sec: 40
+    emit_audit_placeholders: true
+    skip_me_key: _skipme
+    fail_on_audio_error: true
+    # Fan-out task IDs require one parent per stage call.
+    batch_size: 1
+    resources:
+      gpu_memory_gb: 4
+
+  v_a_d_segmentation_stage_tensorrt:
+    <<: *vad_segmentation
+    adapter_target: nemo_curator.models.audio.vad.silero_tensorrt.TensorRTSileroVADAdapter
+    adapter_kwargs:
+      engine_path: ${model_dir}/silero.plan
+
+  s_e_d_inference_stage: &sed_inference
+    _target_: nemo_curator.stages.audio.inference.sed.stage.SEDInferenceStage
+    adapter_target: nemo_curator.models.audio.sed.panns.PANNsSEDAdapter
+    checkpoint_path: ${model_dir}/sed.pth
+    waveform_key: waveform
+    sample_rate: 16000
+    batch_size: 32
+    resources:
+      gpu_memory_gb: 8
+
+  s_e_d_inference_stage_tensorrt:
+    <<: *sed_inference
+    adapter_target: nemo_curator.models.audio.sed.tensorrt.TensorRTPANNsSEDAdapter
+    batch_size: 1
+    adapter_kwargs:
+      tensorrt_engine_path: ${model_dir}/sed.plan
+      max_duration_sec: 40
+
+  s_e_d_postprocessing_stage:
+    _target_: nemo_curator.stages.audio.postprocessing.sed_postprocessing.SEDPostprocessingStage
+    threshold: 0.5
+
+  speech_brain_lang_i_d:
+    _target_: nemo_curator.stages.audio.inference.lid.AudioLIDInferenceStage
+    name: SpeechBrainLangID
+    adapter_target: nemo_curator.models.audio.lid.speechbrain.SpeechBrainLIDAdapter
+    model_id: SpeechBrainLangID
+    tag: primary
+    waveform_key: waveform
+    min_duration_sec: 1
+    max_duration_sec: 10
+    batch_size: 16
+    fail_on_audio_error: true
+    adapter_kwargs:
+      source: ${model_dir}/speechbrain
+      savedir: ${output_dir}/speechbrain_cache
+    resources:
+      gpu_memory_gb: 8
+
+  whisper_lang_i_d: &whisper_lid
+    _target_: nemo_curator.stages.audio.inference.lid.AudioLIDInferenceStage
+    name: WhisperLangID
+    adapter_target: nemo_curator.models.audio.lid.whisper.WhisperLIDAdapter
+    model_id: WhisperLangID
+    tag: secondary
+    waveform_key: waveform
+    min_duration_sec: 1
+    max_duration_sec: 30
+    batch_size: 16
+    fail_on_audio_error: true
+    adapter_kwargs:
+      model_size: medium
+      model_path: ${model_dir}/whisper.pt
+      backend: torch
+      fp16: true
+      model_batch_size: 16
+    resources:
+      gpu_memory_gb: 8
+
+  # The Indic pipelines run Indic Transcribe second and Whisper third.
+  indic_transcribe_lang_i_d:
+    _target_: nemo_curator.stages.audio.inference.lid.AudioLIDInferenceStage
+    name: IndicTranscribeLangID
+    adapter_target: nemo_curator.models.audio.lid.indic_transcribe.IndicTranscribeLIDAdapter
+    model_id: IndicTranscribeLangID
+    tag: secondary
+    waveform_key: waveform
+    min_duration_sec: 1
+    max_duration_sec: 40
+    batch_size: 16
+    fail_on_audio_error: true
+    adapter_kwargs:
+      engine_dir: ${model_dir}/indic_transcribe
+      num_beams: 1
+      max_new_tokens: 1
+      model_batch_size: 16
+      min_duration_sec: 1
+      max_duration_sec: 40
+      kv_cache_free_gpu_memory_fraction: 0.1
+      cross_kv_cache_fraction: 0.1
+    resources:
+      gpu_memory_gb: 40  # the encoder's TensorRT context needs about 40 GB whatever the batch
+
+  whisper_lang_i_d_tertiary:
+    <<: *whisper_lid
+    tag: tertiary
+
+  select_audio_language_stage:
+    _target_: nemo_curator.stages.audio.postprocessing.lid_selection.SelectAudioLanguageStage
+
+  audio_segment_writer_stage:
+    _target_: nemo_curator.stages.audio.io.write_audio.AudioSegmentWriterStage
+    output_dir: ${output_dir}
+
+  # mode error: a rerun into an earlier run's output_dir stops before any stage runs instead of emptying its manifests.
+  metadata_manifest_writer:
+    _target_: nemo_curator.stages.audio.common.ManifestWriterStage
+    name: MetadataManifestWriter
+    output_path: ${output_dir}/metadata.jsonl
+    mode: error
+
+  # AudioSegmentWriter removed the parent WAV path; resample the emitted Opus clip.
+  resample_clip:
+    _target_: nemo_curator.stages.audio.tagging.ResampleAudioStage
+    name: ResampleClip
+    resampled_audio_dir: ${workspace_dir}/audio_resampled
+    # Decode the Opus clip once and keep the 16-bit samples in the task for ASR.
+    keep_waveform_in_task: true
+    write_to_disk: false
+
+  whisper_hallucination_primary: &whisper_hallucination
+    _target_: nemo_curator.stages.audio.text_filtering.WhisperHallucinationStage
+    name: WhisperHallucination_primary
+    common_hall_file: tutorials/audio/whisper_hallucination/phrases.txt
+    text_key: primary_model_prediction
+    language_key: source_lang
+    unique_words_threshold: 0.4
+    long_word_threshold: 25
+    long_word_threshold_by_lang: {ml: 35, sa: 50}  # long Malayalam and Sanskrit compounds are legitimate
+    long_word_rel_threshold: 3.0
+    max_char_rate: 40.0
+    loose_phrase_match: false
+
+  whisper_hallucination_asr:
+    <<: *whisper_hallucination
+    name: WhisperHallucination_asr
+    text_key: fallback_model_prediction
+    overwrite: true
+    recovery_value: Recovered:ASR
+
+  select_best_prediction_stage:
+    _target_: nemo_curator.stages.audio.text_filtering.SelectBestPredictionStage
+    reference_text_key: null
+    use_reference_on_hallucination: false
+    use_ground_truth_for_short_audio: false
+    min_agreement_pct: ${min_agreement_pct}
+    agreement_wer_key: omni_asr_agreement_wer
+    metric_key: omni_asr_agreement_metric
+  regex_substitution_stage:
+    _target_: nemo_curator.stages.audio.text_filtering.RegexSubstitutionStage
+    text_key: best_prediction
+    output_text_key: cleaned_text
+    regex_params_yaml: ${regex_yaml}
+    rule_set: ${regex_rule_set}
+  abbreviation_concat_stage:
+    _target_: nemo_curator.stages.audio.text_filtering.AbbreviationConcatStage
+    text_key: cleaned_text
+    output_text_key: abbreviated_text
+    default_language: en
+
+  # Restore punctuation and capitalization.
+  pn_c_restoration: &pnc_restoration
+    <<: *text_stage
+    name: PnCRestoration
+    prompt: ${prompts.pnc_restoration}
+    text_key: ${text_key}
+    output_text_key: pnc_text
+    validation_mode: itn
+    min_word_retention_ratio: 0.3
+    generation_config: &text_generation
+      max_tokens: 512
+      temperature: 0.0
+      top_p: 1.0
+      seed: 0
+      extra_kwargs:
+        extra_body:
+          chat_template_kwargs:
+            enable_thinking: false
+
+  # Indic PnC (the Indic pipeline's pnc_prompt: indic): each row gets the punctuation marks for its source_lang.
+  pn_c_restoration_indic:
+    <<: *pnc_restoration
+    prompt: ${prompts.pnc_restoration_indic}
+    language_rules: ${prompts.pnc_language_rules}
+
+  # Identify the language of the punctuated text. A mismatch with the source language flags the row, so the
+  # later text stages skip it; that is why language ID runs on its own, before the fused stage.
+  language_id:
+    <<: *text_stage
+    name: LanguageID
+    prompt: ${prompts.language_id}
+    text_key: pnc_text
+    output_text_key: llm_language_prediction
+    validation_mode: none
+    min_word_retention_ratio: 0.3
+    mode: language_id
+    generation_config: *text_generation
+    # Rows in a language listed for a CPU model pass through to that model's stage.
+    other_model_languages: ${language_id_split}
+
+  # CPU language ID, one stage per model like the ASR stages: each checks only its language_id_split languages,
+  # verifies them as the LLM stage does, and loads no model for an empty list.
+  fast_text_language_id: &text_language_id
+    _target_: nemo_curator.stages.audio.text_filtering.TextLanguageIDStage
+    _convert_: all
+    name: FastTextLanguageID
+    adapter_target: nemo_curator.models.audio.text_lid.FastTextLIDAdapter
+    adapter_kwargs: {model_path: '${fasttext_lid_model_path}'}
+    languages: ${language_id_split.fasttext}
+    text_key: pnc_text
+    source_lang_key: ${language_key}
+  indic_l_i_d_language_id:
+    <<: *text_language_id
+    name: IndicLIDLanguageID
+    adapter_target: nemo_curator.models.audio.text_lid.IndicLIDAdapter
+    adapter_kwargs: {model_path: '${indiclid_lid_model_path}'}
+    languages: ${language_id_split.indiclid}
+
+  # Normalize written text to spoken form.
+  text_normalization:
+    <<: *text_stage
+    name: TextNormalization
+    prompt: ${prompts.text_normalization}
+    text_key: pnc_text
+    output_text_key: tn_raw
+    validation_mode: tn
+    min_word_retention_ratio: 0.3
+    generation_config: *text_generation
+
+  # Run captioning, code switching, and speech QA concurrently.
+  fused_text_l_l_m:
+    <<: *text_stage
+    name: FusedTextLLM
+    operations:
+      - name: Captioning
+        text_key: tn_raw
+        output_text_key: captioning_text
+        validation_mode: none
+        min_word_retention_ratio: 0.3
+        generation_config: *text_generation
+        language_rules: null
+        prompt: ${prompts.captioning}
+      - name: CodeSwitching
+        text_key: tn_raw
+        output_text_key: code_switched_text
+        validation_mode: none
+        min_word_retention_ratio: 0.3
+        generation_config: *text_generation
+        language_rules: null
+        prompt: ${code_switching_prompt}
+      - name: SpeechQA
+        text_key: tn_raw
+        output_text_key: speech_qa_text
+        validation_mode: none
+        min_word_retention_ratio: 0.3
+        generation_config: *text_generation
+        language_rules: null
+        # A rejected request yields no Q/A pair, as the prompt's own SKIP answer does; never the transcript.
+        generation_error_text: SKIP
+        prompt: ${prompts.speech_qa}
+
+  # Restore written-form numbers, dates, and other expressions.
+  i_t_n_restoration:
+    <<: *text_stage
+    name: ITNRestoration
+    prompt: ${prompts.itn_restoration}
+    text_key: tn_raw
+    output_text_key: itn_raw
+    validation_mode: itn
+    min_word_retention_ratio: 0.3
+    generation_config: *text_generation
+
+  # Indic ITN: each row gets the rules for its source_lang. The generic ITN check does not fit Indic numerals.
+  i_t_n_restoration_indic:
+    <<: *text_stage
+    name: ITNRestoration
+    prompt: ${prompts.itn_restoration_indic}
+    language_rules: ${prompts.itn_language_rules}
+    text_key: tn_raw
+    output_text_key: itn_raw
+    validation_mode: none
+    generation_config: *text_generation
+
+  disfluency_removal:
+    <<: *text_stage
+    name: DisfluencyRemoval
+    prompt: ${prompts.disfluency_removal}
+    text_key: itn_raw
+    output_text_key: itn_clean
+    validation_mode: itn
+    min_word_retention_ratio: 0.5
+    generation_config: *text_generation
+
+  manifest_writer_stage:
+    _target_: nemo_curator.stages.audio.ManifestWriterStage
+    output_path: ${output_path}
+    mode: error

@@ -1,0 +1,49 @@
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+# Per-language punctuation marks for the Indic PnC prompt: spliced into the {language_rules} placeholder of
+# prompts.pnc_restoration_indic by source_lang. One entry per Indic language.
+pnc_language_rules:
+  as: |-
+    Assamese exact inserted punctuation — statement/command `.`; direct question `?`; exclamation `!`; comma `,`; semicolon `;`; colon `:`; ellipsis sequence `...`. These are the only punctuation sequences to insert.
+  bn: |-
+    Bengali exact inserted punctuation — statement/command `.`; direct question `?`; exclamation `!`; comma `,`; semicolon `;`; colon `:`; ellipsis sequence `...`. These are the only punctuation sequences to insert.
+  gu: |-
+    Gujarati exact inserted punctuation — statement/command `.`; direct question `?`; exclamation `!`; comma `,`; semicolon `;`; colon `:`; ellipsis sequence `...`. These are the only punctuation sequences to insert.
+  hi: |-
+    Hindi exact inserted punctuation — statement/command `.`; direct question `?`; exclamation `!`; comma `,`; semicolon `;`; colon `:`; ellipsis sequence `...`. These are the only punctuation sequences to insert.
+  kn: |-
+    Kannada exact inserted punctuation — statement/command `.`; direct question `?`; exclamation `!`; comma `,`; semicolon `;`; colon `:`; ellipsis sequence `...`. These are the only punctuation sequences to insert.
+  ml: |-
+    Malayalam exact inserted punctuation — statement/command `.`; direct question `?`; exclamation `!`; comma `,`; semicolon `;`; colon `:`; ellipsis sequence `...`. These are the only punctuation sequences to insert.
+  mr: |-
+    Marathi exact inserted punctuation — statement/command `.`; direct question `?`; exclamation `!`; comma `,`; semicolon `;`; colon `:`; ellipsis sequence `...`. These are the only punctuation sequences to insert.
+  or: |-
+    Odia exact inserted punctuation — statement/command `.`; direct question `?`; exclamation `!`; comma `,`; semicolon `;`; colon `:`; ellipsis sequence `...`. These are the only punctuation sequences to insert.
+  pa: |-
+    Punjabi in Gurmukhi exact inserted punctuation — statement/command `.`; direct question `?`; exclamation `!`; comma `,`; semicolon `;`; colon `:`; ellipsis sequence `...`. These are the only punctuation sequences to insert.
+  ta: |-
+    Tamil exact inserted punctuation — statement/command `.`; direct question `?`; exclamation `!`; comma `,`; semicolon `;`; colon `:`; ellipsis sequence `...`. These are the only punctuation sequences to insert.
+  te: |-
+    Telugu exact inserted punctuation — statement/command `.`; direct question `?`; exclamation `!`; comma `,`; semicolon `;`; colon `:`; ellipsis sequence `...`. These are the only punctuation sequences to insert.
+  ur: |-
+    Urdu exact inserted punctuation — statement/command `۔`; direct question `؟`; exclamation `!`; comma `،`; semicolon `؛`; colon `:`; ellipsis `…`. These are the only punctuation sequences to insert; preserve logical Unicode order.
+  brx: |-
+    Bodo exact inserted punctuation — statement/command `.`; direct question `?`; exclamation `!`; comma `,`; semicolon `;`; colon `:`; ellipsis sequence `...`. These are the only punctuation sequences to insert.
+  doi: |-
+    Dogri exact inserted punctuation — statement/command `.`; direct question `?`; exclamation `!`; comma `,`; semicolon `;`; colon `:`; ellipsis sequence `...`. These are the only punctuation sequences to insert.
+  kok: |-
+    Konkani exact inserted punctuation — statement/command `.`; direct question `?`; exclamation `!`; comma `,`; semicolon `;`; colon `:`; ellipsis sequence `...`. These are the only punctuation sequences to insert.
+  ks: |-
+    Kashmiri in Perso-Arabic exact inserted punctuation — statement/command `۔`; direct question `؟`; exclamation `!`; comma `،`; semicolon `؛`; colon `:`; ellipsis `…`. These are the only punctuation sequences to insert; preserve logical Unicode order.
+  mai: |-
+    Maithili exact inserted punctuation — statement/command `.`; direct question `?`; exclamation `!`; comma `,`; semicolon `;`; colon `:`; ellipsis sequence `...`. These are the only punctuation sequences to insert.
+  mni: |-
+    Manipuri in Meetei Mayek exact inserted punctuation — statement/command `.`; direct question `?`; exclamation `!`; comma `,`; semicolon `;`; colon `:`; ellipsis sequence `...`. These are the only punctuation sequences to insert.
+  ne: |-
+    Nepali exact inserted punctuation — statement/command `.`; direct question `?`; exclamation `!`; comma `,`; semicolon `;`; colon `:`; ellipsis sequence `...`. These are the only punctuation sequences to insert.
+  sa: |-
+    Sanskrit exact inserted punctuation — statement/command `.`; direct question `?`; exclamation `!`; comma `,`; semicolon `;`; colon `:`; ellipsis sequence `...`. These are the only punctuation sequences to insert.
+  sat: |-
+    Santali in Ol Chiki exact inserted punctuation — statement/command `.`; direct question `?`; exclamation `!`; comma `,`; semicolon `;`; colon `:`; ellipsis sequence `...`. These are the only punctuation sequences to insert.
+  sd: |-
+    Sindhi in Devanagari exact inserted punctuation — statement/command `.`; direct question `?`; exclamation `!`; comma `,`; semicolon `;`; colon `:`; ellipsis sequence `...`. These are the only punctuation sequences to insert.

@@ -478,6 +478,28 @@ def test_keeps_primary_by_default() -> None:
     assert [task.data["best_prediction"] for task in tasks] == ["one", "two"]
 
 
+@pytest.mark.parametrize("skip", ["", "Hallucination:WhisperHallucination_asr"])
+def test_empty_primary_uses_a_non_empty_recovery_and_keeps_flags(skip: str) -> None:
+    task = AudioTask(
+        data={"primary_model_prediction": "", "fallback_model_prediction": "a valid transcript", "_skipme": skip}
+    )
+
+    SelectBestPredictionStage().process(task)
+
+    assert task.data["best_prediction"] == "a valid transcript"
+    assert task.data["best_prediction_source"] == "fallback"
+    assert task.data["_skipme"] == skip
+    assert task.data["additional_notes"] == {"SelectBestPrediction": "used fallback (empty primary)"}
+
+
+def test_empty_primary_and_recovery_keep_the_primary() -> None:
+    task = AudioTask(data={"primary_model_prediction": " ", "fallback_model_prediction": ""})
+
+    SelectBestPredictionStage().process(task)
+
+    assert (task.data["best_prediction"], task.data["best_prediction_source"]) == (" ", "primary")
+
+
 def test_reference_decision_parity_precedence_and_fallthrough() -> None:
     """Golden decisions from reference selector commit 8469455fbd18de74928f21e1cc241358fc8d9e08."""
     cases = [

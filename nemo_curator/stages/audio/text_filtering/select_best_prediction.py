@@ -49,7 +49,8 @@ class SelectBestPredictionStage(ProcessingStage[AudioTask, AudioTask]):
     sub-second hallucinations, and ``force_reference`` can make reference text
     authoritative for datasets whose model output is not trusted. Otherwise,
     the stage handles unsupported languages, recovered fallback predictions,
-    reference recovery, cross-model agreement, and the normal primary result.
+    reference recovery, cross-model agreement, an empty primary (a non-empty
+    fallback is used), and the normal primary result.
     Cross-model agreement uses character error rate (CER) for languages written
     without word-separating spaces and word error rate (WER) otherwise. The
     selected metric is recorded in ``metric_key``.
@@ -213,6 +214,13 @@ class SelectBestPredictionStage(ProcessingStage[AudioTask, AudioTask]):
                     self.notes_key,
                 )
                 return task
+
+        if not primary.strip() and fallback.strip():
+            # An empty primary yields to a non-empty recovery; flags set by earlier checks stay.
+            task.data[self.output_key] = fallback
+            task.data[self.source_key] = self.fallback_source_label
+            _set_note(task.data, self.name, f"used {self.fallback_source_label} (empty primary)", self.notes_key)
+            return task
 
         task.data[self.output_key] = primary
         task.data[self.source_key] = self.primary_source_label
